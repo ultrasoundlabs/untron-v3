@@ -1,0 +1,16 @@
+{
+  "name": "untron-v3",
+  "private": true,
+  "packageManager": "pnpm@10.17.0",
+  "scripts": {
+    "clean": "rimraf packages/contracts/dist packages/contracts/abi/generated.ts",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "abi:gen": "pnpm -w wagmi generate",
+    "contracts:export": "pnpm --filter @untron/v3-contracts export"
+  },
+  "devDependencies": {
+    "@wagmi/cli": "^2.5.1",
+    "rimraf": "^5"
+  }
+}

@@ -1,0 +1,44 @@
+[profile.default]
+src  = "src"
+test = "test"
+out  = "out/dev"
+libs = ["lib"]
+
+solc               = "0.8.26"
+auto_detect_solc   = false
+evm_version        = "cancun"
+via_ir             = true
+optimizer          = true
+optimizer_runs     = 200
+extra_output       = ["storageLayout"]
+revert_strings     = "strip"
+bytecode_hash      = "none" 
+
+deny_warnings      = true
+
+ffi = false
+fs_permissions = [
+  { access = "read", path = "./" }
+]
+
+build_info = true
+
+[profile.production]
+out             = "out/prod"
+optimizer_runs  = 2000
+bytecode_hash   = "none"
+revert_strings  = "strip"
+deny_warnings   = true
+via_ir          = true
+
+[profile.ci]
+out            = "out/ci"
+optimizer_runs = 200
+deny_warnings  = true
+via_ir         = true
+gas_reports = ["*"]
+
+[fmt]
+line_length = 100
+tab_width   = 4
+bracket_spacing = true
