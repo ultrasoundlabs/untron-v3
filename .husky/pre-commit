@@ -1,0 +1,1 @@
+pnpm fmt:sol && pnpm fmt:ts
