@@ -963,9 +963,11 @@ contract TokenUtilsProofs is Test {
         h.transferToken(address(0), payable(address(rejector)), amt);
     }
 
-    function prove_TransferFromErc20_AllowanceAccumulatesAcrossCalls(uint256 approveAmt, uint256 spend1, uint256 spend2)
-        public
-    {
+    function prove_TransferFromErc20_AllowanceAccumulatesAcrossCalls(
+        uint256 approveAmt,
+        uint256 spend1,
+        uint256 spend2
+    ) public {
         TokenUtilsHarness h = new TokenUtilsHarness();
         MockERC20 t = new MockERC20();
         address from = address(0xF00D);

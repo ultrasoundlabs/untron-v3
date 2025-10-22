@@ -57,9 +57,7 @@ library TokenUtils {
         } else {
             // Attempt native transfer with limited gas stipend.
             return SafeTransferLib.trySafeTransferETH({
-                to: recipient,
-                amount: amount,
-                gasStipend: SafeTransferLib.GAS_STIPEND_NO_GRIEF
+                to: recipient, amount: amount, gasStipend: SafeTransferLib.GAS_STIPEND_NO_GRIEF
             });
         }
     }
