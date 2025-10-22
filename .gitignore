@@ -18,3 +18,5 @@ broadcast
 
 .env*
 !.env.example
+
+.idea
