@@ -23,10 +23,6 @@ contract TokenUtilsHarness {
         TokenUtils.transfer(token, recipient, amount);
     }
 
-    function tryTransferToken(address token, address payable recipient, uint256 amount) external returns (bool) {
-        return TokenUtils.tryTransfer(token, recipient, amount);
-    }
-
     function transferFromToken(address token, address from, address to, uint256 amount) external {
         TokenUtils.transferFrom(token, from, to, amount);
     }

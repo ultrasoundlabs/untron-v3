@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.12;
 
-import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import "solady/utils/SafeTransferLib.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// Asset amount, e.g. $100 USDC or 0.1 ETH
 struct TokenAmount {
@@ -45,20 +45,6 @@ library TokenUtils {
             SafeTransferLib.safeTransfer({token: token, to: recipient, amount: amount});
         } else {
             SafeTransferLib.safeTransferETH({to: recipient, amount: amount});
-        }
-    }
-
-    /// Sends an ERC20 or ETH transfer. Returns true if the call succeeded.
-    /// For ERC-20 fee-on-transfer tokens, the recipient may receive less than `amount`.
-    function tryTransfer(address token, address payable recipient, uint256 amount) internal returns (bool) {
-        if (token != address(0)) {
-            return
-                SafeTransferLib.trySafeTransferFrom({token: token, from: address(this), to: recipient, amount: amount});
-        } else {
-            // Attempt native transfer with limited gas stipend.
-            return SafeTransferLib.trySafeTransferETH({
-                to: recipient, amount: amount, gasStipend: SafeTransferLib.GAS_STIPEND_NO_GRIEF
-            });
         }
     }
 

@@ -7,9 +7,9 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     
-    "fmt:sol": "forge fmt --check --root packages/contracts -r packages/contracts/src packages/contracts/test packages/contracts/script",
+    "fmt:sol": "forge fmt --check packages/contracts/src packages/contracts/test packages/contracts/script",
     "fmt:ts": "prettier -c '**/*.{ts,tsx,js,jsx}'",
-    "format:sol": "forge fmt --root packages/contracts -r packages/contracts/src packages/contracts/test packages/contracts/script",
+    "format:sol": "forge fmt packages/contracts/src packages/contracts/test packages/contracts/script",
     "format:ts": "prettier --write '**/*.{ts,tsx,js,jsx}'",
     "format": "run-s format:*",
 

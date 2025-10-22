@@ -18,6 +18,7 @@
   "scripts": {
     "clean": "rimraf dist abi/generated.ts",
     "build": "forge build",
+    "test": "forge test",
     "export": "pnpm run clean && pnpm run build && pnpm -w wagmi generate && tsc -p tsconfig.build.json"
   },
   "exports": {

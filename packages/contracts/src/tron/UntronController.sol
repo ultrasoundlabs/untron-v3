@@ -1,43 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {LibClone} from "solady/utils/LibClone.sol";
 import {UntronReceiver} from "./UntronReceiver.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
-import {IOFT, SendParam, OFTReceipt} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import {MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
+import {IBridger} from "./bridgers/interfaces/IBridger.sol";
 
 /// @title UntronController
 /// @notice Central coordination contract for Untron protocol on Tron-like EVM chains.
 /// @author Ultrasound Labs
 contract UntronController {
     /*//////////////////////////////////////////////////////////////
-                                STRUCTS
-    //////////////////////////////////////////////////////////////*/
-
-    struct LZBridgeConfig {
-        address bridge; // OFT (pure) or OFT-Adapter UntronController will call
-        uint32 dstEid; // LayerZero dst endpoint id
-        bytes32 recipient; // e.g. 0x000... + EVM address, as per LZ spec
-        uint16 slippageBps; // minOut guard
-        address refundAddress; // refund for leftover native fee
-        bytes extraOptions; // LZ extra options
-    }
-
-    /*//////////////////////////////////////////////////////////////
                                  STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    // Contract owner, can set executor and bridge data
+    // Contract owner, can set executor and bridger configuration
     address public owner;
     // Executor, can transfer tokens from receivers to arbitrary recipients
     address public executor;
 
-    // Token -> how it should be bridged via an LZ-compatible bridge
-    mapping(address => LZBridgeConfig) public bridgeConfig;
+    // Whitelist of allowed bridger contracts
+    mapping(address => bool) public isBridgerAllowed;
 
-    // Implementation to clone for receivers
-    address public immutable receiverImplementation;
+    // token => bridger => bridger-specific payload
+    mapping(address => mapping(address => bytes)) public payloadFor;
+
+    // Pre-computed hash of the UntronReceiver creation bytecode with this controller
+    bytes32 private immutable RECEIVER_BYTECODE_HASH;
+    // Chain-specific byte prefix used in CREATE2 address calculation (0xff for EVM, 0x41 for Tron).
+    bytes1 private immutable CREATE2_PREFIX;
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
@@ -45,22 +35,25 @@ contract UntronController {
 
     event OwnerChanged(address indexed newOwner);
     event ExecutorChanged(address indexed newExecutor);
-    event BridgeSet(address indexed token, LZBridgeConfig bridgeConfig_);
+    event BridgerAllowed(address indexed bridger, bool allowed);
+    event PayloadSet(address indexed token, address indexed bridger);
+    event PayloadCleared(address indexed token, address indexed bridger);
     event ReceiverDeployed(address indexed receiver, bytes32 salt);
     event ReceiverCalled(address indexed receiver, address indexed token, address indexed recipient, uint256 amount);
     event TokensDumped(address indexed token, uint256 totalAmount);
+    event TokensBridged(address indexed token, uint256 amount, address indexed bridger);
 
     /*//////////////////////////////////////////////////////////////
                                 MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
     modifier onlyOwner() {
-        require(msg.sender == owner);
+        _onlyOwner();
         _;
     }
 
     modifier onlyExecutor() {
-        require(msg.sender == executor);
+        _onlyExecutor();
         _;
     }
 
@@ -68,8 +61,10 @@ contract UntronController {
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor() {
-        receiverImplementation = address(new UntronReceiver(address(this)));
+    constructor(bytes1 create2Prefix) {
+        CREATE2_PREFIX = create2Prefix;
+        // Compute and cache the bytecode hash for CREATE2 address derivation
+        RECEIVER_BYTECODE_HASH = keccak256(receiverBytecode());
         owner = msg.sender;
         emit OwnerChanged(msg.sender);
     }
@@ -83,10 +78,15 @@ contract UntronController {
         emit ExecutorChanged(_executor);
     }
 
-    function setBridge(address _token, LZBridgeConfig calldata _bridgeConfig) external onlyOwner {
-        // TODO: automatically max approve to save gas
-        bridgeConfig[_token] = _bridgeConfig;
-        emit BridgeSet(_token, _bridgeConfig);
+    function setBridgerAllowed(address _bridger, bool _allowed) external onlyOwner {
+        isBridgerAllowed[_bridger] = _allowed;
+        emit BridgerAllowed(_bridger, _allowed);
+    }
+
+    function setPayload(address _token, address _bridger, bytes calldata _payload) external onlyOwner {
+        require(isBridgerAllowed[_bridger], "UntronController: bridger not allowed");
+        payloadFor[_token][_bridger] = _payload;
+        emit PayloadSet(_token, _bridger);
     }
 
     function setOwner(address _newOwner) external onlyOwner {
@@ -95,12 +95,43 @@ contract UntronController {
         emit OwnerChanged(_newOwner);
     }
 
-    function drain() external onlyOwner {
-        payable(owner).transfer(address(this).balance);
+    /*//////////////////////////////////////////////////////////////
+                          PUBLIC FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    // Functions below are forked from Solady's CloneLib.
+    // The only functional difference here is the use of an immutable _create2Prefix
+    // and immutable _receiverBytecodeHash, instead of self-computed values.
+
+    /// @dev Deploys the receiver contract using CREATE2 and the provided salt.
+    function deployReceiver(bytes32 salt) public returns (address payable receiver) {
+        bytes memory bytecode = receiverBytecode();
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            receiver := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
+            if iszero(receiver) {
+                // Forward the revert reason if deployment failed.
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+        }
+    }
+
+    /// @notice Returns the creation bytecode for a receiver with the current
+    ///         controller address embedded as constructor argument.
+    function receiverBytecode() public view returns (bytes memory) {
+        return abi.encodePacked(type(UntronReceiver).creationCode, abi.encode(address(this)));
+    }
+
+    /// @dev Predicts the deterministic address for a receiver deployed via CREATE2.
+    function predictReceiverAddress(bytes32 salt) public view returns (address predicted) {
+        predicted = address(
+            uint160(uint256(keccak256(abi.encodePacked(CREATE2_PREFIX, address(this), salt, RECEIVER_BYTECODE_HASH))))
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
-                          PUBLIC/EXTERNAL FUNCTIONS
+                          EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Dumps tokens into multiple receiver contracts.
@@ -109,11 +140,12 @@ contract UntronController {
     ///                      deployment (CREATE2).
     /// @param amounts Corresponding token amounts for each receiver.
     /// @return total Total amount transferred.
-    function dumpReceivers(address token, bytes32[] calldata receiverSalts, uint256[] calldata amounts)
-        external
-        payable
-        returns (uint256 total)
-    {
+    function dumpReceivers(
+        address token,
+        bytes32[] calldata receiverSalts,
+        uint256[] calldata amounts,
+        address bridger
+    ) external payable returns (uint256 total) {
         require(receiverSalts.length == amounts.length);
 
         for (uint256 i = 0; i < receiverSalts.length; ++i) {
@@ -121,9 +153,9 @@ contract UntronController {
             total += amounts[i];
         }
 
-        // initiate bridging if bridge config is present for this token
-        if (bridgeConfig[token].bridge != address(0)) {
-            _bridge(token, total, bridgeConfig[token]);
+        // Initiate bridging if a bridger is provided
+        if (bridger != address(0)) {
+            _bridge(token, bridger, total);
         }
 
         emit TokensDumped(token, total);
@@ -144,6 +176,9 @@ contract UntronController {
         TokenUtils.transfer(token, payable(recipient), amount);
     }
 
+    // Accept native token for bridging fees
+    receive() external payable {}
+
     /*//////////////////////////////////////////////////////////////
                            INTERNAL  HELPERS
     //////////////////////////////////////////////////////////////*/
@@ -153,13 +188,11 @@ contract UntronController {
         internal
         returns (address payable receiver)
     {
-        bytes memory args = abi.encode(address(this));
-        receiver = payable(LibClone.predictDeterministicAddress(receiverImplementation, args, salt, address(this)));
+        receiver = payable(predictReceiverAddress(salt));
 
         // Deploy if not already deployed
         if (receiver.code.length == 0) {
-            require(receiverImplementation != address(0));
-            receiver = payable(LibClone.cloneDeterministic(receiverImplementation, args, salt));
+            receiver = deployReceiver(salt);
             emit ReceiverDeployed(receiver, salt);
         }
 
@@ -168,35 +201,41 @@ contract UntronController {
         emit ReceiverCalled(receiver, token, recipient, amount);
     }
 
-    /// @dev Bridges specified amount of tokens through LayerZero-compliant bridge.
-    function _bridge(address token, uint256 amount, LZBridgeConfig memory cfg) internal {
-        // Approve tokens to the bridge if necessary
-        TokenUtils.approve(token, cfg.bridge, amount);
+    /// @dev Bridges specified amount of tokens via the provided bridger using stored payload.
+    function _bridge(address token, address bridger, uint256 amount) internal {
+        // Verify bridger is still allowed
+        require(isBridgerAllowed[bridger], "UntronController: bridger not allowed");
 
-        // Calculate minimum amount after slippage
-        uint256 minAmount = amount * (10000 - cfg.slippageBps) / 10000;
+        // Load payload for (token, bridger)
+        bytes memory payload = payloadFor[token][bridger];
+        require(payload.length != 0, "UntronController: route not set");
 
-        // Build LayerZero OFT SendParam
-        SendParam memory sp = SendParam({
-            dstEid: cfg.dstEid,
-            to: cfg.recipient,
-            amountLD: amount,
-            minAmountLD: minAmount,
-            extraOptions: cfg.extraOptions,
-            composeMsg: "",
-            oftCmd: ""
-        });
-
-        // Quote fee (native token)
-        MessagingFee memory fee = IOFT(cfg.bridge).quoteSend(sp, false);
+        // Quote the native fee
+        uint256 fee = IBridger(bridger).quoteFee(token, amount, payload);
 
         // Ensure the contract has enough native balance to cover the fee
-        require(address(this).balance >= fee.nativeFee, "UntronController: insufficient native for fee");
+        require(address(this).balance >= fee, "UntronController: insufficient native for fee");
 
-        // Perform the send; forward the exact fee.nativeFee as msg.value
-        IOFT(cfg.bridge).send{value: fee.nativeFee}(sp, fee, cfg.refundAddress);
+        // If the caller attached value, keep it in the controller;
+        // the underlying bridger will be able to use it to pay for the bridge call.
+
+        // Execute the bridger via DELEGATECALL, forwarding the required native fee
+        bytes memory data = abi.encodeWithSelector(IBridger.bridge.selector, token, amount, payload);
+        (bool ok, bytes memory ret) = bridger.delegatecall(data);
+        if (!ok) {
+            assembly {
+                revert(add(ret, 32), mload(ret))
+            }
+        }
+
+        emit TokensBridged(token, amount, bridger);
     }
 
-    // Accept native token for LayerZero messaging
-    receive() external payable {}
+    function _onlyOwner() internal view {
+        require(msg.sender == owner, "UntronController: only owner can call this function");
+    }
+
+    function _onlyExecutor() internal view {
+        require(msg.sender == executor, "UntronController: only executor can call this function");
+    }
 }
