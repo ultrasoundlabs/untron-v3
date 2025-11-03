@@ -16,81 +16,56 @@ interface ILegacyMeshOFT is IOFT {
 /// @notice Bridger implementation for OFT-based Legacy Mesh bridge.
 /// @author Ultrasound Labs
 contract LegacyMeshBridger is IBridger {
-    /// @notice Quote the native fee required for bridging via LayerZero OFT.
-    /// @dev Payload must be ABI-encoded: (address oft, uint32 dstEid, bytes32 to)
-    /// @param payload ABI-encoded (address oft, uint32 dstEid, bytes32 to).
-    /// @return nativeFee Native token fee required.
-    function quoteFee(
-        address,
-        /* token */
-        uint256 amount,
-        bytes calldata payload
-    )
-        external
-        view
-        returns (uint256 nativeFee)
-    {
-        (ILegacyMeshOFT oft, SendParam memory sp) = _parsePayload(payload, amount);
-        MessagingFee memory msgFee = oft.quoteSend(sp, false);
-        return msgFee.nativeFee;
-    }
-
     /// @notice Bridge tokens via LayerZero OFT.
     /// @dev Payload must be ABI-encoded: (address oft, uint32 dstEid, bytes32 to)
     ///      Runs via DELEGATECALL in the controller context; controller holds funds.
     /// @param token Token address to bridge.
-    /// @param amount Amount to bridge.
+    /// @param inAmount Amount to bridge.
+    /// @param outAmount Expected amount of tokens to be bridged.
     /// @param payload ABI-encoded (address oft, uint32 dstEid, bytes32 to).
-    /// @return bridgerReceipt Empty bytes (could return OFTReceipt in future).
-    function bridge(address token, uint256 amount, bytes calldata payload)
-        external
-        returns (bytes memory bridgerReceipt)
-    {
-        (ILegacyMeshOFT oft, SendParam memory sp) = _parsePayload(payload, amount);
+    function bridge(address token, uint256 inAmount, uint256 outAmount, bytes calldata payload) external {
+        (ILegacyMeshOFT oft, uint32 dstEid, bytes32 to) = abi.decode(payload, (ILegacyMeshOFT, uint32, bytes32));
 
-        TokenUtils.approve(token, address(oft), amount);
+        // Fetch the Legacy Mesh's fee in basis points
+        uint256 feeBps = oft.feeBps();
+        // Fetch the Legacy Mesh's BPS denominator
+        // (it's always 10000 but still gotta have same logic as in their contract,
+        // which is feeBps / BPS_DENOMINATOR)
+        uint256 denom = oft.BPS_DENOMINATOR();
+        // Calculate the fee that the Legacy Mesh will take
+        uint256 fee = inAmount * feeBps / denom;
+        // Calculate the minimum amount to receive
+        // (amount - fee)
+        // forge-lint: disable-next-line(mixed-case-variable)
+        uint256 minAmountLD = inAmount - fee;
 
-        // Quote fee
+        require(minAmountLD == outAmount, "LegacyMeshBridger: minAmountLD != outAmount");
+
+        // Construct OFT's SendParam for the Legacy Mesh
+        SendParam memory sp = SendParam({
+            // Destination endpoint ID in LayerZero
+            dstEid: dstEid,
+            // Recipient address on the destination chain
+            to: to,
+            // Amount to bridge
+            amountLD: inAmount,
+            // Minimum amount to receive
+            minAmountLD: minAmountLD,
+            // Extra options. When empty, Legacy Mesh uses defaults
+            extraOptions: "",
+            // LZ-specific stuff we don't use in our implementation
+            composeMsg: "",
+            oftCmd: ""
+        });
+        // Approve the token to be spent by the Legacy Mesh
+        // TODO: it's incredibly expensive to max approve for every bridge,
+        // need to figure out how to max approve in a secure way
+        TokenUtils.approve(token, address(oft), inAmount);
+
+        // Quote the fee for the bridge
         MessagingFee memory msgFee = oft.quoteSend(sp, false);
 
         // Execute the bridge send from controller context; refund to controller
         oft.send{value: msgFee.nativeFee}(sp, msgFee, address(this));
-
-        // Return empty receipt
-        return "";
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                                HELPERS
-    //////////////////////////////////////////////////////////////*/
-
-    function _computeMinAmount(ILegacyMeshOFT oft, uint256 amount) internal view returns (uint256) {
-        uint256 feeBps = oft.feeBps();
-        uint256 denom = oft.BPS_DENOMINATOR();
-        uint256 bpsFee = amount * feeBps / denom;
-        return amount - bpsFee;
-    }
-
-    function _parsePayload(bytes calldata payload, uint256 amount)
-        internal
-        view
-        returns (ILegacyMeshOFT, SendParam memory)
-    {
-        (ILegacyMeshOFT oft, uint32 dstEid, bytes32 to) = abi.decode(payload, (ILegacyMeshOFT, uint32, bytes32));
-        // forge-lint: disable-next-line(mixed-case-variable)
-        uint256 minAmountLD = _computeMinAmount(ILegacyMeshOFT(oft), amount);
-        return (
-            oft,
-            SendParam({
-                dstEid: dstEid,
-                to: to,
-                amountLD: amount,
-                minAmountLD: minAmountLD,
-                extraOptions: "",
-                composeMsg: "",
-                oftCmd: ""
-            })
-        );
     }
 }
-
