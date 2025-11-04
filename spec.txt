@@ -1,0 +1,47 @@
+IMPORTANT: Tron's VM is in most parts equivalent to EVM, so one should be able to understand the idea entirely with just EVM knowledge. It might even be that we port Tron parts of the protocol to EVM-ish chains like BNB Chain at some point
+
+UntronReceiver (Tron):
+Very simple contract, probably written in plain EVM assembly, that, when called:
+1. Parses TRC-20 token address, amount, and recipient from calldata
+2. Checks who's calling
+3. If it's not UntronController, make sure that recipient == UntronController (UntronController is hardcoded into the code)
+4. Executes TRC-20 transfer with given data
+5. Forwards its status code and message to the caller
+6. STOP
+
+UntronController (Tron):
+Central smart contract, written in Solidity, that, when called:
+- setExecutor(executor):
+    1. ensureOwner()
+    2. Sets (SSTORE) global executor as the provided argument
+    3. Returns nothing
+- setBridge(token, bridgeDataForToken):
+    1. ensureOwner()
+    2. Sets (SSTORE) bridge data of token as the provided argument
+    3. Returns nothing
+- setOwner(owner):
+    1. ensureOwner()
+    2. Sets (SSTORE) global contract owner as the provided argument
+    3. Returns nothing
+- dumpReceivers(token, receiverSalt[], amount[]):
+    1. Starts counter for total dumped amount
+    2. For every (receiverSalt, amount) provided:
+        2.1. callReceiver(receiverSalt, token, amount, self)
+        2.2. Adds amount to the total counter
+    3. If bridgeData[token] is not null, initiates LZ bridging using bridgeData[token] and amount
+    4. Returns total dumped amount
+    * - open question: calldata size is hella expensive in Tron, might need to figure out how to compress this calldata in a flexible way
+- transferFromReceiver(receiverSalt, token, to, amount):
+    1. ensureExecutor()
+    2. callReceiver(receiver, token, amount, to)
+    3. Returns nothing
+- internal ensureOwner():
+    1. Reverts unless msg.sender == owner
+- internal ensureExecutor():
+    1. Reverts unless msg.sender == executor
+- internal callReceiver(receiverSalt, token, amount, recipient):
+    1. Calculates receiver address using UntronReceiver code and receiverSalt (via CREATE2 algorithm)
+    2. If that address has no code, deploys it
+    3. Returns the receiver address
+    4. Calls receiver with the provided token, amount, and recipient
+    5. On call revert, aborts execution

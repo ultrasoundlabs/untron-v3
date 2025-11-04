@@ -6,20 +6,16 @@
     "clean": "rimraf packages/contracts/dist packages/contracts/abi/generated.ts",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    
     "fmt:sol": "forge fmt --check packages/contracts/src packages/contracts/test packages/contracts/script",
     "fmt:ts": "prettier -c '**/*.{ts,tsx,js,jsx}'",
     "format:sol": "forge fmt packages/contracts/src packages/contracts/test packages/contracts/script",
     "format:ts": "prettier --write '**/*.{ts,tsx,js,jsx}'",
     "format": "run-s format:*",
-
     "test:ci": "cd packages/contracts && FOUNDRY_PROFILE=ci forge build && FOUNDRY_PROFILE=ci forge test --gas-report",
     "build:prod": "cd packages/contracts && FOUNDRY_PROFILE=production forge build",
     "codegen": "pnpm -w wagmi generate",
     "typecheck": "pnpm --filter @untron/v3-contracts exec tsc -p tsconfig.build.json",
-
     "verify": "run-s fmt:* test:ci build:prod codegen typecheck",
-
     "abi:gen": "pnpm -w wagmi generate",
     "contracts:export": "pnpm --filter @untron/v3-contracts export",
     "prepare": "husky",
@@ -29,9 +25,9 @@
     "@wagmi/cli": "^2.5.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.6",
+    "npm-run-all": "^4.1.5",
     "prettier": "^3.6.2",
-    "rimraf": "^5",
-    "npm-run-all": "^4.1.5"
+    "rimraf": "^5"
   },
   "lint-staged": {
     "packages/contracts/src/**/*.sol": [
@@ -46,5 +42,8 @@
     "**/*.{ts,tsx,js,jsx}": [
       "prettier -c"
     ]
+  },
+  "dependencies": {
+    "@types/node": "^22.19.0"
   }
 }
