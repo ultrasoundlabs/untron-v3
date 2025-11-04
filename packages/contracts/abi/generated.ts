@@ -1,4 +1,45 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Create2Utils
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const create2UtilsAbi = [
+  {
+    type: 'constructor',
+    inputs: [{ name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'deployReceiver',
+    outputs: [
+      { name: 'receiver', internalType: 'address payable', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'controller', internalType: 'address', type: 'address' }],
+    name: 'receiverBytecode',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'pure',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // IBridger
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -7,23 +48,13 @@ export const iBridgerAbi = [
     type: 'function',
     inputs: [
       { name: 'token', internalType: 'address', type: 'address' },
-      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
+      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'payload', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'bridge',
-    outputs: [{ name: 'bridgerReceipt', internalType: 'bytes', type: 'bytes' }],
+    outputs: [],
     stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [
-      { name: 'token', internalType: 'address', type: 'address' },
-      { name: 'amount', internalType: 'uint256', type: 'uint256' },
-      { name: 'payload', internalType: 'bytes', type: 'bytes' },
-    ],
-    name: 'quoteFee',
-    outputs: [{ name: 'nativeFee', internalType: 'uint256', type: 'uint256' }],
-    stateMutability: 'view',
   },
 ] as const
 
@@ -2780,23 +2811,13 @@ export const legacyMeshBridgerAbi = [
     type: 'function',
     inputs: [
       { name: 'token', internalType: 'address', type: 'address' },
-      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
+      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'payload', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'bridge',
-    outputs: [{ name: 'bridgerReceipt', internalType: 'bytes', type: 'bytes' }],
+    outputs: [],
     stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [
-      { name: '', internalType: 'address', type: 'address' },
-      { name: 'amount', internalType: 'uint256', type: 'uint256' },
-      { name: 'payload', internalType: 'bytes', type: 'bytes' },
-    ],
-    name: 'quoteFee',
-    outputs: [{ name: 'nativeFee', internalType: 'uint256', type: 'uint256' }],
-    stateMutability: 'view',
   },
 ] as const
 
@@ -3268,7 +3289,10 @@ export const untronControllerAbi = [
   { type: 'receive', stateMutability: 'payable' },
   {
     type: 'function',
-    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
     name: 'deployReceiver',
     outputs: [
       { name: 'receiver', internalType: 'address payable', type: 'address' },
@@ -3281,10 +3305,11 @@ export const untronControllerAbi = [
       { name: 'token', internalType: 'address', type: 'address' },
       { name: 'receiverSalts', internalType: 'bytes32[]', type: 'bytes32[]' },
       { name: 'amounts', internalType: 'uint256[]', type: 'uint256[]' },
+      { name: 'expectedOutAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'bridger', internalType: 'address', type: 'address' },
     ],
     name: 'dumpReceivers',
-    outputs: [{ name: 'total', internalType: 'uint256', type: 'uint256' }],
+    outputs: [],
     stateMutability: 'payable',
   },
   {
@@ -3320,17 +3345,20 @@ export const untronControllerAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
     name: 'predictReceiverAddress',
     outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
   },
   {
     type: 'function',
-    inputs: [],
+    inputs: [{ name: 'controller', internalType: 'address', type: 'address' }],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
-    stateMutability: 'view',
+    stateMutability: 'pure',
   },
   {
     type: 'function',
@@ -3447,25 +3475,6 @@ export const untronControllerAbi = [
         indexed: true,
       },
     ],
-    name: 'PayloadCleared',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
-      {
-        name: 'token',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-      {
-        name: 'bridger',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-    ],
     name: 'PayloadSet',
   },
   {
@@ -3529,7 +3538,13 @@ export const untronControllerAbi = [
         indexed: true,
       },
       {
-        name: 'amount',
+        name: 'inAmount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'outAmount',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -3561,6 +3576,57 @@ export const untronControllerAbi = [
       },
     ],
     name: 'TokensDumped',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UntronManager
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const untronManagerAbi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: 'controllerAddress', internalType: 'bytes20', type: 'bytes20' },
+      { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'CONTROLLER_ADDRESS',
+    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'deployReceiver',
+    outputs: [
+      { name: 'receiver', internalType: 'address payable', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'controller', internalType: 'address', type: 'address' }],
+    name: 'receiverBytecode',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'pure',
   },
 ] as const
 
