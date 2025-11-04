@@ -5,8 +5,32 @@
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/gen/api/api.d.ts",
+      "default": "./dist/gen/api/api.js"
+    },
+    "./tron": {
+      "types": "./dist/gen/core/Tron.d.ts",
+      "default": "./dist/gen/core/Tron.js"
+    },
+    "./api/*": {
+      "types": "./dist/gen/api/*.d.ts",
+      "default": "./dist/gen/api/*.js"
+    },
+    "./core/*": {
+      "types": "./dist/gen/core/*.d.ts",
+      "default": "./dist/gen/core/*.js"
+    },
+    "./google/*": {
+      "types": "./dist/gen/google/*.d.ts",
+      "default": "./dist/gen/google/*.js"
+    }
   },
   "files": [
     "dist",
@@ -19,6 +43,25 @@
     "prepublishOnly": "pnpm run codegen && pnpm run -s check-dirty && pnpm run build",
     "check-dirty": "git diff --quiet -- src/gen || (echo 'Codegen produced diffs. Commit them.' && exit 1)",
     "smoke": "node ./scripts/smoke.mjs"
+  },
+  "typesVersions": {
+    "*": {
+      "api": [
+        "dist/gen/api/api.d.ts"
+      ],
+      "tron": [
+        "dist/gen/core/Tron.d.ts"
+      ],
+      "api/*": [
+        "dist/gen/api/*"
+      ],
+      "core/*": [
+        "dist/gen/core/*"
+      ],
+      "google/*": [
+        "dist/gen/google/*"
+      ]
+    }
   },
   "devDependencies": {
     "@types/node": "^22",

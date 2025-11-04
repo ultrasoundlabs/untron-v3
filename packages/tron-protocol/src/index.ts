@@ -25,6 +25,3 @@ export function createTronClients(host: string, apiKey?: string, opts: TronClien
 
   return { wallet, solidity, callOpts };
 }
-
-// Re-export generated types/services for consumers
-export * from "./gen/api/api.js";

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { parseEnv } from "../lib/env.js";
 import { log } from "../lib/logger.js";
 import { createTronClients } from "@untron/tron-protocol";
-import type { BlockExtention, EmptyMessage } from "@untron/tron-protocol";
+import type { BlockExtention, EmptyMessage } from "@untron/tron-protocol/api";
 
 async function main() {
   const env = parseEnv(
