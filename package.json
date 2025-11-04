@@ -22,7 +22,8 @@
 
     "abi:gen": "pnpm -w wagmi generate",
     "contracts:export": "pnpm --filter @untron/v3-contracts export",
-    "prepare": "husky"
+    "prepare": "husky",
+    "research": "pnpm --filter @untron/research exec tsx src/run.ts"
   },
   "devDependencies": {
     "@wagmi/cli": "^2.5.1",
