@@ -1,0 +1,54 @@
+name: tron-protocol
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  codegen-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - name: Install deps
+        run: pnpm -w install --frozen-lockfile
+      - name: Run codegen
+        run: pnpm --filter @untron/tron-protocol run codegen
+        continue-on-error: true
+      - name: Check determinism
+        run: pnpm --filter @untron/tron-protocol run -s check-dirty || (echo "If protos are missing locally, this step may be a no-op." && exit 1)
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: codegen-check
+    if: ${{ secrets.TRON_GRPC_HOST != '' }}
+    env:
+      TRON_GRPC_HOST: ${{ secrets.TRON_GRPC_HOST }}
+      TRON_API_KEY: ${{ secrets.TRON_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - name: Install deps
+        run: pnpm -w install --frozen-lockfile
+      - name: Build package
+        run: pnpm --filter @untron/tron-protocol run build
+      - name: Smoke test (getNowBlock)
+        run: pnpm --filter @untron/tron-protocol run smoke
+
+

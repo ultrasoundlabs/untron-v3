@@ -16,6 +16,9 @@ pnpm --filter @untron/v3-contracts test
 
 # Generate TypeScript bindings
 pnpm wagmi generate
+
+# Build Tron's gRPC bindings
+pnpm --filter @untron/tron-protocol run build
 ```
 
 ## Development

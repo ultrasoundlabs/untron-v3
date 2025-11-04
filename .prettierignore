@@ -10,6 +10,8 @@ broadcast
 
 # Generated files
 packages/contracts/abi/generated.ts
+packages/tron-protocol/src/gen/
+packages/tron-protocol/src/gen/**
 
 # Foundry
 packages/contracts/lib
