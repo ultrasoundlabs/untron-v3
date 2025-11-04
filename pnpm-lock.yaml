@@ -33,6 +33,9 @@ importers:
 
   apps/research:
     dependencies:
+      '@untron/tron-protocol':
+        specifier: workspace:*
+        version: link:../../packages/tron-protocol
       consola:
         specifier: ^3.4.2
         version: 3.4.2
