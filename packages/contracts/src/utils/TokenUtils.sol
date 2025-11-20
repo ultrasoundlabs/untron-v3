@@ -4,13 +4,6 @@ pragma solidity ^0.8.26;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// Asset amount, e.g. $100 USDC or 0.1 ETH
-struct TokenAmount {
-    /// Zero address = native asset, e.g. ETH
-    address token;
-    uint256 amount;
-}
-
 /// Utility functions that work for both ERC20 and native tokens.
 library TokenUtils {
     /// Returns ERC20 or ETH balance.

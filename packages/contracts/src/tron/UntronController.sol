@@ -125,8 +125,23 @@ contract UntronController is Create2Utils {
 
         uint256 total = 0;
         for (uint256 i = 0; i < receiverSalts.length; ++i) {
-            _callReceiver(receiverSalts[i], token, amounts[i], address(this));
-            total += amounts[i];
+            address receiver = predictReceiverAddress(address(this), receiverSalts[i]);
+            uint256 balance = TokenUtils.getBalanceOf(token, receiver);
+
+            uint256 sweepAmount = 0;
+            if (balance > 1) {
+                unchecked {
+                    // Sweep all but one base unit to keep the receiver's balance slot non-zero.
+                    sweepAmount = balance - 1;
+                }
+            }
+
+            require(amounts[i] == sweepAmount, "UntronController: incorrect sweep amount");
+
+            if (sweepAmount != 0) {
+                _callReceiver(receiverSalts[i], token, sweepAmount, address(this));
+                total += sweepAmount;
+            }
         }
 
         // Initiate bridging if a bridger is provided

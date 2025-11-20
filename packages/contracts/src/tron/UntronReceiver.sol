@@ -4,7 +4,8 @@ pragma solidity ^0.8.26;
 import {TokenUtils} from "../utils/TokenUtils.sol";
 
 /// @title UntronReceiver
-/// @notice Simple smart contract for pulling TRC-20 tokens through UntronController and transferring them to a specified recipient.
+/// @notice Simple smart contract controlled by UntronController that holds TRC-20 tokens
+///         and native TRX and lets the controller transfer them to a specified recipient.
 /// @author Ultrasound Labs
 contract UntronReceiver {
     /*//////////////////////////////////////////////////////////////
@@ -20,12 +21,16 @@ contract UntronReceiver {
     error NotController();
 
     /*//////////////////////////////////////////////////////////////
-                                 FUNCTIONS
+                                 CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address controllerAddress) {
-        CONTROLLER = controllerAddress;
+    constructor() {
+        CONTROLLER = msg.sender;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                 FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Called by the controller to move `amount` of `token` held by this contract to `recipient`.
     function onControllerCall(address token, uint256 amount, address payable recipient) external {

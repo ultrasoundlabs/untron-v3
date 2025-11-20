@@ -8,7 +8,7 @@ contract UntronReceiverTest is Test {
     UntronReceiver public untronReceiver;
 
     function setUp() public {
-        untronReceiver = new UntronReceiver(address(this));
+        untronReceiver = new UntronReceiver();
     }
 
     function test_test() public pure {
