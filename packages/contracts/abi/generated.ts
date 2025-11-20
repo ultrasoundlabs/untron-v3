@@ -3635,13 +3635,7 @@ export const untronManagerAbi = [
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 export const untronReceiverAbi = [
-  {
-    type: 'constructor',
-    inputs: [
-      { name: 'controllerAddress', internalType: 'address', type: 'address' },
-    ],
-    stateMutability: 'nonpayable',
-  },
+  { type: 'constructor', inputs: [], stateMutability: 'nonpayable' },
   { type: 'receive', stateMutability: 'payable' },
   {
     type: 'function',
