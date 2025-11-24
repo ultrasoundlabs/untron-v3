@@ -210,11 +210,10 @@ export const iBridgerAbi = [
     inputs: [
       { name: 'token', internalType: 'address', type: 'address' },
       { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
-      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'payload', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'bridge',
-    outputs: [],
+    outputs: [{ name: 'outAmount', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'nonpayable',
   },
 ] as const
@@ -3131,11 +3130,10 @@ export const legacyMeshBridgerAbi = [
     inputs: [
       { name: 'token', internalType: 'address', type: 'address' },
       { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
-      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'payload', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'bridge',
-    outputs: [],
+    outputs: [{ name: 'outAmount', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'nonpayable',
   },
 ] as const
@@ -3520,6 +3518,18 @@ export const untronControllerAbi = [
   {
     type: 'function',
     inputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'bridger', internalType: 'address', type: 'address' },
+      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
+      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'bridge',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [
       { name: 'controller', internalType: 'address', type: 'address' },
       { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
     ],
@@ -3528,19 +3538,6 @@ export const untronControllerAbi = [
       { name: 'receiver', internalType: 'address payable', type: 'address' },
     ],
     stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [
-      { name: 'token', internalType: 'address', type: 'address' },
-      { name: 'receiverSalts', internalType: 'bytes32[]', type: 'bytes32[]' },
-      { name: 'amounts', internalType: 'uint256[]', type: 'uint256[]' },
-      { name: 'expectedOutAmount', internalType: 'uint256', type: 'uint256' },
-      { name: 'bridger', internalType: 'address', type: 'address' },
-    ],
-    name: 'dumpReceivers',
-    outputs: [],
-    stateMutability: 'payable',
   },
   {
     type: 'function',
@@ -3582,6 +3579,17 @@ export const untronControllerAbi = [
     name: 'predictReceiverAddress',
     outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'receiverSalts', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'amounts', internalType: 'uint256[]', type: 'uint256[]' },
+    ],
+    name: 'pullFromReceivers',
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -3637,18 +3645,6 @@ export const untronControllerAbi = [
     stateMutability: 'nonpayable',
   },
   {
-    type: 'function',
-    inputs: [
-      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
-      { name: 'token', internalType: 'address', type: 'address' },
-      { name: 'recipient', internalType: 'address', type: 'address' },
-      { name: 'amount', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'transferFromReceiver',
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
     type: 'event',
     anonymous: false,
     inputs: [
@@ -3661,6 +3657,31 @@ export const untronControllerAbi = [
       { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
     ],
     name: 'BridgerAllowed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'token',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'recipient',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ControllerTransfer',
   },
   {
     type: 'event',
@@ -3805,8 +3826,16 @@ export const untronControllerAbi = [
         indexed: false,
       },
     ],
-    name: 'TokensDumped',
+    name: 'TokensPulled',
   },
+  { type: 'error', inputs: [], name: 'BridgerNotAllowed' },
+  { type: 'error', inputs: [], name: 'IncorrectSweepAmount' },
+  { type: 'error', inputs: [], name: 'LengthMismatch' },
+  { type: 'error', inputs: [], name: 'OnlyExecutor' },
+  { type: 'error', inputs: [], name: 'OnlyOwner' },
+  { type: 'error', inputs: [], name: 'OutAmountMismatch' },
+  { type: 'error', inputs: [], name: 'RouteNotSet' },
+  { type: 'error', inputs: [], name: 'ZeroOwnerAddress' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -6,6 +6,9 @@ import {UntronReceiver} from "../tron/UntronReceiver.sol";
 /// @title Create2Utils
 /// @notice Shared logic for deterministic deployments of Untron contracts.
 /// @author Ultrasound Labs
+/// @dev Functions below are forked from Solady's CloneLib.
+///      The only functional difference here is the use of an immutable CREATE2_PREFIX
+///      to allow for chain-specific CREATE2 address calculation.
 contract Create2Utils {
     // Chain-specific byte prefix used in CREATE2 address calculation (0xff for EVM, 0x41 for Tron).
     bytes1 private immutable CREATE2_PREFIX;
