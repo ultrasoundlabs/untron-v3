@@ -21,9 +21,9 @@ contract LegacyMeshBridger is IBridger {
     ///      Runs via DELEGATECALL in the controller context; controller holds funds.
     /// @param token Token address to bridge.
     /// @param inAmount Amount to bridge.
-    /// @param outAmount Expected amount of tokens to be bridged.
     /// @param payload ABI-encoded (address oft, uint32 dstEid, bytes32 to).
-    function bridge(address token, uint256 inAmount, uint256 outAmount, bytes calldata payload) external {
+    /// @return outAmount Expected amount of tokens to be bridged (after Legacy Mesh fee).
+    function bridge(address token, uint256 inAmount, bytes calldata payload) external returns (uint256 outAmount) {
         (ILegacyMeshOFT oft, uint32 dstEid, bytes32 to) = abi.decode(payload, (ILegacyMeshOFT, uint32, bytes32));
 
         // Fetch the Legacy Mesh's fee in basis points
@@ -34,12 +34,9 @@ contract LegacyMeshBridger is IBridger {
         uint256 denom = oft.BPS_DENOMINATOR();
         // Calculate the fee that the Legacy Mesh will take
         uint256 fee = inAmount * feeBps / denom;
-        // Calculate the minimum amount to receive
-        // (amount - fee)
+        // Calculate the minimum amount to receive (amount - fee)
         // forge-lint: disable-next-line(mixed-case-variable)
         uint256 minAmountLD = inAmount - fee;
-
-        require(minAmountLD == outAmount, "LegacyMeshBridger: minAmountLD != outAmount");
 
         // Construct OFT's SendParam for the Legacy Mesh
         SendParam memory sp = SendParam({
@@ -67,5 +64,8 @@ contract LegacyMeshBridger is IBridger {
 
         // Execute the bridge send from controller context; refund to controller
         oft.send{value: msgFee.nativeFee}(sp, msgFee, address(this));
+
+        // Return the expected out amount so the caller can enforce invariants.
+        outAmount = minAmountLD;
     }
 }
