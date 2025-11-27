@@ -296,7 +296,7 @@ contract UntronController is Create2Utils {
 
         // Deploy if not already deployed
         if (receiver.code.length == 0) {
-            receiver = deployReceiver(address(this), salt);
+            receiver = deployReceiver(salt);
             emit ReceiverDeployed(receiver, salt);
         }
 

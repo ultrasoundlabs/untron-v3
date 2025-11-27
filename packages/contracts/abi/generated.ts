@@ -10,10 +10,7 @@ export const create2UtilsAbi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'controller', internalType: 'address', type: 'address' },
-      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
-    ],
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
     name: 'deployReceiver',
     outputs: [
       { name: 'receiver', internalType: 'address payable', type: 'address' },
@@ -32,7 +29,7 @@ export const create2UtilsAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: 'controller', internalType: 'address', type: 'address' }],
+    inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
     stateMutability: 'pure',
@@ -3529,10 +3526,7 @@ export const untronControllerAbi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'controller', internalType: 'address', type: 'address' },
-      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
-    ],
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
     name: 'deployReceiver',
     outputs: [
       { name: 'receiver', internalType: 'address payable', type: 'address' },
@@ -3593,7 +3587,7 @@ export const untronControllerAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: 'controller', internalType: 'address', type: 'address' }],
+    inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
     stateMutability: 'pure',
@@ -3860,10 +3854,7 @@ export const untronManagerAbi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'controller', internalType: 'address', type: 'address' },
-      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
-    ],
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
     name: 'deployReceiver',
     outputs: [
       { name: 'receiver', internalType: 'address payable', type: 'address' },
@@ -3882,7 +3873,7 @@ export const untronManagerAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: 'controller', internalType: 'address', type: 'address' }],
+    inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
     stateMutability: 'pure',
