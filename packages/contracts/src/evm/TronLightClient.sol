@@ -11,13 +11,13 @@ contract TronLightClient {
     uint256 internal constant SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
     uint256 internal constant TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
 
-    IBlockRangeProver public immutable blockRangeProver;
+    IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
     bytes20[27] public srs;
     bytes32 public latestProvenBlock;
     bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockIds;
 
-    constructor(IBlockRangeProver _blockRangeProver, bytes32 initialBlockHash, bytes20[27] memory _srs) {
-        blockRangeProver = _blockRangeProver;
+    constructor(IBlockRangeProver blockRangeProver, bytes32 initialBlockHash, bytes20[27] memory _srs) {
+        BLOCK_RANGE_PROVER = blockRangeProver;
         appendBlockId(initialBlockHash);
         srs = _srs;
     }
@@ -116,7 +116,7 @@ contract TronLightClient {
 
     function proveBlockRange(bytes32 startingBlock, bytes32 endingBlock, bytes calldata zkProof) external {
         if (startingBlock != latestProvenBlock) revert BlockTooOld();
-        blockRangeProver.proveBlockRange(srs, startingBlock, endingBlock, zkProof);
+        BLOCK_RANGE_PROVER.proveBlockRange(srs, startingBlock, endingBlock, zkProof);
         appendBlockId(endingBlock);
         latestProvenBlock = endingBlock;
     }
