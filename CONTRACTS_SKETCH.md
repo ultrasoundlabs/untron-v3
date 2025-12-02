@@ -43,8 +43,8 @@ A Tron smart contract that:
      - Realtors precompute many salts off-chain (often vanity salts so receiver addresses end with e.g. `…Untron`).
      - Any realtor can reuse any salt, subject to lease rules on Arbitrum.
 
-2. **Dumping receivers**
-   - `dumpReceivers(address token, bytes32[] salts, uint256[] amounts, uint256 expectedOutAmount, address bridger)`:
+2. **Pulling tokens from receivers**
+   - `pullFromReceivers(address token, bytes32[] receiverSalts, uint256[] amounts)`:
      - `amounts[]` is **caller-supplied calldata** and is interpreted as the per-salt sweep amount that the caller claims will be moved from each receiver.
      - For each `salt[i]`:
        - Compute `receiver = addressFromSalt(salt[i])`.
@@ -60,17 +60,24 @@ A Tron smart contract that:
      - Sum a total `totalDumped = Σ_i amounts[i]` for this `(token, salts[])`.
        - Note: `totalDumped` is **fully determined by calldata**, but is also fully checked against live balances on Tron; any mismatch causes a revert.
        - Due to the `balance - 1` rule, exactly `1` smallest unit of `token` is always left behind in each non-empty receiver after a dump.
-     - Delegatecall into an `IUntronBridger` implementation:
-       - `bridger.bridge(token, totalDumped, expectedOutAmount, ...)`.
-     - Bridger is responsible for performing whatever bridging/swapping on Tron is needed so that:
-       - `expectedOutAmount` of Arbitrum USDT ends up in `UntronManager` on Arbitrum.
-     - If bridger’s computed output amount ≠ `expectedOutAmount`, the whole transaction reverts.
-     - This gives us a clean, verifiable `amountDumped` on Tron, derived from calldata-but-checked `amounts[]`, plus a known USDT inflow on Arbitrum.
 
-3. **Executor mechanism (for future features)**
+3. **Bridging tokens from controller**
+   - `bridge(address token, address bridger, uint256 inAmount, uint256 outAmount)`:
+     - Delegatecall into an `IUntronBridger` implementation:
+       - `bridger.bridge(token, inAmount, outAmount, ...)`.
+     - Bridger is responsible for performing whatever bridging/swapping on Tron is needed so that:
+       - `outAmount` of Arbitrum USDT ends up in `UntronManager` on Arbitrum.
+     - If bridger’s computed output amount ≠ `outAmount`, the whole transaction reverts.
+     - Combined with `pullFromReceivers`, this gives us a clean, verifiable `outAmount` on Tron, derived from calldata-but-checked `amounts[]`, plus a known USDT inflow on Arbitrum.
+
+4. **Executor mechanism (for future features)**
    - There is an executor Tron address settable by the controller owner:
-     - If `executor == 0x00`, receivers cannot send tokens anywhere except back to the controller (the current assumption / design).
-     - In the future, executor could allow some more complex routing (e.g. swap flows) but right now we treat receivers as single-sink.
+     - If `executor == 0x00`, controller cannot send funds anywhere itself, only through bridgers via `bridge` function.
+     - If `executor != 0x00`, executor address can make controller send any of its funds anywhere using `transferFromController` function.
+   - `transferFromController(address token, address recipient, uint256 amount)`:
+     - Enforce: `require(msg.sender == executor)`
+     - Transfer `amount` of `token` (native token if `token == 0x00`; ERC-20 otherwise) to `recipient`.
+   - It's not going to be used from day 1 and is left as a future-proofness measure for potential future protocols for swapping from EVM chains to Tron.
 
 ---
 
@@ -79,7 +86,7 @@ A Tron smart contract that:
 A minimal, single-purpose CREATE2 contract:
 - Deployed only by `UntronController`.
 - It is only callable by its controller; all token movements are initiated by `UntronController`.
-- In the default protocol flow, the controller always routes receiver funds back to itself (via `dumpReceivers`), but the controller’s executor hook can be used to route funds onwards under strict controller control.
+- The controller always routes receiver funds back to itself (via `pullFromReceivers`).
 - The receiver itself cannot:
   - approve other addresses,
   - initiate transfers on its own or accept arbitrary callers,
@@ -104,18 +111,18 @@ An interface for stateless bridger plugins on Tron.
   - Execution context is the controller’s storage/permissions.
 
 Single main function conceptually:
-- `bridge(address tokenIn, uint256 amountIn, uint256 expectedOutAmount, bytes calldata data)`:
+- `bridge(address token, uint256 inAmount, bytes calldata payload) external returns (uint256 outAmount)`:
   - Performs:
     - token swaps on Tron if needed,
     - a call into some underlying bridge,
     - ensures that Arbitrum USDT arrives in `UntronManager` on Arbitrum.
-  - Must check that:
-    - the effective output amount equals `expectedOutAmount` (computed from its own logic).
-    - If not, it must revert (which reverts the `dumpReceivers` as well).
+  - Must return:
+    - the effective output amount from bridge (in `outAmount`).
+    - If bridging was unsuccessful, it must revert (which reverts the `pullFromReceivers` as well).
 
 The controller owner:
 - Whitelists bridger contracts per token.
-- Relayers, when calling `dumpReceivers`, can only target whitelisted bridgers for the token.
+- Relayers, when calling `pullFromReceivers`, can only target whitelisted bridgers for the token.
 
 Design assumption we’re going with:
 - All bridging ultimately produces Arbitrum USDT.
@@ -251,7 +258,7 @@ For each lease `L` on `(S,T)`:
 - `recognizedRaw_L` – total raw token volume that has been assigned to this lease, from:
   - pre-entitled deposits (recognizable transfer / transferFrom patterns),
   - opaque volume from dumps (remaining after repaying older leases).
-- `backedRaw_L` – how much of `recognizedRaw_L` has been backed by `dumpReceivers` events.
+- `backedRaw_L` – how much of `recognizedRaw_L` has been backed by `pullFromReceivers` events.
 - `unbackedRaw_L = recognizedRaw_L - backedRaw_L` – how much volume was already promised to this lease (claims created, possibly even filled) but not yet matched by dumps from Tron.
 
 Global guards:
@@ -312,9 +319,9 @@ and later extend via a matcher contract, without changing high-level semantics.
 
 ---
 
-## DumpReceivers processing (backing + opaque volume)
+## pullFromReceivers processing (backing + opaque volume)
 
-When a relayer proves a `dumpReceivers` tx for `(receiverSalt S, tronToken T)` with `amountDumped = D`:
+When a relayer proves a `pullFromReceivers` tx for `(receiverSalt S, tronToken T)` with `amountDumped = D`:
 
 1. If `dumpProcessed[tx]` → ignore.
 2. Mark `dumpProcessed[tx] = true`.
@@ -430,7 +437,7 @@ No APY, no share price; just principal tracking.
     - LP + team are fronting user withdrawal before the matching dump/bridge.
 
 ### Dumps / bridging
-- `dumpReceivers` + `IUntronBridger` on Tron send Arbitrum USDT into `UntronManager`:
+- `pullFromReceivers` + `IUntronBridger` on Tron send Arbitrum USDT into `UntronManager`:
   - `usdtBalance` increases by `bridgedAmount`.
   - The difference between:
     - what was fronted via `fill()`, and
