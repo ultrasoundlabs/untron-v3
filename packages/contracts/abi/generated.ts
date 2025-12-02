@@ -37,6 +37,24 @@ export const create2UtilsAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ECDSA
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const ecdsaAbi = [
+  { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
+  {
+    type: 'error',
+    inputs: [{ name: 'length', internalType: 'uint256', type: 'uint256' }],
+    name: 'ECDSAInvalidSignatureLength',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 's', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'ECDSAInvalidSignatureS',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ERC20
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -194,6 +212,25 @@ export const erc20Abi = [
     type: 'error',
     inputs: [{ name: 'spender', internalType: 'address', type: 'address' }],
     name: 'ERC20InvalidSpender',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// IBlockRangeProver
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const iBlockRangeProverAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
+      { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'proveBlockRange',
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
 ] as const
 
@@ -3499,6 +3536,112 @@ export const safeTransferLibAbi = [
   { type: 'error', inputs: [], name: 'TotalSupplyQueryFailed' },
   { type: 'error', inputs: [], name: 'TransferFailed' },
   { type: 'error', inputs: [], name: 'TransferFromFailed' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TronLightClient
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const tronLightClientAbi = [
+  {
+    type: 'constructor',
+    inputs: [
+      {
+        name: '_blockRangeProver',
+        internalType: 'contract IBlockRangeProver',
+        type: 'address',
+      },
+      { name: 'initialBlockHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: '_srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'blockRangeProver',
+    outputs: [
+      { name: '', internalType: 'contract IBlockRangeProver', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'blockNumber', internalType: 'uint256', type: 'uint256' }],
+    name: 'getBlockId',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'latestProvenBlock',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'proveBlockRange',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
+      {
+        name: 'compressedTronBlockMetadata',
+        internalType: 'bytes',
+        type: 'bytes',
+      },
+      { name: 'compressedSignatures', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'proveBlocks',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'srs',
+    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  { type: 'error', inputs: [], name: 'BlockNotRelayed' },
+  { type: 'error', inputs: [], name: 'BlockTooOld' },
+  { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
+  {
+    type: 'error',
+    inputs: [{ name: 'length', internalType: 'uint256', type: 'uint256' }],
+    name: 'ECDSAInvalidSignatureLength',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 's', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'ECDSAInvalidSignatureS',
+  },
+  { type: 'error', inputs: [], name: 'InvalidChain' },
+  { type: 'error', inputs: [], name: 'InvalidCompressedSignaturesLength' },
+  {
+    type: 'error',
+    inputs: [],
+    name: 'InvalidCompressedTronBlockMetadataLength',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'yours', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'real', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'InvalidParentBlockId',
+  },
+  { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
+  { type: 'error', inputs: [], name: 'NotEnoughBlocksOrSignatures' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
