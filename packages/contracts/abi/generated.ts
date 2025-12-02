@@ -3547,7 +3547,7 @@ export const tronLightClientAbi = [
     type: 'constructor',
     inputs: [
       {
-        name: '_blockRangeProver',
+        name: 'blockRangeProver',
         internalType: 'contract IBlockRangeProver',
         type: 'address',
       },
@@ -3559,7 +3559,7 @@ export const tronLightClientAbi = [
   {
     type: 'function',
     inputs: [],
-    name: 'blockRangeProver',
+    name: 'BLOCK_RANGE_PROVER',
     outputs: [
       { name: '', internalType: 'contract IBlockRangeProver', type: 'address' },
     ],
@@ -3665,7 +3665,7 @@ export const tronLightClientHarnessAbi = [
   {
     type: 'function',
     inputs: [],
-    name: 'blockRangeProver',
+    name: 'BLOCK_RANGE_PROVER',
     outputs: [
       { name: '', internalType: 'contract IBlockRangeProver', type: 'address' },
     ],
