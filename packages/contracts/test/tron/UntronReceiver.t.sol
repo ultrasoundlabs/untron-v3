@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {UntronReceiver} from "../src/tron/UntronReceiver.sol";
+import {UntronReceiver} from "../../src/tron/UntronReceiver.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 /// @dev Simple Mock ERC20 for testing.
