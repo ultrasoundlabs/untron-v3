@@ -227,10 +227,12 @@ contract TronLightClient {
             mstore8(ptr, 0x41)
             ptr := add(ptr, 1)
 
-            // Store the 20-byte witness address. `mstore` writes 32 bytes, but
-            // we only advance the pointer by 21 bytes, so the effective message
-            // length (set below) only includes the intended 21 bytes.
-            mstore(ptr, witness)
+            // Store the 20-byte witness address immediately after the prefix.
+            // `witness` is a bytes20 value, which in memory occupies the low
+            // 20 bytes of a 32-byte word. We shift it left by 96 bits so that
+            // the high 20 bytes of the word (the first 20 bytes written) are
+            // exactly the address bytes we want in the protobuf field.
+            mstore(ptr, shl(96, witness))
             ptr := add(ptr, 21)
 
             // -----------------------------------------------------------------
