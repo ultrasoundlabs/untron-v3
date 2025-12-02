@@ -76,7 +76,10 @@ contract TronLightClient {
             }
 
             bytes32 blockHash = hashBlock(tronBlock, blockNumber);
-            blockId = bytes32(uint256(blockNumber) << 224 | uint224(uint256(blockHash)));
+            // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
+            // So we store the block number in the upper 8 bytes and the hash tail in the lower 24 bytes.
+            uint256 blockHashTail = uint256(blockHash) & ((uint256(1) << 192) - 1);
+            blockId = bytes32((uint256(blockNumber) << 192) | blockHashTail);
 
             // Copy the i-th packed signature (65 bytes) from calldata into memory for ECDSA.recover
             assembly {
@@ -85,6 +88,17 @@ contract TronLightClient {
                     add(compressedSignatures.offset, mul(i, SIGNATURE_SIZE)),
                     SIGNATURE_SIZE
                 )
+            }
+
+            // Tron encodes signatures as [r(32) | s(32) | v(1)] where v is 0/1 (or sometimes 27/28).
+            // OpenZeppelin's ECDSA expects the Ethereum-style v value (27/28) when using the 65-byte
+            // signature overload, so normalize here before calling `ECDSA.recover`.
+            unchecked {
+                uint8 v = uint8(signature[SIGNATURE_SIZE - 1]);
+                if (v < 27) {
+                    v += 27;
+                    signature[SIGNATURE_SIZE - 1] = bytes1(v);
+                }
             }
 
             bytes20 signer = bytes20(ECDSA.recover(blockHash, signature));
@@ -125,7 +139,8 @@ contract TronLightClient {
     // Conversion & helper (internal pure) functions
 
     function blockIdToNumber(bytes32 blockId) internal pure returns (uint256 blockNumber) {
-        return uint256(blockId) >> 224; // in Tron, blockId is uint32(blockNumber) || sha256(blockHeader)[4:]
+        // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
+        return uint256(blockId) >> 192;
     }
 
     /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata`
@@ -145,6 +160,16 @@ contract TronLightClient {
         view
         returns (bytes32 blockHash)
     {
+        bytes memory buf = _encodeTronBlockHeader(tronBlock, blockNumber);
+        return sha256(buf);
+    }
+
+    /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata`.
+    function _encodeTronBlockHeader(TronBlockMetadata memory tronBlock, uint256 blockNumber)
+        internal
+        view
+        returns (bytes memory buf)
+    {
         bytes32 parentHash = tronBlock.parentHash;
         bytes32 txTrieRoot = tronBlock.txTrieRoot;
 
@@ -154,9 +179,13 @@ contract TronLightClient {
         // Resolve the witness address from the static SR set and convert it into
         // a Tron-style witness address (0x41 prefix + 20-byte EVM address).
         bytes20 witness = srs[tronBlock.witnessAddressIndex];
+        // Treat the witness address as a 160-bit integer so we can explicitly
+        // write its 20 bytes in big-endian order without relying on Solidity's
+        // internal memory layout for bytes20.
+        uint160 witness160 = uint160(witness);
 
         // Allocate a small buffer that is large enough for the encoded header.
-        bytes memory buf = new bytes(128);
+        buf = new bytes(128);
 
         assembly {
             let base := add(buf, 32)
@@ -227,13 +256,18 @@ contract TronLightClient {
             mstore8(ptr, 0x41)
             ptr := add(ptr, 1)
 
-            // Store the 20-byte witness address immediately after the prefix.
-            // `witness` is a bytes20 value, which in memory occupies the low
-            // 20 bytes of a 32-byte word. We shift it left by 96 bits so that
-            // the high 20 bytes of the word (the first 20 bytes written) are
-            // exactly the address bytes we want in the protobuf field.
-            mstore(ptr, shl(96, witness))
-            ptr := add(ptr, 21)
+            // Write the 20-byte witness address immediately after the prefix.
+            // `witness160` holds the address in the low 160 bits of a 256-bit word.
+            // In that representation, the 20 non-zero bytes occupy positions
+            // byte(12) .. byte(31). We emit them in big-endian order so the
+            // resulting 21-byte field is: 0x41 || address[0..19].
+            {
+                let w := witness160
+                for { let i := 0 } lt(i, 20) { i := add(i, 1) } {
+                    mstore8(add(ptr, i), byte(add(12, i), w))
+                }
+                ptr := add(ptr, 20)
+            }
 
             // -----------------------------------------------------------------
             // field 10: version (varint, key = (10 << 3) | 0 = 0x50)
@@ -248,8 +282,6 @@ contract TronLightClient {
             let used := sub(ptr, base)
             mstore(buf, used)
         }
-
-        return sha256(buf);
     }
 
     /// @dev Decode the Tron block metadata at a given index from a tightly packed calldata blob.
@@ -276,13 +308,14 @@ contract TronLightClient {
             parentHash := calldataload(base)
             txTrieRoot := calldataload(add(base, 32))
 
-            // Load the 32-byte word starting at byte 64; we only care about the first 5 bytes.
+            // Load the 32-byte word starting at byte 64; we only care about:
+            // - the first 4 bytes (big-endian timestamp)
+            // - the 5th byte (witness index)
             let word := calldataload(add(base, 64))
-            // Shift so that the first 5 bytes (timestamp[4] || index[1]) end up in the low 5 bytes.
-            let shifted := shr(216, word) // 27 * 8 = 216
-            // High 4 bytes -> timestamp (seconds), low 1 byte -> witnessIndex.
-            ts := shr(8, shifted)
-            witnessIndex := byte(0, shifted)
+            // High 4 bytes of `word` -> timestamp (seconds).
+            ts := shr(224, word) // 28 * 8 = 224, keep top 4 bytes
+            // 5th byte (index 4 from the MSB side) -> witnessIndex.
+            witnessIndex := byte(4, word)
         }
 
         tronBlock.parentHash = parentHash;

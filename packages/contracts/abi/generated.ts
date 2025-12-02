@@ -3645,6 +3645,174 @@ export const tronLightClientAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TronLightClientHarness
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const tronLightClientHarnessAbi = [
+  {
+    type: 'constructor',
+    inputs: [
+      {
+        name: 'p',
+        internalType: 'contract IBlockRangeProver',
+        type: 'address',
+      },
+      { name: 'initial', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'srs_', internalType: 'bytes20[27]', type: 'bytes20[27]' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'blockRangeProver',
+    outputs: [
+      { name: '', internalType: 'contract IBlockRangeProver', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'data', internalType: 'bytes', type: 'bytes' },
+      { name: 'idx', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'decodeAt',
+    outputs: [
+      {
+        name: '',
+        internalType: 'struct TronLightClient.TronBlockMetadata',
+        type: 'tuple',
+        components: [
+          { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
+          { name: 'witnessAddressIndex', internalType: 'uint8', type: 'uint8' },
+        ],
+      },
+    ],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'b',
+        internalType: 'struct TronLightClient.TronBlockMetadata',
+        type: 'tuple',
+        components: [
+          { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
+          { name: 'witnessAddressIndex', internalType: 'uint8', type: 'uint8' },
+        ],
+      },
+      { name: 'n', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'encodeBlockHeaderPublic',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'blockNumber', internalType: 'uint256', type: 'uint256' }],
+    name: 'getBlockId',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'b',
+        internalType: 'struct TronLightClient.TronBlockMetadata',
+        type: 'tuple',
+        components: [
+          { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
+          { name: 'witnessAddressIndex', internalType: 'uint8', type: 'uint8' },
+        ],
+      },
+      { name: 'n', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'hashBlockPublic',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'latestProvenBlock',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'proveBlockRange',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
+      {
+        name: 'compressedTronBlockMetadata',
+        internalType: 'bytes',
+        type: 'bytes',
+      },
+      { name: 'compressedSignatures', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'proveBlocks',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'srs',
+    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  { type: 'error', inputs: [], name: 'BlockNotRelayed' },
+  { type: 'error', inputs: [], name: 'BlockTooOld' },
+  { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
+  {
+    type: 'error',
+    inputs: [{ name: 'length', internalType: 'uint256', type: 'uint256' }],
+    name: 'ECDSAInvalidSignatureLength',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 's', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'ECDSAInvalidSignatureS',
+  },
+  { type: 'error', inputs: [], name: 'InvalidChain' },
+  { type: 'error', inputs: [], name: 'InvalidCompressedSignaturesLength' },
+  {
+    type: 'error',
+    inputs: [],
+    name: 'InvalidCompressedTronBlockMetadataLength',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'yours', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'real', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'InvalidParentBlockId',
+  },
+  { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
+  { type: 'error', inputs: [], name: 'NotEnoughBlocksOrSignatures' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // UntronController
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
