@@ -231,6 +231,11 @@ export const iBlockRangeProverAbi = [
       },
       { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
+      {
+        name: 'endingBlockTxTrieRoot',
+        internalType: 'bytes32',
+        type: 'bytes32',
+      },
       { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'proveBlockRange',
@@ -3557,6 +3562,7 @@ export const tronLightClientAbi = [
         type: 'address',
       },
       { name: 'initialBlockHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'initialTxTrieRoot', internalType: 'bytes32', type: 'bytes32' },
       { name: '_srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
       {
         name: '_witnessDelegatees',
@@ -3584,6 +3590,13 @@ export const tronLightClientAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'blockNumber', internalType: 'uint256', type: 'uint256' }],
+    name: 'getTxTrieRoot',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'latestProvenBlock',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
@@ -3594,6 +3607,11 @@ export const tronLightClientAbi = [
     inputs: [
       { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
+      {
+        name: 'endingBlockTxTrieRoot',
+        internalType: 'bytes32',
+        type: 'bytes32',
+      },
       { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'proveBlockRange',
@@ -3676,6 +3694,7 @@ export const tronLightClientHarnessAbi = [
         type: 'address',
       },
       { name: 'initial', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'initialTxTrieRoot', internalType: 'bytes32', type: 'bytes32' },
       { name: 'srs_', internalType: 'bytes20[27]', type: 'bytes20[27]' },
       {
         name: 'witnessDelegatees_',
@@ -3745,6 +3764,13 @@ export const tronLightClientHarnessAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'blockNumber', internalType: 'uint256', type: 'uint256' }],
+    name: 'getTxTrieRoot',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       {
         name: 'b',
@@ -3775,6 +3801,11 @@ export const tronLightClientHarnessAbi = [
     inputs: [
       { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
+      {
+        name: 'endingBlockTxTrieRoot',
+        internalType: 'bytes32',
+        type: 'bytes32',
+      },
       { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'proveBlockRange',

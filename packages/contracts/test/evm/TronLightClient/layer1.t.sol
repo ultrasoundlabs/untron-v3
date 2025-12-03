@@ -11,7 +11,9 @@ contract TronLightClientFixtureTest is Test {
 
     // Fixture data
     bytes32 internal startingBlockId;
+    bytes32 internal startingBlockTxTrieRoot;
     bytes32 internal endingBlockId;
+    bytes32 internal endingBlockTxTrieRoot;
     bytes internal metadata;
     bytes internal sigs;
     // SR owner accounts (Tron witnesses).
@@ -35,7 +37,9 @@ contract TronLightClientFixtureTest is Test {
 
         // Parse primitive fields
         startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
+        startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
         endingBlockId = vm.parseJsonBytes32(json, ".endingBlockId");
+        endingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".endingBlockTxTrieRoot");
 
         metadata = vm.parseJsonBytes(json, ".compressedTronBlockMetadata");
         sigs = vm.parseJsonBytes(json, ".compressedSignatures");
@@ -60,7 +64,9 @@ contract TronLightClientFixtureTest is Test {
             witnessDelegatees[i] = bytes20(delegateeAddrs[i]);
         }
 
-        client = new TronLightClient(IBlockRangeProver(address(0)), startingBlockId, srs, witnessDelegatees);
+        client = new TronLightClient(
+            IBlockRangeProver(address(0)), startingBlockId, startingBlockTxTrieRoot, srs, witnessDelegatees
+        );
     }
 
     function test_proveBlocks_happyPath_fixture() public {
@@ -87,6 +93,10 @@ contract TronLightClientFixtureTest is Test {
         // for this fixture it is the parent of blockNumbers[0].
         uint256 parentNum = blockNumbers[0] - 1;
         assertEq(client.getBlockId(parentNum), startingBlockId, "getBlockId(parent) mismatch");
+
+        // And the txTrieRoots for both the starting anchor and ending block should match the fixture.
+        assertEq(client.getTxTrieRoot(parentNum), startingBlockTxTrieRoot, "getTxTrieRoot(parent) mismatch");
+        assertEq(client.getTxTrieRoot(numLast), endingBlockTxTrieRoot, "getTxTrieRoot(last) mismatch");
     }
 
     function test_proveBlocks_revertsOnInvalidSignature() public {

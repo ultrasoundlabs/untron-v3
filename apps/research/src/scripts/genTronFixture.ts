@@ -120,7 +120,9 @@ type Fixture = {
   startBlock: string;
   endBlock: string;
   startingBlockId: Hex;
+  startingBlockTxTrieRoot: Hex;
   endingBlockId: Hex;
+  endingBlockTxTrieRoot: Hex;
   // Super Representatives (SR) – Tron witness owner accounts that appear in BlockHeader_raw.witnessAddress.
   srs: Address[]; // always length 27, SR owner accounts
   compressedTronBlockMetadata: Hex;
@@ -198,6 +200,17 @@ async function main() {
 
   const numBlocks = endBlock - startBlock + 1;
   const blocks: BlockExtention[] = [];
+
+  // Fetch the parent of the first block so we can record its txTrieRoot for the starting anchor.
+  const parentBlockNumber = startBlock - 1;
+  if (parentBlockNumber < 0) {
+    throw new Error("startBlock must be > 0 to fetch parent block");
+  }
+  const parentBlock = await fetchBlock(wallet, callOpts, parentBlockNumber);
+  const parentRaw = parentBlock.blockHeader?.rawData as BlockHeader_raw | undefined;
+  if (!parentRaw || !parentRaw.txTrieRoot) {
+    throw new Error(`Parent block ${parentBlockNumber} missing header/rawData/txTrieRoot`);
+  }
 
   for (let n = startBlock; n <= endBlock; n++) {
     const block = await fetchBlock(wallet, callOpts, n);
@@ -372,13 +385,22 @@ async function main() {
   }
 
   const endingBlockId = blockIds[blockIds.length - 1]!;
+  const lastRaw = blocks[blocks.length - 1]!.blockHeader!.rawData as BlockHeader_raw;
+  if (!lastRaw.txTrieRoot) {
+    throw new Error("Last block missing txTrieRoot");
+  }
+
+  const startingBlockTxTrieRoot = toHex0x(parentRaw.txTrieRoot);
+  const endingBlockTxTrieRoot = toHex0x(lastRaw.txTrieRoot);
 
   const fixture: Fixture = {
     network: "tron-mainnet",
     startBlock: String(startBlock),
     endBlock: String(endBlock),
     startingBlockId,
+    startingBlockTxTrieRoot,
     endingBlockId,
+    endingBlockTxTrieRoot,
     srs: srsFixed,
     compressedTronBlockMetadata: toHex0x(metadataBuf),
     compressedSignatures: toHex0x(sigsBuf),

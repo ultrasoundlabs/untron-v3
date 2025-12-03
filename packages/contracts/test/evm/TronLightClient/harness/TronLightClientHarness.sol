@@ -5,9 +5,13 @@ import {TronLightClient} from "../../../../src/evm/TronLightClient.sol";
 import {IBlockRangeProver} from "../../../../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
 
 contract TronLightClientHarness is TronLightClient {
-    constructor(IBlockRangeProver p, bytes32 initial, bytes20[27] memory srs_, bytes20[27] memory witnessDelegatees_)
-        TronLightClient(p, initial, srs_, witnessDelegatees_)
-    {}
+    constructor(
+        IBlockRangeProver p,
+        bytes32 initial,
+        bytes32 initialTxTrieRoot,
+        bytes20[27] memory srs_,
+        bytes20[27] memory witnessDelegatees_
+    ) TronLightClient(p, initial, initialTxTrieRoot, srs_, witnessDelegatees_) {}
 
     function hashBlockPublic(TronBlockMetadata memory b, uint256 n) external view returns (bytes32) {
         return hashBlock(b, n);

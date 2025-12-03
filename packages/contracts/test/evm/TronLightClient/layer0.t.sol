@@ -86,9 +86,12 @@ contract TronLightClientLayer0Test is Test {
             }
         }
 
-        // Use the startingBlockId from the fixture simply to satisfy the constructor.
+        // Use the startingBlockId and startingBlockTxTrieRoot from the fixture to satisfy the constructor.
         bytes32 startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
-        client = new TronLightClientHarness(IBlockRangeProver(address(0)), startingBlockId, srs, witnessDelegatees);
+        bytes32 startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
+        client = new TronLightClientHarness(
+            IBlockRangeProver(address(0)), startingBlockId, startingBlockTxTrieRoot, srs, witnessDelegatees
+        );
     }
 
     /// @notice Sanity check that decoding the packed metadata yields the same

@@ -7,6 +7,7 @@ interface IBlockRangeProver {
         bytes20[27] calldata witnessDelegatees,
         bytes32 startingBlock,
         bytes32 endingBlock,
+        bytes32 endingBlockTxTrieRoot,
         bytes calldata zkProof
     ) external;
 }

@@ -20,15 +20,17 @@ contract TronLightClient {
     bytes20[27] public witnessDelegatees;
     bytes32 public latestProvenBlock;
     bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockIds;
+    bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestTxTrieRoots;
 
     constructor(
         IBlockRangeProver blockRangeProver,
         bytes32 initialBlockHash,
+        bytes32 initialTxTrieRoot,
         bytes20[27] memory _srs,
         bytes20[27] memory _witnessDelegatees
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
-        appendBlockId(initialBlockHash);
+        appendBlockId(initialBlockHash, initialTxTrieRoot);
         srs = _srs;
         witnessDelegatees = _witnessDelegatees;
     }
@@ -88,6 +90,8 @@ contract TronLightClient {
             }
         }
 
+        TronBlockMetadata memory lastTronBlock;
+
         for (uint256 i = 0; i < numBlocks; i++) {
             TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
 
@@ -134,17 +138,26 @@ contract TronLightClient {
                 if (blockIdSlotAtOurIndex != blockId) revert InvalidChain();
                 intersectedExisting = true;
             }
+
+            lastTronBlock = tronBlock;
         }
 
         if (!intersectedExisting) revert UnanchoredBlockRange();
-        appendBlockId(blockId);
+        appendBlockId(blockId, lastTronBlock.txTrieRoot);
         latestProvenBlock = blockId;
     }
 
-    function proveBlockRange(bytes32 startingBlock, bytes32 endingBlock, bytes calldata zkProof) external {
+    function proveBlockRange(
+        bytes32 startingBlock,
+        bytes32 endingBlock,
+        bytes32 endingBlockTxTrieRoot,
+        bytes calldata zkProof
+    ) external {
         if (startingBlock != latestProvenBlock) revert BlockTooOld();
-        BLOCK_RANGE_PROVER.proveBlockRange(srs, witnessDelegatees, startingBlock, endingBlock, zkProof);
-        appendBlockId(endingBlock);
+        BLOCK_RANGE_PROVER.proveBlockRange(
+            srs, witnessDelegatees, startingBlock, endingBlock, endingBlockTxTrieRoot, zkProof
+        );
+        appendBlockId(endingBlock, endingBlockTxTrieRoot);
         latestProvenBlock = endingBlock;
     }
 
@@ -155,19 +168,22 @@ contract TronLightClient {
         return stored;
     }
 
-    function appendBlockId(bytes32 blockId) internal {
+    function getTxTrieRoot(uint256 blockNumber) external view returns (bytes32) {
+        uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
+        bytes32 stored = latestBlockIds[index];
+        if (stored == bytes32(0)) revert BlockNotRelayed();
+        if (blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
+        return latestTxTrieRoots[index];
+    }
+
+    function appendBlockId(bytes32 blockId, bytes32 txTrieRoot) internal {
         uint256 blockNumber = blockIdToNumber(blockId);
-        latestBlockIds[blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH] = blockId;
+        uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
+        latestBlockIds[index] = blockId;
+        latestTxTrieRoots[index] = txTrieRoot;
         if (blockIdToNumber(latestProvenBlock) < blockNumber) {
             latestProvenBlock = blockId;
         }
-    }
-
-    // Conversion & helper (internal pure) functions
-
-    function blockIdToNumber(bytes32 blockId) internal pure returns (uint256 blockNumber) {
-        // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
-        return uint256(blockId) >> 192;
     }
 
     /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata`
@@ -311,6 +327,13 @@ contract TronLightClient {
             let used := sub(ptr, base)
             mstore(buf, used)
         }
+    }
+
+    // Conversion & helper (internal pure) functions
+
+    function blockIdToNumber(bytes32 blockId) internal pure returns (uint256 blockNumber) {
+        // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
+        return uint256(blockId) >> 192;
     }
 
     /// @dev Decode the Tron block metadata at a given index from a tightly packed calldata blob.
