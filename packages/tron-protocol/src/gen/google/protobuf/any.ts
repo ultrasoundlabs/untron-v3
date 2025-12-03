@@ -131,10 +131,11 @@ export interface Any {
   typeUrl: string;
   /** Must be a valid serialized protocol buffer of the above specified type. */
   value: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseAny(): Any {
-  return { typeUrl: "", value: Buffer.alloc(0) };
+  return { typeUrl: "", value: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const Any = {
@@ -144,6 +145,19 @@ export const Any = {
     }
     if (message.value.length !== 0) {
       writer.uint32(18).bytes(message.value);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -173,7 +187,17 @@ export const Any = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

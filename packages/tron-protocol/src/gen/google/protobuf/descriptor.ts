@@ -181,6 +181,7 @@ export function symbolVisibilityToJSON(object: SymbolVisibility): string {
  */
 export interface FileDescriptorSet {
   file: FileDescriptorProto[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes a complete .proto file. */
@@ -243,6 +244,7 @@ export interface FileDescriptorProto {
    * developers should rely on the protoreflect APIs for their client language.
    */
   edition?: Edition | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes a message type. */
@@ -263,6 +265,7 @@ export interface DescriptorProto {
   reservedName: string[];
   /** Support for `export` and `local` keywords on enums. */
   visibility?: SymbolVisibility | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface DescriptorProto_ExtensionRange {
@@ -273,6 +276,7 @@ export interface DescriptorProto_ExtensionRange {
   /** Exclusive. */
   end?: number | undefined;
   options?: ExtensionRangeOptions | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -287,6 +291,7 @@ export interface DescriptorProto_ReservedRange {
     | undefined;
   /** Exclusive. */
   end?: number | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ExtensionRangeOptions {
@@ -308,6 +313,7 @@ export interface ExtensionRangeOptions {
    * are marked as UNVERIFIED.
    */
   verification?: ExtensionRangeOptions_VerificationState | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** The verification state of the extension range. */
@@ -378,6 +384,7 @@ export interface ExtensionRangeOptions_Declaration {
    * Otherwise the extension must be defined as optional.
    */
   repeated?: boolean | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes a field within a message. */
@@ -461,6 +468,7 @@ export interface FieldDescriptorProto {
    * optional with `LABEL_OPTIONAL`.
    */
   proto3Optional?: boolean | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export enum FieldDescriptorProto_Type {
@@ -664,6 +672,7 @@ export function fieldDescriptorProto_LabelToJSON(object: FieldDescriptorProto_La
 export interface OneofDescriptorProto {
   name?: string | undefined;
   options?: OneofOptions | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes an enum type. */
@@ -686,6 +695,7 @@ export interface EnumDescriptorProto {
   reservedName: string[];
   /** Support for `export` and `local` keywords on enums. */
   visibility?: SymbolVisibility | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -703,6 +713,7 @@ export interface EnumDescriptorProto_EnumReservedRange {
     | undefined;
   /** Inclusive. */
   end?: number | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes a value within an enum. */
@@ -710,6 +721,7 @@ export interface EnumValueDescriptorProto {
   name?: string | undefined;
   number?: number | undefined;
   options?: EnumValueOptions | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes a service. */
@@ -717,6 +729,7 @@ export interface ServiceDescriptorProto {
   name?: string | undefined;
   method: MethodDescriptorProto[];
   options?: ServiceOptions | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Describes a method of a service. */
@@ -739,6 +752,7 @@ export interface MethodDescriptorProto {
     | undefined;
   /** Identifies if server streams multiple server messages */
   serverStreaming?: boolean | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface FileOptions {
@@ -904,6 +918,7 @@ export interface FileOptions {
    * See the documentation for the "Options" section above.
    */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Generated classes can be optimized for speed or code size. */
@@ -1044,6 +1059,7 @@ export interface MessageOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface FieldOptions {
@@ -1160,6 +1176,7 @@ export interface FieldOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export enum FieldOptions_CType {
@@ -1384,6 +1401,7 @@ export interface FieldOptions_EditionDefault {
     | undefined;
   /** Textproto value. */
   value?: string | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Information about the support window of a feature. */
@@ -1416,6 +1434,7 @@ export interface FieldOptions_FeatureSupport {
    * not be able to override it.
    */
   editionRemoved?: Edition | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface OneofOptions {
@@ -1430,6 +1449,7 @@ export interface OneofOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface EnumOptions {
@@ -1473,6 +1493,7 @@ export interface EnumOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface EnumValueOptions {
@@ -1508,6 +1529,7 @@ export interface EnumValueOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ServiceOptions {
@@ -1531,6 +1553,7 @@ export interface ServiceOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface MethodOptions {
@@ -1555,6 +1578,7 @@ export interface MethodOptions {
     | undefined;
   /** The parser stores options it doesn't recognize here. See above. */
   uninterpretedOption: UninterpretedOption[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -1623,6 +1647,7 @@ export interface UninterpretedOption {
   doubleValue?: number | undefined;
   stringValue?: Buffer | undefined;
   aggregateValue?: string | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -1635,6 +1660,7 @@ export interface UninterpretedOption {
 export interface UninterpretedOption_NamePart {
   namePart: string;
   isExtension: boolean;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -1654,6 +1680,7 @@ export interface FeatureSet {
   jsonFormat?: FeatureSet_JsonFormat | undefined;
   enforceNamingStyle?: FeatureSet_EnforceNamingStyle | undefined;
   defaultSymbolVisibility?: FeatureSet_VisibilityFeature_DefaultSymbolVisibility | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export enum FeatureSet_FieldPresence {
@@ -1936,6 +1963,7 @@ export function featureSet_EnforceNamingStyleToJSON(object: FeatureSet_EnforceNa
 }
 
 export interface FeatureSet_VisibilityFeature {
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export enum FeatureSet_VisibilityFeature_DefaultSymbolVisibility {
@@ -2021,6 +2049,7 @@ export interface FeatureSetDefaults {
    * after this will not have reliable defaults.
    */
   maximumEdition?: Edition | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -2039,6 +2068,7 @@ export interface FeatureSetDefaults_FeatureSetEditionDefault {
     | undefined;
   /** Defaults of features that can't be overridden in this edition. */
   fixedFeatures?: FeatureSet | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -2092,6 +2122,7 @@ export interface SourceCodeInfo {
    *   be recorded in the future.
    */
   location: SourceCodeInfo_Location[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface SourceCodeInfo_Location {
@@ -2181,6 +2212,7 @@ export interface SourceCodeInfo_Location {
   leadingComments?: string | undefined;
   trailingComments?: string | undefined;
   leadingDetachedComments: string[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -2194,6 +2226,7 @@ export interface GeneratedCodeInfo {
    * of its generating .proto file.
    */
   annotation: GeneratedCodeInfo_Annotation[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface GeneratedCodeInfo_Annotation {
@@ -2220,6 +2253,7 @@ export interface GeneratedCodeInfo_Annotation {
    */
   end?: number | undefined;
   semantic?: GeneratedCodeInfo_Annotation_Semantic | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -2269,13 +2303,26 @@ export function generatedCodeInfo_Annotation_SemanticToJSON(object: GeneratedCod
 }
 
 function createBaseFileDescriptorSet(): FileDescriptorSet {
-  return { file: [] };
+  return { file: [], _unknownFields: {} };
 }
 
 export const FileDescriptorSet = {
   encode(message: FileDescriptorSet, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     for (const v of message.file) {
       FileDescriptorProto.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -2298,7 +2345,17 @@ export const FileDescriptorSet = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -2343,6 +2400,7 @@ function createBaseFileDescriptorProto(): FileDescriptorProto {
     sourceCodeInfo: undefined,
     syntax: "",
     edition: 0,
+    _unknownFields: {},
   };
 }
 
@@ -2393,6 +2451,19 @@ export const FileDescriptorProto = {
     }
     if (message.edition !== undefined && message.edition !== 0) {
       writer.uint32(112).int32(message.edition);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -2526,7 +2597,17 @@ export const FileDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -2653,6 +2734,7 @@ function createBaseDescriptorProto(): DescriptorProto {
     reservedRange: [],
     reservedName: [],
     visibility: 0,
+    _unknownFields: {},
   };
 }
 
@@ -2690,6 +2772,19 @@ export const DescriptorProto = {
     }
     if (message.visibility !== undefined && message.visibility !== 0) {
       writer.uint32(88).int32(message.visibility);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -2782,7 +2877,17 @@ export const DescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -2880,7 +2985,7 @@ export const DescriptorProto = {
 };
 
 function createBaseDescriptorProto_ExtensionRange(): DescriptorProto_ExtensionRange {
-  return { start: 0, end: 0, options: undefined };
+  return { start: 0, end: 0, options: undefined, _unknownFields: {} };
 }
 
 export const DescriptorProto_ExtensionRange = {
@@ -2893,6 +2998,19 @@ export const DescriptorProto_ExtensionRange = {
     }
     if (message.options !== undefined) {
       ExtensionRangeOptions.encode(message.options, writer.uint32(26).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -2929,7 +3047,17 @@ export const DescriptorProto_ExtensionRange = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -2973,7 +3101,7 @@ export const DescriptorProto_ExtensionRange = {
 };
 
 function createBaseDescriptorProto_ReservedRange(): DescriptorProto_ReservedRange {
-  return { start: 0, end: 0 };
+  return { start: 0, end: 0, _unknownFields: {} };
 }
 
 export const DescriptorProto_ReservedRange = {
@@ -2983,6 +3111,19 @@ export const DescriptorProto_ReservedRange = {
     }
     if (message.end !== undefined && message.end !== 0) {
       writer.uint32(16).int32(message.end);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3012,7 +3153,17 @@ export const DescriptorProto_ReservedRange = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3049,7 +3200,7 @@ export const DescriptorProto_ReservedRange = {
 };
 
 function createBaseExtensionRangeOptions(): ExtensionRangeOptions {
-  return { uninterpretedOption: [], declaration: [], features: undefined, verification: 1 };
+  return { uninterpretedOption: [], declaration: [], features: undefined, verification: 1, _unknownFields: {} };
 }
 
 export const ExtensionRangeOptions = {
@@ -3065,6 +3216,19 @@ export const ExtensionRangeOptions = {
     }
     if (message.verification !== undefined && message.verification !== 1) {
       writer.uint32(24).int32(message.verification);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3108,7 +3272,17 @@ export const ExtensionRangeOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3161,7 +3335,7 @@ export const ExtensionRangeOptions = {
 };
 
 function createBaseExtensionRangeOptions_Declaration(): ExtensionRangeOptions_Declaration {
-  return { number: 0, fullName: "", type: "", reserved: false, repeated: false };
+  return { number: 0, fullName: "", type: "", reserved: false, repeated: false, _unknownFields: {} };
 }
 
 export const ExtensionRangeOptions_Declaration = {
@@ -3180,6 +3354,19 @@ export const ExtensionRangeOptions_Declaration = {
     }
     if (message.repeated !== undefined && message.repeated !== false) {
       writer.uint32(48).bool(message.repeated);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3230,7 +3417,17 @@ export const ExtensionRangeOptions_Declaration = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3296,6 +3493,7 @@ function createBaseFieldDescriptorProto(): FieldDescriptorProto {
     jsonName: "",
     options: undefined,
     proto3Optional: false,
+    _unknownFields: {},
   };
 }
 
@@ -3333,6 +3531,19 @@ export const FieldDescriptorProto = {
     }
     if (message.proto3Optional !== undefined && message.proto3Optional !== false) {
       writer.uint32(136).bool(message.proto3Optional);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3425,7 +3636,17 @@ export const FieldDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3507,7 +3728,7 @@ export const FieldDescriptorProto = {
 };
 
 function createBaseOneofDescriptorProto(): OneofDescriptorProto {
-  return { name: "", options: undefined };
+  return { name: "", options: undefined, _unknownFields: {} };
 }
 
 export const OneofDescriptorProto = {
@@ -3517,6 +3738,19 @@ export const OneofDescriptorProto = {
     }
     if (message.options !== undefined) {
       OneofOptions.encode(message.options, writer.uint32(18).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3546,7 +3780,17 @@ export const OneofDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3583,7 +3827,15 @@ export const OneofDescriptorProto = {
 };
 
 function createBaseEnumDescriptorProto(): EnumDescriptorProto {
-  return { name: "", value: [], options: undefined, reservedRange: [], reservedName: [], visibility: 0 };
+  return {
+    name: "",
+    value: [],
+    options: undefined,
+    reservedRange: [],
+    reservedName: [],
+    visibility: 0,
+    _unknownFields: {},
+  };
 }
 
 export const EnumDescriptorProto = {
@@ -3605,6 +3857,19 @@ export const EnumDescriptorProto = {
     }
     if (message.visibility !== undefined && message.visibility !== 0) {
       writer.uint32(48).int32(message.visibility);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3662,7 +3927,17 @@ export const EnumDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3726,7 +4001,7 @@ export const EnumDescriptorProto = {
 };
 
 function createBaseEnumDescriptorProto_EnumReservedRange(): EnumDescriptorProto_EnumReservedRange {
-  return { start: 0, end: 0 };
+  return { start: 0, end: 0, _unknownFields: {} };
 }
 
 export const EnumDescriptorProto_EnumReservedRange = {
@@ -3736,6 +4011,19 @@ export const EnumDescriptorProto_EnumReservedRange = {
     }
     if (message.end !== undefined && message.end !== 0) {
       writer.uint32(16).int32(message.end);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3765,7 +4053,17 @@ export const EnumDescriptorProto_EnumReservedRange = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3804,7 +4102,7 @@ export const EnumDescriptorProto_EnumReservedRange = {
 };
 
 function createBaseEnumValueDescriptorProto(): EnumValueDescriptorProto {
-  return { name: "", number: 0, options: undefined };
+  return { name: "", number: 0, options: undefined, _unknownFields: {} };
 }
 
 export const EnumValueDescriptorProto = {
@@ -3817,6 +4115,19 @@ export const EnumValueDescriptorProto = {
     }
     if (message.options !== undefined) {
       EnumValueOptions.encode(message.options, writer.uint32(26).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3853,7 +4164,17 @@ export const EnumValueDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3895,7 +4216,7 @@ export const EnumValueDescriptorProto = {
 };
 
 function createBaseServiceDescriptorProto(): ServiceDescriptorProto {
-  return { name: "", method: [], options: undefined };
+  return { name: "", method: [], options: undefined, _unknownFields: {} };
 }
 
 export const ServiceDescriptorProto = {
@@ -3908,6 +4229,19 @@ export const ServiceDescriptorProto = {
     }
     if (message.options !== undefined) {
       ServiceOptions.encode(message.options, writer.uint32(26).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -3944,7 +4278,17 @@ export const ServiceDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -3995,6 +4339,7 @@ function createBaseMethodDescriptorProto(): MethodDescriptorProto {
     options: undefined,
     clientStreaming: false,
     serverStreaming: false,
+    _unknownFields: {},
   };
 }
 
@@ -4017,6 +4362,19 @@ export const MethodDescriptorProto = {
     }
     if (message.serverStreaming !== undefined && message.serverStreaming !== false) {
       writer.uint32(48).bool(message.serverStreaming);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -4074,7 +4432,17 @@ export const MethodDescriptorProto = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -4153,6 +4521,7 @@ function createBaseFileOptions(): FileOptions {
     rubyPackage: "",
     features: undefined,
     uninterpretedOption: [],
+    _unknownFields: {},
   };
 }
 
@@ -4220,6 +4589,19 @@ export const FileOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -4382,7 +4764,17 @@ export const FileOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -4526,6 +4918,7 @@ function createBaseMessageOptions(): MessageOptions {
     deprecatedLegacyJsonFieldConflicts: false,
     features: undefined,
     uninterpretedOption: [],
+    _unknownFields: {},
   };
 }
 
@@ -4553,6 +4946,19 @@ export const MessageOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -4617,7 +5023,17 @@ export const MessageOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -4704,6 +5120,7 @@ function createBaseFieldOptions(): FieldOptions {
     features: undefined,
     featureSupport: undefined,
     uninterpretedOption: [],
+    _unknownFields: {},
   };
 }
 
@@ -4752,6 +5169,19 @@ export const FieldOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -4875,7 +5305,17 @@ export const FieldOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -4982,7 +5422,7 @@ export const FieldOptions = {
 };
 
 function createBaseFieldOptions_EditionDefault(): FieldOptions_EditionDefault {
-  return { edition: 0, value: "" };
+  return { edition: 0, value: "", _unknownFields: {} };
 }
 
 export const FieldOptions_EditionDefault = {
@@ -4992,6 +5432,19 @@ export const FieldOptions_EditionDefault = {
     }
     if (message.value !== undefined && message.value !== "") {
       writer.uint32(18).string(message.value);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5021,7 +5474,17 @@ export const FieldOptions_EditionDefault = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5056,7 +5519,7 @@ export const FieldOptions_EditionDefault = {
 };
 
 function createBaseFieldOptions_FeatureSupport(): FieldOptions_FeatureSupport {
-  return { editionIntroduced: 0, editionDeprecated: 0, deprecationWarning: "", editionRemoved: 0 };
+  return { editionIntroduced: 0, editionDeprecated: 0, deprecationWarning: "", editionRemoved: 0, _unknownFields: {} };
 }
 
 export const FieldOptions_FeatureSupport = {
@@ -5072,6 +5535,19 @@ export const FieldOptions_FeatureSupport = {
     }
     if (message.editionRemoved !== undefined && message.editionRemoved !== 0) {
       writer.uint32(32).int32(message.editionRemoved);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5115,7 +5591,17 @@ export const FieldOptions_FeatureSupport = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5160,7 +5646,7 @@ export const FieldOptions_FeatureSupport = {
 };
 
 function createBaseOneofOptions(): OneofOptions {
-  return { features: undefined, uninterpretedOption: [] };
+  return { features: undefined, uninterpretedOption: [], _unknownFields: {} };
 }
 
 export const OneofOptions = {
@@ -5170,6 +5656,19 @@ export const OneofOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5199,7 +5698,17 @@ export const OneofOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5244,6 +5753,7 @@ function createBaseEnumOptions(): EnumOptions {
     deprecatedLegacyJsonFieldConflicts: false,
     features: undefined,
     uninterpretedOption: [],
+    _unknownFields: {},
   };
 }
 
@@ -5265,6 +5775,19 @@ export const EnumOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5315,7 +5838,17 @@ export const EnumOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5379,6 +5912,7 @@ function createBaseEnumValueOptions(): EnumValueOptions {
     debugRedact: false,
     featureSupport: undefined,
     uninterpretedOption: [],
+    _unknownFields: {},
   };
 }
 
@@ -5398,6 +5932,19 @@ export const EnumValueOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5448,7 +5995,17 @@ export const EnumValueOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5506,7 +6063,7 @@ export const EnumValueOptions = {
 };
 
 function createBaseServiceOptions(): ServiceOptions {
-  return { features: undefined, deprecated: false, uninterpretedOption: [] };
+  return { features: undefined, deprecated: false, uninterpretedOption: [], _unknownFields: {} };
 }
 
 export const ServiceOptions = {
@@ -5519,6 +6076,19 @@ export const ServiceOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5555,7 +6125,17 @@ export const ServiceOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5599,7 +6179,7 @@ export const ServiceOptions = {
 };
 
 function createBaseMethodOptions(): MethodOptions {
-  return { deprecated: false, idempotencyLevel: 0, features: undefined, uninterpretedOption: [] };
+  return { deprecated: false, idempotencyLevel: 0, features: undefined, uninterpretedOption: [], _unknownFields: {} };
 }
 
 export const MethodOptions = {
@@ -5615,6 +6195,19 @@ export const MethodOptions = {
     }
     for (const v of message.uninterpretedOption) {
       UninterpretedOption.encode(v!, writer.uint32(7994).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5658,7 +6251,17 @@ export const MethodOptions = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5717,6 +6320,7 @@ function createBaseUninterpretedOption(): UninterpretedOption {
     doubleValue: 0,
     stringValue: Buffer.alloc(0),
     aggregateValue: "",
+    _unknownFields: {},
   };
 }
 
@@ -5742,6 +6346,19 @@ export const UninterpretedOption = {
     }
     if (message.aggregateValue !== undefined && message.aggregateValue !== "") {
       writer.uint32(66).string(message.aggregateValue);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5806,7 +6423,17 @@ export const UninterpretedOption = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5872,7 +6499,7 @@ export const UninterpretedOption = {
 };
 
 function createBaseUninterpretedOption_NamePart(): UninterpretedOption_NamePart {
-  return { namePart: "", isExtension: false };
+  return { namePart: "", isExtension: false, _unknownFields: {} };
 }
 
 export const UninterpretedOption_NamePart = {
@@ -5882,6 +6509,19 @@ export const UninterpretedOption_NamePart = {
     }
     if (message.isExtension !== false) {
       writer.uint32(16).bool(message.isExtension);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -5911,7 +6551,17 @@ export const UninterpretedOption_NamePart = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -5955,6 +6605,7 @@ function createBaseFeatureSet(): FeatureSet {
     jsonFormat: 0,
     enforceNamingStyle: 0,
     defaultSymbolVisibility: 0,
+    _unknownFields: {},
   };
 }
 
@@ -5983,6 +6634,19 @@ export const FeatureSet = {
     }
     if (message.defaultSymbolVisibility !== undefined && message.defaultSymbolVisibility !== 0) {
       writer.uint32(64).int32(message.defaultSymbolVisibility);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6054,7 +6718,17 @@ export const FeatureSet = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6127,11 +6801,24 @@ export const FeatureSet = {
 };
 
 function createBaseFeatureSet_VisibilityFeature(): FeatureSet_VisibilityFeature {
-  return {};
+  return { _unknownFields: {} };
 }
 
 export const FeatureSet_VisibilityFeature = {
-  encode(_: FeatureSet_VisibilityFeature, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+  encode(message: FeatureSet_VisibilityFeature, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
+    }
     return writer;
   },
 
@@ -6146,7 +6833,17 @@ export const FeatureSet_VisibilityFeature = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6170,7 +6867,7 @@ export const FeatureSet_VisibilityFeature = {
 };
 
 function createBaseFeatureSetDefaults(): FeatureSetDefaults {
-  return { defaults: [], minimumEdition: 0, maximumEdition: 0 };
+  return { defaults: [], minimumEdition: 0, maximumEdition: 0, _unknownFields: {} };
 }
 
 export const FeatureSetDefaults = {
@@ -6183,6 +6880,19 @@ export const FeatureSetDefaults = {
     }
     if (message.maximumEdition !== undefined && message.maximumEdition !== 0) {
       writer.uint32(40).int32(message.maximumEdition);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6219,7 +6929,17 @@ export const FeatureSetDefaults = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6261,7 +6981,7 @@ export const FeatureSetDefaults = {
 };
 
 function createBaseFeatureSetDefaults_FeatureSetEditionDefault(): FeatureSetDefaults_FeatureSetEditionDefault {
-  return { edition: 0, overridableFeatures: undefined, fixedFeatures: undefined };
+  return { edition: 0, overridableFeatures: undefined, fixedFeatures: undefined, _unknownFields: {} };
 }
 
 export const FeatureSetDefaults_FeatureSetEditionDefault = {
@@ -6274,6 +6994,19 @@ export const FeatureSetDefaults_FeatureSetEditionDefault = {
     }
     if (message.fixedFeatures !== undefined) {
       FeatureSet.encode(message.fixedFeatures, writer.uint32(42).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6310,7 +7043,17 @@ export const FeatureSetDefaults_FeatureSetEditionDefault = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6360,13 +7103,26 @@ export const FeatureSetDefaults_FeatureSetEditionDefault = {
 };
 
 function createBaseSourceCodeInfo(): SourceCodeInfo {
-  return { location: [] };
+  return { location: [], _unknownFields: {} };
 }
 
 export const SourceCodeInfo = {
   encode(message: SourceCodeInfo, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     for (const v of message.location) {
       SourceCodeInfo_Location.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6389,7 +7145,17 @@ export const SourceCodeInfo = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6421,7 +7187,14 @@ export const SourceCodeInfo = {
 };
 
 function createBaseSourceCodeInfo_Location(): SourceCodeInfo_Location {
-  return { path: [], span: [], leadingComments: "", trailingComments: "", leadingDetachedComments: [] };
+  return {
+    path: [],
+    span: [],
+    leadingComments: "",
+    trailingComments: "",
+    leadingDetachedComments: [],
+    _unknownFields: {},
+  };
 }
 
 export const SourceCodeInfo_Location = {
@@ -6444,6 +7217,19 @@ export const SourceCodeInfo_Location = {
     }
     for (const v of message.leadingDetachedComments) {
       writer.uint32(50).string(v!);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6514,7 +7300,17 @@ export const SourceCodeInfo_Location = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6566,13 +7362,26 @@ export const SourceCodeInfo_Location = {
 };
 
 function createBaseGeneratedCodeInfo(): GeneratedCodeInfo {
-  return { annotation: [] };
+  return { annotation: [], _unknownFields: {} };
 }
 
 export const GeneratedCodeInfo = {
   encode(message: GeneratedCodeInfo, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     for (const v of message.annotation) {
       GeneratedCodeInfo_Annotation.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6595,7 +7404,17 @@ export const GeneratedCodeInfo = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -6627,7 +7446,7 @@ export const GeneratedCodeInfo = {
 };
 
 function createBaseGeneratedCodeInfo_Annotation(): GeneratedCodeInfo_Annotation {
-  return { path: [], sourceFile: "", begin: 0, end: 0, semantic: 0 };
+  return { path: [], sourceFile: "", begin: 0, end: 0, semantic: 0, _unknownFields: {} };
 }
 
 export const GeneratedCodeInfo_Annotation = {
@@ -6648,6 +7467,19 @@ export const GeneratedCodeInfo_Annotation = {
     }
     if (message.semantic !== undefined && message.semantic !== 0) {
       writer.uint32(40).int32(message.semantic);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -6708,7 +7540,17 @@ export const GeneratedCodeInfo_Annotation = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

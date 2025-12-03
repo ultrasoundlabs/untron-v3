@@ -16,6 +16,7 @@ export interface ExchangeCreateContract {
   firstTokenBalance: Long;
   secondTokenId: Buffer;
   secondTokenBalance: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ExchangeInjectContract {
@@ -23,6 +24,7 @@ export interface ExchangeInjectContract {
   exchangeId: Long;
   tokenId: Buffer;
   quant: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ExchangeWithdrawContract {
@@ -30,6 +32,7 @@ export interface ExchangeWithdrawContract {
   exchangeId: Long;
   tokenId: Buffer;
   quant: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ExchangeTransactionContract {
@@ -38,6 +41,7 @@ export interface ExchangeTransactionContract {
   tokenId: Buffer;
   quant: Long;
   expected: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseExchangeCreateContract(): ExchangeCreateContract {
@@ -47,6 +51,7 @@ function createBaseExchangeCreateContract(): ExchangeCreateContract {
     firstTokenBalance: Long.ZERO,
     secondTokenId: Buffer.alloc(0),
     secondTokenBalance: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -66,6 +71,19 @@ export const ExchangeCreateContract = {
     }
     if (!message.secondTokenBalance.equals(Long.ZERO)) {
       writer.uint32(40).int64(message.secondTokenBalance);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -116,7 +134,17 @@ export const ExchangeCreateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -170,7 +198,13 @@ export const ExchangeCreateContract = {
 };
 
 function createBaseExchangeInjectContract(): ExchangeInjectContract {
-  return { ownerAddress: Buffer.alloc(0), exchangeId: Long.ZERO, tokenId: Buffer.alloc(0), quant: Long.ZERO };
+  return {
+    ownerAddress: Buffer.alloc(0),
+    exchangeId: Long.ZERO,
+    tokenId: Buffer.alloc(0),
+    quant: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const ExchangeInjectContract = {
@@ -186,6 +220,19 @@ export const ExchangeInjectContract = {
     }
     if (!message.quant.equals(Long.ZERO)) {
       writer.uint32(32).int64(message.quant);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -229,7 +276,17 @@ export const ExchangeInjectContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -276,7 +333,13 @@ export const ExchangeInjectContract = {
 };
 
 function createBaseExchangeWithdrawContract(): ExchangeWithdrawContract {
-  return { ownerAddress: Buffer.alloc(0), exchangeId: Long.ZERO, tokenId: Buffer.alloc(0), quant: Long.ZERO };
+  return {
+    ownerAddress: Buffer.alloc(0),
+    exchangeId: Long.ZERO,
+    tokenId: Buffer.alloc(0),
+    quant: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const ExchangeWithdrawContract = {
@@ -292,6 +355,19 @@ export const ExchangeWithdrawContract = {
     }
     if (!message.quant.equals(Long.ZERO)) {
       writer.uint32(32).int64(message.quant);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -335,7 +411,17 @@ export const ExchangeWithdrawContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -388,6 +474,7 @@ function createBaseExchangeTransactionContract(): ExchangeTransactionContract {
     tokenId: Buffer.alloc(0),
     quant: Long.ZERO,
     expected: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -407,6 +494,19 @@ export const ExchangeTransactionContract = {
     }
     if (!message.expected.equals(Long.ZERO)) {
       writer.uint32(40).int64(message.expected);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -457,7 +557,17 @@ export const ExchangeTransactionContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

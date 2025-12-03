@@ -15,18 +15,21 @@ export interface AccountCreateContract {
   ownerAddress: Buffer;
   accountAddress: Buffer;
   type: AccountType;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Update account name. Account name is not unique now. */
 export interface AccountUpdateContract {
   accountName: Buffer;
   ownerAddress: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** Set account id if the account has no id. Account id is unique and case insensitive. */
 export interface SetAccountIdContract {
   accountId: Buffer;
   ownerAddress: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface AccountPermissionUpdateContract {
@@ -41,10 +44,11 @@ export interface AccountPermissionUpdateContract {
     | undefined;
   /** Empty is invalidate */
   actives: Permission[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseAccountCreateContract(): AccountCreateContract {
-  return { ownerAddress: Buffer.alloc(0), accountAddress: Buffer.alloc(0), type: 0 };
+  return { ownerAddress: Buffer.alloc(0), accountAddress: Buffer.alloc(0), type: 0, _unknownFields: {} };
 }
 
 export const AccountCreateContract = {
@@ -57,6 +61,19 @@ export const AccountCreateContract = {
     }
     if (message.type !== 0) {
       writer.uint32(24).int32(message.type);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -93,7 +110,17 @@ export const AccountCreateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -135,7 +162,7 @@ export const AccountCreateContract = {
 };
 
 function createBaseAccountUpdateContract(): AccountUpdateContract {
-  return { accountName: Buffer.alloc(0), ownerAddress: Buffer.alloc(0) };
+  return { accountName: Buffer.alloc(0), ownerAddress: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const AccountUpdateContract = {
@@ -145,6 +172,19 @@ export const AccountUpdateContract = {
     }
     if (message.ownerAddress.length !== 0) {
       writer.uint32(18).bytes(message.ownerAddress);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -174,7 +214,17 @@ export const AccountUpdateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -209,7 +259,7 @@ export const AccountUpdateContract = {
 };
 
 function createBaseSetAccountIdContract(): SetAccountIdContract {
-  return { accountId: Buffer.alloc(0), ownerAddress: Buffer.alloc(0) };
+  return { accountId: Buffer.alloc(0), ownerAddress: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const SetAccountIdContract = {
@@ -219,6 +269,19 @@ export const SetAccountIdContract = {
     }
     if (message.ownerAddress.length !== 0) {
       writer.uint32(18).bytes(message.ownerAddress);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -248,7 +311,17 @@ export const SetAccountIdContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -283,7 +356,7 @@ export const SetAccountIdContract = {
 };
 
 function createBaseAccountPermissionUpdateContract(): AccountPermissionUpdateContract {
-  return { ownerAddress: Buffer.alloc(0), owner: undefined, witness: undefined, actives: [] };
+  return { ownerAddress: Buffer.alloc(0), owner: undefined, witness: undefined, actives: [], _unknownFields: {} };
 }
 
 export const AccountPermissionUpdateContract = {
@@ -299,6 +372,19 @@ export const AccountPermissionUpdateContract = {
     }
     for (const v of message.actives) {
       Permission.encode(v!, writer.uint32(34).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -342,7 +428,17 @@ export const AccountPermissionUpdateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

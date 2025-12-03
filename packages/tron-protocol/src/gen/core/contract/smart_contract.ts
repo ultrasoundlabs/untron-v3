@@ -22,10 +22,12 @@ export interface SmartContract {
   codeHash: Buffer;
   trxHash: Buffer;
   version: number;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface SmartContract_ABI {
   entrys: SmartContract_ABI_Entry[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface SmartContract_ABI_Entry {
@@ -37,6 +39,7 @@ export interface SmartContract_ABI_Entry {
   type: SmartContract_ABI_Entry_EntryType;
   payable: boolean;
   stateMutability: SmartContract_ABI_Entry_StateMutabilityType;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export enum SmartContract_ABI_Entry_EntryType {
@@ -162,12 +165,14 @@ export interface SmartContract_ABI_Entry_Param {
   name: string;
   /** SolidityType type = 3; */
   type: string;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ContractState {
   energyUsage: Long;
   energyFactor: Long;
   updateCycle: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface CreateSmartContract {
@@ -175,6 +180,7 @@ export interface CreateSmartContract {
   newContract: SmartContract | undefined;
   callTokenValue: Long;
   tokenId: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface TriggerSmartContract {
@@ -184,29 +190,34 @@ export interface TriggerSmartContract {
   data: Buffer;
   callTokenValue: Long;
   tokenId: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ClearABIContract {
   ownerAddress: Buffer;
   contractAddress: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface UpdateSettingContract {
   ownerAddress: Buffer;
   contractAddress: Buffer;
   consumeUserResourcePercent: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface UpdateEnergyLimitContract {
   ownerAddress: Buffer;
   contractAddress: Buffer;
   originEnergyLimit: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface SmartContractDataWrapper {
   smartContract: SmartContract | undefined;
   runtimecode: Buffer;
   contractState: ContractState | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseSmartContract(): SmartContract {
@@ -222,6 +233,7 @@ function createBaseSmartContract(): SmartContract {
     codeHash: Buffer.alloc(0),
     trxHash: Buffer.alloc(0),
     version: 0,
+    _unknownFields: {},
   };
 }
 
@@ -259,6 +271,19 @@ export const SmartContract = {
     }
     if (message.version !== 0) {
       writer.uint32(88).int32(message.version);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -351,7 +376,17 @@ export const SmartContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -444,13 +479,26 @@ export const SmartContract = {
 };
 
 function createBaseSmartContract_ABI(): SmartContract_ABI {
-  return { entrys: [] };
+  return { entrys: [], _unknownFields: {} };
 }
 
 export const SmartContract_ABI = {
   encode(message: SmartContract_ABI, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     for (const v of message.entrys) {
       SmartContract_ABI_Entry.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -473,7 +521,17 @@ export const SmartContract_ABI = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -514,6 +572,7 @@ function createBaseSmartContract_ABI_Entry(): SmartContract_ABI_Entry {
     type: 0,
     payable: false,
     stateMutability: 0,
+    _unknownFields: {},
   };
 }
 
@@ -542,6 +601,19 @@ export const SmartContract_ABI_Entry = {
     }
     if (message.stateMutability !== 0) {
       writer.uint32(64).int32(message.stateMutability);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -613,7 +685,17 @@ export const SmartContract_ABI_Entry = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -684,7 +766,7 @@ export const SmartContract_ABI_Entry = {
 };
 
 function createBaseSmartContract_ABI_Entry_Param(): SmartContract_ABI_Entry_Param {
-  return { indexed: false, name: "", type: "" };
+  return { indexed: false, name: "", type: "", _unknownFields: {} };
 }
 
 export const SmartContract_ABI_Entry_Param = {
@@ -697,6 +779,19 @@ export const SmartContract_ABI_Entry_Param = {
     }
     if (message.type !== "") {
       writer.uint32(26).string(message.type);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -733,7 +828,17 @@ export const SmartContract_ABI_Entry_Param = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -775,7 +880,7 @@ export const SmartContract_ABI_Entry_Param = {
 };
 
 function createBaseContractState(): ContractState {
-  return { energyUsage: Long.ZERO, energyFactor: Long.ZERO, updateCycle: Long.ZERO };
+  return { energyUsage: Long.ZERO, energyFactor: Long.ZERO, updateCycle: Long.ZERO, _unknownFields: {} };
 }
 
 export const ContractState = {
@@ -788,6 +893,19 @@ export const ContractState = {
     }
     if (!message.updateCycle.equals(Long.ZERO)) {
       writer.uint32(24).int64(message.updateCycle);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -824,7 +942,17 @@ export const ContractState = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -870,7 +998,13 @@ export const ContractState = {
 };
 
 function createBaseCreateSmartContract(): CreateSmartContract {
-  return { ownerAddress: Buffer.alloc(0), newContract: undefined, callTokenValue: Long.ZERO, tokenId: Long.ZERO };
+  return {
+    ownerAddress: Buffer.alloc(0),
+    newContract: undefined,
+    callTokenValue: Long.ZERO,
+    tokenId: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const CreateSmartContract = {
@@ -886,6 +1020,19 @@ export const CreateSmartContract = {
     }
     if (!message.tokenId.equals(Long.ZERO)) {
       writer.uint32(32).int64(message.tokenId);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -929,7 +1076,17 @@ export const CreateSmartContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -987,6 +1144,7 @@ function createBaseTriggerSmartContract(): TriggerSmartContract {
     data: Buffer.alloc(0),
     callTokenValue: Long.ZERO,
     tokenId: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -1009,6 +1167,19 @@ export const TriggerSmartContract = {
     }
     if (!message.tokenId.equals(Long.ZERO)) {
       writer.uint32(48).int64(message.tokenId);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1066,7 +1237,17 @@ export const TriggerSmartContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -1129,7 +1310,7 @@ export const TriggerSmartContract = {
 };
 
 function createBaseClearABIContract(): ClearABIContract {
-  return { ownerAddress: Buffer.alloc(0), contractAddress: Buffer.alloc(0) };
+  return { ownerAddress: Buffer.alloc(0), contractAddress: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const ClearABIContract = {
@@ -1139,6 +1320,19 @@ export const ClearABIContract = {
     }
     if (message.contractAddress.length !== 0) {
       writer.uint32(18).bytes(message.contractAddress);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1168,7 +1362,17 @@ export const ClearABIContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -1205,7 +1409,12 @@ export const ClearABIContract = {
 };
 
 function createBaseUpdateSettingContract(): UpdateSettingContract {
-  return { ownerAddress: Buffer.alloc(0), contractAddress: Buffer.alloc(0), consumeUserResourcePercent: Long.ZERO };
+  return {
+    ownerAddress: Buffer.alloc(0),
+    contractAddress: Buffer.alloc(0),
+    consumeUserResourcePercent: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const UpdateSettingContract = {
@@ -1218,6 +1427,19 @@ export const UpdateSettingContract = {
     }
     if (!message.consumeUserResourcePercent.equals(Long.ZERO)) {
       writer.uint32(24).int64(message.consumeUserResourcePercent);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1254,7 +1476,17 @@ export const UpdateSettingContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -1301,7 +1533,12 @@ export const UpdateSettingContract = {
 };
 
 function createBaseUpdateEnergyLimitContract(): UpdateEnergyLimitContract {
-  return { ownerAddress: Buffer.alloc(0), contractAddress: Buffer.alloc(0), originEnergyLimit: Long.ZERO };
+  return {
+    ownerAddress: Buffer.alloc(0),
+    contractAddress: Buffer.alloc(0),
+    originEnergyLimit: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const UpdateEnergyLimitContract = {
@@ -1314,6 +1551,19 @@ export const UpdateEnergyLimitContract = {
     }
     if (!message.originEnergyLimit.equals(Long.ZERO)) {
       writer.uint32(24).int64(message.originEnergyLimit);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1350,7 +1600,17 @@ export const UpdateEnergyLimitContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -1394,7 +1654,7 @@ export const UpdateEnergyLimitContract = {
 };
 
 function createBaseSmartContractDataWrapper(): SmartContractDataWrapper {
-  return { smartContract: undefined, runtimecode: Buffer.alloc(0), contractState: undefined };
+  return { smartContract: undefined, runtimecode: Buffer.alloc(0), contractState: undefined, _unknownFields: {} };
 }
 
 export const SmartContractDataWrapper = {
@@ -1407,6 +1667,19 @@ export const SmartContractDataWrapper = {
     }
     if (message.contractState !== undefined) {
       ContractState.encode(message.contractState, writer.uint32(26).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1443,7 +1716,17 @@ export const SmartContractDataWrapper = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

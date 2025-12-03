@@ -14,27 +14,31 @@ export interface BuyStorageBytesContract {
   ownerAddress: Buffer;
   /** storage bytes for buy */
   bytes: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface BuyStorageContract {
   ownerAddress: Buffer;
   /** trx quantity for buy storage (sun) */
   quant: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface SellStorageContract {
   ownerAddress: Buffer;
   storageBytes: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface UpdateBrokerageContract {
   ownerAddress: Buffer;
   /** 1 mean 1% */
   brokerage: number;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseBuyStorageBytesContract(): BuyStorageBytesContract {
-  return { ownerAddress: Buffer.alloc(0), bytes: Long.ZERO };
+  return { ownerAddress: Buffer.alloc(0), bytes: Long.ZERO, _unknownFields: {} };
 }
 
 export const BuyStorageBytesContract = {
@@ -44,6 +48,19 @@ export const BuyStorageBytesContract = {
     }
     if (!message.bytes.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.bytes);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -73,7 +90,17 @@ export const BuyStorageBytesContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -108,7 +135,7 @@ export const BuyStorageBytesContract = {
 };
 
 function createBaseBuyStorageContract(): BuyStorageContract {
-  return { ownerAddress: Buffer.alloc(0), quant: Long.ZERO };
+  return { ownerAddress: Buffer.alloc(0), quant: Long.ZERO, _unknownFields: {} };
 }
 
 export const BuyStorageContract = {
@@ -118,6 +145,19 @@ export const BuyStorageContract = {
     }
     if (!message.quant.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.quant);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -147,7 +187,17 @@ export const BuyStorageContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -182,7 +232,7 @@ export const BuyStorageContract = {
 };
 
 function createBaseSellStorageContract(): SellStorageContract {
-  return { ownerAddress: Buffer.alloc(0), storageBytes: Long.ZERO };
+  return { ownerAddress: Buffer.alloc(0), storageBytes: Long.ZERO, _unknownFields: {} };
 }
 
 export const SellStorageContract = {
@@ -192,6 +242,19 @@ export const SellStorageContract = {
     }
     if (!message.storageBytes.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.storageBytes);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -221,7 +284,17 @@ export const SellStorageContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -258,7 +331,7 @@ export const SellStorageContract = {
 };
 
 function createBaseUpdateBrokerageContract(): UpdateBrokerageContract {
-  return { ownerAddress: Buffer.alloc(0), brokerage: 0 };
+  return { ownerAddress: Buffer.alloc(0), brokerage: 0, _unknownFields: {} };
 }
 
 export const UpdateBrokerageContract = {
@@ -268,6 +341,19 @@ export const UpdateBrokerageContract = {
     }
     if (message.brokerage !== 0) {
       writer.uint32(16).int32(message.brokerage);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -297,7 +383,17 @@ export const UpdateBrokerageContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

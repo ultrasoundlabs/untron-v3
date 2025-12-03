@@ -31,11 +31,13 @@ export interface AssetIssueContract {
   publicFreeAssetNetLimit: Long;
   publicFreeAssetNetUsage: Long;
   publicLatestFreeNetTime: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface AssetIssueContract_FrozenSupply {
   frozenAmount: Long;
   frozenDays: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface TransferAssetContract {
@@ -44,10 +46,12 @@ export interface TransferAssetContract {
   ownerAddress: Buffer;
   toAddress: Buffer;
   amount: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface UnfreezeAssetContract {
   ownerAddress: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface UpdateAssetContract {
@@ -56,6 +60,7 @@ export interface UpdateAssetContract {
   url: Buffer;
   newLimit: Long;
   newPublicLimit: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ParticipateAssetIssueContract {
@@ -65,6 +70,7 @@ export interface ParticipateAssetIssueContract {
   assetName: Buffer;
   /** the amount of drops */
   amount: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseAssetIssueContract(): AssetIssueContract {
@@ -88,6 +94,7 @@ function createBaseAssetIssueContract(): AssetIssueContract {
     publicFreeAssetNetLimit: Long.ZERO,
     publicFreeAssetNetUsage: Long.ZERO,
     publicLatestFreeNetTime: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -149,6 +156,19 @@ export const AssetIssueContract = {
     }
     if (!message.publicLatestFreeNetTime.equals(Long.ZERO)) {
       writer.uint32(200).int64(message.publicLatestFreeNetTime);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -297,7 +317,17 @@ export const AssetIssueContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -442,7 +472,7 @@ export const AssetIssueContract = {
 };
 
 function createBaseAssetIssueContract_FrozenSupply(): AssetIssueContract_FrozenSupply {
-  return { frozenAmount: Long.ZERO, frozenDays: Long.ZERO };
+  return { frozenAmount: Long.ZERO, frozenDays: Long.ZERO, _unknownFields: {} };
 }
 
 export const AssetIssueContract_FrozenSupply = {
@@ -452,6 +482,19 @@ export const AssetIssueContract_FrozenSupply = {
     }
     if (!message.frozenDays.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.frozenDays);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -481,7 +524,17 @@ export const AssetIssueContract_FrozenSupply = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -522,7 +575,13 @@ export const AssetIssueContract_FrozenSupply = {
 };
 
 function createBaseTransferAssetContract(): TransferAssetContract {
-  return { assetName: Buffer.alloc(0), ownerAddress: Buffer.alloc(0), toAddress: Buffer.alloc(0), amount: Long.ZERO };
+  return {
+    assetName: Buffer.alloc(0),
+    ownerAddress: Buffer.alloc(0),
+    toAddress: Buffer.alloc(0),
+    amount: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const TransferAssetContract = {
@@ -538,6 +597,19 @@ export const TransferAssetContract = {
     }
     if (!message.amount.equals(Long.ZERO)) {
       writer.uint32(32).int64(message.amount);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -581,7 +653,17 @@ export const TransferAssetContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -628,13 +710,26 @@ export const TransferAssetContract = {
 };
 
 function createBaseUnfreezeAssetContract(): UnfreezeAssetContract {
-  return { ownerAddress: Buffer.alloc(0) };
+  return { ownerAddress: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const UnfreezeAssetContract = {
   encode(message: UnfreezeAssetContract, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.ownerAddress.length !== 0) {
       writer.uint32(10).bytes(message.ownerAddress);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -657,7 +752,17 @@ export const UnfreezeAssetContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -693,6 +798,7 @@ function createBaseUpdateAssetContract(): UpdateAssetContract {
     url: Buffer.alloc(0),
     newLimit: Long.ZERO,
     newPublicLimit: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -712,6 +818,19 @@ export const UpdateAssetContract = {
     }
     if (!message.newPublicLimit.equals(Long.ZERO)) {
       writer.uint32(40).int64(message.newPublicLimit);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -762,7 +881,17 @@ export const UpdateAssetContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -816,7 +945,13 @@ export const UpdateAssetContract = {
 };
 
 function createBaseParticipateAssetIssueContract(): ParticipateAssetIssueContract {
-  return { ownerAddress: Buffer.alloc(0), toAddress: Buffer.alloc(0), assetName: Buffer.alloc(0), amount: Long.ZERO };
+  return {
+    ownerAddress: Buffer.alloc(0),
+    toAddress: Buffer.alloc(0),
+    assetName: Buffer.alloc(0),
+    amount: Long.ZERO,
+    _unknownFields: {},
+  };
 }
 
 export const ParticipateAssetIssueContract = {
@@ -832,6 +967,19 @@ export const ParticipateAssetIssueContract = {
     }
     if (!message.amount.equals(Long.ZERO)) {
       writer.uint32(32).int64(message.amount);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -875,7 +1023,17 @@ export const ParticipateAssetIssueContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

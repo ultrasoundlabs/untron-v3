@@ -15,25 +15,29 @@ export interface ProposalApproveContract {
   proposalId: Long;
   /** add or remove approval */
   isAddApproval: boolean;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ProposalCreateContract {
   ownerAddress: Buffer;
   parameters: Map<Long, Long>;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ProposalCreateContract_ParametersEntry {
   key: Long;
   value: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ProposalDeleteContract {
   ownerAddress: Buffer;
   proposalId: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseProposalApproveContract(): ProposalApproveContract {
-  return { ownerAddress: Buffer.alloc(0), proposalId: Long.ZERO, isAddApproval: false };
+  return { ownerAddress: Buffer.alloc(0), proposalId: Long.ZERO, isAddApproval: false, _unknownFields: {} };
 }
 
 export const ProposalApproveContract = {
@@ -46,6 +50,19 @@ export const ProposalApproveContract = {
     }
     if (message.isAddApproval !== false) {
       writer.uint32(24).bool(message.isAddApproval);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -82,7 +99,17 @@ export const ProposalApproveContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -124,7 +151,7 @@ export const ProposalApproveContract = {
 };
 
 function createBaseProposalCreateContract(): ProposalCreateContract {
-  return { ownerAddress: Buffer.alloc(0), parameters: new Map() };
+  return { ownerAddress: Buffer.alloc(0), parameters: new Map(), _unknownFields: {} };
 }
 
 export const ProposalCreateContract = {
@@ -135,6 +162,19 @@ export const ProposalCreateContract = {
     message.parameters.forEach((value, key) => {
       ProposalCreateContract_ParametersEntry.encode({ key: key as any, value }, writer.uint32(18).fork()).ldelim();
     });
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
+    }
     return writer;
   },
 
@@ -166,7 +206,17 @@ export const ProposalCreateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -217,7 +267,7 @@ export const ProposalCreateContract = {
 };
 
 function createBaseProposalCreateContract_ParametersEntry(): ProposalCreateContract_ParametersEntry {
-  return { key: Long.ZERO, value: Long.ZERO };
+  return { key: Long.ZERO, value: Long.ZERO, _unknownFields: {} };
 }
 
 export const ProposalCreateContract_ParametersEntry = {
@@ -227,6 +277,19 @@ export const ProposalCreateContract_ParametersEntry = {
     }
     if (!message.value.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.value);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -256,7 +319,17 @@ export const ProposalCreateContract_ParametersEntry = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -295,7 +368,7 @@ export const ProposalCreateContract_ParametersEntry = {
 };
 
 function createBaseProposalDeleteContract(): ProposalDeleteContract {
-  return { ownerAddress: Buffer.alloc(0), proposalId: Long.ZERO };
+  return { ownerAddress: Buffer.alloc(0), proposalId: Long.ZERO, _unknownFields: {} };
 }
 
 export const ProposalDeleteContract = {
@@ -305,6 +378,19 @@ export const ProposalDeleteContract = {
     }
     if (!message.proposalId.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.proposalId);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -334,7 +420,17 @@ export const ProposalDeleteContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

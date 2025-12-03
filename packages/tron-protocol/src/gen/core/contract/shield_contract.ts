@@ -12,32 +12,38 @@ export const protobufPackage = "protocol";
 
 export interface AuthenticationPath {
   value: boolean[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface MerklePath {
   authenticationPaths: AuthenticationPath[];
   index: boolean[];
   rt: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface OutputPoint {
   hash: Buffer;
   index: number;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface OutputPointInfo {
   outPoints: OutputPoint[];
   blockNum: number;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface PedersenHash {
   content: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface IncrementalMerkleTree {
   left: PedersenHash | undefined;
   right: PedersenHash | undefined;
   parents: PedersenHash[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface IncrementalMerkleVoucher {
@@ -47,11 +53,13 @@ export interface IncrementalMerkleVoucher {
   cursorDepth: Long;
   rt: Buffer;
   outputPoint: OutputPoint | undefined;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface IncrementalMerkleVoucherInfo {
   vouchers: IncrementalMerkleVoucher[];
   paths: Buffer[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface SpendDescription {
@@ -64,6 +72,7 @@ export interface SpendDescription {
   rk: Buffer;
   zkproof: Buffer;
   spendAuthoritySignature: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ReceiveDescription {
@@ -76,6 +85,7 @@ export interface ReceiveDescription {
   /** Encryption for audit, decrypt it with ovk */
   cOut: Buffer;
   zkproof: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface ShieldedTransferContract {
@@ -89,10 +99,11 @@ export interface ShieldedTransferContract {
   transparentToAddress: Buffer;
   /** the amount to transparent to_address */
   toAmount: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseAuthenticationPath(): AuthenticationPath {
-  return { value: [] };
+  return { value: [], _unknownFields: {} };
 }
 
 export const AuthenticationPath = {
@@ -102,6 +113,19 @@ export const AuthenticationPath = {
       writer.bool(v);
     }
     writer.ldelim();
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
+    }
     return writer;
   },
 
@@ -133,7 +157,17 @@ export const AuthenticationPath = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -163,7 +197,7 @@ export const AuthenticationPath = {
 };
 
 function createBaseMerklePath(): MerklePath {
-  return { authenticationPaths: [], index: [], rt: Buffer.alloc(0) };
+  return { authenticationPaths: [], index: [], rt: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const MerklePath = {
@@ -178,6 +212,19 @@ export const MerklePath = {
     writer.ldelim();
     if (message.rt.length !== 0) {
       writer.uint32(26).bytes(message.rt);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -224,7 +271,17 @@ export const MerklePath = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -266,7 +323,7 @@ export const MerklePath = {
 };
 
 function createBaseOutputPoint(): OutputPoint {
-  return { hash: Buffer.alloc(0), index: 0 };
+  return { hash: Buffer.alloc(0), index: 0, _unknownFields: {} };
 }
 
 export const OutputPoint = {
@@ -276,6 +333,19 @@ export const OutputPoint = {
     }
     if (message.index !== 0) {
       writer.uint32(16).int32(message.index);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -305,7 +375,17 @@ export const OutputPoint = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -340,7 +420,7 @@ export const OutputPoint = {
 };
 
 function createBaseOutputPointInfo(): OutputPointInfo {
-  return { outPoints: [], blockNum: 0 };
+  return { outPoints: [], blockNum: 0, _unknownFields: {} };
 }
 
 export const OutputPointInfo = {
@@ -350,6 +430,19 @@ export const OutputPointInfo = {
     }
     if (message.blockNum !== 0) {
       writer.uint32(16).int32(message.blockNum);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -379,7 +472,17 @@ export const OutputPointInfo = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -416,13 +519,26 @@ export const OutputPointInfo = {
 };
 
 function createBasePedersenHash(): PedersenHash {
-  return { content: Buffer.alloc(0) };
+  return { content: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const PedersenHash = {
   encode(message: PedersenHash, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.content.length !== 0) {
       writer.uint32(10).bytes(message.content);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -445,7 +561,17 @@ export const PedersenHash = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -473,7 +599,7 @@ export const PedersenHash = {
 };
 
 function createBaseIncrementalMerkleTree(): IncrementalMerkleTree {
-  return { left: undefined, right: undefined, parents: [] };
+  return { left: undefined, right: undefined, parents: [], _unknownFields: {} };
 }
 
 export const IncrementalMerkleTree = {
@@ -486,6 +612,19 @@ export const IncrementalMerkleTree = {
     }
     for (const v of message.parents) {
       PedersenHash.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -522,7 +661,17 @@ export const IncrementalMerkleTree = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -575,6 +724,7 @@ function createBaseIncrementalMerkleVoucher(): IncrementalMerkleVoucher {
     cursorDepth: Long.ZERO,
     rt: Buffer.alloc(0),
     outputPoint: undefined,
+    _unknownFields: {},
   };
 }
 
@@ -597,6 +747,19 @@ export const IncrementalMerkleVoucher = {
     }
     if (message.outputPoint !== undefined) {
       OutputPoint.encode(message.outputPoint, writer.uint32(82).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -654,7 +817,17 @@ export const IncrementalMerkleVoucher = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -717,7 +890,7 @@ export const IncrementalMerkleVoucher = {
 };
 
 function createBaseIncrementalMerkleVoucherInfo(): IncrementalMerkleVoucherInfo {
-  return { vouchers: [], paths: [] };
+  return { vouchers: [], paths: [], _unknownFields: {} };
 }
 
 export const IncrementalMerkleVoucherInfo = {
@@ -727,6 +900,19 @@ export const IncrementalMerkleVoucherInfo = {
     }
     for (const v of message.paths) {
       writer.uint32(18).bytes(v!);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -756,7 +942,17 @@ export const IncrementalMerkleVoucherInfo = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -802,6 +998,7 @@ function createBaseSpendDescription(): SpendDescription {
     rk: Buffer.alloc(0),
     zkproof: Buffer.alloc(0),
     spendAuthoritySignature: Buffer.alloc(0),
+    _unknownFields: {},
   };
 }
 
@@ -824,6 +1021,19 @@ export const SpendDescription = {
     }
     if (message.spendAuthoritySignature.length !== 0) {
       writer.uint32(50).bytes(message.spendAuthoritySignature);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -881,7 +1091,17 @@ export const SpendDescription = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -947,6 +1167,7 @@ function createBaseReceiveDescription(): ReceiveDescription {
     cEnc: Buffer.alloc(0),
     cOut: Buffer.alloc(0),
     zkproof: Buffer.alloc(0),
+    _unknownFields: {},
   };
 }
 
@@ -969,6 +1190,19 @@ export const ReceiveDescription = {
     }
     if (message.zkproof.length !== 0) {
       writer.uint32(50).bytes(message.zkproof);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1026,7 +1260,17 @@ export const ReceiveDescription = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -1093,6 +1337,7 @@ function createBaseShieldedTransferContract(): ShieldedTransferContract {
     bindingSignature: Buffer.alloc(0),
     transparentToAddress: Buffer.alloc(0),
     toAmount: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -1118,6 +1363,19 @@ export const ShieldedTransferContract = {
     }
     if (!message.toAmount.equals(Long.ZERO)) {
       writer.uint32(56).int64(message.toAmount);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -1182,7 +1440,17 @@ export const ShieldedTransferContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

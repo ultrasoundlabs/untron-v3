@@ -31,6 +31,7 @@ export interface Http {
    * segment matches.
    */
   fullyDecodeReservedExpansion: boolean;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /**
@@ -362,6 +363,7 @@ export interface HttpRule {
    * the nesting may only be one level deep).
    */
   additionalBindings: HttpRule[];
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 /** A custom pattern is used for defining custom HTTP verb. */
@@ -370,10 +372,11 @@ export interface CustomHttpPattern {
   kind: string;
   /** The path matched by this custom verb. */
   path: string;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseHttp(): Http {
-  return { rules: [], fullyDecodeReservedExpansion: false };
+  return { rules: [], fullyDecodeReservedExpansion: false, _unknownFields: {} };
 }
 
 export const Http = {
@@ -383,6 +386,19 @@ export const Http = {
     }
     if (message.fullyDecodeReservedExpansion !== false) {
       writer.uint32(16).bool(message.fullyDecodeReservedExpansion);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -412,7 +428,17 @@ export const Http = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -460,6 +486,7 @@ function createBaseHttpRule(): HttpRule {
     body: "",
     responseBody: "",
     additionalBindings: [],
+    _unknownFields: {},
   };
 }
 
@@ -494,6 +521,19 @@ export const HttpRule = {
     }
     for (const v of message.additionalBindings) {
       HttpRule.encode(v!, writer.uint32(90).fork()).ldelim();
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -579,7 +619,17 @@ export const HttpRule = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -658,7 +708,7 @@ export const HttpRule = {
 };
 
 function createBaseCustomHttpPattern(): CustomHttpPattern {
-  return { kind: "", path: "" };
+  return { kind: "", path: "", _unknownFields: {} };
 }
 
 export const CustomHttpPattern = {
@@ -668,6 +718,19 @@ export const CustomHttpPattern = {
     }
     if (message.path !== "") {
       writer.uint32(18).string(message.path);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -697,7 +760,17 @@ export const CustomHttpPattern = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

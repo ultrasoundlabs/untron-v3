@@ -15,6 +15,7 @@ export interface Endpoint {
   port: number;
   nodeId: Buffer;
   addressIpv6: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface PingMessage {
@@ -22,33 +23,44 @@ export interface PingMessage {
   to: Endpoint | undefined;
   version: number;
   timestamp: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface PongMessage {
   from: Endpoint | undefined;
   echo: number;
   timestamp: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface FindNeighbours {
   from: Endpoint | undefined;
   targetId: Buffer;
   timestamp: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface Neighbours {
   from: Endpoint | undefined;
   neighbours: Endpoint[];
   timestamp: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface BackupMessage {
   flag: boolean;
   priority: number;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseEndpoint(): Endpoint {
-  return { address: Buffer.alloc(0), port: 0, nodeId: Buffer.alloc(0), addressIpv6: Buffer.alloc(0) };
+  return {
+    address: Buffer.alloc(0),
+    port: 0,
+    nodeId: Buffer.alloc(0),
+    addressIpv6: Buffer.alloc(0),
+    _unknownFields: {},
+  };
 }
 
 export const Endpoint = {
@@ -64,6 +76,19 @@ export const Endpoint = {
     }
     if (message.addressIpv6.length !== 0) {
       writer.uint32(34).bytes(message.addressIpv6);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -107,7 +132,17 @@ export const Endpoint = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -152,7 +187,7 @@ export const Endpoint = {
 };
 
 function createBasePingMessage(): PingMessage {
-  return { from: undefined, to: undefined, version: 0, timestamp: Long.ZERO };
+  return { from: undefined, to: undefined, version: 0, timestamp: Long.ZERO, _unknownFields: {} };
 }
 
 export const PingMessage = {
@@ -168,6 +203,19 @@ export const PingMessage = {
     }
     if (!message.timestamp.equals(Long.ZERO)) {
       writer.uint32(32).int64(message.timestamp);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -211,7 +259,17 @@ export const PingMessage = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -258,7 +316,7 @@ export const PingMessage = {
 };
 
 function createBasePongMessage(): PongMessage {
-  return { from: undefined, echo: 0, timestamp: Long.ZERO };
+  return { from: undefined, echo: 0, timestamp: Long.ZERO, _unknownFields: {} };
 }
 
 export const PongMessage = {
@@ -271,6 +329,19 @@ export const PongMessage = {
     }
     if (!message.timestamp.equals(Long.ZERO)) {
       writer.uint32(24).int64(message.timestamp);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -307,7 +378,17 @@ export const PongMessage = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -349,7 +430,7 @@ export const PongMessage = {
 };
 
 function createBaseFindNeighbours(): FindNeighbours {
-  return { from: undefined, targetId: Buffer.alloc(0), timestamp: Long.ZERO };
+  return { from: undefined, targetId: Buffer.alloc(0), timestamp: Long.ZERO, _unknownFields: {} };
 }
 
 export const FindNeighbours = {
@@ -362,6 +443,19 @@ export const FindNeighbours = {
     }
     if (!message.timestamp.equals(Long.ZERO)) {
       writer.uint32(24).int64(message.timestamp);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -398,7 +492,17 @@ export const FindNeighbours = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -440,7 +544,7 @@ export const FindNeighbours = {
 };
 
 function createBaseNeighbours(): Neighbours {
-  return { from: undefined, neighbours: [], timestamp: Long.ZERO };
+  return { from: undefined, neighbours: [], timestamp: Long.ZERO, _unknownFields: {} };
 }
 
 export const Neighbours = {
@@ -453,6 +557,19 @@ export const Neighbours = {
     }
     if (!message.timestamp.equals(Long.ZERO)) {
       writer.uint32(24).int64(message.timestamp);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -489,7 +606,17 @@ export const Neighbours = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -533,7 +660,7 @@ export const Neighbours = {
 };
 
 function createBaseBackupMessage(): BackupMessage {
-  return { flag: false, priority: 0 };
+  return { flag: false, priority: 0, _unknownFields: {} };
 }
 
 export const BackupMessage = {
@@ -543,6 +670,19 @@ export const BackupMessage = {
     }
     if (message.priority !== 0) {
       writer.uint32(16).int32(message.priority);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -572,7 +712,17 @@ export const BackupMessage = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

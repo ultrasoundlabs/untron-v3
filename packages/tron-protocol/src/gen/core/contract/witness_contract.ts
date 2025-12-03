@@ -13,26 +13,30 @@ export const protobufPackage = "protocol";
 export interface WitnessCreateContract {
   ownerAddress: Buffer;
   url: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface WitnessUpdateContract {
   ownerAddress: Buffer;
   updateUrl: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface VoteWitnessContract {
   ownerAddress: Buffer;
   votes: VoteWitnessContract_Vote[];
   support: boolean;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface VoteWitnessContract_Vote {
   voteAddress: Buffer;
   voteCount: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseWitnessCreateContract(): WitnessCreateContract {
-  return { ownerAddress: Buffer.alloc(0), url: Buffer.alloc(0) };
+  return { ownerAddress: Buffer.alloc(0), url: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const WitnessCreateContract = {
@@ -42,6 +46,19 @@ export const WitnessCreateContract = {
     }
     if (message.url.length !== 0) {
       writer.uint32(18).bytes(message.url);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -71,7 +88,17 @@ export const WitnessCreateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -106,7 +133,7 @@ export const WitnessCreateContract = {
 };
 
 function createBaseWitnessUpdateContract(): WitnessUpdateContract {
-  return { ownerAddress: Buffer.alloc(0), updateUrl: Buffer.alloc(0) };
+  return { ownerAddress: Buffer.alloc(0), updateUrl: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const WitnessUpdateContract = {
@@ -116,6 +143,19 @@ export const WitnessUpdateContract = {
     }
     if (message.updateUrl.length !== 0) {
       writer.uint32(98).bytes(message.updateUrl);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -145,7 +185,17 @@ export const WitnessUpdateContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -180,7 +230,7 @@ export const WitnessUpdateContract = {
 };
 
 function createBaseVoteWitnessContract(): VoteWitnessContract {
-  return { ownerAddress: Buffer.alloc(0), votes: [], support: false };
+  return { ownerAddress: Buffer.alloc(0), votes: [], support: false, _unknownFields: {} };
 }
 
 export const VoteWitnessContract = {
@@ -193,6 +243,19 @@ export const VoteWitnessContract = {
     }
     if (message.support !== false) {
       writer.uint32(24).bool(message.support);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -229,7 +292,17 @@ export const VoteWitnessContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -271,7 +344,7 @@ export const VoteWitnessContract = {
 };
 
 function createBaseVoteWitnessContract_Vote(): VoteWitnessContract_Vote {
-  return { voteAddress: Buffer.alloc(0), voteCount: Long.ZERO };
+  return { voteAddress: Buffer.alloc(0), voteCount: Long.ZERO, _unknownFields: {} };
 }
 
 export const VoteWitnessContract_Vote = {
@@ -281,6 +354,19 @@ export const VoteWitnessContract_Vote = {
     }
     if (!message.voteCount.equals(Long.ZERO)) {
       writer.uint32(16).int64(message.voteCount);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -310,7 +396,17 @@ export const VoteWitnessContract_Vote = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },

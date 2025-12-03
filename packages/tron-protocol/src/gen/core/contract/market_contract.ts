@@ -17,11 +17,13 @@ export interface MarketSellAssetContract {
   buyTokenId: Buffer;
   /** min to receive */
   buyTokenQuantity: Long;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 export interface MarketCancelOrderContract {
   ownerAddress: Buffer;
   orderId: Buffer;
+  _unknownFields?: { [key: number]: Uint8Array[] } | undefined;
 }
 
 function createBaseMarketSellAssetContract(): MarketSellAssetContract {
@@ -31,6 +33,7 @@ function createBaseMarketSellAssetContract(): MarketSellAssetContract {
     sellTokenQuantity: Long.ZERO,
     buyTokenId: Buffer.alloc(0),
     buyTokenQuantity: Long.ZERO,
+    _unknownFields: {},
   };
 }
 
@@ -50,6 +53,19 @@ export const MarketSellAssetContract = {
     }
     if (!message.buyTokenQuantity.equals(Long.ZERO)) {
       writer.uint32(40).int64(message.buyTokenQuantity);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -100,7 +116,17 @@ export const MarketSellAssetContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
@@ -154,7 +180,7 @@ export const MarketSellAssetContract = {
 };
 
 function createBaseMarketCancelOrderContract(): MarketCancelOrderContract {
-  return { ownerAddress: Buffer.alloc(0), orderId: Buffer.alloc(0) };
+  return { ownerAddress: Buffer.alloc(0), orderId: Buffer.alloc(0), _unknownFields: {} };
 }
 
 export const MarketCancelOrderContract = {
@@ -164,6 +190,19 @@ export const MarketCancelOrderContract = {
     }
     if (message.orderId.length !== 0) {
       writer.uint32(18).bytes(message.orderId);
+    }
+    if (message._unknownFields !== undefined) {
+      for (const [key, values] of Object.entries(message._unknownFields)) {
+        const tag = parseInt(key, 10);
+        for (const value of values) {
+          writer.uint32(tag);
+          (writer as any)["_push"](
+            (val: Uint8Array, buf: Buffer, pos: number) => buf.set(val, pos),
+            value.length,
+            value,
+          );
+        }
+      }
     }
     return writer;
   },
@@ -193,7 +232,17 @@ export const MarketCancelOrderContract = {
       if ((tag & 7) === 4 || tag === 0) {
         break;
       }
+      const startPos = reader.pos;
       reader.skipType(tag & 7);
+      const buf = reader.buf.slice(startPos, reader.pos);
+
+      const list = message._unknownFields![tag];
+
+      if (list === undefined) {
+        message._unknownFields![tag] = [buf];
+      } else {
+        list.push(buf);
+      }
     }
     return message;
   },
