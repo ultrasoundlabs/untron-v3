@@ -12,14 +12,25 @@ contract TronLightClient {
     uint256 internal constant TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
 
     IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
+    /// @notice EVM addresses of the elected Super Representatives (witness accounts) for this epoch.
+    /// These are the owner accounts that appear (with 0x41 prefix) in `BlockHeader_raw.witnessAddress`.
     bytes20[27] public srs;
+    /// @notice EVM addresses of the actual signing keys (may be delegated keys) for each SR index.
+    /// A given SR may delegate its witness permission to a separate key; those delegatees live here.
+    bytes20[27] public witnessDelegatees;
     bytes32 public latestProvenBlock;
     bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockIds;
 
-    constructor(IBlockRangeProver blockRangeProver, bytes32 initialBlockHash, bytes20[27] memory _srs) {
+    constructor(
+        IBlockRangeProver blockRangeProver,
+        bytes32 initialBlockHash,
+        bytes20[27] memory _srs,
+        bytes20[27] memory _witnessDelegatees
+    ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
         appendBlockId(initialBlockHash);
         srs = _srs;
+        witnessDelegatees = _witnessDelegatees;
     }
 
     struct TronBlockMetadata {
@@ -39,6 +50,7 @@ contract TronLightClient {
     error InvalidCompressedTronBlockMetadataLength();
     error InvalidCompressedSignaturesLength();
     error InvalidWitnessSigner();
+    error UnanchoredBlockRange();
 
     function proveBlocks(
         bytes32 startingBlock,
@@ -62,6 +74,19 @@ contract TronLightClient {
         // Recover the parent block number from the starting blockId and
         // increment it as we walk forward through the chain.
         uint256 blockNumber = blockIdToNumber(startingBlock);
+        bool intersectedExisting = false;
+
+        // If the starting block is already within our circular window, enforce
+        // consistency and treat it as an anchor for this proof range.
+        {
+            uint256 startingIndex = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
+            bytes32 startingSlot = latestBlockIds[startingIndex];
+            if (startingSlot != bytes32(0)) {
+                if (blockIdToNumber(startingSlot) > blockNumber) revert BlockTooOld();
+                if (startingSlot != startingBlock) revert InvalidChain();
+                intersectedExisting = true;
+            }
+        }
 
         for (uint256 i = 0; i < numBlocks; i++) {
             TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
@@ -102,21 +127,23 @@ contract TronLightClient {
             }
 
             bytes20 signer = bytes20(ECDSA.recover(blockHash, signature));
-            if (signer != srs[tronBlock.witnessAddressIndex]) revert InvalidWitnessSigner();
+            if (signer != witnessDelegatees[tronBlock.witnessAddressIndex]) revert InvalidWitnessSigner();
             bytes32 blockIdSlotAtOurIndex = latestBlockIds[blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH];
             if (blockIdSlotAtOurIndex != bytes32(0)) {
                 if (blockIdToNumber(blockIdSlotAtOurIndex) > blockNumber) revert BlockTooOld();
                 if (blockIdSlotAtOurIndex != blockId) revert InvalidChain();
+                intersectedExisting = true;
             }
         }
 
+        if (!intersectedExisting) revert UnanchoredBlockRange();
         appendBlockId(blockId);
         latestProvenBlock = blockId;
     }
 
     function proveBlockRange(bytes32 startingBlock, bytes32 endingBlock, bytes calldata zkProof) external {
         if (startingBlock != latestProvenBlock) revert BlockTooOld();
-        BLOCK_RANGE_PROVER.proveBlockRange(srs, startingBlock, endingBlock, zkProof);
+        BLOCK_RANGE_PROVER.proveBlockRange(srs, witnessDelegatees, startingBlock, endingBlock, zkProof);
         appendBlockId(endingBlock);
         latestProvenBlock = endingBlock;
     }
@@ -176,8 +203,10 @@ contract TronLightClient {
         // Tron raw header uses timestamp in milliseconds.
         uint256 tsMillis = uint256(tronBlock.timestamp) * 1000;
 
-        // Resolve the witness address from the static SR set and convert it into
+        // Resolve the Tron witness account address (owner) from the static SR set and convert it into
         // a Tron-style witness address (0x41 prefix + 20-byte EVM address).
+        // Note: `srs` encodes the owner accounts that appear in `BlockHeader_raw.witnessAddress`,
+        // while `witnessDelegatees` holds the actual signing keys (which may be delegated to that account).
         bytes20 witness = srs[tronBlock.witnessAddressIndex];
         // Treat the witness address as a 160-bit integer so we can explicitly
         // write its 20 bytes in big-endian order without relying on Solidity's

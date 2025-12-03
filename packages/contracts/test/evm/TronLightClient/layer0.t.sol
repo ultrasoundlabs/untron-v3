@@ -76,9 +76,19 @@ contract TronLightClientLayer0Test is Test {
             }
         }
 
+        // Build the witness delegatees set from the fixture's witnessDelegatees field, as in layer1.
+        bytes20[27] memory witnessDelegatees;
+        {
+            address[] memory delegateeAddrs = vm.parseJsonAddressArray(json, ".witnessDelegatees");
+            require(delegateeAddrs.length == 27, "fixture witnessDelegatees must be length 27");
+            for (uint256 i = 0; i < 27; i++) {
+                witnessDelegatees[i] = bytes20(delegateeAddrs[i]);
+            }
+        }
+
         // Use the startingBlockId from the fixture simply to satisfy the constructor.
         bytes32 startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
-        client = new TronLightClientHarness(IBlockRangeProver(address(0)), startingBlockId, srs);
+        client = new TronLightClientHarness(IBlockRangeProver(address(0)), startingBlockId, srs, witnessDelegatees);
     }
 
     /// @notice Sanity check that decoding the packed metadata yields the same

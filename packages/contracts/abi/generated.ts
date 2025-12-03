@@ -224,6 +224,11 @@ export const iBlockRangeProverAbi = [
     type: 'function',
     inputs: [
       { name: 'srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
+      {
+        name: 'witnessDelegatees',
+        internalType: 'bytes20[27]',
+        type: 'bytes20[27]',
+      },
       { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
@@ -3553,6 +3558,11 @@ export const tronLightClientAbi = [
       },
       { name: 'initialBlockHash', internalType: 'bytes32', type: 'bytes32' },
       { name: '_srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
+      {
+        name: '_witnessDelegatees',
+        internalType: 'bytes20[27]',
+        type: 'bytes20[27]',
+      },
     ],
     stateMutability: 'nonpayable',
   },
@@ -3612,6 +3622,13 @@ export const tronLightClientAbi = [
     outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'witnessDelegatees',
+    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
   { type: 'error', inputs: [], name: 'BlockNotRelayed' },
   { type: 'error', inputs: [], name: 'BlockTooOld' },
   { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
@@ -3642,6 +3659,7 @@ export const tronLightClientAbi = [
   },
   { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
   { type: 'error', inputs: [], name: 'NotEnoughBlocksOrSignatures' },
+  { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3659,6 +3677,11 @@ export const tronLightClientHarnessAbi = [
       },
       { name: 'initial', internalType: 'bytes32', type: 'bytes32' },
       { name: 'srs_', internalType: 'bytes20[27]', type: 'bytes20[27]' },
+      {
+        name: 'witnessDelegatees_',
+        internalType: 'bytes20[27]',
+        type: 'bytes20[27]',
+      },
     ],
     stateMutability: 'nonpayable',
   },
@@ -3780,6 +3803,13 @@ export const tronLightClientHarnessAbi = [
     outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'witnessDelegatees',
+    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
   { type: 'error', inputs: [], name: 'BlockNotRelayed' },
   { type: 'error', inputs: [], name: 'BlockTooOld' },
   { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
@@ -3810,6 +3840,7 @@ export const tronLightClientHarnessAbi = [
   },
   { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
   { type: 'error', inputs: [], name: 'NotEnoughBlocksOrSignatures' },
+  { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -9,6 +9,8 @@ import { createTronClients } from "@untron/tron-protocol";
 import { BlockHeader_raw } from "@untron/tron-protocol/tron";
 import type { BlockExtention, NumberMessage } from "@untron/tron-protocol/api";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+import * as secp256k1 from "@noble/secp256k1";
 import type { Address, Hex } from "viem";
 
 // Resolve paths relative to this file so we can reliably drop fixtures
@@ -35,6 +37,49 @@ function tronWitnessAddressToEvmAddress(bytes: Uint8Array | Buffer): Address | n
   // Tron witness address is 21 bytes: 0x41 prefix + 20-byte EVM address
   if (bytes.length !== 21 || bytes[0] !== 0x41) return null;
   return `0x${Buffer.from(bytes.subarray(1)).toString("hex")}` as Address;
+}
+
+function publicKey64FromUncompressed(pub: Uint8Array): Uint8Array | null {
+  if (pub.length === 65 && pub[0] === 0x04) return pub.subarray(1);
+  if (pub.length === 64) return pub;
+  return null;
+}
+
+function recoverUncompressedPublicKey(
+  hash32: Uint8Array,
+  witnessSignature: Buffer
+): Uint8Array | null {
+  if (!witnessSignature || witnessSignature.length < 65) return null;
+  const r = witnessSignature.subarray(0, 32);
+  const s = witnessSignature.subarray(32, 64);
+  let recovery = Number(witnessSignature[64]! & 0xff);
+  if (recovery >= 27) recovery -= 27; // normalize eth-style v (27/28) -> 0/1
+  if (recovery < 0 || recovery > 3) return null;
+  const sig65 = new Uint8Array(65);
+  sig65[0] = recovery;
+  sig65.set(r, 1);
+  sig65.set(s, 33);
+  try {
+    const pub = secp256k1.recoverPublicKey(sig65, hash32, { prehash: false });
+    if (!pub || pub.length === 0) return null;
+    if (pub.length === 65) return pub; // uncompressed 0x04 || X || Y
+    if (pub.length === 33) {
+      const hex = Buffer.from(pub).toString("hex");
+      return secp256k1.Point.fromHex(hex).toBytes(false);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function evmAddressFromUncompressed(pub: Uint8Array): Address {
+  const pub64 = publicKey64FromUncompressed(pub);
+  if (!pub64) {
+    throw new Error("Invalid uncompressed public key length");
+  }
+  const hash = keccak_256(pub64);
+  return `0x${Buffer.from(hash.subarray(12)).toString("hex")}` as Address;
 }
 
 // Compute Tron-style blockId and related reference values for testing:
@@ -76,7 +121,8 @@ type Fixture = {
   endBlock: string;
   startingBlockId: Hex;
   endingBlockId: Hex;
-  srs: Address[]; // always length 27
+  // Super Representatives (SR) – Tron witness owner accounts that appear in BlockHeader_raw.witnessAddress.
+  srs: Address[]; // always length 27, SR owner accounts
   compressedTronBlockMetadata: Hex;
   compressedSignatures: Hex;
   blockNumbers: string[];
@@ -85,9 +131,12 @@ type Fixture = {
   // These are per-block arrays aligned with blockNumbers/blockIds.
   blockHashes: Hex[]; // sha256(BlockHeader_raw)
   blockHeaderRawBytes: Hex[]; // raw BlockHeader_raw.encode(raw) bytes
-  witnessEvmAddresses: Address[]; // derived from raw.witnessAddress
+  witnessEvmAddresses: Address[]; // per-block recovered signing key
   witnessIndices: number[]; // witness index written into compressedTronBlockMetadata
   witnessSignatures: Hex[]; // 65-byte [r|s|v] signatures as hex
+  // Per-SR mapping from SR owner account (srs[i]) to its delegated signing key (if any).
+  // These are the EVM addresses of the actual ECDSA keys used to sign blocks.
+  witnessDelegatees: Address[]; // length 27
 };
 
 async function fetchBlock(wallet: any, callOpts: any, num: number): Promise<BlockExtention> {
@@ -163,9 +212,8 @@ async function main() {
   // We'll use this as startingBlockId in the fixture.
   const startingBlockId = toHex0x(firstRaw.parentHash);
 
-  // SRS construction (unique SR addresses seen in this range).
-  const srsMap = new Map<Address, number>();
-  const srsList: Address[] = [];
+  // Index construction keyed by signing key (delegatee). We later map each index to its SR owner.
+  const signerIndexMap = new Map<Address, number>();
 
   // Pre-allocate buffers
   const TRON_BLOCK_METADATA_SIZE = 69; // 32 + 32 + 4 + 1
@@ -181,6 +229,9 @@ async function main() {
   const witnessEvmAddresses: Address[] = [];
   const witnessIndices: number[] = [];
   const witnessSignatures: Hex[] = [];
+  const witnessOwnersByIndex: Address[] = new Array(27).fill(
+    "0x0000000000000000000000000000000000000000"
+  ) as Address[];
 
   let metaOffset = 0;
   let sigOffset = 0;
@@ -197,26 +248,61 @@ async function main() {
     blockHashes.push(blockHash);
     blockHeaderRawBytes.push(rawHeaderBytes);
 
-    // Witness address -> EVM address, derive index into srs[]
+    // Owner (Tron witness account) and signer (actual ECDSA key) may differ due to delegation.
+    // - Owner EVM address comes from raw.witnessAddress (0x41 prefix + 20-byte EVM).
+    // - Signer EVM address comes from recovering the public key from (sha256(raw), witnessSignature).
     const tronWitness = raw.witnessAddress;
     if (!tronWitness) {
       throw new Error(`Block ${blockNumber} missing witnessAddress`);
     }
-    const evmAddr = tronWitnessAddressToEvmAddress(tronWitness);
-    if (!evmAddr) {
+    const ownerEvm = tronWitnessAddressToEvmAddress(tronWitness);
+    if (!ownerEvm) {
       throw new Error(`Block ${blockNumber} has invalid witnessAddress bytes`);
     }
 
-    let idx = srsMap.get(evmAddr);
+    const witnessSig = header.witnessSignature as Buffer | undefined;
+    if (!witnessSig || witnessSig.length < SIGNATURE_SIZE) {
+      throw new Error(`Block ${blockNumber} missing or invalid witnessSignature`);
+    }
+
+    // Recover signing public key from sha256(BlockHeader_raw).
+    const rawBytes = BlockHeader_raw.encode(raw as BlockHeader_raw).finish();
+    const digest = sha256(rawBytes);
+    const pubUncompressed = recoverUncompressedPublicKey(
+      digest,
+      witnessSig.subarray(0, SIGNATURE_SIZE)
+    );
+    if (!pubUncompressed) {
+      throw new Error(`Failed to recover signing public key for block ${blockNumber}`);
+    }
+    const signerEvm = evmAddressFromUncompressed(pubUncompressed);
+
+    // Map signer -> SR index.
+    let idx = signerIndexMap.get(signerEvm);
     if (idx === undefined) {
-      idx = srsList.length;
+      idx = witnessOwnersByIndex.findIndex(
+        (addr) => addr === "0x0000000000000000000000000000000000000000"
+      );
+      if (idx === -1) {
+        idx = 27;
+      }
       if (idx >= 27) {
         throw new Error(
           `More than 27 unique SR addresses encountered in block range; cannot fit into bytes20[27]`
         );
       }
-      srsMap.set(evmAddr, idx);
-      srsList.push(evmAddr);
+      signerIndexMap.set(signerEvm, idx);
+
+      // Record the owner address corresponding to this signer index.
+      witnessOwnersByIndex[idx] = ownerEvm;
+    } else {
+      // Sanity check: a given signer index should always map to the same owner.
+      const recordedOwner = witnessOwnersByIndex[idx];
+      if (recordedOwner !== ownerEvm) {
+        throw new Error(
+          `Signer index ${idx} has conflicting owner addresses: ${recordedOwner} vs ${ownerEvm} at block ${blockNumber}`
+        );
+      }
     }
 
     // CompressedTronBlockMetadata layout per block:
@@ -247,15 +333,10 @@ async function main() {
 
     metadataBuf.writeUInt8(idx, metaOffset);
     metaOffset += 1;
-    witnessEvmAddresses.push(evmAddr);
+    witnessEvmAddresses.push(signerEvm);
     witnessIndices.push(idx);
 
     // Signatures: Tron stores [r(32) | s(32) | v(1)].
-    const witnessSig = header.witnessSignature as Buffer | undefined;
-    if (!witnessSig || witnessSig.length < SIGNATURE_SIZE) {
-      throw new Error(`Block ${blockNumber} missing or invalid witnessSignature`);
-    }
-
     witnessSig.copy(sigsBuf, sigOffset, 0, SIGNATURE_SIZE);
     sigOffset += SIGNATURE_SIZE;
     witnessSignatures.push(toHex0x(witnessSig.subarray(0, SIGNATURE_SIZE)));
@@ -265,7 +346,7 @@ async function main() {
       blockId,
       blockHash,
       rawHeaderBytes,
-      witnessEvmAddress: evmAddr,
+      witnessEvmAddress: signerEvm,
       witnessIndex: idx,
     });
   }
@@ -277,12 +358,17 @@ async function main() {
     throw new Error("Signature buffer offset mismatch");
   }
 
-  // Pad SRS to 27 entries with zero addresses.
-  const srsFixed: Address[] = new Array(27).fill(
-    "0x0000000000000000000000000000000000000000"
-  ) as Address[];
-  for (const [addr, idx] of srsMap.entries()) {
-    srsFixed[idx] = addr;
+  // Build SR owners (srs) and witness delegatees arrays.
+  const zeroAddress = "0x0000000000000000000000000000000000000000" as Address;
+  const srsFixed: Address[] = new Array(27).fill(zeroAddress) as Address[];
+  const witnessDelegateesFixed: Address[] = new Array(27).fill(zeroAddress) as Address[];
+
+  for (let i = 0; i < 27; i++) {
+    srsFixed[i] = witnessOwnersByIndex[i] ?? zeroAddress;
+  }
+
+  for (const [signer, idx] of signerIndexMap.entries()) {
+    witnessDelegateesFixed[idx] = signer;
   }
 
   const endingBlockId = blockIds[blockIds.length - 1]!;
@@ -303,6 +389,7 @@ async function main() {
     witnessEvmAddresses,
     witnessIndices,
     witnessSignatures,
+    witnessDelegatees: witnessDelegateesFixed,
   };
 
   writeFileSync(outPath, JSON.stringify(fixture, null, 2));

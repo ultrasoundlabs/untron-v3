@@ -2,12 +2,28 @@ import { z } from "zod";
 import { parseEnv } from "../lib/env.js";
 import { log } from "../lib/logger.js";
 import { createTronClients } from "@untron/tron-protocol";
-import type { BlockExtention, EmptyMessage, NumberMessage } from "@untron/tron-protocol/api";
-import { BlockHeader_raw } from "@untron/tron-protocol/tron";
+import type {
+  BlockExtention,
+  EmptyMessage,
+  NumberMessage,
+  WitnessList,
+} from "@untron/tron-protocol/api";
+import { BlockHeader_raw, Account } from "@untron/tron-protocol/tron";
 import Long from "long";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import * as secp256k1 from "@noble/secp256k1";
 import { writeFile } from "node:fs/promises";
+
+type TronWallet = ReturnType<typeof createTronClients>["wallet"];
+type TronMetadata = ReturnType<typeof createTronClients>["callOpts"]["metadata"];
+
+type WitnessDelegateMaps = {
+  // Tron address (21-byte) hex of delegated key -> Tron address hex of witness owner
+  delegateToWitness: Map<string, string>;
+  // Tron address hex of witness owner -> Tron address hex of a delegated key (first key, if any)
+  witnessToDelegate: Map<string, string>;
+};
 
 function toLong(value: bigint | number | string): Long {
   return Long.fromValue(typeof value === "bigint" ? value.toString() : value);
@@ -44,6 +60,79 @@ function encodeBlockHeaderRaw(
 ): Uint8Array {
   if (!raw) return new Uint8Array();
   return BlockHeader_raw.encode(raw as BlockHeader_raw).finish();
+}
+
+function tronAddressFromPublicKey(pub: Uint8Array): Buffer | null {
+  // Accept uncompressed 65-byte (0x04 | X | Y) or raw 64-byte (X | Y) public keys.
+  if (pub.length === 65 && pub[0] === 0x04) {
+    pub = pub.subarray(1);
+  } else if (pub.length !== 64) {
+    return null;
+  }
+
+  const hash = keccak_256(pub); // 32 bytes
+  if (hash.length !== 32) return null;
+
+  // Tron address is 0x41 prefix + last 20 bytes of keccak256(pubkey)
+  const tronAddr = Buffer.alloc(21);
+  tronAddr[0] = 0x41;
+  tronAddr.set(hash.subarray(12), 1);
+  return tronAddr;
+}
+
+async function getWitnessDelegateMaps(
+  wallet: TronWallet,
+  metadata: TronMetadata
+): Promise<WitnessDelegateMaps> {
+  const emptyReq: EmptyMessage = {};
+
+  const witnessList = await new Promise<WitnessList>((resolve, reject) => {
+    wallet.listWitnesses(emptyReq, metadata, (err, res) => {
+      if (err || !res) return reject(err ?? new Error("Empty response from listWitnesses"));
+      resolve(res);
+    });
+  });
+
+  const delegateToWitness = new Map<string, string>();
+  const witnessToDelegate = new Map<string, string>();
+
+  for (const w of witnessList.witnesses) {
+    const witnessAddrBuf = w.address as Buffer | undefined;
+    if (!witnessAddrBuf || witnessAddrBuf.length === 0) continue;
+
+    const witnessHex = witnessAddrBuf.toString("hex");
+
+    const accountReq = Account.create({
+      address: witnessAddrBuf,
+    });
+
+    try {
+      const account = await new Promise<Account>((resolve, reject) => {
+        wallet.getAccount(accountReq, metadata, (err, res) => {
+          if (err || !res) return reject(err ?? new Error("Empty response from getAccount"));
+          resolve(res);
+        });
+      });
+
+      const perm = account.witnessPermission;
+      if (!perm) continue;
+
+      for (const key of perm.keys) {
+        const keyAddrBuf = key.address as Buffer | undefined;
+        if (!keyAddrBuf || keyAddrBuf.length === 0) continue;
+
+        const keyHex = keyAddrBuf.toString("hex");
+        delegateToWitness.set(keyHex, witnessHex);
+        if (!witnessToDelegate.has(witnessHex)) {
+          witnessToDelegate.set(witnessHex, keyHex);
+        }
+      }
+    } catch (err) {
+      log.warn("failed to load witness account for delegate map", { witness: witnessHex, err });
+    }
+  }
+
+  return { delegateToWitness, witnessToDelegate };
 }
 
 function recoverUncompressedPublicKey(
@@ -99,6 +188,14 @@ async function main() {
   const { wallet, callOpts } = createTronClients(env.TRON_GRPC_HOST, env.TRON_API_KEY, {
     insecure: true,
   });
+
+  log.info("loading witness delegate permissions from Tron...");
+  const delegateMaps = await getWitnessDelegateMaps(wallet, callOpts.metadata);
+  log.info(
+    `loaded ${BigInt(delegateMaps.delegateToWitness.size).toString()} delegated keys across ${BigInt(
+      delegateMaps.witnessToDelegate.size
+    ).toString()} witnesses`
+  );
 
   // args: depth (number) and optional flags like --verbose/-v
   const args = process.argv.slice(3);
@@ -180,16 +277,38 @@ async function main() {
         const digest = sha256(rawBytes);
         const pubUncompressed = recoverUncompressedPublicKey(digest, sig);
         const pub64 = pubUncompressed ? publicKey64FromUncompressed(pubUncompressed) : null;
-        if (!pub64) {
+        if (!pub64 || !pubUncompressed) {
           counters.recoverFail++;
           eRecoverFail++;
           if (verbose) log.debug("recover failed", { block: target.toString() });
           continue;
         }
+
+        const tronAddrBuf = tronAddressFromPublicKey(pubUncompressed);
+        if (!tronAddrBuf) {
+          counters.recoverFail++;
+          eRecoverFail++;
+          if (verbose)
+            log.debug("recover failed: could not derive Tron address", {
+              block: target.toString(),
+            });
+          continue;
+        }
+
+        const tronHex = tronAddrBuf.toString("hex");
+        const witnessHex = delegateMaps.delegateToWitness.get(tronHex);
+        if (!witnessHex) {
+          if (verbose)
+            log.debug("skip: signer not in witness delegate map", {
+              block: target.toString(),
+              tronAddress: tronHex,
+            });
+          continue;
+        }
+
         counters.recoverOk++;
         eRecoverOk++;
-        const hex = Buffer.from(pub64).toString("hex");
-        srCounts.set(hex, (srCounts.get(hex) ?? 0n) + 1n);
+        srCounts.set(witnessHex, (srCounts.get(witnessHex) ?? 0n) + 1n);
       } catch (err) {
         counters.grpcErrors++;
         eGrpc++;

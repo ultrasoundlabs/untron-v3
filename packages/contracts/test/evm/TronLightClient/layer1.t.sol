@@ -14,7 +14,10 @@ contract TronLightClientFixtureTest is Test {
     bytes32 internal endingBlockId;
     bytes internal metadata;
     bytes internal sigs;
+    // SR owner accounts (Tron witnesses).
     bytes20[27] internal srs;
+    // Delegatee signing keys for each SR index.
+    bytes20[27] internal witnessDelegatees;
     uint256[] internal blockNumbers;
     bytes32[] internal blockIds;
 
@@ -45,15 +48,19 @@ contract TronLightClientFixtureTest is Test {
             blockIds = idsDyn;
         }
 
-        // Parse SRS as addresses, then cast to bytes20[27]
+        // Parse SRS as addresses (SR owner accounts), then cast to bytes20[27]
         address[] memory srsAddrs = vm.parseJsonAddressArray(json, ".srs");
         require(srsAddrs.length == 27, "fixture srs must be length 27");
 
+        address[] memory delegateeAddrs = vm.parseJsonAddressArray(json, ".witnessDelegatees");
+        require(delegateeAddrs.length == 27, "fixture witnessDelegatees must be length 27");
+
         for (uint256 i = 0; i < 27; i++) {
             srs[i] = bytes20(srsAddrs[i]);
+            witnessDelegatees[i] = bytes20(delegateeAddrs[i]);
         }
 
-        client = new TronLightClient(IBlockRangeProver(address(0)), startingBlockId, srs);
+        client = new TronLightClient(IBlockRangeProver(address(0)), startingBlockId, srs, witnessDelegatees);
     }
 
     function test_proveBlocks_happyPath_fixture() public {
@@ -63,20 +70,23 @@ contract TronLightClientFixtureTest is Test {
         // latestProvenBlock should be the endingBlockId from the fixture
         assertEq(client.latestProvenBlock(), endingBlockId, "latestProvenBlock mismatch");
 
-        // Probe a few random blocks in the range to ensure getBlockId works
-        // (not all 100, just enough for sanity)
-        uint256 idxMid = blockNumbers.length / 2;
-        uint256 numMid = blockNumbers[idxMid];
-        bytes32 idMid = blockIds[idxMid];
-
-        assertEq(client.getBlockId(numMid), idMid, "getBlockId(mid) mismatch");
-
-        // First and last in the range should be present as well
-        uint256 numFirst = blockNumbers[0];
+        // The last block in the proven range should be present in the ring buffer.
         uint256 numLast = blockNumbers[blockNumbers.length - 1];
 
-        assertEq(client.getBlockId(numFirst), blockIds[0], "getBlockId(first) mismatch");
         assertEq(client.getBlockId(numLast), blockIds[blockIds.length - 1], "getBlockId(last) mismatch");
+
+        // We intentionally DO NOT store every intermediate block in storage; only
+        // anchor blocks (e.g. the initial and ending ones) are persisted. A
+        // mid-range block lookup should therefore fail with BlockNotRelayed.
+        uint256 idxMid = blockNumbers.length / 2;
+        uint256 numMid = blockNumbers[idxMid];
+        vm.expectRevert(TronLightClient.BlockNotRelayed.selector);
+        client.getBlockId(numMid);
+
+        // The starting anchor used in the constructor should also be present;
+        // for this fixture it is the parent of blockNumbers[0].
+        uint256 parentNum = blockNumbers[0] - 1;
+        assertEq(client.getBlockId(parentNum), startingBlockId, "getBlockId(parent) mismatch");
     }
 
     function test_proveBlocks_revertsOnInvalidSignature() public {
