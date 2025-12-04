@@ -4311,6 +4311,29 @@ export const tronSha256MerkleVerifierTestAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TronTxReader
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const tronTxReaderAbi = [
+  {
+    type: 'function',
+    inputs: [],
+    name: 'TRON_LIGHT_CLIENT',
+    outputs: [
+      { name: '', internalType: 'contract TronLightClient', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'txNullifierSet',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // UntronController
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4663,6 +4686,15 @@ export const untronManagerAbi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'TRON_LIGHT_CLIENT',
+    outputs: [
+      { name: '', internalType: 'contract TronLightClient', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
     name: 'deployReceiver',
     outputs: [
@@ -4686,6 +4718,13 @@ export const untronManagerAbi = [
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
     stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'txNullifierSet',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
   },
 ] as const
 
