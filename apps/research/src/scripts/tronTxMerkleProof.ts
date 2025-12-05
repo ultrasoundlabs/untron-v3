@@ -160,7 +160,11 @@ async function main() {
 
   for (let i = 0; i < block.transactions.length; i++) {
     const txExt = block.transactions[i]!;
-    const encoded = Buffer.from(Transaction.encode(txExt.transaction!).finish());
+    const tx: Transaction = txExt.transaction!;
+    // a proof that we can in fact get the transaction results from the transaction object
+    // that we hash for the merkle tree
+    console.log(`tx ${i}: ${tx.ret[0]!.ret === 0 ? "SUCESS" : "FAILED"}`); // i shit you not it's literally SUCESS in the protocol
+    const encoded = Buffer.from(Transaction.encode(tx).finish());
     tree.appendEntry(encoded);
 
     const txid = Buffer.from(txExt.txid).toString("hex").toLowerCase();

@@ -7,6 +7,8 @@ import {
   Transaction,
   Transaction_Contract_ContractType,
   transaction_Contract_ContractTypeToJSON,
+  transaction_Result_codeToJSON,
+  transaction_Result_contractResultToJSON,
   type Transaction_Contract,
 } from "@untron/tron-protocol/tron";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
@@ -45,6 +47,42 @@ function readVarint(buf: Uint8Array, startOffset: number): { value: bigint; offs
   return { value: result, offset };
 }
 
+type ParsedTransactionResult = {
+  fee?: bigint;
+  ret?: bigint;
+  contractRet?: bigint;
+};
+
+type ParsedAny = {
+  typeUrl?: string;
+  value?: Uint8Array;
+};
+
+type ParsedContract = {
+  type?: bigint;
+  parameter?: ParsedAny;
+  provider?: string;
+  contractName?: string;
+  permissionId?: bigint;
+};
+
+type ParsedTransactionRaw = {
+  refBlockBytes?: string;
+  refBlockNum?: bigint;
+  refBlockHash?: string;
+  expiration?: bigint;
+  timestamp?: bigint;
+  feeLimit?: bigint;
+  data?: string;
+  contracts: ParsedContract[];
+};
+
+type ParsedTransaction = {
+  raw?: ParsedTransactionRaw;
+  signatures: string[];
+  results: ParsedTransactionResult[];
+};
+
 type ParsedTriggerSmartContract = {
   ownerAddress?: string;
   contractAddress?: string;
@@ -53,6 +91,330 @@ type ParsedTriggerSmartContract = {
   callTokenValue?: bigint;
   tokenId?: bigint;
 };
+
+function parseAny(bytes: Uint8Array): ParsedAny {
+  let offset = 0;
+  const out: ParsedAny = {};
+
+  while (offset < bytes.length) {
+    const keyRes = readVarint(bytes, offset);
+    const key = keyRes.value;
+    offset = keyRes.offset;
+
+    const fieldNumber = Number(key >> 3n);
+    const wireType = Number(key & 0x7n);
+
+    if (wireType === 2) {
+      const lenRes = readVarint(bytes, offset);
+      const len = Number(lenRes.value);
+      offset = lenRes.offset;
+
+      const end = offset + len;
+      const fieldBytes = bytes.slice(offset, end);
+      offset = end;
+
+      switch (fieldNumber) {
+        case 1: {
+          // type_url
+          out.typeUrl = Buffer.from(fieldBytes).toString("utf8");
+          break;
+        }
+        case 2: {
+          // value
+          out.value = fieldBytes;
+          break;
+        }
+        default: {
+          // unknown len-delimited field – ignore
+          break;
+        }
+      }
+    } else if (wireType === 0) {
+      // VARINT – skip
+      const valRes = readVarint(bytes, offset);
+      offset = valRes.offset;
+    } else {
+      throw new Error(`Unsupported protobuf wire type ${wireType} in Any at offset ${offset}`);
+    }
+  }
+
+  return out;
+}
+
+function parseTransactionResult(bytes: Uint8Array): ParsedTransactionResult {
+  let offset = 0;
+  const out: ParsedTransactionResult = {};
+
+  while (offset < bytes.length) {
+    const keyRes = readVarint(bytes, offset);
+    const key = keyRes.value;
+    offset = keyRes.offset;
+
+    const fieldNumber = Number(key >> 3n);
+    const wireType = Number(key & 0x7n);
+
+    if (wireType === 0) {
+      const valRes = readVarint(bytes, offset);
+      const value = valRes.value;
+      offset = valRes.offset;
+
+      switch (fieldNumber) {
+        case 1: {
+          // fee
+          out.fee = value;
+          break;
+        }
+        case 2: {
+          // ret (status code enum)
+          out.ret = value;
+          break;
+        }
+        case 3: {
+          // contractRet enum
+          out.contractRet = value;
+          break;
+        }
+        default: {
+          // other int64 / enum fields – parsed but not stored
+          break;
+        }
+      }
+    } else if (wireType === 2) {
+      // LEN-DELIMITED – skip contents
+      const lenRes = readVarint(bytes, offset);
+      const len = Number(lenRes.value);
+      offset = lenRes.offset + len;
+    } else {
+      throw new Error(
+        `Unsupported protobuf wire type ${wireType} in Transaction.Result at offset ${offset}`
+      );
+    }
+  }
+
+  return out;
+}
+
+function parseContract(bytes: Uint8Array): ParsedContract {
+  let offset = 0;
+  const out: ParsedContract = {};
+
+  while (offset < bytes.length) {
+    const keyRes = readVarint(bytes, offset);
+    const key = keyRes.value;
+    offset = keyRes.offset;
+
+    const fieldNumber = Number(key >> 3n);
+    const wireType = Number(key & 0x7n);
+
+    if (wireType === 0) {
+      const valRes = readVarint(bytes, offset);
+      const value = valRes.value;
+      offset = valRes.offset;
+
+      switch (fieldNumber) {
+        case 1: {
+          // type
+          out.type = value;
+          break;
+        }
+        case 5: {
+          // Permission_id
+          out.permissionId = value;
+          break;
+        }
+        default: {
+          // unknown varint field – parsed but not stored
+          break;
+        }
+      }
+    } else if (wireType === 2) {
+      const lenRes = readVarint(bytes, offset);
+      const len = Number(lenRes.value);
+      offset = lenRes.offset;
+
+      const end = offset + len;
+      const fieldBytes = bytes.slice(offset, end);
+      offset = end;
+
+      switch (fieldNumber) {
+        case 2: {
+          // parameter (google.protobuf.Any)
+          out.parameter = parseAny(fieldBytes);
+          break;
+        }
+        case 3: {
+          // provider
+          out.provider = toHex0x(fieldBytes);
+          break;
+        }
+        case 4: {
+          // ContractName
+          out.contractName = Buffer.from(fieldBytes).toString("utf8");
+          break;
+        }
+        default: {
+          // unknown bytes field – ignore
+          break;
+        }
+      }
+    } else {
+      throw new Error(
+        `Unsupported protobuf wire type ${wireType} in Transaction.Contract at offset ${offset}`
+      );
+    }
+  }
+
+  return out;
+}
+
+function parseTransactionRaw(bytes: Uint8Array): ParsedTransactionRaw {
+  let offset = 0;
+  const out: ParsedTransactionRaw = {
+    contracts: [],
+  };
+
+  while (offset < bytes.length) {
+    const keyRes = readVarint(bytes, offset);
+    const key = keyRes.value;
+    offset = keyRes.offset;
+
+    const fieldNumber = Number(key >> 3n);
+    const wireType = Number(key & 0x7n);
+
+    if (wireType === 0) {
+      const valRes = readVarint(bytes, offset);
+      const value = valRes.value;
+      offset = valRes.offset;
+
+      switch (fieldNumber) {
+        case 3: {
+          // ref_block_num
+          out.refBlockNum = value;
+          break;
+        }
+        case 8: {
+          // expiration
+          out.expiration = value;
+          break;
+        }
+        case 14: {
+          // timestamp
+          out.timestamp = value;
+          break;
+        }
+        case 18: {
+          // fee_limit
+          out.feeLimit = value;
+          break;
+        }
+        default: {
+          // other int64 fields – ignore for now
+          break;
+        }
+      }
+    } else if (wireType === 2) {
+      const lenRes = readVarint(bytes, offset);
+      const len = Number(lenRes.value);
+      offset = lenRes.offset;
+
+      const end = offset + len;
+      const fieldBytes = bytes.slice(offset, end);
+      offset = end;
+
+      switch (fieldNumber) {
+        case 1: {
+          // ref_block_bytes
+          out.refBlockBytes = toHex0x(fieldBytes);
+          break;
+        }
+        case 4: {
+          // ref_block_hash
+          out.refBlockHash = toHex0x(fieldBytes);
+          break;
+        }
+        case 10: {
+          // data
+          out.data = toHex0x(fieldBytes);
+          break;
+        }
+        case 11: {
+          // Contract
+          out.contracts.push(parseContract(fieldBytes));
+          break;
+        }
+        default: {
+          // other bytes / message fields – ignore
+          break;
+        }
+      }
+    } else {
+      throw new Error(
+        `Unsupported protobuf wire type ${wireType} in Transaction.raw at offset ${offset}`
+      );
+    }
+  }
+
+  return out;
+}
+
+function parseTransactionBytes(bytes: Uint8Array): ParsedTransaction {
+  let offset = 0;
+  const out: ParsedTransaction = {
+    signatures: [],
+    results: [],
+  };
+
+  while (offset < bytes.length) {
+    const keyRes = readVarint(bytes, offset);
+    const key = keyRes.value;
+    offset = keyRes.offset;
+
+    const fieldNumber = Number(key >> 3n);
+    const wireType = Number(key & 0x7n);
+
+    if (wireType === 2) {
+      const lenRes = readVarint(bytes, offset);
+      const len = Number(lenRes.value);
+      offset = lenRes.offset;
+
+      const end = offset + len;
+      const fieldBytes = bytes.slice(offset, end);
+      offset = end;
+
+      switch (fieldNumber) {
+        case 1: {
+          // raw_data
+          out.raw = parseTransactionRaw(fieldBytes);
+          break;
+        }
+        case 2: {
+          // signature
+          out.signatures.push(toHex0x(fieldBytes));
+          break;
+        }
+        case 5: {
+          // Result
+          out.results.push(parseTransactionResult(fieldBytes));
+          break;
+        }
+        default: {
+          // other len-delimited fields – ignore
+          break;
+        }
+      }
+    } else if (wireType === 0) {
+      // VARINT – skip
+      const valRes = readVarint(bytes, offset);
+      offset = valRes.offset;
+    } else {
+      throw new Error(
+        `Unsupported protobuf wire type ${wireType} in Transaction at offset ${offset}`
+      );
+    }
+  }
+
+  return out;
+}
 
 function parseTriggerSmartContractBytes(bytes: Uint8Array): ParsedTriggerSmartContract {
   let offset = 0;
@@ -252,6 +614,7 @@ async function main() {
   }
 
   const encodedTx = Transaction.encode(tx).finish();
+  const manualTx = parseTransactionBytes(encodedTx);
 
   log.info("Transaction encoded bytes (hex)", {
     txId: `0x${txIdHex}`,
@@ -262,6 +625,19 @@ async function main() {
 
   log.info("TriggerSmartContract transaction decoding", {
     txId: `0x${txIdHex}`,
+    resultsTsProto:
+      tx.ret?.map((result, index) => ({
+        index,
+        fee: result.fee.toString(),
+        code: transaction_Result_codeToJSON(result.ret),
+        contractResult: transaction_Result_contractResultToJSON(result.contractRet),
+      })) ?? [],
+    resultsManual: manualTx.results.map((result, index) => ({
+      index,
+      fee: result.fee !== undefined ? result.fee.toString() : undefined,
+      retCode: result.ret !== undefined ? result.ret.toString() : undefined,
+      contractRetCode: result.contractRet !== undefined ? result.contractRet.toString() : undefined,
+    })),
     rawData: {
       refBlockBytes: toHex0x(raw.refBlockBytes),
       refBlockNum: raw.refBlockNum.toString(),
@@ -275,6 +651,37 @@ async function main() {
         hasParameter: !!c.parameter,
       })),
     },
+    rawDataManual: manualTx.raw
+      ? {
+          refBlockBytes: manualTx.raw.refBlockBytes,
+          refBlockNum: manualTx.raw.refBlockNum?.toString(),
+          refBlockHash: manualTx.raw.refBlockHash,
+          expiration: manualTx.raw.expiration?.toString(),
+          timestamp: manualTx.raw.timestamp?.toString(),
+          feeLimit: manualTx.raw.feeLimit?.toString(),
+          data: manualTx.raw.data,
+          contracts: manualTx.raw.contracts.map((c, index) => ({
+            index,
+            typeNumeric: c.type !== undefined ? c.type.toString() : undefined,
+            typeJson:
+              c.type !== undefined
+                ? transaction_Contract_ContractTypeToJSON(
+                    Number(c.type) as Transaction_Contract_ContractType
+                  )
+                : undefined,
+            provider: c.provider,
+            contractName: c.contractName,
+            permissionId: c.permissionId !== undefined ? c.permissionId.toString() : undefined,
+            parameter: c.parameter
+              ? {
+                  typeUrl: c.parameter.typeUrl,
+                  valueHex: c.parameter.value ? toHex0x(c.parameter.value) : undefined,
+                }
+              : undefined,
+          })),
+        }
+      : undefined,
+    signaturesManual: manualTx.signatures,
     triggerContracts,
     triggerContractsPretty: JSON.stringify(triggerContracts, null, 2),
   });
