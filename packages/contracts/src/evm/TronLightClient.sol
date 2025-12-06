@@ -21,16 +21,18 @@ contract TronLightClient {
     bytes32 public latestProvenBlock;
     bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockIds;
     bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestTxTrieRoots;
+    uint32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockTimestamps;
 
     constructor(
         IBlockRangeProver blockRangeProver,
         bytes32 initialBlockHash,
         bytes32 initialTxTrieRoot,
+        uint32 initialTimestamp,
         bytes20[27] memory _srs,
         bytes20[27] memory _witnessDelegatees
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
-        appendBlockId(initialBlockHash, initialTxTrieRoot);
+        appendBlockId(initialBlockHash, initialTxTrieRoot, initialTimestamp);
         srs = _srs;
         witnessDelegatees = _witnessDelegatees;
     }
@@ -143,7 +145,7 @@ contract TronLightClient {
         }
 
         if (!intersectedExisting) revert UnanchoredBlockRange();
-        appendBlockId(blockId, lastTronBlock.txTrieRoot);
+        appendBlockId(blockId, lastTronBlock.txTrieRoot, lastTronBlock.timestamp);
         latestProvenBlock = blockId;
     }
 
@@ -151,13 +153,14 @@ contract TronLightClient {
         bytes32 startingBlock,
         bytes32 endingBlock,
         bytes32 endingBlockTxTrieRoot,
+        uint32 endingBlockTimestamp,
         bytes calldata zkProof
     ) external {
         if (startingBlock != latestProvenBlock) revert BlockTooOld();
         BLOCK_RANGE_PROVER.proveBlockRange(
-            srs, witnessDelegatees, startingBlock, endingBlock, endingBlockTxTrieRoot, zkProof
+            srs, witnessDelegatees, startingBlock, endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp, zkProof
         );
-        appendBlockId(endingBlock, endingBlockTxTrieRoot);
+        appendBlockId(endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp);
         latestProvenBlock = endingBlock;
     }
 
@@ -176,11 +179,20 @@ contract TronLightClient {
         return latestTxTrieRoots[index];
     }
 
-    function appendBlockId(bytes32 blockId, bytes32 txTrieRoot) internal {
+    function getBlockTimestamp(uint256 blockNumber) external view returns (uint32) {
+        uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
+        bytes32 stored = latestBlockIds[index];
+        if (stored == bytes32(0)) revert BlockNotRelayed();
+        if (blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
+        return latestBlockTimestamps[index];
+    }
+
+    function appendBlockId(bytes32 blockId, bytes32 txTrieRoot, uint32 timestamp) internal {
         uint256 blockNumber = blockIdToNumber(blockId);
         uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
         latestBlockIds[index] = blockId;
         latestTxTrieRoots[index] = txTrieRoot;
+        latestBlockTimestamps[index] = timestamp;
         if (blockIdToNumber(latestProvenBlock) < blockNumber) {
             latestProvenBlock = blockId;
         }

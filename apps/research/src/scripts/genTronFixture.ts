@@ -121,8 +121,12 @@ type Fixture = {
   endBlock: string;
   startingBlockId: Hex;
   startingBlockTxTrieRoot: Hex;
+  // Timestamp (seconds) for the starting anchor block (parent of the first block in the range)
+  startingBlockTimestamp: string;
   endingBlockId: Hex;
   endingBlockTxTrieRoot: Hex;
+  // Timestamp (seconds) for the ending block in the range
+  endingBlockTimestamp: string;
   // Super Representatives (SR) – Tron witness owner accounts that appear in BlockHeader_raw.witnessAddress.
   srs: Address[]; // always length 27, SR owner accounts
   compressedTronBlockMetadata: Hex;
@@ -224,6 +228,9 @@ async function main() {
   // Tron header's parentHash field is the parent blockId (32 bytes).
   // We'll use this as startingBlockId in the fixture.
   const startingBlockId = toHex0x(firstRaw.parentHash);
+  // Timestamp for the starting anchor (parent block) – convert from ms to seconds.
+  const parentTimestampMs = BigInt(parentRaw.timestamp.toString());
+  const parentTimestampSec = (parentTimestampMs / 1000n).toString();
 
   // Index construction keyed by signing key (delegatee). We later map each index to its SR owner.
   const signerIndexMap = new Map<Address, number>();
@@ -392,6 +399,9 @@ async function main() {
 
   const startingBlockTxTrieRoot = toHex0x(parentRaw.txTrieRoot);
   const endingBlockTxTrieRoot = toHex0x(lastRaw.txTrieRoot);
+  // Timestamp for the ending block – convert from ms to seconds.
+  const endingTimestampMs = BigInt(lastRaw.timestamp.toString());
+  const endingTimestampSec = (endingTimestampMs / 1000n).toString();
 
   const fixture: Fixture = {
     network: "tron-mainnet",
@@ -399,8 +409,10 @@ async function main() {
     endBlock: String(endBlock),
     startingBlockId,
     startingBlockTxTrieRoot,
+    startingBlockTimestamp: parentTimestampSec,
     endingBlockId,
     endingBlockTxTrieRoot,
+    endingBlockTimestamp: endingTimestampSec,
     srs: srsFixed,
     compressedTronBlockMetadata: toHex0x(metadataBuf),
     compressedSignatures: toHex0x(sigsBuf),

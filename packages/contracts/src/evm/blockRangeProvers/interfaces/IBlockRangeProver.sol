@@ -8,6 +8,7 @@ interface IBlockRangeProver {
         bytes32 startingBlock,
         bytes32 endingBlock,
         bytes32 endingBlockTxTrieRoot,
+        uint32 endingBlockTimestamp,
         bytes calldata zkProof
     ) external;
 }

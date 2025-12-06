@@ -38,6 +38,7 @@ contract TronLightClientFixtureTest is Test {
         // Parse primitive fields
         startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
         startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
+        uint256 startingTimestampSec = vm.parseJsonUint(json, ".startingBlockTimestamp");
         endingBlockId = vm.parseJsonBytes32(json, ".endingBlockId");
         endingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".endingBlockTxTrieRoot");
 
@@ -65,7 +66,14 @@ contract TronLightClientFixtureTest is Test {
         }
 
         client = new TronLightClient(
-            IBlockRangeProver(address(0)), startingBlockId, startingBlockTxTrieRoot, srs, witnessDelegatees
+            IBlockRangeProver(address(0)),
+            startingBlockId,
+            startingBlockTxTrieRoot,
+            // casting to 'uint32' is safe because startingTimestampSec is masked to 32 bits
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint32(startingTimestampSec & 0xFFFFFFFF),
+            srs,
+            witnessDelegatees
         );
     }
 

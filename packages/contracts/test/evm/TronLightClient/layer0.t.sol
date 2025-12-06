@@ -89,8 +89,18 @@ contract TronLightClientLayer0Test is Test {
         // Use the startingBlockId and startingBlockTxTrieRoot from the fixture to satisfy the constructor.
         bytes32 startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
         bytes32 startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
+        // Retrieve the starting block timestamp (seconds) from the fixture.
+        // The fixture stores this as a string; convert it to uint32 for the constructor.
+        uint256 startingTimestampSec = vm.parseJsonUint(json, ".startingBlockTimestamp");
         client = new TronLightClientHarness(
-            IBlockRangeProver(address(0)), startingBlockId, startingBlockTxTrieRoot, srs, witnessDelegatees
+            IBlockRangeProver(address(0)),
+            startingBlockId,
+            startingBlockTxTrieRoot,
+            // casting to 'uint32' is safe because startingTimestampSec is guaranteed to fit within 32 bits
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint32(startingTimestampSec & 0xFFFFFFFF),
+            srs,
+            witnessDelegatees
         );
     }
 
@@ -140,4 +150,3 @@ contract TronLightClientLayer0Test is Test {
         }
     }
 }
-

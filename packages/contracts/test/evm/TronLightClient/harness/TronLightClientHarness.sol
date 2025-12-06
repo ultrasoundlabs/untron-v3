@@ -9,9 +9,10 @@ contract TronLightClientHarness is TronLightClient {
         IBlockRangeProver p,
         bytes32 initial,
         bytes32 initialTxTrieRoot,
+        uint32 initialTimestamp,
         bytes20[27] memory srs_,
         bytes20[27] memory witnessDelegatees_
-    ) TronLightClient(p, initial, initialTxTrieRoot, srs_, witnessDelegatees_) {}
+    ) TronLightClient(p, initial, initialTxTrieRoot, initialTimestamp, srs_, witnessDelegatees_) {}
 
     function hashBlockPublic(TronBlockMetadata memory b, uint256 n) external view returns (bytes32) {
         return hashBlock(b, n);
