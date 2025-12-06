@@ -2,8 +2,8 @@ import { defineConfig } from "@wagmi/cli";
 import { foundry } from "@wagmi/cli/plugins";
 
 // Determine artifacts directory based on FOUNDRY_PROFILE env variable
-const profile = process.env.FOUNDRY_PROFILE ?? "dev";
-const artifactsPath = `out/${profile}`;
+// const profile = process.env.FOUNDRY_PROFILE ?? "dev";
+const artifactsPath = `out`;
 
 export default defineConfig({
   out: "packages/contracts/abi/generated.ts",

@@ -1,7 +1,6 @@
 [profile.default]
 src  = "src"
 test = "test"
-out  = "out/dev"
 libs = ["lib"]
 remappings = [
   "solady/=lib/solady/src/",
@@ -30,7 +29,6 @@ fs_permissions = [
 build_info = true
 
 [profile.production]
-out             = "out/prod"
 optimizer_runs  = 2000
 bytecode_hash   = "none"
 revert_strings  = "strip"
@@ -38,7 +36,6 @@ deny            = "warnings"
 via_ir          = true
 
 [profile.ci]
-out            = "out/ci"
 optimizer_runs = 200
 deny           = "warnings"
 via_ir         = true

@@ -6,6 +6,7 @@
     "clean": "pnpm --filter @untron/v3-contracts clean",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "lint:sol": "pnpm --filter @untron/v3-contracts lint:sol",
     "fmt:sol": "pnpm --filter @untron/v3-contracts fmt:sol",
     "fmt:ts": "prettier -c '**/*.{ts,tsx,js,jsx}'",
     "format:sol": "pnpm --filter @untron/v3-contracts format:sol",

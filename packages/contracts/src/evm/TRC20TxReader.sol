@@ -132,6 +132,11 @@ contract TRC20TxReader {
         });
     }
 
+    /// @notice Computes the Tron transaction Merkle leaf as sha256(encodedTx)
+    function computeTxLeaf(bytes memory encodedTx) external pure returns (bytes32) {
+        return sha256(encodedTx);
+    }
+
     // public
     /// @notice Verifies that a given encoded Tron transaction is included in a specified block (via Merkle proof).
     /// @param tronBlockNumber The Tron block number where the transaction should be included.
@@ -153,11 +158,6 @@ contract TRC20TxReader {
         if (!TronSha256MerkleVerifier.verify(root, txLeaf, proof, index)) {
             revert InvalidTxMerkleProof();
         }
-    }
-
-    /// @notice Computes the Tron transaction Merkle leaf as sha256(encodedTx)
-    function computeTxLeaf(bytes memory encodedTx) external pure returns (bytes32) {
-        return sha256(encodedTx);
     }
 
     // internal
