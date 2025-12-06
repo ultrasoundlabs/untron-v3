@@ -5,9 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {TRC20TxReader} from "../../../src/evm/TRC20TxReader.sol";
 import {MockTronLightClient} from "./mocks/MockTronLightClient.sol";
 
-/// @dev This test contract inherits TRC20TxReader to access its internal functions.
-contract TRC20TxReaderTest is Test, TRC20TxReader {
+/// @dev This test deploys TRC20TxReader and uses its public helpers.
+contract TRC20TxReaderTest is Test {
     MockTronLightClient internal lightClient;
+    TRC20TxReader internal reader;
 
     // IMPORTANT: Field order must match the JSON object's key order for abi.decode to succeed.
     // JSON key order (per fixture):
@@ -29,10 +30,10 @@ contract TRC20TxReaderTest is Test, TRC20TxReader {
         uint256 index;
     }
 
-    /// @notice Deploy a mock light client and set it for the TRC20TxReader.
+    /// @notice Deploy a mock light client and the TRC20TxReader bound to it.
     function setUp() public {
         lightClient = new MockTronLightClient();
-        _updateTronLightClient(address(lightClient));
+        reader = new TRC20TxReader(address(lightClient));
     }
 
     /// @notice Test decoding of real TRC-20 transactions using a fixture from Tron mainnet.
@@ -87,7 +88,8 @@ contract TRC20TxReaderTest is Test, TRC20TxReader {
             uint256 index = 0;
 
             // Call the TRC20TxReader function to verify and decode the transaction.
-            Trc20Transfer memory transfer = readAndNullifyTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
+            TRC20TxReader.Trc20Transfer memory transfer =
+                reader.readTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
 
             // **Validate the decoded transfer against expected fixture data.**
             // Check token contract address.
@@ -104,20 +106,11 @@ contract TRC20TxReaderTest is Test, TRC20TxReader {
             assertEq(transfer.tronBlockNumber, blockNumber, "Block number mismatch");
             assertEq(transfer.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
 
-            // **Test the nullifier:** calling again with the same transaction should revert.
-            vm.expectRevert(abi.encodeWithSelector(TxAlreadyNullified.selector, txJson.txLeaf));
-            this._externalReadAndNullify(blockNumber, txJson.encodedTx, proof, index);
+            // No nullifier logic in stateless reader; calling again should succeed and match.
+            TRC20TxReader.Trc20Transfer memory transfer2 =
+                reader.readTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
+            assertEq(transfer2.txLeaf, transfer.txLeaf, "Repeated read txLeaf mismatch");
         }
-    }
-
-    // Expose an external wrapper so `vm.expectRevert` can catch the revert on a top-level call.
-    function _externalReadAndNullify(
-        uint256 tronBlockNumber,
-        bytes memory encodedTx,
-        bytes32[] memory proof,
-        uint256 index
-    ) external returns (Trc20Transfer memory transfer) {
-        transfer = readAndNullifyTrc20Transfer(tronBlockNumber, encodedTx, proof, index);
     }
 
     function _uToString(uint256 value) internal pure returns (string memory) {

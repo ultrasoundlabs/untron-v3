@@ -8,7 +8,10 @@ contract UntronManager is Create2Utils, TRC20TxReader {
     /// @notice The address of the UntronController contract on Tron (source chain)
     bytes20 public immutable CONTROLLER_ADDRESS;
 
-    constructor(bytes20 controllerAddress, bytes1 create2Prefix) Create2Utils(create2Prefix) {
+    constructor(bytes20 controllerAddress, bytes1 create2Prefix, address tronLightClient)
+        Create2Utils(create2Prefix)
+        TRC20TxReader(tronLightClient)
+    {
         CONTROLLER_ADDRESS = controllerAddress;
         // TODO: implement
     }

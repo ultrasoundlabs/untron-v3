@@ -3596,9 +3596,16 @@ export const safeTransferLibAbi = [
 
 export const trc20TxReaderAbi = [
   {
+    type: 'constructor',
+    inputs: [
+      { name: 'tronLightClient_', internalType: 'address', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
     type: 'function',
     inputs: [],
-    name: 'tronLightClient',
+    name: 'TRON_LIGHT_CLIENT',
     outputs: [
       { name: '', internalType: 'contract TronLightClient', type: 'address' },
     ],
@@ -3606,20 +3613,58 @@ export const trc20TxReaderAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'txNullifierSet',
-    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    inputs: [{ name: 'encodedTx', internalType: 'bytes', type: 'bytes' }],
+    name: 'computeTxLeaf',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'readTrc20Transfer',
+    outputs: [
+      {
+        name: 'transfer',
+        internalType: 'struct TRC20TxReader.Trc20Transfer',
+        type: 'tuple',
+        components: [
+          { name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'tronTokenEvm', internalType: 'address', type: 'address' },
+          { name: 'fromTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'amount', internalType: 'uint256', type: 'uint256' },
+          { name: 'isTransferFrom', internalType: 'bool', type: 'bool' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'verifyTxInclusion',
+    outputs: [{ name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
   },
   { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
   { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
   { type: 'error', inputs: [], name: 'Trc20TransferNotSuccessful' },
-  { type: 'error', inputs: [], name: 'TronLightClientNotSet' },
-  {
-    type: 'error',
-    inputs: [{ name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'TxAlreadyNullified',
-  },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5653,6 +5698,7 @@ export const untronManagerAbi = [
     inputs: [
       { name: 'controllerAddress', internalType: 'bytes20', type: 'bytes20' },
       { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'tronLightClient', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -5662,6 +5708,22 @@ export const untronManagerAbi = [
     name: 'CONTROLLER_ADDRESS',
     outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'TRON_LIGHT_CLIENT',
+    outputs: [
+      { name: '', internalType: 'contract TronLightClient', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'encodedTx', internalType: 'bytes', type: 'bytes' }],
+    name: 'computeTxLeaf',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
   },
   {
     type: 'function',
@@ -5684,6 +5746,38 @@ export const untronManagerAbi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'readTrc20Transfer',
+    outputs: [
+      {
+        name: 'transfer',
+        internalType: 'struct TRC20TxReader.Trc20Transfer',
+        type: 'tuple',
+        components: [
+          { name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'tronTokenEvm', internalType: 'address', type: 'address' },
+          { name: 'fromTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'amount', internalType: 'uint256', type: 'uint256' },
+          { name: 'isTransferFrom', internalType: 'bool', type: 'bool' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
@@ -5691,29 +5785,19 @@ export const untronManagerAbi = [
   },
   {
     type: 'function',
-    inputs: [],
-    name: 'tronLightClient',
-    outputs: [
-      { name: '', internalType: 'contract TronLightClient', type: 'address' },
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
     ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'txNullifierSet',
-    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    name: 'verifyTxInclusion',
+    outputs: [{ name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
   },
   { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
   { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
   { type: 'error', inputs: [], name: 'Trc20TransferNotSuccessful' },
-  { type: 'error', inputs: [], name: 'TronLightClientNotSet' },
-  {
-    type: 'error',
-    inputs: [{ name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'TxAlreadyNullified',
-  },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
