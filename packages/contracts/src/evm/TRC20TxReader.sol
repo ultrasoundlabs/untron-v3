@@ -4,6 +4,34 @@ pragma solidity ^0.8.26;
 import {TronLightClient} from "./TronLightClient.sol";
 import {TronSha256MerkleVerifier} from "../utils/TronSha256MerkleVerifier.sol";
 
+// Generic protobuf parsing errors (file-scoped so the library can use them)
+error TronProtoTruncated();
+error TronProtoInvalidWireType();
+
+library ProtoVarint {
+    function read(bytes memory data, uint256 pos, uint256 limit) internal pure returns (uint64 value, uint256 newPos) {
+        uint64 v;
+        uint64 shift;
+        while (true) {
+            if (pos >= limit) revert TronProtoTruncated();
+            uint8 b = uint8(data[pos++]);
+            v |= uint64(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) break;
+            shift += 7;
+        }
+        return (v, pos);
+    }
+
+    function skip(bytes memory data, uint256 pos, uint256 limit) internal pure returns (uint256 newPos) {
+        while (true) {
+            if (pos >= limit) revert TronProtoTruncated();
+            uint8 b = uint8(data[pos++]);
+            if ((b & 0x80) == 0) break;
+        }
+        return pos;
+    }
+}
+
 /// @title TRC20TxReader
 /// @notice Stateless helper contract bound to a Tron light client that verifies
 ///         transaction inclusion and decodes TRC-20 transfers.
@@ -11,7 +39,17 @@ import {TronSha256MerkleVerifier} from "../utils/TronSha256MerkleVerifier.sol";
 ///      reference to a Tron light client and exposes public/external helper
 ///      functions. It performs no nullifier or single‑use checks.
 contract TRC20TxReader {
+    // Protobuf wire types
+    uint64 internal constant WIRE_VARINT = 0;
+    uint64 internal constant WIRE_FIXED64 = 1;
+    uint64 internal constant WIRE_LENGTH_DELIMITED = 2;
+    uint64 internal constant WIRE_FIXED32 = 5;
+
+    // Tron contract types
+    uint64 internal constant CONTRACT_TRIGGER_SMART = 31;
+
     // Type declarations
+
     /// @notice Structured representation of a TRC-20 token transfer.
     /// @dev Tron addresses are 21 bytes (0x41 prefix + 20-byte EVM address).
     struct Trc20Transfer {
@@ -23,6 +61,14 @@ contract TRC20TxReader {
         bytes21 toTron; /// Recipient address in Tron format (21 bytes)
         uint256 amount; /// Amount of tokens transferred
         bool isTransferFrom; /// True if transferFrom, false if simple transfer
+    }
+
+    struct TriggerParsed {
+        bytes21 fromTron;
+        bytes21 toTron;
+        address tronTokenEvm;
+        uint256 amount;
+        bool isTransferFrom;
     }
 
     // State variables
@@ -37,6 +83,11 @@ contract TRC20TxReader {
     error InvalidTxMerkleProof();
     error NotATrc20Transfer();
     error Trc20TransferNotSuccessful();
+    error TronInvalidOwnerLength();
+    error TronInvalidOwnerPrefix();
+    error TronInvalidContractLength();
+    error TronInvalidContractPrefix();
+    error TronInvalidTrc20DataLength();
 
     // Functions
     // constructor
@@ -88,25 +139,24 @@ contract TRC20TxReader {
     /// @param proof Sibling hashes from the transaction leaf up to the Merkle root.
     /// @param index Bitfield representing the transaction’s position in the Merkle tree (0 = left, 1 = right at each level).
     /// @return txLeaf The SHA-256 hash of the encoded transaction (the Merkle leaf value).
-    function verifyTxInclusion(uint256 tronBlockNumber, bytes memory encodedTx, bytes32[] memory proof, uint256 index)
-        public
-        view
-        returns (bytes32 txLeaf)
-    {
+    function verifyTxInclusion(
+        uint256 tronBlockNumber,
+        bytes calldata encodedTx,
+        bytes32[] calldata proof,
+        uint256 index
+    ) public view returns (bytes32 txLeaf) {
         // Retrieve the expected Merkle root for the block from the light client.
         bytes32 root = TRON_LIGHT_CLIENT.getTxTrieRoot(tronBlockNumber);
         // Compute the leaf hash from the provided transaction bytes (Tron uses sha256 for transaction hashing).
         txLeaf = sha256(encodedTx);
         // Verify the Merkle proof using the computed leaf and provided siblings.
-        bool valid = TronSha256MerkleVerifier.verify(root, txLeaf, proof, index);
-        if (!valid) {
-            // Proof did not yield the expected root.
+        if (!TronSha256MerkleVerifier.verify(root, txLeaf, proof, index)) {
             revert InvalidTxMerkleProof();
         }
     }
 
     /// @notice Computes the Tron transaction Merkle leaf as sha256(encodedTx)
-    function computeTxLeaf(bytes memory encodedTx) public pure returns (bytes32) {
+    function computeTxLeaf(bytes memory encodedTx) external pure returns (bytes32) {
         return sha256(encodedTx);
     }
 
@@ -116,18 +166,10 @@ contract TRC20TxReader {
         uint256 totalLen = tx_.length;
         if (totalLen == 0 || uint8(tx_[0]) != 0x0A) revert NotATrc20Transfer();
         uint256 offset = 1;
-        uint64 rawDataLen = 0;
-        uint64 shift = 0;
-        while (true) {
-            require(offset < totalLen, "Truncated raw_data length");
-            uint8 b = uint8(tx_[offset++]);
-            rawDataLen |= uint64(b & 0x7F) << shift;
-            if ((b & 0x80) == 0) break;
-            shift += 7;
-        }
+        uint64 rawDataLen;
+        (rawDataLen, offset) = ProtoVarint.read(tx_, offset, totalLen);
         rawDataStart = offset;
-        rawDataEnd = offset + uint256(rawDataLen);
-        require(rawDataEnd <= totalLen, "Truncated raw_data bytes");
+        rawDataEnd = _advance(offset, uint256(rawDataLen), totalLen);
     }
 
     function _nextContract(bytes memory tx_, uint256 cursor, uint256 rawDataEnd)
@@ -135,112 +177,33 @@ contract TRC20TxReader {
         pure
         returns (bool hasMore, uint256 nextCursor, uint256 contractStart, uint256 contractEnd, uint64 contractType)
     {
-        uint64 shift = 0;
         while (cursor < rawDataEnd) {
-            uint64 fieldKey = 0;
-            shift = 0;
-            while (true) {
-                require(cursor < rawDataEnd, "Truncated raw_data field");
-                uint8 b = uint8(tx_[cursor++]);
-                fieldKey |= uint64(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            uint64 fieldNum = fieldKey >> 3;
-            uint64 wireType = fieldKey & 0x7;
+            uint64 fieldNum;
+            uint64 wireType;
+            (fieldNum, wireType, cursor) = _readKey(tx_, cursor, rawDataEnd);
 
-            if (fieldNum == 11 && wireType == 2) {
-                uint64 contractLen = 0;
-                shift = 0;
-                while (true) {
-                    require(cursor < rawDataEnd, "Truncated contract length");
-                    uint8 b = uint8(tx_[cursor++]);
-                    contractLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                contractStart = cursor;
-                contractEnd = contractStart + uint256(contractLen);
-                require(contractEnd <= rawDataEnd, "Truncated contract bytes");
+            if (fieldNum == 11 && wireType == WIRE_LENGTH_DELIMITED) {
+                (contractStart, contractEnd, cursor) = _readLength(tx_, cursor, rawDataEnd);
 
                 // Find contract type inside message (field #1 varint)
                 contractType = 0;
                 uint256 p = contractStart;
                 while (p < contractEnd) {
-                    uint64 cKey = 0;
-                    shift = 0;
-                    while (true) {
-                        require(p < contractEnd, "Truncated contract field");
-                        uint8 b = uint8(tx_[p++]);
-                        cKey |= uint64(b & 0x7F) << shift;
-                        if ((b & 0x80) == 0) break;
-                        shift += 7;
-                    }
-                    uint64 cFieldNum = cKey >> 3;
-                    uint64 cWireType = cKey & 0x7;
-                    if (cFieldNum == 1 && cWireType == 0) {
-                        uint64 ctype = 0;
-                        shift = 0;
-                        while (true) {
-                            require(p < contractEnd, "Truncated type varint");
-                            uint8 b = uint8(tx_[p++]);
-                            ctype |= uint64(b & 0x7F) << shift;
-                            if ((b & 0x80) == 0) break;
-                            shift += 7;
-                        }
-                        contractType = ctype;
-                    } else if (cWireType == 0) {
-                        while (p < contractEnd) {
-                            uint8 b = uint8(tx_[p++]);
-                            if ((b & 0x80) == 0) break;
-                        }
-                    } else if (cWireType == 2) {
-                        uint64 skipLen2 = 0;
-                        shift = 0;
-                        while (true) {
-                            require(p < contractEnd, "Truncated contract skip length");
-                            uint8 b = uint8(tx_[p++]);
-                            skipLen2 |= uint64(b & 0x7F) << shift;
-                            if ((b & 0x80) == 0) break;
-                            shift += 7;
-                        }
-                        p += uint256(skipLen2);
-                        require(p <= contractEnd, "Truncated contract skip bytes");
-                    } else if (cWireType == 5) {
-                        p += 4;
-                    } else if (cWireType == 1) {
-                        p += 8;
+                    uint64 cFieldNum;
+                    uint64 cWireType;
+                    (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
+                    if (cFieldNum == 1 && cWireType == WIRE_VARINT) {
+                        (contractType, p) = ProtoVarint.read(tx_, p, contractEnd);
                     } else {
-                        revert NotATrc20Transfer();
+                        p = _skipField(tx_, p, contractEnd, cWireType);
                     }
                 }
 
                 hasMore = true;
                 nextCursor = contractEnd;
                 return (hasMore, nextCursor, contractStart, contractEnd, contractType);
-            } else if (wireType == 0) {
-                while (cursor < rawDataEnd) {
-                    uint8 b = uint8(tx_[cursor++]);
-                    if ((b & 0x80) == 0) break;
-                }
-            } else if (wireType == 2) {
-                uint64 skipLen = 0;
-                shift = 0;
-                while (true) {
-                    require(cursor < rawDataEnd, "Truncated raw_data skip length");
-                    uint8 b = uint8(tx_[cursor++]);
-                    skipLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                cursor += uint256(skipLen);
-                require(cursor <= rawDataEnd, "Truncated raw_data skip bytes");
-            } else if (wireType == 5) {
-                cursor += 4;
-            } else if (wireType == 1) {
-                cursor += 8;
             } else {
-                revert NotATrc20Transfer();
+                cursor = _skipField(tx_, cursor, rawDataEnd, wireType);
             }
         }
 
@@ -252,65 +215,23 @@ contract TRC20TxReader {
         pure
         returns (uint256 trigStart, uint256 trigEnd)
     {
-        uint64 shift = 0;
         uint256 p = contractStart;
         uint256 paramStart = 0;
         uint256 paramEnd = 0;
         while (p < contractEnd) {
-            uint64 cKey = 0;
-            shift = 0;
-            while (true) {
-                require(p < contractEnd, "Truncated contract field");
-                uint8 b = uint8(tx_[p++]);
-                cKey |= uint64(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            uint64 cFieldNum = cKey >> 3;
-            uint64 cWireType = cKey & 0x7;
-            if (cFieldNum == 2 && cWireType == 2) {
-                uint64 anyLen = 0;
-                shift = 0;
-                while (true) {
-                    require(p < contractEnd, "Truncated Any length");
-                    uint8 b = uint8(tx_[p++]);
-                    anyLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                paramStart = p;
-                paramEnd = p + uint256(anyLen);
-                require(paramEnd <= contractEnd, "Truncated Any bytes");
+            uint64 cFieldNum;
+            uint64 cWireType;
+            (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
+            if (cFieldNum == 2 && cWireType == WIRE_LENGTH_DELIMITED) {
+                (paramStart, paramEnd, p) = _readLength(tx_, p, contractEnd);
 
-                (uint256 valueStart, uint256 valueLen) = _parseAnyForValue(tx_, paramStart, paramEnd);
+                (uint256 valueStart, uint256 valueLen) = _parseAnyValueField(tx_, paramStart, paramEnd);
                 if (valueStart != 0) {
                     trigStart = valueStart;
                     trigEnd = valueStart + valueLen;
                 }
-                p = paramEnd;
-            } else if (cWireType == 0) {
-                while (p < contractEnd) {
-                    uint8 b = uint8(tx_[p++]);
-                    if ((b & 0x80) == 0) break;
-                }
-            } else if (cWireType == 2) {
-                uint64 skipLen2 = 0;
-                shift = 0;
-                while (true) {
-                    require(p < contractEnd, "Truncated contract skip length");
-                    uint8 b = uint8(tx_[p++]);
-                    skipLen2 |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                p += uint256(skipLen2);
-                require(p <= contractEnd, "Truncated contract skip bytes");
-            } else if (cWireType == 5) {
-                p += 4;
-            } else if (cWireType == 1) {
-                p += 8;
             } else {
-                revert NotATrc20Transfer();
+                p = _skipField(tx_, p, contractEnd, cWireType);
             }
         }
     }
@@ -343,16 +264,14 @@ contract TRC20TxReader {
             if (!hasMore) break;
 
             (uint256 trigStart, uint256 trigEnd) = _extractTriggerSmartContract(encodedTx, contractStart, contractEnd);
-            if (ctype == 31 && trigStart != 0) {
-                (bool ok2, bytes21 fFrom, bytes21 fTo, address token, uint256 fAmt, bool fIsFrom) =
-                    _parseTrigger(encodedTx, trigStart, trigEnd - trigStart);
+            if (ctype == CONTRACT_TRIGGER_SMART && trigStart != 0) {
+                (bool ok2, TriggerParsed memory tp) = _parseTriggerSmart(encodedTx, trigStart, trigEnd - trigStart);
                 if (ok2) {
-                    // owner == fFrom (same semantics), contractAddr corresponds to token
-                    fromTron = fFrom;
-                    toTron = fTo;
-                    tronTokenEvm = token;
-                    amount = fAmt;
-                    isTransferFrom = fIsFrom;
+                    fromTron = tp.fromTron;
+                    toTron = tp.toTron;
+                    tronTokenEvm = tp.tronTokenEvm;
+                    amount = tp.amount;
+                    isTransferFrom = tp.isTransferFrom;
                     found = true;
                 }
             }
@@ -368,241 +287,106 @@ contract TRC20TxReader {
         if (!success) revert Trc20TransferNotSuccessful();
     }
 
-    function _parseAnyForValue(bytes memory encodedTx, uint256 paramStart, uint256 paramEnd)
+    function _parseAnyValueField(bytes memory encodedTx, uint256 paramStart, uint256 paramEnd)
         internal
         pure
         returns (uint256 valueStart, uint256 valueLen)
     {
         uint256 q = paramStart;
-        uint64 shift = 0;
         valueStart = 0;
         valueLen = 0;
         while (q < paramEnd) {
-            uint64 anyKey = 0;
-            shift = 0;
-            while (true) {
-                require(q < paramEnd, "Truncated Any field");
-                uint8 b = uint8(encodedTx[q++]);
-                anyKey |= uint64(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            uint64 anyFieldNum = anyKey >> 3;
-            uint64 anyWireType = anyKey & 0x7;
-            if (anyFieldNum == 1 && anyWireType == 2) {
-                uint64 urlLen = 0;
-                shift = 0;
-                while (true) {
-                    require(q < paramEnd, "Truncated type_url length");
-                    uint8 b = uint8(encodedTx[q++]);
-                    urlLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                q += uint256(urlLen);
-                require(q <= paramEnd, "Truncated type_url bytes");
-            } else if (anyFieldNum == 2 && anyWireType == 2) {
-                uint64 valLen = 0;
-                shift = 0;
-                while (true) {
-                    require(q < paramEnd, "Truncated value length");
-                    uint8 b = uint8(encodedTx[q++]);
-                    valLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                valueStart = q;
-                valueLen = uint256(valLen);
-                q += valueLen;
-                require(q <= paramEnd, "Truncated TriggerSmartContract bytes");
-            } else if (anyWireType == 0) {
-                while (true) {
-                    require(q < paramEnd, "Truncated Any varint");
-                    uint8 b = uint8(encodedTx[q++]);
-                    if ((b & 0x80) == 0) break;
-                }
-            } else if (anyWireType == 2) {
-                uint64 skipLen = 0;
-                shift = 0;
-                while (true) {
-                    require(q < paramEnd, "Truncated Any skip length");
-                    uint8 b = uint8(encodedTx[q++]);
-                    skipLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                q += uint256(skipLen);
-                require(q <= paramEnd, "Truncated Any skip bytes");
-            } else if (anyWireType == 5) {
-                q += 4;
-            } else if (anyWireType == 1) {
-                q += 8;
+            uint64 anyFieldNum;
+            uint64 anyWireType;
+            (anyFieldNum, anyWireType, q) = _readKey(encodedTx, q, paramEnd);
+            if (anyFieldNum == 1 && anyWireType == WIRE_LENGTH_DELIMITED) {
+                (, q,) = _readLength(encodedTx, q, paramEnd);
+            } else if (anyFieldNum == 2 && anyWireType == WIRE_LENGTH_DELIMITED) {
+                (valueStart, q,) = _readLength(encodedTx, q, paramEnd);
+                valueLen = q - valueStart;
             } else {
-                revert NotATrc20Transfer();
+                q = _skipField(encodedTx, q, paramEnd, anyWireType);
             }
         }
     }
 
-    function _parseTxSuccess(bytes memory encodedTx, uint256 offset, uint256 totalLen)
-        internal
-        pure
-        returns (bool success)
-    {
-        uint64 shift = 0;
+    function _parseTxSuccess(bytes memory encodedTx, uint256 offset, uint256 totalLen) internal pure returns (bool) {
+        // Skip signatures (field 2, tag 0x12)
         while (offset < totalLen && uint8(encodedTx[offset]) == 0x12) {
-            offset += 1;
-            uint64 sigLen = 0;
-            shift = 0;
-            while (true) {
-                require(offset < totalLen, "Truncated signature length");
-                uint8 b = uint8(encodedTx[offset++]);
-                sigLen |= uint64(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
+            offset++;
+            uint64 sigLen;
+            (sigLen, offset) = ProtoVarint.read(encodedTx, offset, totalLen);
             offset += uint256(sigLen);
-            require(offset <= totalLen, "Truncated signature bytes");
+            if (offset > totalLen) revert TronProtoTruncated();
         }
-        success = true;
-        if (offset < totalLen && uint8(encodedTx[offset]) == 0x2A) {
-            offset += 1;
-            uint64 resLen = 0;
-            shift = 0;
-            while (true) {
-                require(offset < totalLen, "Truncated result length");
-                uint8 b = uint8(encodedTx[offset++]);
-                resLen |= uint64(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            uint256 resStart = offset;
-            uint256 resEnd = resStart + uint256(resLen);
-            require(resEnd <= totalLen, "Truncated result bytes");
-            uint256 r = resStart;
-            while (r < resEnd) {
-                uint64 rKey = 0;
-                shift = 0;
-                while (true) {
-                    require(r < resEnd, "Truncated result field");
-                    uint8 b = uint8(encodedTx[r++]);
-                    rKey |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                uint64 rFieldNum = rKey >> 3;
-                uint64 rWireType = rKey & 0x7;
-                if (rFieldNum == 2 && rWireType == 0) {
-                    uint64 statusCode = 0;
-                    shift = 0;
-                    while (true) {
-                        require(r < resEnd, "Truncated ret code");
-                        uint8 b = uint8(encodedTx[r++]);
-                        statusCode |= uint64(b & 0x7F) << shift;
-                        if ((b & 0x80) == 0) break;
-                        shift += 7;
-                    }
-                    if (statusCode != 0) success = false;
-                } else if (rWireType == 0) {
-                    while (r < resEnd) {
-                        uint8 b = uint8(encodedTx[r++]);
-                        if ((b & 0x80) == 0) break;
-                    }
-                } else if (rWireType == 2) {
-                    uint64 resSkipLen = 0;
-                    shift = 0;
-                    while (true) {
-                        require(r < resEnd, "Truncated result skip length");
-                        uint8 b = uint8(encodedTx[r++]);
-                        resSkipLen |= uint64(b & 0x7F) << shift;
-                        if ((b & 0x80) == 0) break;
-                        shift += 7;
-                    }
-                    r += uint256(resSkipLen);
-                    require(r <= resEnd, "Truncated result skip bytes");
-                } else if (rWireType == 5) {
-                    r += 4;
-                } else if (rWireType == 1) {
-                    r += 8;
-                } else {
-                    revert NotATrc20Transfer();
-                }
+
+        // No result section → treat as success
+        if (offset >= totalLen || uint8(encodedTx[offset]) != 0x2A) {
+            return true;
+        }
+
+        // Parse result message
+        offset++;
+        uint256 resStart;
+        uint256 resEnd;
+        (resStart, resEnd,) = _readLength(encodedTx, offset, totalLen);
+        offset = resStart;
+        while (offset < resEnd) {
+            uint64 fieldNum;
+            uint64 wireType;
+            (fieldNum, wireType, offset) = _readKey(encodedTx, offset, resEnd);
+
+            if (fieldNum == 2 && wireType == WIRE_VARINT) {
+                uint64 statusCode;
+                (statusCode, offset) = ProtoVarint.read(encodedTx, offset, resEnd);
+                if (statusCode != 0) return false;
+            } else {
+                offset = _skipField(encodedTx, offset, resEnd, wireType);
             }
         }
+
+        return true;
     }
 
-    function _parseTrigger(bytes memory encodedTx, uint256 valueStart, uint256 valueLen)
+    function _parseTriggerSmart(bytes memory encodedTx, uint256 valueStart, uint256 valueLen)
         internal
         pure
-        returns (bool ok, bytes21 fromTron, bytes21 toTron, address tronTokenEvm, uint256 amount, bool isTransferFrom)
+        returns (bool ok, TriggerParsed memory tp)
     {
         uint256 trigCursor = valueStart;
         uint256 trigEnd = valueStart + valueLen;
-        uint64 shift = 0;
         while (trigCursor < trigEnd) {
-            uint64 tKey = 0;
-            shift = 0;
-            while (true) {
-                require(trigCursor < trigEnd, "Truncated Trigger field");
-                uint8 b = uint8(encodedTx[trigCursor++]);
-                tKey |= uint64(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            uint64 tFieldNum = tKey >> 3;
-            uint64 tWireType = tKey & 0x7;
+            uint64 tFieldNum;
+            uint64 tWireType;
+            (tFieldNum, tWireType, trigCursor) = _readKey(encodedTx, trigCursor, trigEnd);
 
-            if (tFieldNum == 1 && tWireType == 2) {
-                uint64 ownerLen = 0;
-                shift = 0;
-                while (true) {
-                    require(trigCursor < trigEnd, "Truncated owner_address length");
-                    uint8 b = uint8(encodedTx[trigCursor++]);
-                    ownerLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                require(ownerLen == 21, "Invalid owner_address length");
-                require(trigCursor + 21 <= trigEnd, "Truncated owner_address");
+            if (tFieldNum == 1 && tWireType == WIRE_LENGTH_DELIMITED) {
+                uint256 addrStart;
+                uint256 addrEnd;
+                (addrStart, addrEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
+                if (addrEnd - addrStart != 21) revert TronInvalidOwnerLength();
                 bytes21 tmp;
                 assembly ("memory-safe") {
-                    tmp := mload(add(add(encodedTx, 0x20), trigCursor))
+                    tmp := mload(add(add(encodedTx, 0x20), addrStart))
                 }
-                require(uint8(tmp[0]) == 0x41, "owner_address prefix invalid");
-                fromTron = tmp;
-                trigCursor += 21;
-            } else if (tFieldNum == 2 && tWireType == 2) {
-                uint64 contractLen2 = 0;
-                shift = 0;
-                while (true) {
-                    require(trigCursor < trigEnd, "Truncated contract_address length");
-                    uint8 b = uint8(encodedTx[trigCursor++]);
-                    contractLen2 |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                require(contractLen2 == 21, "Invalid contract_address length");
-                require(trigCursor + 21 <= trigEnd, "Truncated contract_address");
+                if (uint8(tmp[0]) != 0x41) revert TronInvalidOwnerPrefix();
+                tp.fromTron = tmp;
+            } else if (tFieldNum == 2 && tWireType == WIRE_LENGTH_DELIMITED) {
+                uint256 cStart;
+                uint256 cEnd;
+                (cStart, cEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
+                if (cEnd - cStart != 21) revert TronInvalidContractLength();
                 bytes21 tmp2;
                 assembly ("memory-safe") {
-                    tmp2 := mload(add(add(encodedTx, 0x20), trigCursor))
+                    tmp2 := mload(add(add(encodedTx, 0x20), cStart))
                 }
-                require(uint8(tmp2[0]) == 0x41, "contract_address prefix invalid");
-                tronTokenEvm = address(uint160(uint168(tmp2)));
-                trigCursor += 21;
-            } else if (tFieldNum == 4 && tWireType == 2) {
-                uint64 dataLen = 0;
-                shift = 0;
-                while (true) {
-                    require(trigCursor < trigEnd, "Truncated data length");
-                    uint8 b = uint8(encodedTx[trigCursor++]);
-                    dataLen |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                uint256 dataStart = trigCursor;
-                uint256 dataEnd = dataStart + uint256(dataLen);
-                require(dataEnd <= trigEnd, "Truncated data bytes");
-                if (dataLen < 4) revert NotATrc20Transfer();
+                if (uint8(tmp2[0]) != 0x41) revert TronInvalidContractPrefix();
+                tp.tronTokenEvm = _tronToEvm(tmp2);
+            } else if (tFieldNum == 4 && tWireType == WIRE_LENGTH_DELIMITED) {
+                uint256 dataStart;
+                uint256 dataEnd;
+                (dataStart, dataEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
+                if (dataEnd - dataStart < 4) revert NotATrc20Transfer();
 
                 uint32 sel;
                 {
@@ -615,21 +399,20 @@ contract TRC20TxReader {
                 }
                 bytes4 sig = bytes4(sel);
                 if (sig == SELECTOR_TRANSFER) {
-                    require(dataLen == 4 + 32 * 2, "transfer data length mismatch");
+                    if (dataEnd - dataStart != 4 + 32 * 2) revert TronInvalidTrc20DataLength();
                     bytes32 word1;
                     bytes32 word2;
                     assembly ("memory-safe") {
                         word1 := mload(add(add(encodedTx, 0x20), add(dataStart, 4)))
                         word2 := mload(add(add(encodedTx, 0x20), add(dataStart, 36)))
                     }
-                    // casting to 'bytes21' is safe because Tron addresses are 0x41 || 20-byte EVM address
-                    // forge-lint: disable-next-line(unsafe-typecast)
-                    toTron = bytes21(uint168(uint160(uint256(word1))) | (uint168(0x41) << 160));
-                    amount = uint256(word2);
-                    isTransferFrom = false;
+                    address toAddr = address(uint160(uint256(word1)));
+                    tp.toTron = _evmToTron(toAddr);
+                    tp.amount = uint256(word2);
+                    tp.isTransferFrom = false;
                     ok = true;
                 } else if (sig == SELECTOR_TRANSFER_FROM) {
-                    require(dataLen == 4 + 32 * 3, "transferFrom data length mismatch");
+                    if (dataEnd - dataStart != 4 + 32 * 3) revert TronInvalidTrc20DataLength();
                     bytes32 w1;
                     bytes32 w2;
                     bytes32 w3;
@@ -638,41 +421,77 @@ contract TRC20TxReader {
                         w2 := mload(add(add(encodedTx, 0x20), add(dataStart, 36)))
                         w3 := mload(add(add(encodedTx, 0x20), add(dataStart, 68)))
                     }
-                    // casting to 'bytes21' is safe because Tron addresses are 0x41 || 20-byte EVM address
-                    // forge-lint: disable-next-line(unsafe-typecast)
-                    fromTron = bytes21(uint168(uint160(uint256(w1))) | (uint168(0x41) << 160));
-                    // casting to 'bytes21' is safe because Tron addresses are 0x41 || 20-byte EVM address
-                    // forge-lint: disable-next-line(unsafe-typecast)
-                    toTron = bytes21(uint168(uint160(uint256(w2))) | (uint168(0x41) << 160));
-                    amount = uint256(w3);
-                    isTransferFrom = true;
+                    address fromAddr = address(uint160(uint256(w1)));
+                    address toAddr2 = address(uint160(uint256(w2)));
+                    tp.fromTron = _evmToTron(fromAddr);
+                    tp.toTron = _evmToTron(toAddr2);
+                    tp.amount = uint256(w3);
+                    tp.isTransferFrom = true;
                     ok = true;
                 }
                 trigCursor = dataEnd;
-            } else if (tWireType == 0) {
-                while (trigCursor < trigEnd) {
-                    uint8 b = uint8(encodedTx[trigCursor++]);
-                    if ((b & 0x80) == 0) break;
-                }
-            } else if (tWireType == 2) {
-                uint64 skipLength = 0;
-                shift = 0;
-                while (true) {
-                    require(trigCursor < trigEnd, "Truncated trigger skip field");
-                    uint8 b = uint8(encodedTx[trigCursor++]);
-                    skipLength |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                trigCursor += uint256(skipLength);
-                require(trigCursor <= trigEnd, "Truncated trigger skip bytes");
-            } else if (tWireType == 5) {
-                trigCursor += 4;
-            } else if (tWireType == 1) {
-                trigCursor += 8;
             } else {
-                revert NotATrc20Transfer();
+                trigCursor = _skipField(encodedTx, trigCursor, trigEnd, tWireType);
             }
         }
+    }
+
+    function _skipField(bytes memory data, uint256 cursor, uint256 limit, uint64 wireType)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (wireType == WIRE_VARINT) {
+            return ProtoVarint.skip(data, cursor, limit);
+        }
+        if (wireType == WIRE_LENGTH_DELIMITED) {
+            (, uint256 end,) = _readLength(data, cursor, limit);
+            return end;
+        }
+        if (wireType == WIRE_FIXED32) {
+            return _advance(cursor, 4, limit);
+        }
+        if (wireType == WIRE_FIXED64) {
+            return _advance(cursor, 8, limit);
+        }
+        revert TronProtoInvalidWireType();
+    }
+
+    function _advance(uint256 cursor, uint256 delta, uint256 limit) internal pure returns (uint256) {
+        unchecked {
+            cursor += delta;
+        }
+        if (cursor > limit) revert TronProtoTruncated();
+        return cursor;
+    }
+
+    function _readLength(bytes memory data, uint256 cursor, uint256 limit)
+        internal
+        pure
+        returns (uint256 start, uint256 end, uint256 newCursor)
+    {
+        uint64 len;
+        (len, cursor) = ProtoVarint.read(data, cursor, limit);
+        start = cursor;
+        end = cursor + uint256(len);
+        if (end > limit) revert TronProtoTruncated();
+        return (start, end, end);
+    }
+
+    function _readKey(bytes memory data, uint256 pos, uint256 limit)
+        internal
+        pure
+        returns (uint64 fieldNum, uint64 wireType, uint256 newPos)
+    {
+        (uint64 key, uint256 p) = ProtoVarint.read(data, pos, limit);
+        return (key >> 3, key & 0x7, p);
+    }
+
+    function _tronToEvm(bytes21 tron) internal pure returns (address) {
+        return address(uint160(uint168(tron)));
+    }
+
+    function _evmToTron(address a) internal pure returns (bytes21) {
+        return bytes21((uint168(0x41) << 160) | uint168(uint160(a)));
     }
 }

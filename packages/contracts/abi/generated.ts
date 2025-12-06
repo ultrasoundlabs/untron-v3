@@ -3665,6 +3665,13 @@ export const trc20TxReaderAbi = [
   { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
   { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
   { type: 'error', inputs: [], name: 'Trc20TransferNotSuccessful' },
+  { type: 'error', inputs: [], name: 'TronInvalidContractLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidContractPrefix' },
+  { type: 'error', inputs: [], name: 'TronInvalidOwnerLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidOwnerPrefix' },
+  { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
+  { type: 'error', inputs: [], name: 'TronProtoInvalidWireType' },
+  { type: 'error', inputs: [], name: 'TronProtoTruncated' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5798,6 +5805,13 @@ export const untronManagerAbi = [
   { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
   { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
   { type: 'error', inputs: [], name: 'Trc20TransferNotSuccessful' },
+  { type: 'error', inputs: [], name: 'TronInvalidContractLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidContractPrefix' },
+  { type: 'error', inputs: [], name: 'TronInvalidOwnerLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidOwnerPrefix' },
+  { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
+  { type: 'error', inputs: [], name: 'TronProtoInvalidWireType' },
+  { type: 'error', inputs: [], name: 'TronProtoTruncated' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
