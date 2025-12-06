@@ -64,9 +64,8 @@ contract TRC20TxReader {
         bytes32 txLeaf = verifyTxInclusion(tronBlockNumber, encodedTx, proof, index);
 
         // 2) Decode TRC‑20 transfer details from transaction bytes.
-        (bytes21 fromTron, bytes21 toTron, address tronTokenEvm, uint256 amount, bool isTransferFrom, bool success) =
+        (bytes21 fromTron, bytes21 toTron, address tronTokenEvm, uint256 amount, bool isTransferFrom) =
             _decodeTrc20TransferFromTx(encodedTx);
-        if (!success) revert Trc20TransferNotSuccessful();
 
         // 3) Fetch block timestamp for context and assemble result.
         uint32 blockTs = TRON_LIGHT_CLIENT.getBlockTimestamp(tronBlockNumber);
@@ -251,13 +250,12 @@ contract TRC20TxReader {
     function _extractTriggerSmartContract(bytes memory tx_, uint256 contractStart, uint256 contractEnd)
         internal
         pure
-        returns (uint256 trigStart, uint256 trigEnd, uint64 contractType)
+        returns (uint256 trigStart, uint256 trigEnd)
     {
         uint64 shift = 0;
         uint256 p = contractStart;
         uint256 paramStart = 0;
         uint256 paramEnd = 0;
-        contractType = 0;
         while (p < contractEnd) {
             uint64 cKey = 0;
             shift = 0;
@@ -270,18 +268,7 @@ contract TRC20TxReader {
             }
             uint64 cFieldNum = cKey >> 3;
             uint64 cWireType = cKey & 0x7;
-            if (cFieldNum == 1 && cWireType == 0) {
-                uint64 ctype = 0;
-                shift = 0;
-                while (true) {
-                    require(p < contractEnd, "Truncated type varint");
-                    uint8 b = uint8(tx_[p++]);
-                    ctype |= uint64(b & 0x7F) << shift;
-                    if ((b & 0x80) == 0) break;
-                    shift += 7;
-                }
-                contractType = ctype;
-            } else if (cFieldNum == 2 && cWireType == 2) {
+            if (cFieldNum == 2 && cWireType == 2) {
                 uint64 anyLen = 0;
                 shift = 0;
                 while (true) {
@@ -328,21 +315,6 @@ contract TRC20TxReader {
         }
     }
 
-    function _decodeTriggerSmartContract(bytes memory tx_, uint256 trigStart, uint256 trigEnd)
-        internal
-        pure
-        returns (bytes21 fromTron, bytes21 toTron, address token, uint256 amount, bool isFrom, bool foundTrc20)
-    {
-        bool ok;
-        (ok, fromTron, toTron, token, amount, isFrom) = _parseTrigger(tx_, trigStart, trigEnd - trigStart);
-        foundTrc20 = ok;
-    }
-
-    function _parseResult(bytes memory tx_, uint256 offset, uint256 totalLen) internal pure returns (bool success) {
-        success = _parseTxSuccess(tx_, offset, totalLen);
-    }
-
-    // internal
     /// @notice Decodes the details of a TRC-20 transfer from raw Tron transaction bytes.
     /// @dev Parses the protobuf Transaction to extract the first valid TRC-20 `transfer` or `transferFrom` call.
     ///      Reverts with `NotATrc20Transfer` if the transaction is not a TRC-20 transfer call.
@@ -352,18 +324,10 @@ contract TRC20TxReader {
     /// @return tronTokenEvm Token contract address in 20-byte EVM format.
     /// @return amount Token amount transferred.
     /// @return isTransferFrom True if it was a transferFrom call, false if a direct transfer.
-    /// @return success True if the Tron transaction’s execution status was SUCCESS.
     function _decodeTrc20TransferFromTx(bytes memory encodedTx)
         internal
         pure
-        returns (
-            bytes21 fromTron,
-            bytes21 toTron,
-            address tronTokenEvm,
-            uint256 amount,
-            bool isTransferFrom,
-            bool success
-        )
+        returns (bytes21 fromTron, bytes21 toTron, address tronTokenEvm, uint256 amount, bool isTransferFrom)
     {
         uint256 totalLen = encodedTx.length;
 
@@ -374,15 +338,14 @@ contract TRC20TxReader {
         bool found = false;
         uint256 cursor = rawDataStart;
         while (true) {
-            (bool hasMore, uint256 nextCursor, uint256 contractStart, uint256 contractEnd,) =
+            (bool hasMore, uint256 nextCursor, uint256 contractStart, uint256 contractEnd, uint64 ctype) =
                 _nextContract(encodedTx, cursor, rawDataEnd);
             if (!hasMore) break;
 
-            (uint256 trigStart, uint256 trigEnd, uint64 ctype) =
-                _extractTriggerSmartContract(encodedTx, contractStart, contractEnd);
+            (uint256 trigStart, uint256 trigEnd) = _extractTriggerSmartContract(encodedTx, contractStart, contractEnd);
             if (ctype == 31 && trigStart != 0) {
-                (bytes21 fFrom, bytes21 fTo, address token, uint256 fAmt, bool fIsFrom, bool ok2) =
-                    _decodeTriggerSmartContract(encodedTx, trigStart, trigEnd);
+                (bool ok2, bytes21 fFrom, bytes21 fTo, address token, uint256 fAmt, bool fIsFrom) =
+                    _parseTrigger(encodedTx, trigStart, trigEnd - trigStart);
                 if (ok2) {
                     // owner == fFrom (same semantics), contractAddr corresponds to token
                     fromTron = fFrom;
@@ -401,7 +364,8 @@ contract TRC20TxReader {
         if (!found) revert NotATrc20Transfer();
 
         // 3) Parse result section for success
-        success = _parseResult(encodedTx, rawDataEnd, totalLen);
+        bool success = _parseTxSuccess(encodedTx, rawDataEnd, totalLen);
+        if (!success) revert Trc20TransferNotSuccessful();
     }
 
     function _parseAnyForValue(bytes memory encodedTx, uint256 paramStart, uint256 paramEnd)
