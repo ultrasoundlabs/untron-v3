@@ -1,4 +1,3 @@
-// test/TronLightClientFixture.t.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
@@ -6,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {TronLightClient} from "../../../src/evm/TronLightClient.sol";
 import {IBlockRangeProver} from "../../../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
 
-contract TronLightClientFixtureTest is Test {
+contract TronLightClientLayer1Test is Test {
     TronLightClient internal client;
 
     // Fixture data

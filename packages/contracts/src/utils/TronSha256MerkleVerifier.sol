@@ -8,7 +8,7 @@ library TronSha256MerkleVerifier {
     /// @param proof  Sibling hashes from leaf level upwards
     /// @param index  Bitfield: bit i == 0 => path node was left child at level i,
     ///                                   1 => path node was right child at level i
-    function verify(bytes32 root, bytes32 leaf, bytes32[] calldata proof, uint256 index) internal pure returns (bool) {
+    function verify(bytes32 root, bytes32 leaf, bytes32[] memory proof, uint256 index) internal pure returns (bool) {
         bytes32 computed = leaf;
 
         for (uint256 i = 0; i < proof.length; i++) {
