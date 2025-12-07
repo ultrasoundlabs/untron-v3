@@ -85,18 +85,51 @@ contract TronTxReader {
         TRON_LIGHT_CLIENT = TronLightClient(tronLightClient_);
     }
 
-    // ---------------- Generic TriggerSmartContract reader ----------------
     function readTriggerSmartContract(
         uint256 tronBlockNumber,
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
     ) external view returns (TriggerSmartContract memory callData) {
-        (bytes32 txLeaf, uint32 tronBlockTimestamp, uint256 rawDataStart, uint256 rawDataEnd) =
-            _baseMetadata(tronBlockNumber, encodedTx, proof, index);
+        bytes32 txLeaf = verifyTxInclusion(tronBlockNumber, encodedTx, proof, index);
+        TriggerSmartContract memory parsed = _parseTriggerSmartContract(encodedTx);
+
+        callData = TriggerSmartContract({
+            txLeaf: txLeaf,
+            tronBlockNumber: tronBlockNumber,
+            tronBlockTimestamp: TRON_LIGHT_CLIENT.getBlockTimestamp(tronBlockNumber),
+            senderTron: parsed.senderTron,
+            toTron: parsed.toTron,
+            data: parsed.data
+        });
+    }
+
+    // ---------------- Merkle helpers ----------------
+    function verifyTxInclusion(
+        uint256 tronBlockNumber,
+        bytes calldata encodedTx,
+        bytes32[] calldata proof,
+        uint256 index
+    ) public view returns (bytes32 txLeaf) {
+        bytes32 root = TRON_LIGHT_CLIENT.getTxTrieRoot(tronBlockNumber);
+        txLeaf = sha256(encodedTx);
+        if (!TronSha256MerkleVerifier.verify(root, txLeaf, proof, index)) revert InvalidTxMerkleProof();
+    }
+
+    // ---------------- Generic TriggerSmartContract reader ----------------
+    /// @notice Pure helper to parse a TriggerSmartContract from raw encoded transaction data.
+    /// @dev Does not perform Merkle verification or light client checks.
+    function _parseTriggerSmartContract(bytes calldata encodedTx)
+        internal
+        pure
+        returns (TriggerSmartContract memory _partial)
+    {
+        (uint256 rawDataStart, uint256 rawDataEnd) = _parseRawData(encodedTx);
+        assert(rawDataStart <= rawDataEnd && rawDataEnd <= encodedTx.length);
 
         // 1. Parse the single Contract in raw_data.
         (uint256 cStart, uint256 cEnd, uint64 cType) = _readSingleContract(encodedTx, rawDataStart, rawDataEnd);
+        assert(cStart < cEnd && cEnd <= rawDataEnd);
 
         // 2. Enforce that it is a TriggerSmartContract.
         if (cType != CONTRACT_TRIGGER_SMART) revert NotTriggerSmartContract();
@@ -118,36 +151,14 @@ contract TronTxReader {
         // 6. Materialize calldata bytes.
         bytes memory data = _slice(encodedTx, dataStart, dataEnd);
 
-        callData = TriggerSmartContract({
-            txLeaf: txLeaf,
-            tronBlockNumber: tronBlockNumber,
-            tronBlockTimestamp: tronBlockTimestamp,
+        _partial = TriggerSmartContract({
+            txLeaf: bytes32(0), // To be filled by caller
+            tronBlockNumber: 0, // To be filled by caller
+            tronBlockTimestamp: 0, // To be filled by caller
             senderTron: ownerTron,
             toTron: contractTron,
             data: data
         });
-    }
-
-    // ---------------- Merkle helpers ----------------
-    function verifyTxInclusion(
-        uint256 tronBlockNumber,
-        bytes calldata encodedTx,
-        bytes32[] calldata proof,
-        uint256 index
-    ) public view returns (bytes32 txLeaf) {
-        bytes32 root = TRON_LIGHT_CLIENT.getTxTrieRoot(tronBlockNumber);
-        txLeaf = sha256(encodedTx);
-        if (!TronSha256MerkleVerifier.verify(root, txLeaf, proof, index)) revert InvalidTxMerkleProof();
-    }
-
-    function _baseMetadata(uint256 tronBlockNumber, bytes calldata encodedTx, bytes32[] calldata proof, uint256 index)
-        internal
-        view
-        returns (bytes32 txLeaf, uint32 tronBlockTimestamp, uint256 rawDataStart, uint256 rawDataEnd)
-    {
-        txLeaf = verifyTxInclusion(tronBlockNumber, encodedTx, proof, index);
-        (rawDataStart, rawDataEnd) = _parseRawData(encodedTx);
-        tronBlockTimestamp = TRON_LIGHT_CLIENT.getBlockTimestamp(tronBlockNumber);
     }
 
     // ---------------- Protobuf parsing ----------------
@@ -169,10 +180,15 @@ contract TronTxReader {
         uint256 cursor = rawDataStart;
         bool seenContract;
 
+        // Monotonicity assertion: cursor must increase.
+        uint256 prevCursor = cursor;
         while (cursor < rawDataEnd) {
+            prevCursor = cursor;
+
             uint64 fieldNum;
             uint64 wireType;
             (fieldNum, wireType, cursor) = _readKey(tx_, cursor, rawDataEnd);
+            assert(cursor > prevCursor); // Ensure forward progress
 
             if (fieldNum == 11 && wireType == WIRE_LENGTH_DELIMITED) {
                 // Enforce "exactly one" contract at the protobuf level.
@@ -188,10 +204,14 @@ contract TronTxReader {
                 // Read contract type: field #1 (VARINT) inside the Contract message.
                 uint256 p = cStart;
                 bool foundType;
+                uint256 prevP = p;
                 while (p < cEnd) {
+                    prevP = p;
+
                     uint64 cFieldNum;
                     uint64 cWireType;
                     (cFieldNum, cWireType, p) = _readKey(tx_, p, cEnd);
+                    assert(p > prevP); // Ensure forward progress
                     if (cFieldNum == 1 && cWireType == WIRE_VARINT) {
                         (contractType, p) = ProtoVarint.read(tx_, p, cEnd);
                         foundType = true;
@@ -220,10 +240,16 @@ contract TronTxReader {
         uint256 p = contractStart;
         uint256 paramStart = 0;
         uint256 paramEnd = 0;
+
+        // Monotonicity assertion: p must increase.
+        uint256 prevP = p;
         while (p < contractEnd) {
+            prevP = p;
+
             uint64 cFieldNum;
             uint64 cWireType;
             (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
+            assert(p > prevP); // Ensure forward progress
             if (cFieldNum == 2 && cWireType == WIRE_LENGTH_DELIMITED) {
                 (paramStart, paramEnd, p) = _readLength(tx_, p, contractEnd);
                 (uint256 valueStart, uint256 valueEnd) = _parseAnyValueField(tx_, paramStart, paramEnd);
@@ -245,10 +271,16 @@ contract TronTxReader {
         uint256 q = paramStart;
         valueStart = 0;
         valueEnd = 0;
+
+        // Monotonicity assertion: q must increase.
+        uint256 prevQ = q;
         while (q < paramEnd) {
+            prevQ = q;
+
             uint64 anyFieldNum;
             uint64 anyWireType;
             (anyFieldNum, anyWireType, q) = _readKey(encodedTx, q, paramEnd);
+            assert(q > prevQ); // Ensure forward progress
             if (anyFieldNum == 1 && anyWireType == WIRE_LENGTH_DELIMITED) {
                 (, q,) = _readLength(encodedTx, q, paramEnd);
             } else if (anyFieldNum == 2 && anyWireType == WIRE_LENGTH_DELIMITED) {
@@ -260,33 +292,42 @@ contract TronTxReader {
         }
     }
 
+    function _readBytes21(bytes calldata data, uint256 start) internal pure returns (bytes21 out) {
+        if (start + 21 > data.length) revert TronProtoTruncated();
+        assembly ("memory-safe") {
+            out := calldataload(add(data.offset, start))
+        }
+    }
+
     function _parseTriggerHeaders(bytes calldata encodedTx, uint256 trigStart, uint256 trigEnd)
         internal
         pure
         returns (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd)
     {
         uint256 trigCursor = trigStart;
+
+        // Monotonicity assertion: trigCursor must increase.
+        uint256 prevTrigCursor = trigCursor;
         while (trigCursor < trigEnd) {
+            prevTrigCursor = trigCursor;
+
             uint64 tFieldNum;
             uint64 tWireType;
             (tFieldNum, tWireType, trigCursor) = _readKey(encodedTx, trigCursor, trigEnd);
+            assert(trigCursor > prevTrigCursor); // Ensure forward progress
             if (tFieldNum == 1 && tWireType == WIRE_LENGTH_DELIMITED) {
                 uint256 oStart;
                 uint256 oEnd;
                 (oStart, oEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
                 if (oEnd - oStart != 21) revert TronInvalidOwnerLength();
-                assembly ("memory-safe") {
-                    ownerTron := calldataload(add(encodedTx.offset, oStart))
-                }
+                ownerTron = _readBytes21(encodedTx, oStart);
                 if (uint8(ownerTron[0]) != 0x41) revert TronInvalidOwnerPrefix();
             } else if (tFieldNum == 2 && tWireType == WIRE_LENGTH_DELIMITED) {
                 uint256 cStart;
                 uint256 cEnd;
                 (cStart, cEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
                 if (cEnd - cStart != 21) revert TronInvalidContractLength();
-                assembly ("memory-safe") {
-                    contractTron := calldataload(add(encodedTx.offset, cStart))
-                }
+                contractTron = _readBytes21(encodedTx, cStart);
                 if (uint8(contractTron[0]) != 0x41) revert TronInvalidContractPrefix();
             } else if (tFieldNum == 4 && tWireType == WIRE_LENGTH_DELIMITED) {
                 (dataStart, dataEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
@@ -298,12 +339,15 @@ contract TronTxReader {
 
     function _parseTxSuccess(bytes calldata encodedTx, uint256 offset, uint256 totalLen) internal pure returns (bool) {
         // Skip signatures (field 2, tag 0x12)
+        uint256 prevOffset = offset;
         while (offset < totalLen && uint8(encodedTx[offset]) == 0x12) {
+            prevOffset = offset;
+
             offset++;
             uint64 sigLen;
             (sigLen, offset) = ProtoVarint.read(encodedTx, offset, totalLen);
-            offset += uint256(sigLen);
-            if (offset > totalLen) revert TronProtoTruncated();
+            assert(offset > prevOffset); // Ensure forward progress
+            offset = _advance(offset, uint256(sigLen), totalLen);
         }
         if (offset >= totalLen || uint8(encodedTx[offset]) != 0x2A) return true;
         offset++;
@@ -311,10 +355,16 @@ contract TronTxReader {
         uint256 resEnd;
         (resStart, resEnd,) = _readLength(encodedTx, offset, totalLen);
         offset = resStart;
+
+        // Monotonicity assertion: offset must increase.
+        uint256 prevResOffset = offset;
         while (offset < resEnd) {
+            prevResOffset = offset;
+
             uint64 fieldNum;
             uint64 wireType;
             (fieldNum, wireType, offset) = _readKey(encodedTx, offset, resEnd);
+            assert(offset > prevResOffset); // Ensure forward progress
             if (fieldNum == 2 && wireType == WIRE_VARINT) {
                 uint64 statusCode;
                 (statusCode, offset) = ProtoVarint.read(encodedTx, offset, resEnd);
@@ -335,8 +385,9 @@ contract TronTxReader {
         uint64 len;
         (len, cursor) = ProtoVarint.read(data, cursor, limit);
         start = cursor;
-        end = cursor + uint256(len);
-        if (end > limit) revert TronProtoTruncated();
+        uint256 ulen = uint256(len);
+        if (ulen > limit - cursor) revert TronProtoTruncated();
+        end = cursor + ulen;
         return (start, end, end);
     }
 
@@ -365,21 +416,17 @@ contract TronTxReader {
     }
 
     function _advance(uint256 cursor, uint256 delta, uint256 limit) internal pure returns (uint256) {
-        unchecked {
-            cursor += delta;
-        }
-        if (cursor > limit) revert TronProtoTruncated();
-        return cursor;
+        // Explicit non-overflow + bounds condition.
+        if (delta > limit - cursor) revert TronProtoTruncated();
+        return cursor + delta;
     }
 
     function _slice(bytes calldata data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
         if (end < start || end > data.length) revert TronProtoTruncated();
         uint256 len = end - start;
         out = new bytes(len);
-        if (len == 0) return out;
-        // Copy calldata segment [start, end) into freshly allocated bytes.
-        assembly ("memory-safe") {
-            calldatacopy(add(out, 0x20), add(data.offset, start), len)
+        for (uint256 i = 0; i < len; ++i) {
+            out[i] = data[start + i];
         }
     }
 }
