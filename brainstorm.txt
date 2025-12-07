@@ -16,10 +16,10 @@ Very simple contract, probably written in plain EVM assembly, that, when called:
 5. Forwards its status code and message to the caller
 6. STOP
 
-UntronManager (EVM):
+UntronV3 (EVM):
 1. Lets whitelisted addresses "lease" receivers on Tron deployed by UntronController
 2. "Lease" means that for specified duration, a specified address is eligible for an amount in specified tokens for every deposit to a specified receiver
     - This amount is defined as deposited amount minus specified percent fee (expressed in bps) minus specified flat fee.
     - Leases are created by "realtors," which in turn are EVM addresses whitelisted by governance.
     - Realtors can specify all of the params above that we describe as "specified" as long as it's within governance-specified floor and ceiling (if it's a number).
-3. 
+3.

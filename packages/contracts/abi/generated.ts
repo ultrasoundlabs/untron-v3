@@ -4924,3 +4924,122 @@ export const untronReceiverAbi = [
   },
   { type: 'error', inputs: [], name: 'NotController' },
 ] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UntronV3
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const untronV3Abi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: 'controllerAddress', internalType: 'bytes20', type: 'bytes20' },
+      { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'tronLightClient', internalType: 'address', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'CONTROLLER_ADDRESS',
+    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'TRON_LIGHT_CLIENT',
+    outputs: [
+      { name: '', internalType: 'contract TronLightClient', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'encodedTx', internalType: 'bytes', type: 'bytes' }],
+    name: 'computeTxLeaf',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'deployReceiver',
+    outputs: [
+      { name: 'receiver', internalType: 'address payable', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'readTrc20Transfer',
+    outputs: [
+      {
+        name: 'transfer',
+        internalType: 'struct TRC20TxReader.Trc20Transfer',
+        type: 'tuple',
+        components: [
+          { name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'tronTokenEvm', internalType: 'address', type: 'address' },
+          { name: 'fromTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'amount', internalType: 'uint256', type: 'uint256' },
+          { name: 'isTransferFrom', internalType: 'bool', type: 'bool' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'receiverBytecode',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'verifyTxInclusion',
+    outputs: [{ name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
+  { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
+  { type: 'error', inputs: [], name: 'Trc20TransferNotSuccessful' },
+  { type: 'error', inputs: [], name: 'TronInvalidContractLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidContractPrefix' },
+  { type: 'error', inputs: [], name: 'TronInvalidOwnerLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidOwnerPrefix' },
+  { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
+  { type: 'error', inputs: [], name: 'TronProtoInvalidWireType' },
+  { type: 'error', inputs: [], name: 'TronProtoTruncated' },
+] as const

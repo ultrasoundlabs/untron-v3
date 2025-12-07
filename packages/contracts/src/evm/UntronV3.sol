@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {Create2Utils} from "../utils/Create2Utils.sol";
 import {TRC20TxReader} from "./TRC20TxReader.sol";
 
-contract UntronManager is Create2Utils, TRC20TxReader {
+contract UntronV3 is Create2Utils, TRC20TxReader {
     /// @notice The address of the UntronController contract on Tron (source chain)
     bytes20 public immutable CONTROLLER_ADDRESS;
 

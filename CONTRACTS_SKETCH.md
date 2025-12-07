@@ -7,7 +7,7 @@ Untron is a two-chain protocol:
   - Users send Tron tokens (mainly USDT) to those receivers.
   - Periodically, the controller dumps receivers and bridges funds to Arbitrum.
 - On Arbitrum:
-  - `UntronManager` keeps track of leases on those receivers.
+  - `UntronV3` keeps track of leases on those receivers.
   - Each lease defines:
     - who gets paid when deposits hit a given receiver,
     - on what terms (fee, duration),
@@ -15,7 +15,7 @@ Untron is a two-chain protocol:
 
 Relayers glue it together:
 - Proving Tron txs to a Tron light client on Arbitrum.
-- Calling `UntronManager` to:
+- Calling `UntronV3` to:
   - pre-entitle deposits (instant credits),
   - process dumps (backing + opaque volume),
   - and drive the claim queue.
@@ -66,7 +66,7 @@ A Tron smart contract that:
      - Delegatecall into an `IUntronBridger` implementation:
        - `bridger.bridge(token, inAmount, outAmount, ...)`.
      - Bridger is responsible for performing whatever bridging/swapping on Tron is needed so that:
-       - `outAmount` of Arbitrum USDT ends up in `UntronManager` on Arbitrum.
+       - `outAmount` of Arbitrum USDT ends up in `UntronV3` on Arbitrum.
      - If bridger’s computed output amount ≠ `outAmount`, the whole transaction reverts.
      - Combined with `pullFromReceivers`, this gives us a clean, verifiable `outAmount` on Tron, derived from calldata-but-checked `amounts[]`, plus a known USDT inflow on Arbitrum.
 
@@ -115,7 +115,7 @@ Single main function conceptually:
   - Performs:
     - token swaps on Tron if needed,
     - a call into some underlying bridge,
-    - ensures that Arbitrum USDT arrives in `UntronManager` on Arbitrum.
+    - ensures that Arbitrum USDT arrives in `UntronV3` on Arbitrum.
   - Must return:
     - the effective output amount from bridge (in `outAmount`).
     - If bridging was unsuccessful, it must revert (which reverts the `pullFromReceivers` as well).
@@ -140,7 +140,7 @@ A smart contract that holds Tron headers and lets anyone:
   - “Tx X had `success=true`”
   - “Here is the calldata of X”
 - Optionally, in future:
-  - Use a configurable confirmation depth `k` so `UntronManager` only accepts blocks older than `latestHeader - k`.
+  - Use a configurable confirmation depth `k` so `UntronV3` only accepts blocks older than `latestHeader - k`.
 
 Initial assumption:
 - Tron has never had a reorg historically.
@@ -154,7 +154,7 @@ The light client does not prove Tron state roots, only tx inclusion + metadata. 
 
 ---
 
-## UntronManager
+## UntronV3
 
 The Arbitrum contract that:
 - Tracks leases on `(receiverSalt, tronToken)` pairs.
@@ -168,7 +168,7 @@ The Arbitrum contract that:
 
 ## Leases
 
-For each `(receiverSalt S, tronToken T)`, `UntronManager` maintains a timeline of leases.
+For each `(receiverSalt S, tronToken T)`, `UntronV3` maintains a timeline of leases.
 
 Each lease `L` has:
 - **realtor** – the address that created it.
@@ -223,12 +223,12 @@ This supports:
 
 ## Realtors
 
-Realtors are Arbitrum addresses with privileges in `UntronManager`. They can:
+Realtors are Arbitrum addresses with privileges in `UntronV3`. They can:
 - Create leases for any `(receiverSalt, tronToken)` pair that:
   - Has never been leased, or
   - Whose last lease is past `nukeableAfter`.
 
-Per realtor and per token `T`, `UntronManager` can store:
+Per realtor and per token `T`, `UntronV3` can store:
 - `realtorMinFee_T[realtor]` – realtor-specific minimum fee.
 - Possibly `realtorMinFlat_T[realtor]` or `realtorMaxDuration_T[realtor]` etc., configured by the team.
 
@@ -280,7 +280,7 @@ This structure ensures:
 When a relayer proves a recognizable deposit on Tron:
 - Example: TRC20 USDT `transfer(to = receiver, amount = Q)` with `success=true`.
 
-Steps in `UntronManager`:
+Steps in `UntronV3`:
 
 1. If `depositProcessed[tx, logIndex]` → ignore.
 2. Mark `depositProcessed[tx, logIndex] = true`.
@@ -417,14 +417,14 @@ while there is a next claim C at queue head:
 
 ## Fast-fill vault and LPs
 
-All protocol USDT sits in `UntronManager`’s balance. On top of that:
+All protocol USDT sits in `UntronV3`’s balance. On top of that:
 - For each LP address:
   - `lpPrincipal[lp]` – how much USDT they have deposited minus withdrawn.
-  - `usdtBalance` – current USDT token balance of `UntronManager`.
+  - `usdtBalance` – current USDT token balance of `UntronV3`.
 
 ### Deposits
 - LP calls `deposit(amount)`:
-  - Transfers `amount` USDT into `UntronManager`.
+  - Transfers `amount` USDT into `UntronV3`.
   - `lpPrincipal[lp] += amount`.
 
 No APY, no share price; just principal tracking.
@@ -437,7 +437,7 @@ No APY, no share price; just principal tracking.
     - LP + team are fronting user withdrawal before the matching dump/bridge.
 
 ### Dumps / bridging
-- `pullFromReceivers` + `IUntronBridger` on Tron send Arbitrum USDT into `UntronManager`:
+- `pullFromReceivers` + `IUntronBridger` on Tron send Arbitrum USDT into `UntronV3`:
   - `usdtBalance` increases by `bridgedAmount`.
   - The difference between:
     - what was fronted via `fill()`, and
@@ -476,7 +476,7 @@ The team can treat part/all of LP principal as their own capital in v1, and late
 ## Swappers
 
 Swappers are Arbitrum contracts that:
-- Receive USDT from `UntronManager` during `fill()`.
+- Receive USDT from `UntronV3` during `fill()`.
 - Turn that USDT into:
   - another dollar stable (USDC, USDT.e, etc.) at effective 1:1 (subsidized by the team if necessary),
   - and optionally bridge it to another chain using a mechanism like CCTP / OFT.
