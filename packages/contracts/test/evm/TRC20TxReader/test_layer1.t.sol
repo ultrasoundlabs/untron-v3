@@ -2,13 +2,13 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {TRC20TxReader} from "../../../src/evm/TRC20TxReader.sol";
+import {TronTxReader} from "../../../src/evm/TronTxReader.sol";
 import {MockTronLightClient} from "./mocks/MockTronLightClient.sol";
 
-/// @dev This test deploys TRC20TxReader and uses its public helpers.
-contract TRC20TxReaderTest is Test {
+/// @dev This test deploys TronTxReader and uses its public helpers.
+contract TronTxReaderTest is Test {
     MockTronLightClient internal lightClient;
-    TRC20TxReader internal reader;
+    TronTxReader internal reader;
 
     // IMPORTANT: Field order must match the JSON object's key order for abi.decode to succeed.
     // JSON key order (per fixture):
@@ -30,10 +30,10 @@ contract TRC20TxReaderTest is Test {
         uint256 index;
     }
 
-    /// @notice Deploy a mock light client and the TRC20TxReader bound to it.
+    /// @notice Deploy a mock light client and the TronTxReader bound to it.
     function setUp() public {
         lightClient = new MockTronLightClient();
-        reader = new TRC20TxReader(address(lightClient));
+        reader = new TronTxReader(address(lightClient));
     }
 
     /// @notice Test decoding of real TRC-20 transactions using a fixture from Tron mainnet.
@@ -87,8 +87,8 @@ contract TRC20TxReaderTest is Test {
             bytes32[] memory proof = new bytes32[](0);
             uint256 index = 0;
 
-            // Call the TRC20TxReader function to verify and decode the transaction.
-            TRC20TxReader.Trc20Transfer memory transfer =
+            // Call the TronTxReader function to verify and decode the transaction.
+            TronTxReader.Trc20Transfer memory transfer =
                 reader.readTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
 
             // **Validate the decoded transfer against expected fixture data.**
@@ -107,7 +107,7 @@ contract TRC20TxReaderTest is Test {
             assertEq(transfer.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
 
             // No nullifier logic in stateless reader; calling again should succeed and match.
-            TRC20TxReader.Trc20Transfer memory transfer2 =
+            TronTxReader.Trc20Transfer memory transfer2 =
                 reader.readTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
             assertEq(transfer2.txLeaf, transfer.txLeaf, "Repeated read txLeaf mismatch");
         }
