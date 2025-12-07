@@ -9,60 +9,54 @@ error TronProtoTruncated();
 error TronProtoInvalidWireType();
 
 library ProtoVarint {
-    function read(bytes memory data, uint256 pos, uint256 limit) internal pure returns (uint64 value, uint256 newPos) {
+    function read(bytes calldata data, uint256 pos, uint256 limit)
+        internal
+        pure
+        returns (uint64 value, uint256 newPos)
+    {
         uint64 v;
         uint64 shift;
-        while (true) {
+
+        // Max 10 bytes for a 64-bit varint.
+        for (uint256 i = 0; i < 10; ++i) {
             if (pos >= limit) revert TronProtoTruncated();
             uint8 b = uint8(data[pos++]);
             v |= uint64(b & 0x7F) << shift;
-            if ((b & 0x80) == 0) break;
+            if ((b & 0x80) == 0) {
+                return (v, pos);
+            }
             shift += 7;
         }
-        return (v, pos);
+
+        // If we exit without returning, it’s malformed.
+        revert TronProtoTruncated();
     }
 
-    function skip(bytes memory data, uint256 pos, uint256 limit) internal pure returns (uint256 newPos) {
-        while (true) {
+    function skip(bytes calldata data, uint256 pos, uint256 limit) internal pure returns (uint256 newPos) {
+        // Max 10 bytes
+        for (uint256 i = 0; i < 10; ++i) {
             if (pos >= limit) revert TronProtoTruncated();
             uint8 b = uint8(data[pos++]);
-            if ((b & 0x80) == 0) break;
+            if ((b & 0x80) == 0) {
+                return pos;
+            }
         }
-        return pos;
+        revert TronProtoTruncated();
     }
 }
 
 /// @title TronTxReader
-/// @notice Stateless helper bound to a Tron light client that verifies inclusion and decodes
-///         TRC‑20 transfers and UntronController.pullFromReceivers calls from Tron transactions.
+/// @notice Stateless helper bound to a Tron light client that verifies inclusion and exposes
+///         a generic TriggerSmartContract call view (sender, to, calldata).
 contract TronTxReader {
     // Types
-    struct Trc20Transfer {
+    struct TriggerSmartContract {
         bytes32 txLeaf;
         uint256 tronBlockNumber;
         uint32 tronBlockTimestamp;
-        address tronTokenEvm;
-        bytes21 fromTron;
+        bytes21 senderTron;
         bytes21 toTron;
-        uint256 amount;
-        bool isTransferFrom;
-    }
-
-    struct PullFromReceiversCall {
-        bytes32 txLeaf;
-        uint256 tronBlockNumber;
-        uint32 tronBlockTimestamp;
-        address token;
-        bytes32[] receiverSalts;
-        uint256[] amounts;
-    }
-
-    struct TriggerSmartContext {
-        bytes21 ownerTron;
-        bytes21 contractTron;
-        uint256 dataStart;
-        uint256 dataEnd;
-        bool found;
+        bytes data;
     }
 
     // Protobuf wire types
@@ -74,80 +68,63 @@ contract TronTxReader {
     // Tron contract types
     uint64 internal constant CONTRACT_TRIGGER_SMART = 31;
 
-    // TRC-20 function selectors
-    bytes4 internal constant SELECTOR_TRANSFER = bytes4(keccak256("transfer(address,uint256)"));
-    bytes4 internal constant SELECTOR_TRANSFER_FROM = bytes4(keccak256("transferFrom(address,address,uint256)"));
-    bytes4 internal constant SELECTOR_PULL_FROM_RECEIVERS =
-        bytes4(keccak256("pullFromReceivers(address,bytes32[],uint256[])"));
-
     // State
     TronLightClient public immutable TRON_LIGHT_CLIENT;
 
     // Errors
     error InvalidTxMerkleProof();
-    error NotATrc20Transfer();
-    error Trc20TransferNotSuccessful();
+    error NotTriggerSmartContract();
+    error TronTxNotSuccessful();
     error TronInvalidOwnerLength();
     error TronInvalidOwnerPrefix();
     error TronInvalidContractLength();
     error TronInvalidContractPrefix();
-    error TronInvalidTrc20DataLength();
-    error NotAPullFromReceivers();
-    error TronInvalidCalldataLength();
 
     constructor(address tronLightClient_) {
         require(tronLightClient_ != address(0), "LightClientZero");
         TRON_LIGHT_CLIENT = TronLightClient(tronLightClient_);
     }
 
-    // ---------------- TRC-20 Transfer path ----------------
-    function readTrc20Transfer(
+    // ---------------- Generic TriggerSmartContract reader ----------------
+    function readTriggerSmartContract(
         uint256 tronBlockNumber,
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
-    ) external view returns (Trc20Transfer memory transfer) {
+    ) external view returns (TriggerSmartContract memory callData) {
         (bytes32 txLeaf, uint32 tronBlockTimestamp, uint256 rawDataStart, uint256 rawDataEnd) =
             _baseMetadata(tronBlockNumber, encodedTx, proof, index);
-        (bytes21 fromTron, bytes21 toTron, address tronTokenEvm, uint256 amount, bool isTransferFrom) =
-            _decodeTrc20TransferFromTx(encodedTx, rawDataStart, rawDataEnd);
+
+        // 1. Parse the single Contract in raw_data.
+        (uint256 cStart, uint256 cEnd, uint64 cType) = _readSingleContract(encodedTx, rawDataStart, rawDataEnd);
+
+        // 2. Enforce that it is a TriggerSmartContract.
+        if (cType != CONTRACT_TRIGGER_SMART) revert NotTriggerSmartContract();
+
+        // 3. Extract the TriggerSmartContract message from inside the Contract.
+        (uint256 trigStart, uint256 trigEnd) = _extractTriggerSmartContract(encodedTx, cStart, cEnd);
+        if (trigStart == 0 && trigEnd == 0) revert NotTriggerSmartContract();
+
+        // 4. Parse headers: owner, contract, and call data slice.
+        (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd) =
+            _parseTriggerHeaders(encodedTx, trigStart, trigEnd);
+
+        if (dataStart == 0 && dataEnd == 0) revert NotTriggerSmartContract();
+
+        // 5. Enforce that the transaction result is successful.
         bool success = _parseTxSuccess(encodedTx, rawDataEnd, encodedTx.length);
-        if (!success) revert Trc20TransferNotSuccessful();
+        if (!success) revert TronTxNotSuccessful();
 
-        transfer = Trc20Transfer({
+        // 6. Materialize calldata bytes.
+        bytes memory data = _slice(encodedTx, dataStart, dataEnd);
+
+        callData = TriggerSmartContract({
             txLeaf: txLeaf,
             tronBlockNumber: tronBlockNumber,
             tronBlockTimestamp: tronBlockTimestamp,
-            tronTokenEvm: tronTokenEvm,
-            fromTron: fromTron,
-            toTron: toTron,
-            amount: amount,
-            isTransferFrom: isTransferFrom
-        });
-    }
-
-    // ---------------- pullFromReceivers path ----------------
-    function readPullFromReceivers(
-        uint256 tronBlockNumber,
-        bytes calldata encodedTx,
-        bytes32[] calldata proof,
-        uint256 index,
-        address controllerEvm
-    ) external view returns (PullFromReceiversCall memory callData) {
-        (bytes32 txLeaf, uint32 tronBlockTimestamp, uint256 rawDataStart, uint256 rawDataEnd) =
-            _baseMetadata(tronBlockNumber, encodedTx, proof, index);
-        (address token, bytes32[] memory salts, uint256[] memory amounts) =
-            _decodePullFromReceiversFromTx(encodedTx, controllerEvm, rawDataStart, rawDataEnd);
-        bool ok = _parseTxSuccess(encodedTx, rawDataEnd, encodedTx.length);
-        if (!ok) revert Trc20TransferNotSuccessful();
-
-        callData = PullFromReceiversCall({
-            txLeaf: txLeaf,
-            tronBlockNumber: tronBlockNumber,
-            tronBlockTimestamp: tronBlockTimestamp,
-            token: token,
-            receiverSalts: salts,
-            amounts: amounts
+            senderTron: ownerTron,
+            toTron: contractTron,
+            data: data
         });
     }
 
@@ -174,9 +151,9 @@ contract TronTxReader {
     }
 
     // ---------------- Protobuf parsing ----------------
-    function _parseRawData(bytes memory tx_) internal pure returns (uint256 rawDataStart, uint256 rawDataEnd) {
+    function _parseRawData(bytes calldata tx_) internal pure returns (uint256 rawDataStart, uint256 rawDataEnd) {
         uint256 totalLen = tx_.length;
-        if (totalLen == 0 || uint8(tx_[0]) != 0x0A) revert NotATrc20Transfer();
+        if (totalLen == 0 || uint8(tx_[0]) != 0x0A) revert NotTriggerSmartContract();
         uint256 offset = 1;
         uint64 rawDataLen;
         (rawDataLen, offset) = ProtoVarint.read(tx_, offset, totalLen);
@@ -184,40 +161,58 @@ contract TronTxReader {
         rawDataEnd = _advance(offset, uint256(rawDataLen), totalLen);
     }
 
-    function _nextContract(bytes memory tx_, uint256 cursor, uint256 rawDataEnd)
+    function _readSingleContract(bytes calldata tx_, uint256 rawDataStart, uint256 rawDataEnd)
         internal
         pure
-        returns (bool hasMore, uint256 nextCursor, uint256 contractStart, uint256 contractEnd, uint64 contractType)
+        returns (uint256 cStart, uint256 cEnd, uint64 contractType)
     {
+        uint256 cursor = rawDataStart;
+        bool seenContract;
+
         while (cursor < rawDataEnd) {
             uint64 fieldNum;
             uint64 wireType;
             (fieldNum, wireType, cursor) = _readKey(tx_, cursor, rawDataEnd);
+
             if (fieldNum == 11 && wireType == WIRE_LENGTH_DELIMITED) {
-                (contractStart, contractEnd, cursor) = _readLength(tx_, cursor, rawDataEnd);
-                contractType = 0;
-                uint256 p = contractStart;
-                while (p < contractEnd) {
+                // Enforce "exactly one" contract at the protobuf level.
+                if (seenContract) {
+                    // Optional: define a dedicated error if you want.
+                    // revert TronUnexpectedExtraContracts();
+                    revert NotTriggerSmartContract();
+                }
+                seenContract = true;
+
+                (cStart, cEnd, cursor) = _readLength(tx_, cursor, rawDataEnd);
+
+                // Read contract type: field #1 (VARINT) inside the Contract message.
+                uint256 p = cStart;
+                bool foundType;
+                while (p < cEnd) {
                     uint64 cFieldNum;
                     uint64 cWireType;
-                    (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
+                    (cFieldNum, cWireType, p) = _readKey(tx_, p, cEnd);
                     if (cFieldNum == 1 && cWireType == WIRE_VARINT) {
-                        (contractType, p) = ProtoVarint.read(tx_, p, contractEnd);
-                    } else {
-                        p = _skipField(tx_, p, contractEnd, cWireType);
+                        (contractType, p) = ProtoVarint.read(tx_, p, cEnd);
+                        foundType = true;
+                        break;
                     }
+                    p = _skipField(tx_, p, cEnd, cWireType);
                 }
-                hasMore = true;
-                nextCursor = contractEnd;
-                return (hasMore, nextCursor, contractStart, contractEnd, contractType);
+
+                if (!foundType) revert NotTriggerSmartContract();
+
+                // We’ve found the single contract and its type; we don’t care about later fields in raw_data.
+                break;
             } else {
                 cursor = _skipField(tx_, cursor, rawDataEnd, wireType);
             }
         }
-        return (false, rawDataEnd, 0, 0, 0);
+
+        if (!seenContract) revert NotTriggerSmartContract();
     }
 
-    function _extractTriggerSmartContract(bytes memory tx_, uint256 contractStart, uint256 contractEnd)
+    function _extractTriggerSmartContract(bytes calldata tx_, uint256 contractStart, uint256 contractEnd)
         internal
         pure
         returns (uint256 trigStart, uint256 trigEnd)
@@ -231,10 +226,10 @@ contract TronTxReader {
             (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
             if (cFieldNum == 2 && cWireType == WIRE_LENGTH_DELIMITED) {
                 (paramStart, paramEnd, p) = _readLength(tx_, p, contractEnd);
-                (uint256 valueStart, uint256 valueLen) = _parseAnyValueField(tx_, paramStart, paramEnd);
+                (uint256 valueStart, uint256 valueEnd) = _parseAnyValueField(tx_, paramStart, paramEnd);
                 if (valueStart != 0) {
                     trigStart = valueStart;
-                    trigEnd = valueStart + valueLen;
+                    trigEnd = valueEnd;
                 }
             } else {
                 p = _skipField(tx_, p, contractEnd, cWireType);
@@ -242,14 +237,14 @@ contract TronTxReader {
         }
     }
 
-    function _parseAnyValueField(bytes memory encodedTx, uint256 paramStart, uint256 paramEnd)
+    function _parseAnyValueField(bytes calldata encodedTx, uint256 paramStart, uint256 paramEnd)
         internal
         pure
-        returns (uint256 valueStart, uint256 valueLen)
+        returns (uint256 valueStart, uint256 valueEnd)
     {
         uint256 q = paramStart;
         valueStart = 0;
-        valueLen = 0;
+        valueEnd = 0;
         while (q < paramEnd) {
             uint64 anyFieldNum;
             uint64 anyWireType;
@@ -258,20 +253,19 @@ contract TronTxReader {
                 (, q,) = _readLength(encodedTx, q, paramEnd);
             } else if (anyFieldNum == 2 && anyWireType == WIRE_LENGTH_DELIMITED) {
                 (valueStart, q,) = _readLength(encodedTx, q, paramEnd);
-                valueLen = q - valueStart;
+                valueEnd = q;
             } else {
                 q = _skipField(encodedTx, q, paramEnd, anyWireType);
             }
         }
     }
 
-    function _parseTriggerHeaders(bytes memory encodedTx, uint256 valueStart, uint256 valueLen)
+    function _parseTriggerHeaders(bytes calldata encodedTx, uint256 trigStart, uint256 trigEnd)
         internal
         pure
         returns (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd)
     {
-        uint256 trigCursor = valueStart;
-        uint256 trigEnd = valueStart + valueLen;
+        uint256 trigCursor = trigStart;
         while (trigCursor < trigEnd) {
             uint64 tFieldNum;
             uint64 tWireType;
@@ -282,7 +276,7 @@ contract TronTxReader {
                 (oStart, oEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
                 if (oEnd - oStart != 21) revert TronInvalidOwnerLength();
                 assembly ("memory-safe") {
-                    ownerTron := mload(add(add(encodedTx, 0x20), oStart))
+                    ownerTron := calldataload(add(encodedTx.offset, oStart))
                 }
                 if (uint8(ownerTron[0]) != 0x41) revert TronInvalidOwnerPrefix();
             } else if (tFieldNum == 2 && tWireType == WIRE_LENGTH_DELIMITED) {
@@ -291,7 +285,7 @@ contract TronTxReader {
                 (cStart, cEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
                 if (cEnd - cStart != 21) revert TronInvalidContractLength();
                 assembly ("memory-safe") {
-                    contractTron := mload(add(add(encodedTx, 0x20), cStart))
+                    contractTron := calldataload(add(encodedTx.offset, cStart))
                 }
                 if (uint8(contractTron[0]) != 0x41) revert TronInvalidContractPrefix();
             } else if (tFieldNum == 4 && tWireType == WIRE_LENGTH_DELIMITED) {
@@ -302,195 +296,7 @@ contract TronTxReader {
         }
     }
 
-    function _findTriggerSmart(
-        bytes memory encodedTx,
-        uint256 rawDataStart,
-        uint256 rawDataEnd,
-        bytes21 expectedContractOrZero
-    ) internal pure returns (TriggerSmartContext memory ctx) {
-        uint256 cursor = rawDataStart;
-        while (true) {
-            (bool hasMore, uint256 nextCursor, uint256 contractStart, uint256 contractEnd, uint64 ctype) =
-                _nextContract(encodedTx, cursor, rawDataEnd);
-            if (!hasMore) break;
-
-            if (ctype == CONTRACT_TRIGGER_SMART) {
-                (uint256 trigStart, uint256 trigEnd) =
-                    _extractTriggerSmartContract(encodedTx, contractStart, contractEnd);
-                if (trigStart != 0) {
-                    (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd) =
-                        _parseTriggerHeaders(encodedTx, trigStart, trigEnd - trigStart);
-
-                    if (expectedContractOrZero != bytes21(0) && contractTron != expectedContractOrZero) {
-                        revert TronInvalidContractPrefix();
-                    }
-
-                    if (dataEnd != 0 || dataStart != 0) {
-                        ctx = TriggerSmartContext({
-                            ownerTron: ownerTron,
-                            contractTron: contractTron,
-                            dataStart: dataStart,
-                            dataEnd: dataEnd,
-                            found: true
-                        });
-                        return ctx;
-                    }
-                }
-            }
-
-            cursor = nextCursor;
-        }
-    }
-
-    function _decodeTrc20TransferFromTx(bytes memory encodedTx, uint256 rawDataStart, uint256 rawDataEnd)
-        internal
-        pure
-        returns (bytes21 fromTron, bytes21 toTron, address tronTokenEvm, uint256 amount, bool isTransferFrom)
-    {
-        bool found;
-        uint256 cursor = rawDataStart;
-        while (true) {
-            (bool hasMore, uint256 nextCursor, uint256 contractStart, uint256 contractEnd, uint64 ctype) =
-                _nextContract(encodedTx, cursor, rawDataEnd);
-            if (!hasMore) break;
-            if (ctype == CONTRACT_TRIGGER_SMART) {
-                (uint256 trigStart, uint256 trigEnd) =
-                    _extractTriggerSmartContract(encodedTx, contractStart, contractEnd);
-                if (trigStart != 0) {
-                    (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd) =
-                        _parseTriggerHeaders(encodedTx, trigStart, trigEnd - trigStart);
-
-                    // Generic TriggerSmartContract header parsing; TRC-20 specifics are below.
-                    fromTron = ownerTron;
-                    tronTokenEvm = _tronToEvm(contractTron);
-
-                    // If there is no calldata field we keep scanning other contracts.
-                    if (dataEnd == 0 && dataStart == 0) {
-                        cursor = nextCursor;
-                        continue;
-                    }
-
-                    if (dataEnd - dataStart < 4) revert NotATrc20Transfer();
-                    bytes4 sig = _first4(encodedTx, dataStart);
-                    if (sig == SELECTOR_TRANSFER) {
-                        (toTron, amount) = _decodeTrc20TransferArgs(encodedTx, dataStart, dataEnd);
-                        isTransferFrom = false;
-                        found = true;
-                    } else if (sig == SELECTOR_TRANSFER_FROM) {
-                        (fromTron, toTron, amount) = _decodeTrc20TransferFromArgs(encodedTx, dataStart, dataEnd);
-                        isTransferFrom = true;
-                        found = true;
-                    }
-                }
-            }
-            if (found) break;
-            cursor = nextCursor;
-        }
-        if (!found) revert NotATrc20Transfer();
-    }
-
-    function _decodeTrc20TransferArgs(bytes memory data, uint256 dataStart, uint256 dataEnd)
-        internal
-        pure
-        returns (bytes21 toTron, uint256 amount)
-    {
-        if (dataEnd - dataStart != 4 + 32 * 2) revert TronInvalidTrc20DataLength();
-        bytes32 word1;
-        bytes32 word2;
-        assembly ("memory-safe") {
-            word1 := mload(add(add(data, 0x20), add(dataStart, 4)))
-            word2 := mload(add(add(data, 0x20), add(dataStart, 36)))
-        }
-        address toAddr = address(uint160(uint256(word1)));
-        toTron = _evmToTron(toAddr);
-        amount = uint256(word2);
-    }
-
-    function _decodeTrc20TransferFromArgs(bytes memory data, uint256 dataStart, uint256 dataEnd)
-        internal
-        pure
-        returns (bytes21 fromTron, bytes21 toTron, uint256 amount)
-    {
-        if (dataEnd - dataStart != 4 + 32 * 3) revert TronInvalidTrc20DataLength();
-        bytes32 w1;
-        bytes32 w2;
-        bytes32 w3;
-        assembly ("memory-safe") {
-            w1 := mload(add(add(data, 0x20), add(dataStart, 4)))
-            w2 := mload(add(add(data, 0x20), add(dataStart, 36)))
-            w3 := mload(add(add(data, 0x20), add(dataStart, 68)))
-        }
-        address fromAddr = address(uint160(uint256(w1)));
-        address toAddr2 = address(uint160(uint256(w2)));
-        fromTron = _evmToTron(fromAddr);
-        toTron = _evmToTron(toAddr2);
-        amount = uint256(w3);
-    }
-
-    function _decodePullFromReceiversFromTx(
-        bytes memory encodedTx,
-        address controllerEvm,
-        uint256 rawDataStart,
-        uint256 rawDataEnd
-    ) internal pure returns (address token, bytes32[] memory salts, uint256[] memory amounts) {
-        bytes21 controllerTron = _evmToTron(controllerEvm);
-        TriggerSmartContext memory ctx = _findTriggerSmart(encodedTx, rawDataStart, rawDataEnd, controllerTron);
-        if (!ctx.found) revert NotAPullFromReceivers();
-        if (ctx.dataEnd - ctx.dataStart < 4) revert TronInvalidCalldataLength();
-
-        bytes4 sel = _first4(encodedTx, ctx.dataStart);
-        if (sel != SELECTOR_PULL_FROM_RECEIVERS) revert NotAPullFromReceivers();
-
-        (token, salts, amounts) = _decodePullFromReceiversArgs(encodedTx, ctx.dataStart, ctx.dataEnd);
-    }
-
-    function _decodePullFromReceiversArgs(bytes memory data, uint256 dataStart, uint256 dataEnd)
-        internal
-        pure
-        returns (address token, bytes32[] memory salts, uint256[] memory amounts)
-    {
-        if (dataEnd - dataStart < 4 + 32 * 3) revert TronInvalidCalldataLength();
-        uint256 p = dataStart + 4;
-        bytes32 word1;
-        bytes32 offSalts;
-        bytes32 offAmounts;
-        assembly ("memory-safe") {
-            word1 := mload(add(add(data, 0x20), p))
-            offSalts := mload(add(add(data, 0x20), add(p, 32)))
-            offAmounts := mload(add(add(data, 0x20), add(p, 64)))
-        }
-        token = address(uint160(uint256(word1)));
-        uint256 base = dataStart + 4;
-        uint256 saltsOffset = base + uint256(offSalts);
-        uint256 amountsOffset = base + uint256(offAmounts);
-
-        (uint256 saltsStart, uint256 saltsEnd,) = _readDyn(data, saltsOffset, dataEnd);
-        uint256 nSalts = _readU256(data, saltsStart);
-        salts = new bytes32[](nSalts);
-        uint256 q = saltsStart + 32;
-        for (uint256 i = 0; i < nSalts; ++i) {
-            bytes32 v;
-            assembly ("memory-safe") {
-                v := mload(add(add(data, 0x20), q))
-            }
-            salts[i] = v;
-            q += 32;
-        }
-        if (q != saltsEnd) revert TronInvalidCalldataLength();
-
-        (uint256 amtsStart, uint256 amtsEnd,) = _readDyn(data, amountsOffset, dataEnd);
-        uint256 nAmts = _readU256(data, amtsStart);
-        amounts = new uint256[](nAmts);
-        q = amtsStart + 32;
-        for (uint256 j = 0; j < nAmts; ++j) {
-            uint256 v2 = _readU256(data, q);
-            amounts[j] = v2;
-            q += 32;
-        }
-        if (q != amtsEnd) revert TronInvalidCalldataLength();
-    }
-
-    function _parseTxSuccess(bytes memory encodedTx, uint256 offset, uint256 totalLen) internal pure returns (bool) {
+    function _parseTxSuccess(bytes calldata encodedTx, uint256 offset, uint256 totalLen) internal pure returns (bool) {
         // Skip signatures (field 2, tag 0x12)
         while (offset < totalLen && uint8(encodedTx[offset]) == 0x12) {
             offset++;
@@ -521,33 +327,7 @@ contract TronTxReader {
     }
 
     // ---------------- Utilities ----------------
-    function _readDyn(bytes memory data, uint256 offset, uint256 limit)
-        internal
-        pure
-        returns (uint256 start, uint256 end, uint256 newCursor)
-    {
-        start = offset;
-        uint256 len = _readU256(data, start);
-        end = start + 32 + len;
-        if (end > limit) revert TronProtoTruncated();
-        return (start, end, end);
-    }
-
-    function _readU256(bytes memory data, uint256 offset) internal pure returns (uint256 v) {
-        assembly ("memory-safe") {
-            v := mload(add(add(data, 0x20), offset))
-        }
-    }
-
-    function _first4(bytes memory data, uint256 offset) internal pure returns (bytes4 sel) {
-        uint32 w;
-        assembly ("memory-safe") {
-            w := shr(224, mload(add(add(data, 0x20), offset)))
-        }
-        sel = bytes4(w);
-    }
-
-    function _readLength(bytes memory data, uint256 cursor, uint256 limit)
+    function _readLength(bytes calldata data, uint256 cursor, uint256 limit)
         internal
         pure
         returns (uint256 start, uint256 end, uint256 newCursor)
@@ -560,7 +340,7 @@ contract TronTxReader {
         return (start, end, end);
     }
 
-    function _readKey(bytes memory data, uint256 pos, uint256 limit)
+    function _readKey(bytes calldata data, uint256 pos, uint256 limit)
         internal
         pure
         returns (uint64 fieldNum, uint64 wireType, uint256 newPos)
@@ -569,7 +349,7 @@ contract TronTxReader {
         return (key >> 3, key & 0x7, p);
     }
 
-    function _skipField(bytes memory data, uint256 cursor, uint256 limit, uint64 wireType)
+    function _skipField(bytes calldata data, uint256 cursor, uint256 limit, uint64 wireType)
         internal
         pure
         returns (uint256 newCursor)
@@ -592,11 +372,14 @@ contract TronTxReader {
         return cursor;
     }
 
-    function _tronToEvm(bytes21 tron) internal pure returns (address) {
-        return address(uint160(uint168(tron)));
-    }
-
-    function _evmToTron(address a) internal pure returns (bytes21) {
-        return bytes21((uint168(0x41) << 160) | uint168(uint160(a)));
+    function _slice(bytes calldata data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
+        if (end < start || end > data.length) revert TronProtoTruncated();
+        uint256 len = end - start;
+        out = new bytes(len);
+        if (len == 0) return out;
+        // Copy calldata segment [start, end) into freshly allocated bytes.
+        assembly ("memory-safe") {
+            calldatacopy(add(out, 0x20), add(data.offset, start), len)
+        }
     }
 }

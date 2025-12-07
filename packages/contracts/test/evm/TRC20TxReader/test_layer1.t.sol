@@ -10,6 +10,10 @@ contract TronTxReaderTest is Test {
     MockTronLightClient internal lightClient;
     TronTxReader internal reader;
 
+    // TRC-20 selectors used in fixture.
+    bytes4 internal constant SELECTOR_TRANSFER = bytes4(0xa9059cbb);
+    bytes4 internal constant SELECTOR_TRANSFER_FROM = bytes4(0x23b872dd);
+
     // IMPORTANT: Field order must match the JSON object's key order for abi.decode to succeed.
     // JSON key order (per fixture):
     // index, txId, txLeaf, encodedTx, tronBlockNumber, tronBlockTimestamp,
@@ -87,29 +91,36 @@ contract TronTxReaderTest is Test {
             bytes32[] memory proof = new bytes32[](0);
             uint256 index = 0;
 
-            // Call the TronTxReader function to verify and decode the transaction.
-            TronTxReader.Trc20Transfer memory transfer =
-                reader.readTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
+            // Call the TronTxReader function to verify inclusion and extract generic call data.
+            TronTxReader.TriggerSmartContract memory callData =
+                reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
 
-            // **Validate the decoded transfer against expected fixture data.**
-            // Check token contract address.
-            assertEq(transfer.tronTokenEvm, txJson.tronTokenEvm, "Token contract address mismatch");
-            // Check sender and recipient Tron addresses (21-byte hex strings).
-            assertEq(transfer.fromTron, bytes21(txJson.fromTron), "From address mismatch");
-            assertEq(transfer.toTron, bytes21(txJson.toTron), "To address mismatch");
-            // Check transfer amount.
+            // **Validate metadata against expected fixture data.**
+            assertEq(callData.tronBlockNumber, blockNumber, "Block number mismatch");
+            assertEq(callData.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
+            assertEq(callData.txLeaf, txJson.txLeaf, "Tx leaf mismatch");
+
+            // Token contract address (Tron -> EVM).
+            address tokenFromCall = _tronToEvmAddress(callData.toTron);
+            assertEq(tokenFromCall, txJson.tronTokenEvm, "Token contract address mismatch");
+
+            // Parse TRC-20 calldata and validate logical fields.
+            (bytes21 fromTron, bytes21 toTron, uint256 amount, bool isTransferFrom) =
+                _decodeTrc20FromCalldata(callData.data, callData.senderTron);
+
+            assertEq(fromTron, bytes21(txJson.fromTron), "From address mismatch");
+            assertEq(toTron, bytes21(txJson.toTron), "To address mismatch");
             uint256 expectedAmount = vm.parseUint(txJson.amount);
-            assertEq(transfer.amount, expectedAmount, "Transfer amount mismatch");
-            // Check transfer type (transfer vs transferFrom).
-            assertEq(transfer.isTransferFrom, txJson.isTransferFrom, "Transfer type mismatch");
-            // Check block context.
-            assertEq(transfer.tronBlockNumber, blockNumber, "Block number mismatch");
-            assertEq(transfer.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
+            assertEq(amount, expectedAmount, "Transfer amount mismatch");
+            assertEq(isTransferFrom, txJson.isTransferFrom, "Transfer type mismatch");
+
+            // Selector sanity check.
+            assertEq(_first4(callData.data), bytes4(txJson.selector), "Selector mismatch");
 
             // No nullifier logic in stateless reader; calling again should succeed and match.
-            TronTxReader.Trc20Transfer memory transfer2 =
-                reader.readTrc20Transfer(blockNumber, txJson.encodedTx, proof, index);
-            assertEq(transfer2.txLeaf, transfer.txLeaf, "Repeated read txLeaf mismatch");
+            TronTxReader.TriggerSmartContract memory callData2 =
+                reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
+            assertEq(callData2.txLeaf, callData.txLeaf, "Repeated read txLeaf mismatch");
         }
     }
 
@@ -130,5 +141,76 @@ contract TronTxReaderTest is Test {
             value /= 10;
         }
         return string(buffer);
+    }
+
+    function _decodeTrc20FromCalldata(bytes memory data, bytes21 senderTron)
+        internal
+        pure
+        returns (bytes21 fromTron, bytes21 toTron, uint256 amount, bool isTransferFrom)
+    {
+        if (data.length < 4) revert("Trc20CalldataTooShort");
+        bytes4 sig = _first4(data);
+        if (sig == SELECTOR_TRANSFER) {
+            (toTron, amount) = _decodeTrc20TransferArgs(data);
+            fromTron = senderTron;
+            isTransferFrom = false;
+        } else if (sig == SELECTOR_TRANSFER_FROM) {
+            (fromTron, toTron, amount) = _decodeTrc20TransferFromArgs(data);
+            isTransferFrom = true;
+        } else {
+            revert("NotATrc20Transfer");
+        }
+    }
+
+    function _decodeTrc20TransferArgs(bytes memory data) internal pure returns (bytes21 toTron, uint256 amount) {
+        uint256 dataEnd = data.length;
+        if (dataEnd != 4 + 32 * 2) revert("InvalidTrc20DataLength");
+        bytes32 word1;
+        bytes32 word2;
+        assembly ("memory-safe") {
+            word1 := mload(add(data, 0x24)) // 0x20 (data) + 4 (selector)
+            word2 := mload(add(data, 0x44)) // 0x20 (data) + 36
+        }
+        address toAddr = address(uint160(uint256(word1)));
+        toTron = _evmToTronAddress(toAddr);
+        amount = uint256(word2);
+    }
+
+    function _decodeTrc20TransferFromArgs(bytes memory data)
+        internal
+        pure
+        returns (bytes21 fromTron, bytes21 toTron, uint256 amount)
+    {
+        uint256 dataEnd = data.length;
+        if (dataEnd != 4 + 32 * 3) revert("InvalidTrc20DataLength");
+        bytes32 w1;
+        bytes32 w2;
+        bytes32 w3;
+        assembly ("memory-safe") {
+            w1 := mload(add(data, 0x24)) // from
+            w2 := mload(add(data, 0x44)) // to
+            w3 := mload(add(data, 0x64)) // amount
+        }
+        address fromAddr = address(uint160(uint256(w1)));
+        address toAddr2 = address(uint160(uint256(w2)));
+        fromTron = _evmToTronAddress(fromAddr);
+        toTron = _evmToTronAddress(toAddr2);
+        amount = uint256(w3);
+    }
+
+    function _first4(bytes memory data) internal pure returns (bytes4 sel) {
+        uint32 w;
+        assembly ("memory-safe") {
+            w := shr(224, mload(add(data, 0x20)))
+        }
+        sel = bytes4(w);
+    }
+
+    function _tronToEvmAddress(bytes21 tron) internal pure returns (address) {
+        return address(uint160(uint168(tron)));
+    }
+
+    function _evmToTronAddress(address a) internal pure returns (bytes21) {
+        return bytes21((uint168(0x41) << 160) | uint168(uint160(a)));
     }
 }
