@@ -33,3 +33,5 @@ pnpm --filter @untron/tron-protocol run build
 **Foundry profiles**: `dev` (default), `ci` (strict), `production` (optimized)
 
 **Fix formatting**: `forge fmt` for Solidity, `pnpm prettier --write "**/*.{ts,js}"` for TS/JS
+
+TODO: configure wagmi.config.ts to only include contracts that we use

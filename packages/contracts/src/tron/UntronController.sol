@@ -7,7 +7,7 @@ import {IBridger} from "./bridgers/interfaces/IBridger.sol";
 import {Create2Utils} from "../utils/Create2Utils.sol";
 
 /// @title UntronController
-/// @notice Central coordination contract for Untron protocol on Tron-like EVM chains.
+/// @notice Receiver coordination contract for Untron protocol on Tron-like EVM chains.
 /// @author Ultrasound Labs
 contract UntronController is Create2Utils {
     /*//////////////////////////////////////////////////////////////
@@ -25,6 +25,14 @@ contract UntronController is Create2Utils {
     ///         for swaps into Tron that would reuse liquidity from Untron V3's controller.
     address public executor;
 
+    /// @notice Canonical accounting token (expected to be Tron USDT).
+    /// @dev    All controller accounting, bridging, and executor transfers are done in this token.
+    address public usdt;
+
+    /// @notice LP address that provides USDT liquidity for swaps from non‑USDT tokens.
+    /// @dev    Can be set and changed by the owner; swap configuration is controlled by the LP.
+    address public lp;
+
     /// @notice Whitelist of allowed bridger contracts
     /// @dev    Only used in setBridgerAllowed, setPayload and bridge functions.
     mapping(address => bool) public isBridgerAllowed;
@@ -32,6 +40,16 @@ contract UntronController is Create2Utils {
     /// @notice token => bridger => bridger-specific payload
     /// @dev    Only used in setPayload and bridge functions.
     mapping(address => mapping(address => bytes)) public payloadFor;
+
+    /// @notice Tracks how much USDT was pulled (or swapped into) the controller and is available
+    ///         for bridging or executor-controlled transfers.
+    /// @dev    Increases in pullFromReceivers; decreases in bridge and transferFromController.
+    uint256 public pulledUsdt;
+
+    /// @notice Per-token exchange rate configured by the LP: how much USDT (in smallest units)
+    ///         the LP is willing to pay per 1 smallest unit of `token`.
+    /// @dev    token => USDT-per-token rate; only used in pullFromReceivers and set by LP.
+    mapping(address => uint256) public lpExchangeRateFor;
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
@@ -64,6 +82,18 @@ contract UntronController is Create2Utils {
     /// @notice Emitted when tokens are transferred from the controller to a recipient.
     /// @dev    Only used in transferFromController function.
     event ControllerTransfer(address indexed token, address indexed recipient, uint256 amount);
+    /// @notice Emitted when the canonical USDT token is set or updated.
+    /// @dev    Only used in setUsdt function.
+    event UsdtSet(address indexed newUsdt);
+    /// @notice Emitted when the LP address is set or updated.
+    /// @dev    Only used in setLp function.
+    event LpSet(address indexed newLp);
+    /// @notice Emitted when the LP updates the exchange rate for a token.
+    /// @dev    Only used in setLpExchangeRate function.
+    event LpExchangeRateSet(address indexed token, uint256 exchangeRate);
+    /// @notice Emitted when the LP withdraws purchased tokens from the controller.
+    /// @dev    Only used in lpWithdrawTokens function.
+    event LpTokensWithdrawn(address indexed token, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                                   ERRORS
@@ -93,6 +123,35 @@ contract UntronController is Create2Utils {
     /// @notice Error thrown when the expected out amount does not match bridger-computed out amount.
     /// @dev    Only used in bridge function.
     error OutAmountMismatch();
+    /// @notice Error thrown when attempting to spend more than was pulled via receivers for a token.
+    /// @dev    Used in bridge and transferFromController functions.
+    error InsufficientPulledAmount();
+
+    /// @notice Error thrown when attempting to use accounting/bridging without USDT being configured.
+    /// @dev    Used in bridge, transferFromController, and pullFromReceivers when swapping.
+    error UsdtNotSet();
+
+    /// @notice Error thrown when attempting to use LP functionality without LP being configured.
+    /// @dev    Used in pullFromReceivers and LP-only admin functions.
+    error LpNotSet();
+
+    /// @notice Error thrown when a function restricted to the LP is called by another address.
+    /// @dev    Used by _onlyLp (and thus LP-protected functions).
+    error OnlyLp();
+
+    /// @notice Error thrown when an operation expects the canonical accounting token (USDT)
+    ///         but is called with a different token.
+    /// @dev    Used in bridge and transferFromController.
+    error NonCanonicalToken();
+
+    /// @notice Error thrown when the calldata-provided exchange rate does not match the LP-configured rate.
+    /// @dev    Only used in pullFromReceivers function for non‑USDT tokens.
+    error ExchangeRateMismatch();
+
+    /// @notice Error thrown when the LP does not have enough unaccounted USDT deposited
+    ///         to buy swept non‑USDT tokens at the configured exchange rate.
+    /// @dev    Only used in pullFromReceivers function for non‑USDT tokens.
+    error InsufficientLpLiquidity();
 
     /*//////////////////////////////////////////////////////////////
                                 MODIFIERS
@@ -109,6 +168,13 @@ contract UntronController is Create2Utils {
     /// @dev    Only used in transferFromController function.
     modifier onlyExecutor() {
         _onlyExecutor();
+        _;
+    }
+
+    /// @notice Modifier that restricts a function to be called only by the LP.
+    /// @dev    Used in LP configuration and withdrawal functions.
+    modifier onlyLp() {
+        _onlyLp();
         _;
     }
 
@@ -135,6 +201,22 @@ contract UntronController is Create2Utils {
     function setExecutor(address _executor) external onlyOwner {
         executor = _executor;
         emit ExecutorChanged(_executor);
+    }
+
+    /// @notice Set the canonical accounting token (expected to be Tron USDT).
+    /// @param _usdt New USDT token address (can be set to address(0) to disable bridging/accounting).
+    /// @dev Callable only by the owner.
+    function setUsdt(address _usdt) external onlyOwner {
+        usdt = _usdt;
+        emit UsdtSet(_usdt);
+    }
+
+    /// @notice Set the LP address that provides USDT liquidity for swaps.
+    /// @param _lp New LP address (can be set to address(0) to disable LP functionality).
+    /// @dev Callable only by the owner.
+    function setLp(address _lp) external onlyOwner {
+        lp = _lp;
+        emit LpSet(_lp);
     }
 
     /// @notice Set whether a bridger is allowed to bridge tokens.
@@ -166,22 +248,74 @@ contract UntronController is Create2Utils {
         emit OwnerChanged(_newOwner);
     }
 
+    /// @notice Set the LP-configured exchange rate for a token.
+    /// @param token Token address.
+    /// @param exchangeRate USDT amount (in smallest units) the LP is willing to pay
+    ///                     per 1 smallest unit of `token`.
+    /// @dev Callable only by the LP.
+    function setLpExchangeRate(address token, uint256 exchangeRate) external onlyLp {
+        lpExchangeRateFor[token] = exchangeRate;
+        emit LpExchangeRateSet(token, exchangeRate);
+    }
+
     /*//////////////////////////////////////////////////////////////
-                          EXTERNAL FUNCTIONS
+                          LP FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Pulls tokens from multiple receiver contracts.
+    /// @notice Withdraw tokens purchased by the LP from the controller.
+    /// @param token Token address.
+    /// @param amount Amount of tokens to withdraw.
+    /// @dev Callable only by the LP. Does not allow withdrawing the canonical USDT accounting balance.
+    function lpWithdrawTokens(address token, uint256 amount) external onlyLp {
+        if (amount == 0) {
+            return;
+        }
+
+        address usdt_ = usdt;
+        if (usdt_ == address(0)) revert UsdtNotSet();
+
+        uint256 maxWithdraw;
+        if (token == usdt_) {
+            // For USDT, protect canonical accounting balance: only the surplus
+            // over pulledUsdt can be withdrawn by the LP.
+            uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt_, address(this));
+            if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
+            maxWithdraw = controllerUsdtBalance - pulledUsdt;
+        } else {
+            // For non‑USDT tokens, LP can withdraw up to the full controller balance.
+            maxWithdraw = TokenUtils.getBalanceOf(token, address(this));
+        }
+
+        if (amount > maxWithdraw) revert InsufficientPulledAmount();
+
+        TokenUtils.transfer(token, payable(msg.sender), amount);
+        emit LpTokensWithdrawn(token, amount);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      PERMISSIONLESS FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Pulls tokens from multiple receiver contracts and swaps them into accounting token.
     /// @param token Token address.
     /// @param receiverSalts Array of salts used for deterministic receiver
     ///                      deployment (CREATE2).
     /// @param amounts Expected token amounts to be swept from each receiver.
     ///                amounts[i] must equal the actual sweep amount,
     ///                which is `balance - 1` if `balance > 0`, otherwise `0`.
+    /// @param exchangeRate USDT amount (in smallest units) that the LP is expected to pay per
+    ///                     1 smallest unit of `token` for this pull. Must match LP-configured rate
+    ///                     when `token != usdt`.
     /// @dev Callable by anyone.
     ///      In this function, the controller only requests tokens to be sent into *its own balance*.
     ///      Sweeps all but one base unit from each non-zero-balance receiver,
     ///      in order to keep its balance slot non-zero for TRC-20 gas optimization.
-    function pullFromReceivers(address token, bytes32[] calldata receiverSalts, uint256[] calldata amounts) external {
+    function pullFromReceivers(
+        address token,
+        bytes32[] calldata receiverSalts,
+        uint256[] calldata amounts,
+        uint256 exchangeRate
+    ) external {
         if (receiverSalts.length != amounts.length) revert LengthMismatch();
 
         uint256 total = 0;
@@ -217,6 +351,37 @@ contract UntronController is Create2Utils {
             }
         }
 
+        if (total != 0) {
+            address usdt_ = usdt;
+            if (usdt_ == address(0)) revert UsdtNotSet();
+
+            if (token == usdt_) {
+                // Canonical USDT: pulled amount directly increases accounting balance.
+                pulledUsdt += total;
+            } else {
+                // Non‑USDT tokens are immediately swapped into USDT against the LP at the
+                // LP-configured exchange rate, provided there is enough USDT liquidity.
+                address lp_ = lp;
+                if (lp_ == address(0)) revert LpNotSet();
+
+                uint256 configuredRate = lpExchangeRateFor[token];
+                if (configuredRate == 0 || configuredRate != exchangeRate) revert ExchangeRateMismatch();
+
+                // USDT required from LP to buy `total` units of `token`.
+                uint256 usdtRequired = total * exchangeRate;
+
+                // Compute LP's free USDT liquidity as controller's USDT balance minus
+                // already-accounted pulledUsdt.
+                uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt_, address(this));
+                if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
+                uint256 lpFreeUsdt = controllerUsdtBalance - pulledUsdt;
+                if (usdtRequired > lpFreeUsdt) revert InsufficientLpLiquidity();
+
+                // Increase canonical USDT accounting.
+                pulledUsdt += usdtRequired;
+            }
+        }
+
         emit TokensPulled(token, total);
     }
 
@@ -230,12 +395,21 @@ contract UntronController is Create2Utils {
     ///      Bridgers are DELEGATECALLed in the controller's context
     ///      and are thus strongly encouraged to be stateless.
     function bridge(address token, address bridger, uint256 inAmount, uint256 outAmount) external payable {
+        address usdt_ = usdt;
+        if (usdt_ == address(0)) revert UsdtNotSet();
+
+        // Only the canonical accounting token (USDT) can be bridged.
+        if (token != usdt_) revert NonCanonicalToken();
+
         // Verify bridger is allowed
         if (!isBridgerAllowed[bridger]) revert BridgerNotAllowed();
 
         // Load payload for (token, bridger)
         bytes memory payload = payloadFor[token][bridger];
         if (payload.length == 0) revert RouteNotSet();
+
+        // Enforce accounting: only amounts previously pulled via receivers / LP swaps can be bridged
+        _enforceAccounting(token, inAmount);
 
         // If the caller attached value, keep it in the controller;
         // the underlying bridger will be able to use it to pay for the bridge call.
@@ -264,18 +438,24 @@ contract UntronController is Create2Utils {
         emit TokensBridged(token, inAmount, outAmount, bridger);
     }
 
+    // Accept native token for bridging fees
+    receive() external payable {}
+
+    /*//////////////////////////////////////////////////////////////
+                          EXECUTOR FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     /// @notice Transfers tokens from the controller to a specified recipient.
     /// @param token Token address.
     /// @param recipient Recipient address.
     /// @param amount Amount of tokens to transfer.
     /// @dev Callable only by the executor.
     function transferFromController(address token, address recipient, uint256 amount) external onlyExecutor {
+        // Enforce accounting: only amounts previously pulled via receivers / LP swaps can be transferred out.
+        _enforceAccounting(token, amount);
         TokenUtils.transfer(token, payable(recipient), amount);
         emit ControllerTransfer(token, recipient, amount);
     }
-
-    // Accept native token for bridging fees
-    receive() external payable {}
 
     /*//////////////////////////////////////////////////////////////
                            INTERNAL  HELPERS
@@ -305,6 +485,21 @@ contract UntronController is Create2Utils {
         emit ReceiverCalled(receiver, token, recipient, amount);
     }
 
+    /// @dev Enforces accounting for token transfers in the canonical accounting token (USDT).
+    /// @param token Token address (must equal `usdt`).
+    /// @param amount Amount of tokens to transfer.
+    function _enforceAccounting(address token, uint256 amount) internal {
+        address usdt_ = usdt;
+        if (usdt_ == address(0)) revert UsdtNotSet();
+        if (token != usdt_) revert NonCanonicalToken();
+
+        uint256 pulled = pulledUsdt;
+        if (amount > pulled) revert InsufficientPulledAmount();
+        unchecked {
+            pulledUsdt = pulled - amount;
+        }
+    }
+
     /// @dev Reverts if the caller is not the owner.
     ///      Used in an onlyOwner modifier only.
     function _onlyOwner() internal view {
@@ -315,5 +510,11 @@ contract UntronController is Create2Utils {
     ///      Used in an onlyExecutor modifier only.
     function _onlyExecutor() internal view {
         if (msg.sender != executor) revert OnlyExecutor();
+    }
+
+    /// @dev Reverts if the caller is not the LP.
+    ///      Used in an onlyLp modifier only.
+    function _onlyLp() internal view {
+        if (msg.sender != lp) revert OnlyLp();
     }
 }

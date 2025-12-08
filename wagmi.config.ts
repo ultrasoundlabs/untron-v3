@@ -16,6 +16,9 @@ export default defineConfig({
         "**/*.dbg.json",
         "build-info/**",
         // Exclude forge-std and test artifacts
+        // Exclude third-party library artifacts that cause duplicate names
+        "auth/**", // e.g. solady's auth/Ownable
+        "interfaces/**", // e.g. IERC20/IERC165 duplicates
         "**/Base.sol/**",
         "**/console*.sol/**",
         "**/Script.sol/**",
