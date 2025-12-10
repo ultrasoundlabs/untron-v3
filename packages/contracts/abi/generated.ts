@@ -62,6 +62,28 @@ export const ecdsaAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// EIP712
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const eip712Abi = [
+  {
+    type: 'function',
+    inputs: [],
+    name: 'eip712Domain',
+    outputs: [
+      { name: 'fields', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'name', internalType: 'string', type: 'string' },
+      { name: 'version', internalType: 'string', type: 'string' },
+      { name: 'chainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'verifyingContract', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'extensions', internalType: 'uint256[]', type: 'uint256[]' },
+    ],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ERC20
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -5281,7 +5303,6 @@ export const untronV3Abi = [
       { name: 'nukeableAfter', internalType: 'uint64', type: 'uint64' },
       { name: 'leaseFeePpm', internalType: 'uint32', type: 'uint32' },
       { name: 'flatFee', internalType: 'uint64', type: 'uint64' },
-      { name: 'swapper', internalType: 'address', type: 'address' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetToken', internalType: 'address', type: 'address' },
       { name: 'beneficiary', internalType: 'address', type: 'address' },
@@ -5315,6 +5336,21 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'eip712Domain',
+    outputs: [
+      { name: 'fields', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'name', internalType: 'string', type: 'string' },
+      { name: 'version', internalType: 'string', type: 'string' },
+      { name: 'chainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'verifyingContract', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'extensions', internalType: 'uint256[]', type: 'uint256[]' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'maxClaims', internalType: 'uint256', type: 'uint256' }],
     name: 'fill',
     outputs: [],
@@ -5329,6 +5365,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'isChainDeprecated',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: '', internalType: 'address', type: 'address' }],
     name: 'isRealtor',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
@@ -5339,6 +5382,13 @@ export const untronV3Abi = [
     inputs: [],
     name: 'lastControllerEventTip',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'leaseNonces',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -5361,7 +5411,6 @@ export const untronV3Abi = [
         internalType: 'struct UntronV3.PayoutConfig',
         type: 'tuple',
         components: [
-          { name: 'swapper', internalType: 'address', type: 'address' },
           { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
           { name: 'targetToken', internalType: 'address', type: 'address' },
           { name: 'beneficiary', internalType: 'address', type: 'address' },
@@ -5478,13 +5527,6 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
-    name: 'recommendedSwapper',
-    outputs: [{ name: '', internalType: 'address', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
     inputs: [
       { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
       { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
@@ -5523,13 +5565,43 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'deprecated', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setChainDeprecated',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
-      { name: 'swapper', internalType: 'address', type: 'address' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetToken', internalType: 'address', type: 'address' },
       { name: 'beneficiary', internalType: 'address', type: 'address' },
     ],
     name: 'setPayoutConfig',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'config',
+        internalType: 'struct UntronV3.PayoutConfig',
+        type: 'tuple',
+        components: [
+          { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+          { name: 'targetToken', internalType: 'address', type: 'address' },
+          { name: 'beneficiary', internalType: 'address', type: 'address' },
+        ],
+      },
+      { name: 'deadline', internalType: 'uint256', type: 'uint256' },
+      { name: 'signature', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'setPayoutConfigWithSig',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -5566,7 +5638,7 @@ export const untronV3Abi = [
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'swapper', internalType: 'address', type: 'address' },
     ],
-    name: 'setRecommendedSwapper',
+    name: 'setSwapper',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -5583,6 +5655,13 @@ export const untronV3Abi = [
     name: 'setUsdt',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'swapperForChain',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -5627,6 +5706,25 @@ export const untronV3Abi = [
     name: 'withdraw',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'deprecated',
+        internalType: 'bool',
+        type: 'bool',
+        indexed: false,
+      },
+    ],
+    name: 'ChainDeprecatedSet',
   },
   {
     type: 'event',
@@ -5848,12 +5946,6 @@ export const untronV3Abi = [
         indexed: true,
       },
       {
-        name: 'swapper',
-        internalType: 'address',
-        type: 'address',
-        indexed: false,
-      },
-      {
         name: 'targetChainId',
         internalType: 'uint256',
         type: 'uint256',
@@ -5937,7 +6029,7 @@ export const untronV3Abi = [
         indexed: false,
       },
     ],
-    name: 'RecommendedSwapperSet',
+    name: 'SwapperSet',
   },
   {
     type: 'event',
@@ -5974,13 +6066,16 @@ export const untronV3Abi = [
     name: 'UsdtSet',
   },
   { type: 'error', inputs: [], name: 'AlreadyInitialized' },
+  { type: 'error', inputs: [], name: 'ChainDeprecated' },
   { type: 'error', inputs: [], name: 'DepositAlreadyProcessed' },
   { type: 'error', inputs: [], name: 'EventRelayNoProgress' },
   { type: 'error', inputs: [], name: 'EventTipMismatch' },
   { type: 'error', inputs: [], name: 'InsufficientUsdtBalance' },
+  { type: 'error', inputs: [], name: 'InvalidChainId' },
   { type: 'error', inputs: [], name: 'InvalidLeaseId' },
   { type: 'error', inputs: [], name: 'InvalidLeaseTimeframe' },
   { type: 'error', inputs: [], name: 'InvalidReceiverForSalt' },
+  { type: 'error', inputs: [], name: 'InvalidSignature' },
   { type: 'error', inputs: [], name: 'LeaseFeeTooLow' },
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
@@ -5993,6 +6088,7 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'NotLessee' },
   { type: 'error', inputs: [], name: 'NotRealtor' },
   { type: 'error', inputs: [], name: 'NotTronUsdt' },
+  { type: 'error', inputs: [], name: 'SignatureExpired' },
   { type: 'error', inputs: [], name: 'TronInvalidCalldataLength' },
   { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
   { type: 'error', inputs: [], name: 'Unauthorized' },
