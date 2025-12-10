@@ -1,3 +1,5 @@
+WARNING: probably outdated
+
 # High-level picture
 
 Untron is a two-chain protocol:
@@ -62,17 +64,17 @@ A Tron smart contract that:
        - Due to the `balance - 1` rule, exactly `1` smallest unit of `token` is always left behind in each non-empty receiver after a dump.
 
 3. **Bridging tokens from controller**
-   - `bridge(address token, address bridger, uint256 inAmount, uint256 outAmount)`:
-     - Delegatecall into an `IUntronBridger` implementation:
-       - `bridger.bridge(token, inAmount, outAmount, ...)`.
-     - Bridger is responsible for performing whatever bridging/swapping on Tron is needed so that:
+   - `bridge(address token, address rebalancer, uint256 inAmount, uint256 outAmount)`:
+     - Delegatecall into an `IUntronRebalancer` implementation:
+       - `rebalancer.bridge(token, inAmount, outAmount, ...)`.
+     - Rebalancer is responsible for performing whatever bridging/swapping on Tron is needed so that:
        - `outAmount` of Arbitrum USDT ends up in `UntronV3` on Arbitrum.
-     - If bridger’s computed output amount ≠ `outAmount`, the whole transaction reverts.
+     - If rebalancer’s computed output amount ≠ `outAmount`, the whole transaction reverts.
      - Combined with `pullFromReceivers`, this gives us a clean, verifiable `outAmount` on Tron, derived from calldata-but-checked `amounts[]`, plus a known USDT inflow on Arbitrum.
 
 4. **Executor mechanism (for future features)**
    - There is an executor Tron address settable by the controller owner:
-     - If `executor == 0x00`, controller cannot send funds anywhere itself, only through bridgers via `bridge` function.
+     - If `executor == 0x00`, controller cannot send funds anywhere itself, only through rebalancers via `bridge` function.
      - If `executor != 0x00`, executor address can make controller send any of its funds anywhere using `transferFromController` function.
    - `transferFromController(address token, address recipient, uint256 amount)`:
      - Enforce: `require(msg.sender == executor)`
@@ -103,11 +105,11 @@ A minimal, single-purpose CREATE2 contract:
 
 ---
 
-## IBridger
+## IRebalancer
 
-An interface for stateless bridger plugins on Tron.
+An interface for stateless rebalancer plugins on Tron.
 - Called via DELEGATECALL from `UntronController`, so:
-  - `IBridger` must be stateless (no own storage).
+  - `IRebalancer` must be stateless (no own storage).
   - Execution context is the controller’s storage/permissions.
 
 Single main function conceptually:
@@ -121,8 +123,8 @@ Single main function conceptually:
     - If bridging was unsuccessful, it must revert (which reverts the `pullFromReceivers` as well).
 
 The controller owner:
-- Whitelists bridger contracts per token.
-- Relayers, when calling `pullFromReceivers`, can only target whitelisted bridgers for the token.
+- Whitelists rebalancer contracts per token.
+- Relayers, when calling `pullFromReceivers`, can only target whitelisted rebalancers for the token.
 
 Design assumption we’re going with:
 - All bridging ultimately produces Arbitrum USDT.
@@ -186,7 +188,7 @@ Each lease `L` has:
 - **Payout config** (fully mutable by lessee):
   - swapper address (must be whitelisted),
   - target chainId and token (semantics are swapper-specific),
-  - beneficiary (final address to receive tokens / bridged funds).
+  - beneficiary (final address to receive tokens / rebalanced funds).
 
 ### Lease validity over time:
 
@@ -246,7 +248,7 @@ Economically:
 - The entire percentage fee `leaseFee` is the user’s fee.
 - The protocol’s actual profit/loss per unit depends on:
   - `leaseFee` chosen by the realtor, and
-  - effective bridge fee `f_bridge` from the `IUntronBridger` used in practice.
+  - effective bridge fee `f_bridge` from the `IUntronRebalancer` used in practice.
 
 There is no enforced on-chain spread-credit for the realtor; their economics live off-chain (e.g. offering rates to users).
 
@@ -437,8 +439,8 @@ No APY, no share price; just principal tracking.
     - LP + team are fronting user withdrawal before the matching dump/bridge.
 
 ### Dumps / bridging
-- `pullFromReceivers` + `IUntronBridger` on Tron send Arbitrum USDT into `UntronV3`:
-  - `usdtBalance` increases by `bridgedAmount`.
+- `pullFromReceivers` + `IUntronRebalancer` on Tron send Arbitrum USDT into `UntronV3`:
+  - `usdtBalance` increases by `rebalancedAmount`.
   - The difference between:
     - what was fronted via `fill()`, and
     - what bridging actually returns
@@ -506,7 +508,7 @@ If a swapper reverts:
 For each raw amount `Q` in Tron USDT assigned to a lease with `leaseFee = f_lease`:
 - User / lessee claim:
   `Q * (1 - f_lease)` (minus optional flat fee).
-- Bridger actually delivers:
+- Rebalancer actually delivers:
   - `Q * (1 - f_bridge)` USDT on Arbitrum.
 
 Protocol’s per-unit economic result is:

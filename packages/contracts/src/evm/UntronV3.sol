@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Create2Utils} from "../utils/Create2Utils.sol";
 import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
+import {UntronV3IndexGenesisEventChainHash} from "../utils/UntronV3IndexGenesisEventChainHash.sol";
 import {TronTxReader} from "./TronTxReader.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
@@ -15,8 +16,164 @@ interface ISwapper {
     function handlePayout(uint256 amountUSDT, uint256 targetChainId, address targetToken, address beneficiary) external;
 }
 
+/// @title UntronV3Index
+/// @notice Hash-chain-based event index for Untron V3 hub, friendly to offchain indexers.
+/// @author Ultrasound Labs
+contract UntronV3Index {
+    /*//////////////////////////////////////////////////////////////
+                                INDEXES
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice The hash of the latest event in the event chain.
+    /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
+    bytes32 public eventChainTip = UntronV3IndexGenesisEventChainHash.VALUE;
+
+    /*//////////////////////////////////////////////////////////////
+                                  EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event UsdtSet(address indexed usdt);
+    event RealtorSet(address indexed realtor, bool allowed);
+    event SwapperSet(address indexed targetToken, uint256 indexed targetChainId, address swapper);
+    event ChainDeprecatedSet(uint256 indexed targetChainId, bool deprecated);
+    event ProtocolFloorSet(uint256 floorPpm);
+    event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
+
+    event LeaseCreated(
+        uint256 indexed leaseId,
+        bytes32 indexed receiverSalt,
+        address realtor,
+        address lessee,
+        uint64 startTime,
+        uint64 nukeableAfter,
+        uint32 leaseFeePpm,
+        uint64 flatFee
+    );
+
+    event PayoutConfigUpdated(uint256 indexed leaseId, uint256 targetChainId, address targetToken, address beneficiary);
+
+    // forge-lint: disable-next-line(mixed-case-variable)
+    event ClaimCreated(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
+    // forge-lint: disable-next-line(mixed-case-variable)
+    event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
+
+    event DepositPreEntitled(bytes32 indexed txLeaf, uint256 indexed leaseId, uint256 rawAmount, uint256 netOut);
+
+    event LpDeposited(address indexed lp, uint256 amount);
+    event LpWithdrawn(address indexed lp, uint256 amount);
+    event TronReaderSet(address indexed reader);
+    event TronUsdtSet(address indexed tronUsdt);
+
+    /*//////////////////////////////////////////////////////////////
+                APPEND EVENT CHAIN IMPLEMENTATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Appends an event to the event chain.
+    /// @param eventSignature The signature of the event.
+    /// @param abiEncodedEventData The ABI-encoded data of the event.
+    function _appendEventChain(bytes32 eventSignature, bytes memory abiEncodedEventData) internal {
+        eventChainTip =
+            sha256(abi.encodePacked(eventChainTip, block.number, block.timestamp, eventSignature, abiEncodedEventData));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            EMITTERS
+    //////////////////////////////////////////////////////////////*/
+
+    function _emitUsdtSet(address usdt_) internal {
+        _appendEventChain(UsdtSet.selector, abi.encode(usdt_));
+        emit UsdtSet(usdt_);
+    }
+
+    function _emitRealtorSet(address realtor, bool allowed) internal {
+        _appendEventChain(RealtorSet.selector, abi.encode(realtor, allowed));
+        emit RealtorSet(realtor, allowed);
+    }
+
+    function _emitSwapperSet(address targetToken, uint256 targetChainId, address swapper) internal {
+        _appendEventChain(SwapperSet.selector, abi.encode(targetToken, targetChainId, swapper));
+        emit SwapperSet(targetToken, targetChainId, swapper);
+    }
+
+    function _emitChainDeprecatedSet(uint256 targetChainId, bool deprecated) internal {
+        _appendEventChain(ChainDeprecatedSet.selector, abi.encode(targetChainId, deprecated));
+        emit ChainDeprecatedSet(targetChainId, deprecated);
+    }
+
+    function _emitProtocolFloorSet(uint256 floorPpm) internal {
+        _appendEventChain(ProtocolFloorSet.selector, abi.encode(floorPpm));
+        emit ProtocolFloorSet(floorPpm);
+    }
+
+    function _emitRealtorMinFeeSet(address realtor, uint256 minFeePpm) internal {
+        _appendEventChain(RealtorMinFeeSet.selector, abi.encode(realtor, minFeePpm));
+        emit RealtorMinFeeSet(realtor, minFeePpm);
+    }
+
+    function _emitLeaseCreated(
+        uint256 leaseId,
+        bytes32 receiverSalt,
+        address realtor,
+        address lessee,
+        uint64 startTime,
+        uint64 nukeableAfter,
+        uint32 leaseFeePpm,
+        uint64 flatFee
+    ) internal {
+        _appendEventChain(
+            LeaseCreated.selector,
+            abi.encode(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee)
+        );
+        emit LeaseCreated(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
+    }
+
+    function _emitPayoutConfigUpdated(uint256 leaseId, uint256 targetChainId, address targetToken, address beneficiary)
+        internal
+    {
+        _appendEventChain(PayoutConfigUpdated.selector, abi.encode(leaseId, targetChainId, targetToken, beneficiary));
+        emit PayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
+    }
+
+    // forge-lint: disable-next-line(mixed-case-variable)
+    function _emitClaimCreated(uint256 claimIndex, uint256 leaseId, uint256 amountUSDT) internal {
+        _appendEventChain(ClaimCreated.selector, abi.encode(claimIndex, leaseId, amountUSDT));
+        emit ClaimCreated(claimIndex, leaseId, amountUSDT);
+    }
+
+    // forge-lint: disable-next-line(mixed-case-variable)
+    function _emitClaimFilled(uint256 claimIndex, uint256 leaseId, uint256 amountUSDT) internal {
+        _appendEventChain(ClaimFilled.selector, abi.encode(claimIndex, leaseId, amountUSDT));
+        emit ClaimFilled(claimIndex, leaseId, amountUSDT);
+    }
+
+    function _emitDepositPreEntitled(bytes32 txLeaf, uint256 leaseId, uint256 rawAmount, uint256 netOut) internal {
+        _appendEventChain(DepositPreEntitled.selector, abi.encode(txLeaf, leaseId, rawAmount, netOut));
+        emit DepositPreEntitled(txLeaf, leaseId, rawAmount, netOut);
+    }
+
+    function _emitLpDeposited(address lp, uint256 amount) internal {
+        _appendEventChain(LpDeposited.selector, abi.encode(lp, amount));
+        emit LpDeposited(lp, amount);
+    }
+
+    function _emitLpWithdrawn(address lp, uint256 amount) internal {
+        _appendEventChain(LpWithdrawn.selector, abi.encode(lp, amount));
+        emit LpWithdrawn(lp, amount);
+    }
+
+    function _emitTronReaderSet(address reader) internal {
+        _appendEventChain(TronReaderSet.selector, abi.encode(reader));
+        emit TronReaderSet(reader);
+    }
+
+    function _emitTronUsdtSet(address tronUsdt) internal {
+        _appendEventChain(TronUsdtSet.selector, abi.encode(tronUsdt));
+        emit TronUsdtSet(tronUsdt);
+    }
+}
+
 /// @title Hub contract for Untron V3 protocol.
-contract UntronV3 is Create2Utils, EIP712, Ownable {
+contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     using SignatureCheckerLib for address;
 
     /*//////////////////////////////////////////////////////////////
@@ -120,8 +277,8 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
     /// @notice LP principal tracking.
     mapping(address => uint256) public lpPrincipal;
 
-    /// @notice Swapper per destination chain, configured by the owner.
-    mapping(uint256 => address) public swapperForChain;
+    /// @notice Swapper per destination token + destination chain, configured by the owner.
+    mapping(address => mapping(uint256 => address)) public swapperForTokenAndChain;
 
     /// @notice Mapping of what chains are deprecated.
     /// @dev For deprecated chains, lessees can't set them in the payout config.
@@ -146,42 +303,6 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
 
     /// @notice Nonces per lease for gasless payout config updates.
     mapping(uint256 => uint256) public leaseNonces;
-
-    /*//////////////////////////////////////////////////////////////
-                                  EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event UsdtSet(address indexed usdt);
-    event RealtorSet(address indexed realtor, bool allowed);
-    event SwapperSet(uint256 indexed targetChainId, address swapper);
-    event ChainDeprecatedSet(uint256 indexed targetChainId, bool deprecated);
-    event ProtocolFloorSet(uint256 floorPpm);
-    event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
-
-    event LeaseCreated(
-        uint256 indexed leaseId,
-        bytes32 indexed receiverSalt,
-        address realtor,
-        address lessee,
-        uint64 startTime,
-        uint64 nukeableAfter,
-        uint32 leaseFeePpm,
-        uint64 flatFee
-    );
-
-    event PayoutConfigUpdated(uint256 indexed leaseId, uint256 targetChainId, address targetToken, address beneficiary);
-
-    // forge-lint: disable-next-line(mixed-case-variable)
-    event ClaimCreated(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
-    // forge-lint: disable-next-line(mixed-case-variable)
-    event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
-
-    event DepositPreEntitled(bytes32 indexed txLeaf, uint256 indexed leaseId, uint256 rawAmount, uint256 netOut);
-
-    event LpDeposited(address indexed lp, uint256 amount);
-    event LpWithdrawn(address indexed lp, uint256 amount);
-    event TronReaderSet(address indexed reader);
-    event TronUsdtSet(address indexed tronUsdt);
 
     /*//////////////////////////////////////////////////////////////
                                   ERRORS
@@ -256,49 +377,49 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
     /// @dev Callable by the owner; can be reconfigured if needed in v1.
     function setUsdt(address usdt_) external onlyOwner {
         usdt = usdt_;
-        emit UsdtSet(usdt_);
+        _emitUsdtSet(usdt_);
     }
 
     /// @notice Whitelist or un-whitelist a realtor.
     function setRealtor(address realtor, bool allowed) external onlyOwner {
         isRealtor[realtor] = allowed;
-        emit RealtorSet(realtor, allowed);
+        _emitRealtorSet(realtor, allowed);
     }
 
-    /// @notice Set the swapper for a given destination chain.
-    /// @dev Do not ever set swapperForChain[chainId] = address(0) for chains already in use;
+    /// @notice Set the swapper for a given destination token and destination chain.
+    /// @dev Do not ever set swapperForTokenAndChain[targetToken][chainId] = address(0) for pairs already in use;
     ///      use isChainDeprecated to block new usage instead. We don't explicitly forbid 0x00 here
     ///      because owner could as well specify 0x01 or 0xdead and brick the chain this way too.
-    function setSwapper(uint256 targetChainId, address swapper) external onlyOwner {
-        swapperForChain[targetChainId] = swapper;
-        emit SwapperSet(targetChainId, swapper);
+    function setSwapper(address targetToken, uint256 targetChainId, address swapper) external onlyOwner {
+        swapperForTokenAndChain[targetToken][targetChainId] = swapper;
+        _emitSwapperSet(targetToken, targetChainId, swapper);
     }
 
     /// @notice Set the deprecated status for a given destination chain.
     /// @dev A true value marks the chain as deprecated.
     function setChainDeprecated(uint256 targetChainId, bool deprecated) external onlyOwner {
         isChainDeprecated[targetChainId] = deprecated;
-        emit ChainDeprecatedSet(targetChainId, deprecated);
+        _emitChainDeprecatedSet(targetChainId, deprecated);
     }
 
     /// @notice Set global protocol minimum fee in parts per million (applies to all Tron USDT volume).
     function setProtocolFloorPpm(uint256 floorPpm) external onlyOwner {
         if (floorPpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
         protocolFloorPpm = floorPpm;
-        emit ProtocolFloorSet(floorPpm);
+        _emitProtocolFloorSet(floorPpm);
     }
 
     /// @notice Set realtor-specific minimum fee in parts per million (applies to all Tron USDT volume).
     function setRealtorMinFeePpm(address realtor, uint256 minFeePpm) external onlyOwner {
         if (minFeePpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
         realtorMinFeePpm[realtor] = minFeePpm;
-        emit RealtorMinFeeSet(realtor, minFeePpm);
+        _emitRealtorMinFeeSet(realtor, minFeePpm);
     }
 
     /// @notice Set or update the external Tron tx reader contract address.
     function setTronReader(address reader) external onlyOwner {
         tronReader = TronTxReader(reader);
-        emit TronReaderSet(reader);
+        _emitTronReaderSet(reader);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -345,7 +466,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
         l.leaseFeePpm = leaseFeePpm;
         l.flatFee = flatFee;
 
-        if (swapperForChain[targetChainId] == address(0)) revert InvalidChainId();
+        if (swapperForTokenAndChain[targetToken][targetChainId] == address(0)) revert InvalidChainId();
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
 
         // Store payout configuration so that target chain configuration is
@@ -354,7 +475,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
 
         ids.push(leaseId);
 
-        emit LeaseCreated(leaseId, receiverSalt, msg.sender, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
+        _emitLeaseCreated(leaseId, receiverSalt, msg.sender, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
     }
 
     /// @notice Update payout configuration for an existing lease.
@@ -366,12 +487,12 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
         if (l.lessee == address(0)) revert InvalidLeaseId();
         if (msg.sender != l.lessee) revert NotLessee();
 
-        if (swapperForChain[targetChainId] == address(0)) revert InvalidChainId();
+        if (swapperForTokenAndChain[targetToken][targetChainId] == address(0)) revert InvalidChainId();
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
 
         l.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
 
-        emit PayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
+        _emitPayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
     }
 
     /// @notice Gasless payout config update using an EIP-712 signature by the lessee.
@@ -393,7 +514,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
         address beneficiary_ = config.beneficiary;
         bytes32 typehash = PAYOUT_CONFIG_UPDATE_TYPEHASH;
 
-        if (swapperForChain[targetChainId_] == address(0)) revert InvalidChainId();
+        if (swapperForTokenAndChain[targetToken_][targetChainId_] == address(0)) revert InvalidChainId();
         if (isChainDeprecated[targetChainId_]) revert ChainDeprecated();
 
         bytes32 structHash;
@@ -438,7 +559,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
             targetChainId: config.targetChainId, targetToken: config.targetToken, beneficiary: config.beneficiary
         });
 
-        emit PayoutConfigUpdated(leaseId, config.targetChainId, config.targetToken, config.beneficiary);
+        _emitPayoutConfigUpdated(leaseId, config.targetChainId, config.targetToken, config.beneficiary);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -484,10 +605,10 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
         if (netOut > 0) {
             claims.push(Claim({amountUSDT: netOut, leaseId: leaseId}));
             claimIndex = claims.length - 1;
-            emit ClaimCreated(claimIndex, leaseId, netOut);
+            _emitClaimCreated(claimIndex, leaseId, netOut);
         }
 
-        emit DepositPreEntitled(callData.txLeaf, leaseId, amountQ, netOut);
+        _emitDepositPreEntitled(callData.txLeaf, leaseId, amountQ, netOut);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -565,7 +686,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
             } else if (sig == EVENT_SIG_USDT_SET) {
                 address newTronUsdt = abi.decode(ev.data, (address));
                 tronUsdt = newTronUsdt;
-                emit TronUsdtSet(newTronUsdt);
+                _emitTronUsdtSet(newTronUsdt);
             }
 
             unchecked {
@@ -593,7 +714,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
         SafeTransferLib.safeTransferFrom(usdt, msg.sender, address(this), amount);
         lpPrincipal[msg.sender] += amount;
 
-        emit LpDeposited(msg.sender, amount);
+        _emitLpDeposited(msg.sender, amount);
     }
 
     /// @notice Withdraw USDT from the fast-fill vault.
@@ -607,7 +728,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
         lpPrincipal[msg.sender] = principal - amount;
         SafeTransferLib.safeTransfer(usdt, msg.sender, amount);
 
-        emit LpWithdrawn(msg.sender, amount);
+        _emitLpWithdrawn(msg.sender, amount);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -647,8 +768,8 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
                 // Same-chain payout: send USDT directly to the beneficiary.
                 SafeTransferLib.safeTransfer(usdt, p.beneficiary, c.amountUSDT);
             } else {
-                // Cross-chain payout: use the owner-configured swapper for the target chain.
-                address swapper = swapperForChain[targetChainId];
+                // Cross-chain payout: use the owner-configured swapper for the (token, chain) pair.
+                address swapper = swapperForTokenAndChain[targetToken][targetChainId];
                 if (swapper == address(0)) revert NoSwapper();
 
                 SafeTransferLib.safeTransfer(usdt, swapper, c.amountUSDT);
@@ -659,7 +780,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
                 available -= c.amountUSDT;
             }
 
-            emit ClaimFilled(claimIdx, c.leaseId, c.amountUSDT);
+            _emitClaimFilled(claimIdx, c.leaseId, c.amountUSDT);
 
             unchecked {
                 ++claimIdx;
@@ -762,7 +883,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable {
             if (netOut > 0) {
                 claims.push(Claim({amountUSDT: netOut, leaseId: currentLeaseId}));
                 uint256 claimIdx = claims.length - 1;
-                emit ClaimCreated(claimIdx, currentLeaseId, netOut);
+                _emitClaimCreated(claimIdx, currentLeaseId, netOut);
             }
         }
     }

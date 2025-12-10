@@ -1,3 +1,5 @@
+WARNING: probably outdated
+
 IMPORTANT: Tron's VM is in most parts equivalent to EVM, so one should be able to understand the idea entirely with just EVM knowledge. It might even be that we port Tron parts of the protocol to EVM-ish chains like BNB Chain at some point
 
 UntronController (Tron):
