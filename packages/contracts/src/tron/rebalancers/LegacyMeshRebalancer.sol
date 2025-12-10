@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {IBridger} from "./interfaces/IBridger.sol";
+import {IRebalancer} from "./interfaces/IRebalancer.sol";
 import {IOFT, SendParam} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
 import {TokenUtils} from "../../utils/TokenUtils.sol";
@@ -12,18 +12,18 @@ interface ILegacyMeshOFT is IOFT {
     function BPS_DENOMINATOR() external view returns (uint16);
 }
 
-/// @title LegacyMeshBridger
-/// @notice Bridger implementation for OFT-based Legacy Mesh bridge.
+/// @title LegacyMeshRebalancer
+/// @notice Rebalancer implementation for OFT-based Legacy Mesh bridge.
 /// @author Ultrasound Labs
-contract LegacyMeshBridger is IBridger {
+contract LegacyMeshRebalancer is IRebalancer {
     /// @notice Bridge tokens via LayerZero OFT.
     /// @dev Payload must be ABI-encoded: (address oft, uint32 dstEid, bytes32 to)
     ///      Runs via DELEGATECALL in the controller context; controller holds funds.
     /// @param token Token address to bridge.
     /// @param inAmount Amount to bridge.
     /// @param payload ABI-encoded (address oft, uint32 dstEid, bytes32 to).
-    /// @return outAmount Expected amount of tokens to be bridged (after Legacy Mesh fee).
-    function bridge(address token, uint256 inAmount, bytes calldata payload) external returns (uint256 outAmount) {
+    /// @return outAmount Expected amount of tokens to be rebalanced (after Legacy Mesh fee).
+    function rebalance(address token, uint256 inAmount, bytes calldata payload) external returns (uint256 outAmount) {
         (ILegacyMeshOFT oft, uint32 dstEid, bytes32 to) = abi.decode(payload, (ILegacyMeshOFT, uint32, bytes32));
 
         // Fetch the Legacy Mesh's fee in basis points

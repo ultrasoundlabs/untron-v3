@@ -3195,6 +3195,24 @@ export const ioftAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// IRebalancer
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const iRebalancerAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
+      { name: 'payload', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'rebalance',
+    outputs: [{ name: 'outAmount', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ISwapper
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3214,10 +3232,10 @@ export const iSwapperAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// LegacyMeshBridger
+// LegacyMeshRebalancer
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-export const legacyMeshBridgerAbi = [
+export const legacyMeshRebalancerAbi = [
   {
     type: 'function',
     inputs: [
@@ -3225,7 +3243,7 @@ export const legacyMeshBridgerAbi = [
       { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'payload', internalType: 'bytes', type: 'bytes' },
     ],
-    name: 'bridge',
+    name: 'rebalance',
     outputs: [{ name: 'outAmount', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'nonpayable',
   },
@@ -4553,7 +4571,7 @@ export const untronControllerAbi = [
   {
     type: 'function',
     inputs: [
-      { name: 'bridger', internalType: 'address', type: 'address' },
+      { name: 'rebalancer', internalType: 'address', type: 'address' },
       { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
     ],
@@ -4715,7 +4733,7 @@ export const untronControllerAbi = [
   {
     type: 'function',
     inputs: [
-      { name: '_bridger', internalType: 'address', type: 'address' },
+      { name: '_rebalancer', internalType: 'address', type: 'address' },
       { name: '_payload', internalType: 'bytes', type: 'bytes' },
     ],
     name: 'setPayload',
@@ -4847,7 +4865,7 @@ export const untronControllerAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'bridger',
+        name: 'rebalancer',
         internalType: 'address',
         type: 'address',
         indexed: true,
@@ -4948,13 +4966,13 @@ export const untronControllerAbi = [
         indexed: false,
       },
       {
-        name: 'bridger',
+        name: 'rebalancer',
         internalType: 'address',
         type: 'address',
         indexed: true,
       },
     ],
-    name: 'UsdtBridged',
+    name: 'UsdtRebalanced',
   },
   {
     type: 'event',
@@ -5104,7 +5122,7 @@ export const untronControllerIndexAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'bridger',
+        name: 'rebalancer',
         internalType: 'address',
         type: 'address',
         indexed: true,
@@ -5205,13 +5223,13 @@ export const untronControllerIndexAbi = [
         indexed: false,
       },
       {
-        name: 'bridger',
+        name: 'rebalancer',
         internalType: 'address',
         type: 'address',
         indexed: true,
       },
     ],
-    name: 'UsdtBridged',
+    name: 'UsdtRebalanced',
   },
   {
     type: 'event',
@@ -5347,6 +5365,13 @@ export const untronV3Abi = [
       { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
       { name: 'extensions', internalType: 'uint256[]', type: 'uint256[]' },
     ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'eventChainTip',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
   },
   {
@@ -5635,6 +5660,7 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'swapper', internalType: 'address', type: 'address' },
     ],
@@ -5658,8 +5684,11 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
-    name: 'swapperForChain',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'swapperForTokenAndChain',
     outputs: [{ name: '', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
   },
@@ -6017,6 +6046,12 @@ export const untronV3Abi = [
     anonymous: false,
     inputs: [
       {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
         name: 'targetChainId',
         internalType: 'uint256',
         type: 'uint256',
@@ -6094,4 +6129,337 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'Unauthorized' },
   { type: 'error', inputs: [], name: 'WithdrawExceedsPrincipal' },
   { type: 'error', inputs: [], name: 'ZeroAmount' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UntronV3Index
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const untronV3IndexAbi = [
+  {
+    type: 'function',
+    inputs: [],
+    name: 'eventChainTip',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'deprecated',
+        internalType: 'bool',
+        type: 'bool',
+        indexed: false,
+      },
+    ],
+    name: 'ChainDeprecatedSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'claimIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'amountUSDT',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ClaimCreated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'claimIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'amountUSDT',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ClaimFilled',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'txLeaf',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'rawAmount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'netOut',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'DepositPreEntitled',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'receiverSalt',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'lessee',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'startTime',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'nukeableAfter',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'leaseFeePpm',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+      {
+        name: 'flatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'LeaseCreated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LpDeposited',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LpWithdrawn',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'PayoutConfigUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'floorPpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'minFeePpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMinFeeSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'RealtorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'swapper',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'SwapperSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'reader',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'TronReaderSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'tronUsdt',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'TronUsdtSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'usdt', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'UsdtSet',
+  },
 ] as const

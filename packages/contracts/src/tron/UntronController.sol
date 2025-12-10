@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {UntronReceiver} from "./UntronReceiver.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
-import {IBridger} from "./bridgers/interfaces/IBridger.sol";
+import {IRebalancer} from "./rebalancers/interfaces/IRebalancer.sol";
 import {Create2Utils} from "../utils/Create2Utils.sol";
 import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
@@ -30,9 +30,9 @@ contract UntronControllerIndex {
     /// @notice Emitted when the executor of the contract is changed.
     /// @dev    Only used in setExecutor function.
     event ExecutorChanged(address indexed newExecutor);
-    /// @notice Emitted when a payload is set for a particular bridger.
+    /// @notice Emitted when a payload is set for a particular rebalancer.
     /// @dev    Only used in setPayload function.
-    event PayloadSet(address indexed bridger, bytes payload);
+    event PayloadSet(address indexed rebalancer, bytes payload);
     /// @notice Emitted when a receiver is deployed.
     /// @dev    Only used in _pullFromReceiver function.
     event ReceiverDeployed(address indexed receiver, bytes32 salt);
@@ -48,9 +48,9 @@ contract UntronControllerIndex {
     /// @notice Emitted when tokens are pulled from receivers to the controller.
     /// @dev    Only used in pullFromReceivers function.
     event TokensPulled(address indexed token, uint256 totalAmount);
-    /// @notice Emitted when USDT is bridged via a particular bridger.
+    /// @notice Emitted when USDT is rebalanced via a particular rebalancer.
     /// @dev    Only used in bridgeUsdt function.
-    event UsdtBridged(uint256 inAmount, uint256 outAmount, address indexed bridger);
+    event UsdtRebalanced(uint256 inAmount, uint256 outAmount, address indexed rebalancer);
     /// @notice Emitted when USDT is transferred from the controller to a recipient.
     /// @dev    Only used in transferUsdtFromController function.
     event ControllerUsdtTransfer(address indexed recipient, uint256 amount);
@@ -111,9 +111,9 @@ contract UntronControllerIndex {
         emit ExecutorChanged(newExecutor);
     }
 
-    function _emitPayloadSet(address bridger, bytes memory payload) internal {
-        _appendEventChain(PayloadSet.selector, abi.encode(bridger, payload));
-        emit PayloadSet(bridger, payload);
+    function _emitPayloadSet(address rebalancer, bytes memory payload) internal {
+        _appendEventChain(PayloadSet.selector, abi.encode(rebalancer, payload));
+        emit PayloadSet(rebalancer, payload);
     }
 
     function _emitReceiverDeployed(address receiver, bytes32 salt) internal {
@@ -139,9 +139,9 @@ contract UntronControllerIndex {
         emit TokensPulled(token, totalAmount);
     }
 
-    function _emitUsdtBridged(uint256 inAmount, uint256 outAmount, address bridger) internal {
-        _appendEventChain(UsdtBridged.selector, abi.encode(inAmount, outAmount, bridger));
-        emit UsdtBridged(inAmount, outAmount, bridger);
+    function _emitUsdtRebalanced(uint256 inAmount, uint256 outAmount, address rebalancer) internal {
+        _appendEventChain(UsdtRebalanced.selector, abi.encode(inAmount, outAmount, rebalancer));
+        emit UsdtRebalanced(inAmount, outAmount, rebalancer);
     }
 
     function _emitControllerUsdtTransfer(address recipient, uint256 amount) internal {
@@ -178,7 +178,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
                                  STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Contract owner, can set executor and bridger configuration.
+    /// @notice Contract owner, can set executor and rebalancer configuration.
     /// @dev    Used by _onlyOwner (and thus the onlyOwner-protected admin functions).
     ///         Written in constructor and setOwner function.
     address public owner;
@@ -198,7 +198,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @dev    Can be set and changed by the owner; swap configuration is controlled by the LP.
     address public lp;
 
-    /// @notice bridger => bridger-specific payload for bridging USDT
+    /// @notice rebalancer => rebalancer-specific payload for bridging USDT
     /// @dev    Only used in setPayload and bridgeUsdt functions.
     mapping(address => bytes) public payloadFor;
 
@@ -238,7 +238,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @notice Error thrown when provided lengths of receiverSalts and amounts arrays do not match.
     /// @dev    Only used in pullFromReceivers function.
     error LengthMismatch();
-    /// @notice Error thrown when the expected out amount does not match bridger-computed out amount.
+    /// @notice Error thrown when the expected out amount does not match rebalancer-computed out amount.
     /// @dev    Only used in bridgeUsdt function.
     error OutAmountMismatch();
     /// @notice Error thrown when attempting to spend more than was pulled via receivers for a token.
@@ -325,13 +325,13 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         _emitLpSet(_lp);
     }
 
-    /// @notice Set the bridger payload for a particular USDT bridger.
-    /// @param _bridger Bridger address.
-    /// @param _payload Bridger-specific payload.
+    /// @notice Set the rebalancer payload for a particular USDT rebalancer.
+    /// @param _rebalancer Rebalancer address.
+    /// @param _payload Rebalancer-specific payload.
     /// @dev Callable only by the owner.
-    function setPayload(address _bridger, bytes calldata _payload) external onlyOwner {
-        payloadFor[_bridger] = _payload;
-        _emitPayloadSet(_bridger, _payload);
+    function setPayload(address _rebalancer, bytes calldata _payload) external onlyOwner {
+        payloadFor[_rebalancer] = _payload;
+        _emitPayloadSet(_rebalancer, _payload);
     }
 
     /// @notice Set the owner of the contract.
@@ -486,31 +486,31 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         }
     }
 
-    /// @notice Bridges specified amount of USDT via the provided bridger using stored payload.
-    /// @param bridger Bridger address.
+    /// @notice Bridges specified amount of USDT via the provided rebalancer using stored payload.
+    /// @param rebalancer Rebalancer address.
     /// @param inAmount Amount of tokens to bridge.
-    /// @param outAmount Expected output amount returned by the bridger implementation.
+    /// @param outAmount Expected output amount returned by the rebalancer implementation.
     /// @dev Callable by anyone; uses tokens already held by the controller
     ///      (including TRX value attached to the call, if any).
-    ///      Bridgers are DELEGATECALLed in the controller's context
+    ///      Rebalancers are DELEGATECALLed in the controller's context
     ///      and are thus strongly encouraged to be stateless.
-    function bridgeUsdt(address bridger, uint256 inAmount, uint256 outAmount) external payable {
-        // Load payload for this bridger
-        bytes memory payload = payloadFor[bridger];
+    function bridgeUsdt(address rebalancer, uint256 inAmount, uint256 outAmount) external payable {
+        // Load payload for this rebalancer
+        bytes memory payload = payloadFor[rebalancer];
         if (payload.length == 0) revert RouteNotSet();
 
-        // Enforce accounting: only amounts previously pulled via receivers / LP swaps can be bridged
+        // Enforce accounting: only amounts previously pulled via receivers / LP swaps can be rebalanced
         _enforceAccounting(inAmount);
 
         // If the caller attached value, keep it in the controller;
-        // the underlying bridger will be able to use it to pay for the bridge call.
+        // the underlying rebalancer will be able to use it to pay for the bridge call.
 
-        // Execute the bridger via DELEGATECALL.
-        // The bridger implementation returns the expected out amount, which we
+        // Execute the rebalancer via DELEGATECALL.
+        // The rebalancer implementation returns the expected out amount, which we
         // compare against the caller-provided value to enforce invariants at
         // the controller layer.
-        bytes memory data = abi.encodeWithSelector(IBridger.bridge.selector, usdt, inAmount, payload);
-        (bool ok, bytes memory ret) = bridger.delegatecall(data);
+        bytes memory data = abi.encodeWithSelector(IRebalancer.rebalance.selector, usdt, inAmount, payload);
+        (bool ok, bytes memory ret) = rebalancer.delegatecall(data);
         if (!ok) {
             assembly {
                 revert(add(ret, 32), mload(ret))
@@ -523,10 +523,10 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         // in Tron light client, we can only prove success flag + tx calldata,
         // so we have to pass things we need to prove there explicitly in calldata
         // and revert if it's not equivalent to what's happening in the blockchain state.
-        uint256 bridgerOutAmount = abi.decode(ret, (uint256));
-        if (bridgerOutAmount != outAmount) revert OutAmountMismatch();
+        uint256 rebalancerOutAmount = abi.decode(ret, (uint256));
+        if (rebalancerOutAmount != outAmount) revert OutAmountMismatch();
 
-        _emitUsdtBridged(inAmount, outAmount, bridger);
+        _emitUsdtRebalanced(inAmount, outAmount, rebalancer);
     }
 
     // Accept native token for bridging fees
