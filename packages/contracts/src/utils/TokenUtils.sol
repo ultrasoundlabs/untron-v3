@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// Utility functions that work for both ERC20 and native tokens.
@@ -29,5 +30,11 @@ library TokenUtils {
         } else {
             SafeTransferLib.safeTransferETH({to: recipient, amount: amount});
         }
+    }
+
+    /// @notice Full-precision mulDiv: floor(x * y / denominator).
+    /// @dev    Thin wrapper over OpenZeppelin Math.mulDiv for consistency across codebase.
+    function mulDiv(uint256 x, uint256 y, uint256 denominator) internal pure returns (uint256) {
+        return Math.mulDiv(x, y, denominator);
     }
 }

@@ -12,7 +12,7 @@ contract UntronReceiver {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    address internal immutable CONTROLLER;
+    address payable internal immutable CONTROLLER;
 
     /*//////////////////////////////////////////////////////////////
                                   ERRORS
@@ -25,7 +25,7 @@ contract UntronReceiver {
     //////////////////////////////////////////////////////////////*/
 
     constructor() {
-        CONTROLLER = msg.sender;
+        CONTROLLER = payable(msg.sender);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -33,10 +33,10 @@ contract UntronReceiver {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Called by the controller to move `amount` of `token` held by this contract to `recipient`.
-    function onControllerCall(address token, uint256 amount, address payable recipient) external {
+    function pull(address token, uint256 amount) external {
         if (msg.sender != CONTROLLER) revert NotController();
         if (amount != 0) {
-            TokenUtils.transfer(token, recipient, amount);
+            TokenUtils.transfer(token, CONTROLLER, amount);
         }
     }
 

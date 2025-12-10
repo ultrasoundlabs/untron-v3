@@ -5,6 +5,7 @@ import {UntronReceiver} from "./UntronReceiver.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
 import {IBridger} from "./bridgers/interfaces/IBridger.sol";
 import {Create2Utils} from "../utils/Create2Utils.sol";
+import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
 /// @title UntronControllerIndex
@@ -17,10 +18,7 @@ contract UntronControllerIndex {
 
     /// @notice The hash of the latest event in the event chain.
     /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
-    ///         The hashed string that you see is the genesis hash. No events go before it.
-    bytes32 public eventChainTip = sha256(
-        "UntronControllerIndex\nJustin Sun is responsible for setting back the inevitable global stablecoin revolution by years through exploiting Tron USDT's network effects and imposing vendor lock-in on hundreds of millions of people in the Third World, who rely on stablecoins for remittances and to store their savings in unstable, overregulated economies. Let's Untron the People."
-    );
+    bytes32 public eventChainTip = UntronControllerIndexGenesisEventChainHash.VALUE;
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
@@ -36,12 +34,18 @@ contract UntronControllerIndex {
     /// @dev    Only used in setPayload function.
     event PayloadSet(address indexed bridger, bytes payload);
     /// @notice Emitted when a receiver is deployed.
-    /// @dev    Only used in _callReceiver function.
+    /// @dev    Only used in _pullFromReceiver function.
     event ReceiverDeployed(address indexed receiver, bytes32 salt);
-    /// @notice Emitted when a receiver is called to transfer tokens to a recipient.
-    /// @dev    Only used in _callReceiver function.
-    event ReceiverCalled(address indexed receiver, address indexed token, address indexed recipient, uint256 amount);
-    /// @notice Emitted when tokens are dumped from receivers to the controller.
+    /// @notice Emitted for each receiver when tokens are swept into accounting.
+    /// @dev    Includes source token amount, exchange rate (1 for USDT), and USDT-equivalent amount.
+    event PulledFromReceiver(
+        bytes32 indexed receiverSalt,
+        address indexed token,
+        uint256 tokenAmount,
+        uint256 exchangeRate,
+        uint256 usdtAmount
+    );
+    /// @notice Emitted when tokens are pulled from receivers to the controller.
     /// @dev    Only used in pullFromReceivers function.
     event TokensPulled(address indexed token, uint256 totalAmount);
     /// @notice Emitted when USDT is bridged via a particular bridger.
@@ -74,7 +78,7 @@ contract UntronControllerIndex {
     ///      only successful transactions in the block. So we can expose the event chain tip
     ///      to the light client by allowing users to send transactions
     ///      where the event chain tip is in transaction's calldata.
-    function isEventChainTip(bytes32 eventChainTip_) public view returns (bool) {
+    function isEventChainTip(bytes32 eventChainTip_) external view returns (bool) {
         require(eventChainTip == eventChainTip_, "no");
         return true;
     }
@@ -89,7 +93,8 @@ contract UntronControllerIndex {
     function _appendEventChain(bytes32 eventSignature, bytes memory abiEncodedEventData) internal {
         // we use sha256 here instead of keccak256 for future-proofness
         // in case we ZK prove this smart contract. sha256 is cheaper to prove than keccak256.
-        eventChainTip = sha256(abi.encodePacked(eventChainTip, eventSignature, abiEncodedEventData));
+        eventChainTip =
+            sha256(abi.encodePacked(eventChainTip, block.number, block.timestamp, eventSignature, abiEncodedEventData));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -106,7 +111,7 @@ contract UntronControllerIndex {
         emit ExecutorChanged(newExecutor);
     }
 
-    function _emitPayloadSet(address bridger, bytes calldata payload) internal {
+    function _emitPayloadSet(address bridger, bytes memory payload) internal {
         _appendEventChain(PayloadSet.selector, abi.encode(bridger, payload));
         emit PayloadSet(bridger, payload);
     }
@@ -116,9 +121,17 @@ contract UntronControllerIndex {
         emit ReceiverDeployed(receiver, salt);
     }
 
-    function _emitReceiverCalled(address receiver, address token, address recipient, uint256 amount) internal {
-        _appendEventChain(ReceiverCalled.selector, abi.encode(receiver, token, recipient, amount));
-        emit ReceiverCalled(receiver, token, recipient, amount);
+    function _emitPulledFromReceiver(
+        bytes32 receiverSalt,
+        address token,
+        uint256 tokenAmount,
+        uint256 exchangeRate,
+        uint256 usdtAmount
+    ) internal {
+        _appendEventChain(
+            PulledFromReceiver.selector, abi.encode(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount)
+        );
+        emit PulledFromReceiver(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount);
     }
 
     function _emitTokensPulled(address token, uint256 totalAmount) internal {
@@ -194,10 +207,14 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @dev    Increases in pullFromReceivers; decreases in bridgeUsdt and transferUsdtFromController.
     uint256 public pulledUsdt;
 
-    /// @notice Per-token exchange rate configured by the LP: how much USDT (in smallest units)
-    ///         the LP is willing to pay per 1 smallest unit of `token`.
-    /// @dev    token => USDT-per-token rate; only used in pullFromReceivers and set by LP.
+    /// @notice Per-token exchange rate configured by the LP, scaled by RATE_SCALE.
+    /// @dev    For token with T decimals, rate = priceInUsdt * 10^T * RATE_SCALE.
+    ///         token => scaled USDT-per-token rate; only used in pullFromReceivers and set by LP.
     mapping(address => uint256) public lpExchangeRateFor;
+
+    /// @notice Fixed scale for exchange rates: USDT-per-tokenUnit is expressed per RATE_SCALE of token units.
+    /// @dev For token with T decimals, rate = priceInUsdt * 10^T * RATE_SCALE.
+    uint256 internal constant RATE_SCALE = 1e18;
 
     /*//////////////////////////////////////////////////////////////
                                   ERRORS
@@ -328,8 +345,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
 
     /// @notice Set the LP-configured exchange rate for a token.
     /// @param token Token address.
-    /// @param exchangeRate USDT amount (in smallest units) the LP is willing to pay
-    ///                     per 1 smallest unit of `token`.
+    /// @param exchangeRate Scaled rate: USDT (smallest units) per RATE_SCALE token units.
     /// @dev Callable only by the LP.
     function setLpExchangeRate(address token, uint256 exchangeRate) external onlyLp {
         lpExchangeRateFor[token] = exchangeRate;
@@ -353,9 +369,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         if (token == usdt) {
             // For USDT, protect canonical accounting balance: only the surplus
             // over pulledUsdt can be withdrawn by the LP.
-            uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt, address(this));
-            if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
-            maxWithdraw = controllerUsdtBalance - pulledUsdt;
+            maxWithdraw = _maxWithdrawableUsdt();
         } else {
             // For non‑USDT tokens, LP can withdraw up to the full controller balance.
             maxWithdraw = TokenUtils.getBalanceOf(token, address(this));
@@ -378,9 +392,8 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @param amounts Expected token amounts to be swept from each receiver.
     ///                amounts[i] must equal the actual sweep amount,
     ///                which is `balance - 1` if `balance > 0`, otherwise `0`.
-    /// @param exchangeRate USDT amount (in smallest units) that the LP is expected to pay per
-    ///                     1 smallest unit of `token` for this pull. Must match LP-configured rate
-    ///                     when `token != usdt`. WARNING: not used when token == usdt
+    /// @param exchangeRate Scaled exchange rate: USDT (smallest units) per RATE_SCALE token units.
+    ///                     Must match LP-configured rate when `token != usdt`. Ignored for USDT pulls.
     /// @dev Callable by anyone.
     ///      In this function, the controller only requests tokens to be sent into *its own balance*.
     ///      Sweeps all but one base unit from each non-zero-balance receiver,
@@ -393,9 +406,21 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     ) external {
         if (receiverSalts.length != amounts.length) revert LengthMismatch();
 
-        uint256 total = 0;
+        bool isUsdt = token == usdt;
+        uint256 rateUsed;
+
+        if (isUsdt) {
+            rateUsed = RATE_SCALE;
+        } else {
+            uint256 configuredRate = lpExchangeRateFor[token];
+            if (configuredRate == 0 || configuredRate != exchangeRate) revert ExchangeRateMismatch();
+            rateUsed = configuredRate;
+        }
+
+        uint256 totalToken = 0;
+        uint256 totalUsdt = 0;
         for (uint256 i = 0; i < receiverSalts.length; ++i) {
-            address receiver = predictReceiverAddress(address(this), receiverSalts[i]);
+            address receiver = predictReceiverAddress(receiverSalts[i]);
             uint256 balance = TokenUtils.getBalanceOf(token, receiver);
 
             uint256 sweepAmount = balance;
@@ -421,40 +446,43 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             if (amounts[i] != sweepAmount) revert IncorrectSweepAmount();
 
             if (sweepAmount != 0) {
-                _callReceiver(receiverSalts[i], token, sweepAmount, address(this));
-                total += sweepAmount;
+                _pullFromReceiver(receiverSalts[i], token, sweepAmount);
+
+                uint256 usdtAmount;
+                if (isUsdt) {
+                    usdtAmount = sweepAmount;
+                } else {
+                    usdtAmount = TokenUtils.mulDiv(sweepAmount, rateUsed, RATE_SCALE);
+                }
+                totalToken += sweepAmount;
+                totalUsdt += usdtAmount;
+
+                // Per-receiver event used by EVM side; block metadata is hashed into the event chain separately.
+                _emitPulledFromReceiver(receiverSalts[i], token, sweepAmount, rateUsed, usdtAmount);
             }
         }
 
-        if (total != 0) {
-            if (token == usdt) {
+        if (totalToken != 0) {
+            if (isUsdt) {
                 // Canonical USDT: pulled amount directly increases accounting balance.
-                pulledUsdt += total;
+                pulledUsdt += totalUsdt;
             } else {
                 // Non‑USDT tokens are immediately swapped into USDT against the LP at the
                 // LP-configured exchange rate, provided there is enough USDT liquidity.
 
-                uint256 configuredRate = lpExchangeRateFor[token];
-                if (configuredRate == 0 || configuredRate != exchangeRate) revert ExchangeRateMismatch();
-
-                // USDT required from LP to buy `total` units of `token`.
-                uint256 usdtRequired = total * exchangeRate;
-
                 // Compute LP's free USDT liquidity as controller's USDT balance minus
                 // already-accounted pulledUsdt.
-                uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt, address(this));
-                if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
-                uint256 lpFreeUsdt = controllerUsdtBalance - pulledUsdt;
-                if (usdtRequired > lpFreeUsdt) revert InsufficientLpLiquidity();
+                uint256 lpFreeUsdt = _maxWithdrawableUsdt();
+                if (totalUsdt > lpFreeUsdt) revert InsufficientLpLiquidity();
 
                 // Increase canonical USDT accounting.
-                pulledUsdt += usdtRequired;
+                pulledUsdt += totalUsdt;
             }
 
             // we're not interested in logging zero amount pulls
             // and they'd make the event chain system kinda vulnerable to spam of TokensPulled events
             // so the event is only emitted if the call did indeed pull something
-            _emitTokensPulled(token, total);
+            _emitTokensPulled(token, totalToken);
         }
     }
 
@@ -527,9 +555,9 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     ///             Receiver salts are used as a canonical identifier for receivers.
     /// @param token Token address.
     /// @param amount Amount of tokens to pull from receiver.
-    /// @param recipient Recipient address.
-    function _callReceiver(bytes32 salt, address token, uint256 amount, address recipient) internal {
-        address payable receiver = payable(predictReceiverAddress(address(this), salt));
+    /// @dev DOES NOT call _emitPulledFromReceiver, the calling function must emit it
+    function _pullFromReceiver(bytes32 salt, address token, uint256 amount) internal {
+        address payable receiver = payable(predictReceiverAddress(salt));
 
         // Deploy if not already deployed
         if (receiver.code.length == 0) {
@@ -537,9 +565,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             _emitReceiverDeployed(receiver, salt);
         }
 
-        UntronReceiver(receiver).onControllerCall(token, amount, payable(recipient));
-
-        _emitReceiverCalled(receiver, token, recipient, amount);
+        UntronReceiver(receiver).pull(token, amount);
     }
 
     /// @dev Enforces accounting for token transfers in the canonical accounting token (USDT).
@@ -550,6 +576,13 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         unchecked {
             pulledUsdt = pulled - amount;
         }
+    }
+
+    /// @dev Computes USDT that can be spent without violating accounting invariants.
+    function _maxWithdrawableUsdt() internal view returns (uint256) {
+        uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt, address(this));
+        if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
+        return controllerUsdtBalance - pulledUsdt;
     }
 
     /// @dev Reverts if the caller is not the owner.

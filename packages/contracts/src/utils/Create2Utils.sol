@@ -52,4 +52,13 @@ contract Create2Utils {
             )
         );
     }
+
+    /// @dev Predicts the deterministic address for a receiver deployed via CREATE2.
+    /// @param salt       The CREATE2 salt used for deterministic deployment.
+    /// @notice This function calls predictReceiverAddress with controller == address(this)
+    ///         and is supposed to be used when you need to determine address of a receiver
+    ///         the calling contract is going to deploy.
+    function predictReceiverAddress(bytes32 salt) public view returns (address predicted) {
+        predicted = predictReceiverAddress(address(this), salt);
+    }
 }

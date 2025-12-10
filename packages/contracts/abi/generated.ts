@@ -19,6 +19,13 @@ export const create2UtilsAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'controller', internalType: 'address', type: 'address' },
       { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
@@ -3587,6 +3594,39 @@ export const ownableAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SafeCast
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const safeCastAbi = [
+  {
+    type: 'error',
+    inputs: [
+      { name: 'bits', internalType: 'uint8', type: 'uint8' },
+      { name: 'value', internalType: 'int256', type: 'int256' },
+    ],
+    name: 'SafeCastOverflowedIntDowncast',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'value', internalType: 'int256', type: 'int256' }],
+    name: 'SafeCastOverflowedIntToUint',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'bits', internalType: 'uint8', type: 'uint8' },
+      { name: 'value', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'SafeCastOverflowedUintDowncast',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'value', internalType: 'uint256', type: 'uint256' }],
+    name: 'SafeCastOverflowedUintToInt',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SafeERC20
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4578,6 +4618,13 @@ export const untronControllerAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'controller', internalType: 'address', type: 'address' },
       { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
@@ -4792,9 +4839,9 @@ export const untronControllerAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'receiver',
-        internalType: 'address',
-        type: 'address',
+        name: 'receiverSalt',
+        internalType: 'bytes32',
+        type: 'bytes32',
         indexed: true,
       },
       {
@@ -4804,19 +4851,25 @@ export const untronControllerAbi = [
         indexed: true,
       },
       {
-        name: 'recipient',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
+        name: 'tokenAmount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
       },
       {
-        name: 'amount',
+        name: 'exchangeRate',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'usdtAmount',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
       },
     ],
-    name: 'ReceiverCalled',
+    name: 'PulledFromReceiver',
   },
   {
     type: 'event',
@@ -5043,9 +5096,9 @@ export const untronControllerIndexAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'receiver',
-        internalType: 'address',
-        type: 'address',
+        name: 'receiverSalt',
+        internalType: 'bytes32',
+        type: 'bytes32',
         indexed: true,
       },
       {
@@ -5055,19 +5108,25 @@ export const untronControllerIndexAbi = [
         indexed: true,
       },
       {
-        name: 'recipient',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
+        name: 'tokenAmount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
       },
       {
-        name: 'amount',
+        name: 'exchangeRate',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'usdtAmount',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
       },
     ],
-    name: 'ReceiverCalled',
+    name: 'PulledFromReceiver',
   },
   {
     type: 'event',
@@ -5159,9 +5218,8 @@ export const untronReceiverAbi = [
     inputs: [
       { name: 'token', internalType: 'address', type: 'address' },
       { name: 'amount', internalType: 'uint256', type: 'uint256' },
-      { name: 'recipient', internalType: 'address payable', type: 'address' },
     ],
-    name: 'onControllerCall',
+    name: 'pull',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -5176,7 +5234,7 @@ export const untronV3Abi = [
   {
     type: 'constructor',
     inputs: [
-      { name: 'controllerAddress', internalType: 'bytes20', type: 'bytes20' },
+      { name: 'controllerAddress', internalType: 'address', type: 'address' },
       { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
       { name: 'tronReader_', internalType: 'address', type: 'address' },
     ],
@@ -5186,7 +5244,7 @@ export const untronV3Abi = [
     type: 'function',
     inputs: [],
     name: 'CONTROLLER_ADDRESS',
-    outputs: [{ name: '', internalType: 'bytes20', type: 'bytes20' }],
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
   },
   {
@@ -5257,13 +5315,6 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'dumpProcessed',
-    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
     inputs: [{ name: 'maxClaims', internalType: 'uint256', type: 'uint256' }],
     name: 'fill',
     outputs: [],
@@ -5281,6 +5332,13 @@ export const untronV3Abi = [
     inputs: [{ name: '', internalType: 'address', type: 'address' }],
     name: 'isRealtor',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'lastControllerEventTip',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
   },
   {
@@ -5329,6 +5387,13 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [],
+    name: 'nextControllerEventIndex',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'nextLeaseId',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
@@ -5368,6 +5433,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'controller', internalType: 'address', type: 'address' },
       { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
@@ -5378,13 +5450,8 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
-      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
-      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
-      { name: 'index', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'processPull',
+    inputs: [{ name: 'maxEvents', internalType: 'uint256', type: 'uint256' }],
+    name: 'processControllerEvents',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -5415,6 +5482,29 @@ export const untronV3Abi = [
     name: 'recommendedSwapper',
     outputs: [{ name: '', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'events',
+        internalType: 'struct UntronV3.ControllerEvent[]',
+        type: 'tuple[]',
+        components: [
+          { name: 'sig', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+          { name: 'blockNumber', internalType: 'uint64', type: 'uint64' },
+          { name: 'blockTimestamp', internalType: 'uint64', type: 'uint64' },
+        ],
+      },
+    ],
+    name: 'relayControllerEventChain',
+    outputs: [{ name: 'tipNew', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -5484,13 +5574,6 @@ export const untronV3Abi = [
     type: 'function',
     inputs: [{ name: 'reader', internalType: 'address', type: 'address' }],
     name: 'setTronReader',
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: 'tronUsdt_', internalType: 'address', type: 'address' }],
-    name: 'setTronUsdt',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -5625,31 +5708,6 @@ export const untronV3Abi = [
       },
     ],
     name: 'DepositPreEntitled',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
-      {
-        name: 'dumpId',
-        internalType: 'bytes32',
-        type: 'bytes32',
-        indexed: true,
-      },
-      {
-        name: 'receiverSalt',
-        internalType: 'bytes32',
-        type: 'bytes32',
-        indexed: true,
-      },
-      {
-        name: 'amount',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'DumpProcessed',
   },
   {
     type: 'event',
@@ -5917,7 +5975,8 @@ export const untronV3Abi = [
   },
   { type: 'error', inputs: [], name: 'AlreadyInitialized' },
   { type: 'error', inputs: [], name: 'DepositAlreadyProcessed' },
-  { type: 'error', inputs: [], name: 'DumpAlreadyProcessed' },
+  { type: 'error', inputs: [], name: 'EventRelayNoProgress' },
+  { type: 'error', inputs: [], name: 'EventTipMismatch' },
   { type: 'error', inputs: [], name: 'InsufficientUsdtBalance' },
   { type: 'error', inputs: [], name: 'InvalidLeaseId' },
   { type: 'error', inputs: [], name: 'InvalidLeaseTimeframe' },
@@ -5926,20 +5985,17 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
   { type: 'error', inputs: [], name: 'NoActiveLease' },
+  { type: 'error', inputs: [], name: 'NoEventChainTipInMulticall' },
   { type: 'error', inputs: [], name: 'NoHandoverRequest' },
   { type: 'error', inputs: [], name: 'NoSwapper' },
-  { type: 'error', inputs: [], name: 'NotAPullFromReceivers' },
   { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
+  { type: 'error', inputs: [], name: 'NotEventChainTip' },
   { type: 'error', inputs: [], name: 'NotLessee' },
   { type: 'error', inputs: [], name: 'NotRealtor' },
   { type: 'error', inputs: [], name: 'NotTronUsdt' },
-  { type: 'error', inputs: [], name: 'ReceiverSaltNotFound' },
   { type: 'error', inputs: [], name: 'TronInvalidCalldataLength' },
   { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
-  { type: 'error', inputs: [], name: 'TronReaderNotSet' },
-  { type: 'error', inputs: [], name: 'TronUsdtNotSet' },
   { type: 'error', inputs: [], name: 'Unauthorized' },
-  { type: 'error', inputs: [], name: 'UsdtNotSet' },
   { type: 'error', inputs: [], name: 'WithdrawExceedsPrincipal' },
   { type: 'error', inputs: [], name: 'ZeroAmount' },
 ] as const

@@ -105,13 +105,14 @@ contract TronTxReaderTest is Test {
             assertEq(tokenFromCall, txJson.tronTokenEvm, "Token contract address mismatch");
 
             // Parse TRC-20 calldata and validate logical fields.
-            (bytes21 fromTron, bytes21 toTron, uint256 amount, bool isTransferFrom) =
+            (bytes21 fromTron, bytes21 toTron, uint256 amount) =
                 _decodeTrc20FromCalldata(callData.data, callData.senderTron);
 
             assertEq(fromTron, bytes21(txJson.fromTron), "From address mismatch");
             assertEq(toTron, bytes21(txJson.toTron), "To address mismatch");
             uint256 expectedAmount = vm.parseUint(txJson.amount);
             assertEq(amount, expectedAmount, "Transfer amount mismatch");
+            bool isTransferFrom = _first4(callData.data) == SELECTOR_TRANSFER_FROM;
             assertEq(isTransferFrom, txJson.isTransferFrom, "Transfer type mismatch");
 
             // Selector sanity check.
@@ -146,17 +147,15 @@ contract TronTxReaderTest is Test {
     function _decodeTrc20FromCalldata(bytes memory data, bytes21 senderTron)
         internal
         pure
-        returns (bytes21 fromTron, bytes21 toTron, uint256 amount, bool isTransferFrom)
+        returns (bytes21 fromTron, bytes21 toTron, uint256 amount)
     {
         if (data.length < 4) revert("Trc20CalldataTooShort");
         bytes4 sig = _first4(data);
         if (sig == SELECTOR_TRANSFER) {
             (toTron, amount) = _decodeTrc20TransferArgs(data);
             fromTron = senderTron;
-            isTransferFrom = false;
         } else if (sig == SELECTOR_TRANSFER_FROM) {
             (fromTron, toTron, amount) = _decodeTrc20TransferFromArgs(data);
-            isTransferFrom = true;
         } else {
             revert("NotATrc20Transfer");
         }
