@@ -5,6 +5,8 @@ import {Create2Utils} from "../utils/Create2Utils.sol";
 import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
 import {UntronV3IndexGenesisEventChainHash} from "../utils/UntronV3IndexGenesisEventChainHash.sol";
 import {TronTxReader} from "./TronTxReader.sol";
+import {SwapExecutor, Call} from "./SwapExecutor.sol";
+
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
@@ -185,14 +187,16 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     ///      specify destination chain, target token, and beneficiary.
     struct PayoutConfig {
         uint256 targetChainId;
+        // target token on THIS chain, not destination chain.
+        // so if we're deploying on Arbitrum and you need USDC on Base,
+        // you would specify USDC on Arbitrum here.
         address targetToken;
         address beneficiary;
     }
 
     /// @dev EIP-712 typehash for gasless payout config updates.
     bytes32 internal constant PAYOUT_CONFIG_UPDATE_TYPEHASH = keccak256(
-        "PayoutConfigUpdate(" "uint256 leaseId," "uint256 targetChainId," "address targetToken," "address beneficiary,"
-        "uint256 nonce," "uint256 deadline" ")"
+        "PayoutConfigUpdate(uint256 leaseId,uint256 targetChainId,address targetToken,address beneficiary,uint256 nonce,uint256 deadline)"
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -698,11 +702,6 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         nextControllerEventIndex = idx;
     }
 
-    /// @notice Convenience wrapper to fill as many claims as gas allows.
-    function fill() external {
-        fill(type(uint256).max);
-    }
-
     /*//////////////////////////////////////////////////////////////
                               LP VAULT
     //////////////////////////////////////////////////////////////*/
@@ -738,7 +737,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     /// @notice Fill up to `maxClaims` claims from the head of the queue.
     /// @dev For cross-chain payouts, reverts if the owner-configured
     ///      swapper for the target chain reverts for a claim.
-    function fill(uint256 maxClaims) public {
+    function fill(uint256 maxClaims) external {
         uint256 claimIdx = nextClaimIndex;
         uint256 end = claims.length;
         uint256 processed;
