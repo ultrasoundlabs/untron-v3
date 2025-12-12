@@ -1,5 +1,5 @@
 import { defineConfig } from "@wagmi/cli";
-import { foundry } from "@wagmi/cli/plugins";
+import { foundry, foundryDefaultExcludes } from "@wagmi/cli/plugins";
 
 // Determine artifacts directory based on FOUNDRY_PROFILE env variable
 // const profile = process.env.FOUNDRY_PROFILE ?? "dev";
@@ -11,23 +11,21 @@ export default defineConfig({
     foundry({
       project: "packages/contracts", // <— your Foundry project root
       artifacts: artifactsPath,
-      include: ["**/*.json"], // include all artifacts
       exclude: [
+        // Start from wagmi defaults, but keep IERC20's ABI.
+        ...foundryDefaultExcludes.filter((x) => x !== "IERC20.sol/**"),
+
+        // Foundry sometimes emits "helper" interfaces in other compilation units
+        // with the same name (e.g. `CCTPV2Bridger.sol/IERC20.json`).
+        // Wagmi requires contract names to be unique.
+        "**/CCTPV2Bridger.sol/IERC20.json",
+        "**/UntronV3.sol/IBridger.json",
+
+        // Extra exclusions for this repo.
         "**/*.dbg.json",
-        "build-info/**",
-        // Exclude forge-std and test artifacts
-        // Exclude third-party library artifacts that cause duplicate names
         "auth/**", // e.g. solady's auth/Ownable
-        "interfaces/**", // e.g. IERC20/IERC165 duplicates
-        "**/Base.sol/**",
-        "**/console*.sol/**",
-        "**/Script.sol/**",
-        "**/Test.sol/**",
-        "**/Std*.sol/**",
-        "**/Vm.sol/**",
+        "interfaces/**", // e.g. placeholder interfaces with empty ABI
         "**/IMulticall3.sol/**",
-        "**/*.t.sol/**", // exclude test contracts
-        "**/*.s.sol/**", // exclude script contracts
       ],
       // forge: { build: true } // default; Wagmi can run forge build for you
     }),

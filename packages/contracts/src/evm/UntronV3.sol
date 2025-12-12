@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {TronTxReader} from "./TronTxReader.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
+import {IBridger} from "./bridgers/interfaces/IBridger.sol";
 import {Create2Utils} from "../utils/Create2Utils.sol";
 import {EventChainGenesis} from "../utils/EventChainGenesis.sol";
 import {TronCalldataUtils} from "../utils/TronCalldataUtils.sol";
@@ -14,11 +15,6 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-
-/// @notice Interface for contracts bridging payout tokens cross-chain.
-interface IBridger {
-    function bridge(address token, uint256 amount, uint256 targetChainId, address beneficiary) external;
-}
 
 /// @title  UntronV3Index
 /// @notice Hash-chain-based event index for Untron V3 hub, friendly to offchain indexers.
