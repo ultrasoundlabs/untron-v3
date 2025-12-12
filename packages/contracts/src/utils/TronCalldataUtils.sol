@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title TronCalldataLib
+/// @title TronCalldataUtils
 /// @notice Pure helpers for parsing recognized Tron calldata patterns.
-library TronCalldataLib {
+library TronCalldataUtils {
     // Errors duplicated from UntronV3 to preserve revert selectors.
     error NotATrc20Transfer();
     error TronInvalidTrc20DataLength();

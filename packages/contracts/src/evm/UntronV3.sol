@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {TronTxReader} from "./TronTxReader.sol";
+import {SwapExecutor, Call} from "./SwapExecutor.sol";
 import {Create2Utils} from "../utils/Create2Utils.sol";
 import {EventChainGenesis} from "../utils/EventChainGenesis.sol";
-import {TronTxReader} from "./TronTxReader.sol";
-import {TronCalldataLib} from "./TronCalldataLib.sol";
-import {SwapExecutor, Call} from "./SwapExecutor.sol";
+import {TronCalldataUtils} from "../utils/TronCalldataUtils.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
 
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -683,13 +683,13 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
 
         // Enforce that the TRC-20 contract called is exactly Tron USDT.
         address tronUsdt_ = tronUsdt;
-        if (callData.toTron != TronCalldataLib.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
+        if (callData.toTron != TronCalldataUtils.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
 
         // Sanity-check that the TRC-20 transfer goes into the expected receiver.
         address predictedReceiver = predictReceiverAddress(CONTROLLER_ADDRESS, receiverSalt);
-        bytes21 expectedToTron = TronCalldataLib.evmToTronAddress(predictedReceiver);
+        bytes21 expectedToTron = TronCalldataUtils.evmToTronAddress(predictedReceiver);
         (, bytes21 toTron, uint256 amountQ) =
-            TronCalldataLib.decodeTrc20FromCalldata(callData.data, callData.senderTron);
+            TronCalldataUtils.decodeTrc20FromCalldata(callData.data, callData.senderTron);
         if (toTron != expectedToTron) revert InvalidReceiverForSalt();
 
         // Token is no longer part of lease uniqueness; use receiver salt only.
@@ -731,7 +731,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
 
         // Validate that the call is targeting the expected UntronController contract on Tron.
-        bytes21 controllerTron = TronCalldataLib.evmToTronAddress(CONTROLLER_ADDRESS);
+        bytes21 controllerTron = TronCalldataUtils.evmToTronAddress(CONTROLLER_ADDRESS);
         if (callData.toTron != controllerTron) revert NotEventChainTip();
 
         bytes memory data = callData.data;
@@ -742,9 +742,9 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
         }
 
         if (sel == SELECTOR_IS_EVENT_CHAIN_TIP) {
-            tipNew = TronCalldataLib.decodeIsEventChainTip(data);
+            tipNew = TronCalldataUtils.decodeIsEventChainTip(data);
         } else if (sel == SELECTOR_MULTICALL) {
-            tipNew = TronCalldataLib.decodeMulticallEventChainTip(data, SELECTOR_IS_EVENT_CHAIN_TIP);
+            tipNew = TronCalldataUtils.decodeMulticallEventChainTip(data, SELECTOR_IS_EVENT_CHAIN_TIP);
         } else {
             revert NotEventChainTip();
         }

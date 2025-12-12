@@ -2,11 +2,11 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {TronCalldataLib} from "../../../src/evm/TronCalldataLib.sol";
+import {TronCalldataUtils} from "../../src/utils/TronCalldataUtils.sol";
 
-contract TronCalldataLibHarness {
+contract TronCalldataUtilsHarness {
     function evmToTron(address a) external pure returns (bytes21) {
-        return TronCalldataLib.evmToTronAddress(a);
+        return TronCalldataUtils.evmToTronAddress(a);
     }
 
     function decodeTrc20(bytes calldata data, bytes21 senderTron)
@@ -15,25 +15,25 @@ contract TronCalldataLibHarness {
         returns (bytes21 fromTron, bytes21 toTron, uint256 amount)
     {
         bytes memory m = data;
-        return TronCalldataLib.decodeTrc20FromCalldata(m, senderTron);
+        return TronCalldataUtils.decodeTrc20FromCalldata(m, senderTron);
     }
 
     function decodeIsTip(bytes calldata data) external pure returns (bytes32 tip) {
         bytes memory m = data;
-        return TronCalldataLib.decodeIsEventChainTip(m);
+        return TronCalldataUtils.decodeIsEventChainTip(m);
     }
 
     function decodeMulticallTip(bytes calldata data, bytes4 selectorIsTip) external pure returns (bytes32 tip) {
         bytes memory m = data;
-        return TronCalldataLib.decodeMulticallEventChainTip(m, selectorIsTip);
+        return TronCalldataUtils.decodeMulticallEventChainTip(m, selectorIsTip);
     }
 }
 
-contract TronCalldataLibTest is Test {
-    TronCalldataLibHarness internal h;
+contract TronCalldataUtilsTest is Test {
+    TronCalldataUtilsHarness internal h;
 
     function setUp() public {
-        h = new TronCalldataLibHarness();
+        h = new TronCalldataUtilsHarness();
     }
 
     function test_evmToTronAddress_prefixAndBody() public view {
@@ -73,7 +73,7 @@ contract TronCalldataLibTest is Test {
 
     function test_decodeTrc20_reverts_on_short_data() public {
         bytes21 senderTron = h.evmToTron(address(0));
-        vm.expectRevert(TronCalldataLib.TronInvalidCalldataLength.selector);
+        vm.expectRevert(TronCalldataUtils.TronInvalidCalldataLength.selector);
         h.decodeTrc20(hex"01", senderTron);
     }
 
@@ -81,14 +81,14 @@ contract TronCalldataLibTest is Test {
         bytes21 senderTron = h.evmToTron(address(0));
         bytes memory data =
             abi.encodeWithSelector(bytes4(keccak256("approve(address,uint256)")), address(0x1), uint256(1));
-        vm.expectRevert(TronCalldataLib.NotATrc20Transfer.selector);
+        vm.expectRevert(TronCalldataUtils.NotATrc20Transfer.selector);
         h.decodeTrc20(data, senderTron);
     }
 
     function test_decodeTrc20_reverts_on_bad_length_transfer() public {
         bytes21 senderTron = h.evmToTron(address(0));
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), address(0x1));
-        vm.expectRevert(TronCalldataLib.TronInvalidTrc20DataLength.selector);
+        vm.expectRevert(TronCalldataUtils.TronInvalidTrc20DataLength.selector);
         h.decodeTrc20(data, senderTron);
     }
 
@@ -101,7 +101,7 @@ contract TronCalldataLibTest is Test {
     function test_decodeIsEventChainTip_reverts_on_bad_length() public {
         bytes32 tip = keccak256("tip");
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("isEventChainTip(bytes32)")), tip, uint256(1));
-        vm.expectRevert(TronCalldataLib.TronInvalidCalldataLength.selector);
+        vm.expectRevert(TronCalldataUtils.TronInvalidCalldataLength.selector);
         h.decodeIsTip(data);
     }
 
@@ -128,7 +128,7 @@ contract TronCalldataLibTest is Test {
 
         bytes memory data = abi.encodeWithSelector(multicallSel, calls);
 
-        vm.expectRevert(TronCalldataLib.NoEventChainTipInMulticall.selector);
+        vm.expectRevert(TronCalldataUtils.NoEventChainTipInMulticall.selector);
         h.decodeMulticallTip(data, isTipSel);
     }
 }
