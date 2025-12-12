@@ -5,6 +5,7 @@ import {Create2Utils} from "../utils/Create2Utils.sol";
 import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
 import {UntronV3IndexGenesisEventChainHash} from "../utils/UntronV3IndexGenesisEventChainHash.sol";
 import {TronTxReader} from "./TronTxReader.sol";
+import {TronCalldataLib} from "./TronCalldataLib.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
 
@@ -18,8 +19,9 @@ interface IBridger {
     function bridge(address token, uint256 amount, uint256 targetChainId, address beneficiary) external;
 }
 
-/// @title UntronV3Index
+/// @title  UntronV3Index
 /// @notice Hash-chain-based event index for Untron V3 hub, friendly to offchain indexers.
+/// @dev    UntronV3 must not emit events itself. All events must be defined and emitted through UntronV3Index.
 /// @author Ultrasound Labs
 contract UntronV3Index {
     /*//////////////////////////////////////////////////////////////
@@ -39,6 +41,9 @@ contract UntronV3Index {
     event ChainDeprecatedSet(uint256 indexed targetChainId, bool deprecated);
     event ProtocolFloorSet(uint256 floorPpm);
     event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
+    event TronUsdtSet(address indexed tronUsdt);
+    event BridgeRateSet(address indexed bridgeToken, uint256 ratePpm);
+    event BridgerSet(address indexed bridgeToken, uint256 indexed targetChainId, address bridger);
 
     event LeaseCreated(
         uint256 indexed leaseId,
@@ -63,10 +68,6 @@ contract UntronV3Index {
     event LpDeposited(address indexed lp, uint256 amount);
     event LpWithdrawn(address indexed lp, uint256 amount);
     event TronReaderSet(address indexed reader);
-    event TronUsdtSet(address indexed tronUsdt);
-    event BridgeRateSet(address indexed bridgeToken, uint256 ratePpm);
-    event BridgerSet(address indexed bridgeToken, uint256 indexed targetChainId, address bridger);
-    event BridgePairDeprecatedSet(address indexed bridgeToken, uint256 indexed targetChainId, bool deprecated);
     event ProtocolPnlUpdated(int256 pnl, int256 delta, uint8 reason);
 
     /*//////////////////////////////////////////////////////////////
@@ -108,6 +109,26 @@ contract UntronV3Index {
     function _emitRealtorMinFeeSet(address realtor, uint256 minFeePpm) internal {
         _appendEventChain(RealtorMinFeeSet.selector, abi.encode(realtor, minFeePpm));
         emit RealtorMinFeeSet(realtor, minFeePpm);
+    }
+
+    function _emitTronReaderSet(address reader) internal {
+        _appendEventChain(TronReaderSet.selector, abi.encode(reader));
+        emit TronReaderSet(reader);
+    }
+
+    function _emitTronUsdtSet(address tronUsdt) internal {
+        _appendEventChain(TronUsdtSet.selector, abi.encode(tronUsdt));
+        emit TronUsdtSet(tronUsdt);
+    }
+
+    function _emitBridgeRateSet(address bridgeToken, uint256 ratePpm) internal {
+        _appendEventChain(BridgeRateSet.selector, abi.encode(bridgeToken, ratePpm));
+        emit BridgeRateSet(bridgeToken, ratePpm);
+    }
+
+    function _emitBridgerSet(address bridgeToken, uint256 targetChainId, address bridger) internal {
+        _appendEventChain(BridgerSet.selector, abi.encode(bridgeToken, targetChainId, bridger));
+        emit BridgerSet(bridgeToken, targetChainId, bridger);
     }
 
     function _emitLeaseCreated(
@@ -161,16 +182,6 @@ contract UntronV3Index {
         emit LpWithdrawn(lp, amount);
     }
 
-    function _emitTronReaderSet(address reader) internal {
-        _appendEventChain(TronReaderSet.selector, abi.encode(reader));
-        emit TronReaderSet(reader);
-    }
-
-    function _emitTronUsdtSet(address tronUsdt) internal {
-        _appendEventChain(TronUsdtSet.selector, abi.encode(tronUsdt));
-        emit TronUsdtSet(tronUsdt);
-    }
-
     function _emitProtocolPnlUpdated(int256 pnl, int256 delta, uint8 reason) internal {
         _appendEventChain(ProtocolPnlUpdated.selector, abi.encode(pnl, delta, reason));
         emit ProtocolPnlUpdated(pnl, delta, reason);
@@ -184,6 +195,30 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     /*//////////////////////////////////////////////////////////////
                                   TYPES
     //////////////////////////////////////////////////////////////*/
+
+    enum RouteKind {
+        LocalUsdt,
+        LocalSwap,
+        Bridge
+    }
+
+    struct Route {
+        RouteKind kind;
+        uint256 ratePpm;
+        address bridger;
+    }
+
+    struct FillPlan {
+        uint256 newHead;
+        uint256 processedSlots;
+        uint256 totalUsdt;
+        uint256 expectedOutTotal;
+        RouteKind[] kinds;
+        uint256[] ratesPpm;
+        address[] bridgers;
+        address[] beneficiaries;
+        uint256[] targetChainIds;
+    }
 
     /// @notice Per-lease payout configuration, mutable by the lessee.
     /// @dev Owner controls bridge pair availability; leases specify destination chain, bridge token, and beneficiary.
@@ -238,6 +273,10 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountUSDT;
         uint256 leaseId;
+        // target token is the key of the queue the claim is sitting in;
+        // not including it here thus feels more concise (and storage-efficient!)
+        uint256 targetChainId;
+        address beneficiary;
     }
 
     /// @notice Bridge configuration for a token and destination chain.
@@ -352,30 +391,22 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     error InsufficientUsdtBalance();
     error NotTronUsdt();
     error NotEventChainTip();
-    error NoEventChainTipInMulticall();
     error EventTipMismatch();
     error EventRelayNoProgress();
     error InvalidSignature();
     error SignatureExpired();
     error ChainDeprecated();
-    error BridgePairDeprecated();
     error RateNotSet();
     error NoBridger();
     error InvalidBridgeToken();
     error AmountTooLargeForInt();
 
     // Tron tx decoding errors (local copy of reader-side invariants)
-    error NotATrc20Transfer();
-    error TronInvalidTrc20DataLength();
     error TronInvalidCalldataLength();
 
     /*//////////////////////////////////////////////////////////////
                               TRON CALL CONSTANTS
     //////////////////////////////////////////////////////////////*/
-
-    // TRC-20 function selectors
-    bytes4 internal constant SELECTOR_TRANSFER = bytes4(keccak256("transfer(address,uint256)"));
-    bytes4 internal constant SELECTOR_TRANSFER_FROM = bytes4(keccak256("transferFrom(address,address,uint256)"));
 
     // UntronController selectors
     bytes4 internal constant SELECTOR_IS_EVENT_CHAIN_TIP = bytes4(keccak256("isEventChainTip(bytes32)"));
@@ -454,7 +485,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         if (bridgeToken == address(0)) revert InvalidBridgeToken();
         if (ratePpm == 0) revert RateNotSet();
         bridgeRatePpm[bridgeToken] = ratePpm;
-        emit BridgeRateSet(bridgeToken, ratePpm);
+        _emitBridgeRateSet(bridgeToken, ratePpm);
     }
 
     /// @notice Set the bridger for a bridge token and destination chain.
@@ -462,16 +493,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         if (bridgeToken == address(0)) revert InvalidBridgeToken();
         if (bridger == address(0)) revert NoBridger();
         bridgePairs[bridgeToken][targetChainId].bridger = bridger;
-        emit BridgerSet(bridgeToken, targetChainId, bridger);
-    }
-
-    /// @notice Deprecate or re-enable a bridge token + chain pair.
-    function setBridgeTokenChainDeprecated(address bridgeToken, uint256 targetChainId, bool deprecated)
-        external
-        onlyOwner
-    {
-        bridgePairs[bridgeToken][targetChainId].deprecated = deprecated;
-        emit BridgePairDeprecatedSet(bridgeToken, targetChainId, deprecated);
+        _emitBridgerSet(bridgeToken, targetChainId, bridger);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -495,6 +517,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         uint256 realtorMin = realtorMinFeePpm[msg.sender];
         if (realtorMin > minFee) minFee = realtorMin;
         if (leaseFeePpm < minFee || leaseFeePpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
+        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
 
         uint64 startTime = uint64(block.timestamp);
         if (nukeableAfter < startTime) revert InvalidLeaseTimeframe();
@@ -518,7 +541,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         l.leaseFeePpm = leaseFeePpm;
         l.flatFee = flatFee;
 
-        _validatePayoutTarget(targetToken, targetChainId);
+        _resolveRoute(targetChainId, targetToken);
 
         // Store payout configuration so that target chain configuration is
         // available for owner-recommended bridging or direct payouts.
@@ -538,7 +561,10 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         if (l.lessee == address(0)) revert InvalidLeaseId();
         if (msg.sender != l.lessee) revert NotLessee();
 
-        _validatePayoutTarget(targetToken, targetChainId);
+        // this technically makes changing beneficiaries but not chains revert too
+        // but i think it's fine because hey mf you're the one who stops us from deprecating it
+        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
+        _resolveRoute(targetChainId, targetToken);
 
         l.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
 
@@ -564,7 +590,10 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         address beneficiary_ = config.beneficiary;
         bytes32 typehash = PAYOUT_CONFIG_UPDATE_TYPEHASH;
 
-        _validatePayoutTarget(targetToken_, targetChainId_);
+        // this technically makes changing beneficiaries but not chains revert too
+        // but i think it's fine because hey mf you're the one who stops us from deprecating it
+        if (isChainDeprecated[targetChainId_]) revert ChainDeprecated();
+        _resolveRoute(targetChainId_, targetToken_);
 
         bytes32 structHash;
         assembly {
@@ -632,12 +661,13 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
 
         // Enforce that the TRC-20 contract called is exactly Tron USDT.
         address tronUsdt_ = tronUsdt;
-        if (callData.toTron != _evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
+        if (callData.toTron != TronCalldataLib.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
 
         // Sanity-check that the TRC-20 transfer goes into the expected receiver.
         address predictedReceiver = predictReceiverAddress(CONTROLLER_ADDRESS, receiverSalt);
-        bytes21 expectedToTron = _evmToTronAddress(predictedReceiver);
-        (, bytes21 toTron, uint256 amountQ) = _decodeTrc20FromCalldata(callData.data, callData.senderTron);
+        bytes21 expectedToTron = TronCalldataLib.evmToTronAddress(predictedReceiver);
+        (, bytes21 toTron, uint256 amountQ) =
+            TronCalldataLib.decodeTrc20FromCalldata(callData.data, callData.senderTron);
         if (toTron != expectedToTron) revert InvalidReceiverForSalt();
 
         // Token is no longer part of lease uniqueness; use receiver salt only.
@@ -654,7 +684,8 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         _bookFee(amountQ, netOut);
 
         if (netOut > 0) {
-            claimIndex = _enqueueClaimForBridgeToken(l.payout.targetToken, netOut, leaseId);
+            PayoutConfig storage p = l.payout;
+            claimIndex = _enqueueClaimForBridgeToken(p.targetToken, netOut, leaseId, p.targetChainId, p.beneficiary);
             _emitClaimCreated(claimIndex, leaseId, netOut);
         }
 
@@ -678,7 +709,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
 
         // Validate that the call is targeting the expected UntronController contract on Tron.
-        bytes21 controllerTron = _evmToTronAddress(CONTROLLER_ADDRESS);
+        bytes21 controllerTron = TronCalldataLib.evmToTronAddress(CONTROLLER_ADDRESS);
         if (callData.toTron != controllerTron) revert NotEventChainTip();
 
         bytes memory data = callData.data;
@@ -689,9 +720,9 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         }
 
         if (sel == SELECTOR_IS_EVENT_CHAIN_TIP) {
-            tipNew = _decodeIsEventChainTip(data);
+            tipNew = TronCalldataLib.decodeIsEventChainTip(data);
         } else if (sel == SELECTOR_MULTICALL) {
-            tipNew = _decodeMulticallEventChainTip(data);
+            tipNew = TronCalldataLib.decodeMulticallEventChainTip(data, SELECTOR_IS_EVENT_CHAIN_TIP);
         } else {
             revert NotEventChainTip();
         }
@@ -795,147 +826,27 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         if (maxClaims == 0) return;
 
         Claim[] storage queue = claimsByBridgeToken[bridgeToken];
-        uint256 queueLen = queue.length;
-        uint256 head = nextIndexByBridgeToken[bridgeToken];
-        uint256 startHead = head;
-        uint256 processedSlots;
-        uint256 available = usdtBalance();
-        uint256 totalUsdt;
-        uint256 expectedOutTotal;
         uint256 surplusOut;
+        uint256 startHead = nextIndexByBridgeToken[bridgeToken];
 
-        while (head < queueLen && processedSlots < maxClaims) {
-            Claim storage c = queue[head];
+        FillPlan memory plan = _buildFillPlan(bridgeToken, maxClaims, queue, startHead, usdtBalance());
 
-            if (c.amountUSDT == 0) {
-                unchecked {
-                    ++head;
-                    ++processedSlots;
-                }
-                continue;
-            }
-
-            Lease storage l = leases[c.leaseId];
-            PayoutConfig storage p = l.payout;
-
-            if (p.targetChainId == block.chainid) {
-                if (p.targetToken == usdt) {
-                    uint256 amountUsdtDirect = c.amountUSDT;
-                    if (available < amountUsdtDirect) break;
-
-                    c.amountUSDT = 0;
-                    SafeTransferLib.safeTransfer(usdt, p.beneficiary, amountUsdtDirect);
-                    _emitClaimFilled(head, c.leaseId, amountUsdtDirect);
-
-                    unchecked {
-                        available -= amountUsdtDirect;
-                    }
-                } else {
-                    uint256 ratePpm = _validateLocalSwapToken(bridgeToken);
-
-                    uint256 amountUsdtSwap = c.amountUSDT;
-                    if (available < amountUsdtSwap) break;
-
-                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdtSwap, ratePpm, RATE_DENOMINATOR);
-
-                    totalUsdt += amountUsdtSwap;
-                    expectedOutTotal += expectedOut;
-                    unchecked {
-                        available -= amountUsdtSwap;
-                    }
-
-                    unchecked {
-                        ++head;
-                        ++processedSlots;
-                    }
-                    continue;
-                }
-            } else {
-                BridgePair storage pair = bridgePairs[bridgeToken][p.targetChainId];
-                uint256 ratePpm = _validateBridgePair(bridgeToken, p.targetChainId, pair);
-
-                uint256 amountUsdtBridge = c.amountUSDT;
-                if (available < amountUsdtBridge) break;
-
-                uint256 expectedOut = TokenUtils.mulDiv(amountUsdtBridge, ratePpm, RATE_DENOMINATOR);
-
-                totalUsdt += amountUsdtBridge;
-                expectedOutTotal += expectedOut;
-                unchecked {
-                    available -= amountUsdtBridge;
-                }
-
-                unchecked {
-                    ++head;
-                    ++processedSlots;
-                }
-                continue;
-            }
-
-            unchecked {
-                ++head;
-                ++processedSlots;
-            }
-        }
-
-        if (processedSlots == 0) {
+        if (plan.processedSlots == 0) {
             return;
         }
-        nextIndexByBridgeToken[bridgeToken] = head;
+        nextIndexByBridgeToken[bridgeToken] = plan.newHead;
 
-        if (totalUsdt != 0) {
+        if (plan.totalUsdt != 0) {
             SwapExecutor executor = swapExecutor;
-            SafeTransferLib.safeTransfer(usdt, address(executor), totalUsdt);
-            uint256 actualOut = executor.execute(calls, bridgeToken, expectedOutTotal, payable(address(this)));
+            SafeTransferLib.safeTransfer(usdt, address(executor), plan.totalUsdt);
+            uint256 actualOut = executor.execute(calls, bridgeToken, plan.expectedOutTotal, payable(address(this)));
 
-            if (actualOut > expectedOutTotal) {
-                surplusOut = actualOut - expectedOutTotal;
+            if (actualOut > plan.expectedOutTotal) {
+                surplusOut = actualOut - plan.expectedOutTotal;
             }
         }
 
-        uint256 secondHead = startHead;
-        uint256 remaining = processedSlots;
-        while (remaining != 0) {
-            Claim storage c2 = queue[secondHead];
-            uint256 amountUsdt = c2.amountUSDT;
-
-            if (amountUsdt != 0) {
-                c2.amountUSDT = 0;
-                Lease storage l2 = leases[c2.leaseId];
-                PayoutConfig storage p2 = l2.payout;
-                if (p2.targetChainId == block.chainid) {
-                    if (p2.targetToken == usdt) {
-                        SafeTransferLib.safeTransfer(usdt, p2.beneficiary, amountUsdt);
-                        _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
-                    } else {
-                        uint256 ratePpm2 = _validateLocalSwapToken(bridgeToken);
-                        uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, ratePpm2, RATE_DENOMINATOR);
-                        if (expectedOut != 0) {
-                            TokenUtils.transfer(bridgeToken, payable(p2.beneficiary), expectedOut);
-                        }
-                        _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
-                    }
-                } else {
-                    BridgePair storage pair2 = bridgePairs[bridgeToken][p2.targetChainId];
-                    uint256 ratePpm2 = _validateBridgePair(bridgeToken, p2.targetChainId, pair2);
-
-                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, ratePpm2, RATE_DENOMINATOR);
-                    address bridger = pair2.bridger;
-
-                    if (expectedOut != 0) {
-                        TokenUtils.transfer(bridgeToken, payable(bridger), expectedOut);
-                        IBridger(bridger).bridge(bridgeToken, expectedOut, p2.targetChainId, p2.beneficiary);
-                    }
-
-                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
-                }
-            }
-
-            unchecked {
-                ++secondHead;
-                --remaining;
-            }
-        }
+        _executeFillPlan(bridgeToken, queue, startHead, plan);
 
         if (surplusOut != 0) {
             TokenUtils.transfer(bridgeToken, payable(msg.sender), surplusOut);
@@ -953,12 +864,138 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
                            INTERNAL HELPERS
     //////////////////////////////////////////////////////////////*/
 
-    function _toInt(uint256 x) internal pure returns (int256) {
-        if (x > uint256(type(int256).max)) revert AmountTooLargeForInt();
-        // casting to 'int256' is safe because we check if x is greater than max int256 value
-        // and revert if so in the line above
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return int256(x);
+    function _resolveRoute(uint256 targetChainId, address targetToken) internal view returns (Route memory r) {
+        if (targetToken == address(0)) revert InvalidBridgeToken();
+
+        if (targetChainId == block.chainid) {
+            if (targetToken == usdt) {
+                return Route({kind: RouteKind.LocalUsdt, ratePpm: 0, bridger: address(0)});
+            }
+
+            uint256 rate = bridgeRatePpm[targetToken];
+            if (rate == 0) revert RateNotSet();
+
+            return Route({kind: RouteKind.LocalSwap, ratePpm: rate, bridger: address(0)});
+        }
+
+        BridgePair storage pair = bridgePairs[targetToken][targetChainId];
+
+        uint256 rate2 = bridgeRatePpm[targetToken];
+        if (rate2 == 0) revert RateNotSet();
+
+        address bridger = pair.bridger;
+        if (bridger == address(0)) revert NoBridger();
+
+        return Route({kind: RouteKind.Bridge, ratePpm: rate2, bridger: bridger});
+    }
+
+    function _buildFillPlan(
+        address bridgeToken,
+        uint256 maxClaims,
+        Claim[] storage queue,
+        uint256 head,
+        uint256 available
+    ) internal returns (FillPlan memory plan) {
+        uint256 queueLen = queue.length;
+
+        plan.kinds = new RouteKind[](maxClaims);
+        plan.ratesPpm = new uint256[](maxClaims);
+        plan.bridgers = new address[](maxClaims);
+        plan.beneficiaries = new address[](maxClaims);
+        plan.targetChainIds = new uint256[](maxClaims);
+
+        uint256 processedSlots;
+        uint256 totalUsdt;
+        uint256 expectedOutTotal;
+
+        while (head < queueLen && processedSlots < maxClaims) {
+            Claim storage c = queue[head];
+
+            if (c.amountUSDT == 0) {
+                unchecked {
+                    ++head;
+                    ++processedSlots;
+                }
+                continue;
+            }
+
+            plan.beneficiaries[processedSlots] = c.beneficiary;
+            plan.targetChainIds[processedSlots] = c.targetChainId;
+
+            Route memory rt = _resolveRoute(c.targetChainId, bridgeToken);
+            plan.kinds[processedSlots] = rt.kind;
+            plan.ratesPpm[processedSlots] = rt.ratePpm;
+            plan.bridgers[processedSlots] = rt.bridger;
+
+            uint256 amountUsdt = c.amountUSDT;
+            if (available < amountUsdt) break;
+
+            if (rt.kind == RouteKind.LocalUsdt) {
+                c.amountUSDT = 0;
+                SafeTransferLib.safeTransfer(usdt, c.beneficiary, amountUsdt);
+                _emitClaimFilled(head, c.leaseId, amountUsdt);
+            } else {
+                uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, rt.ratePpm, RATE_DENOMINATOR);
+                totalUsdt += amountUsdt;
+                expectedOutTotal += expectedOut;
+            }
+
+            unchecked {
+                available -= amountUsdt;
+                ++head;
+                ++processedSlots;
+            }
+        }
+
+        plan.newHead = head;
+        plan.processedSlots = processedSlots;
+        plan.totalUsdt = totalUsdt;
+        plan.expectedOutTotal = expectedOutTotal;
+    }
+
+    function _executeFillPlan(address bridgeToken, Claim[] storage queue, uint256 startHead, FillPlan memory plan)
+        internal
+    {
+        uint256 secondHead = startHead;
+        uint256 remaining = plan.processedSlots;
+
+        while (remaining != 0) {
+            Claim storage c2 = queue[secondHead];
+            uint256 amountUsdt = c2.amountUSDT;
+
+            if (amountUsdt != 0) {
+                c2.amountUSDT = 0;
+                uint256 slot = plan.processedSlots - remaining;
+                RouteKind kind = plan.kinds[slot];
+
+                if (kind == RouteKind.LocalSwap) {
+                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], RATE_DENOMINATOR);
+                    if (expectedOut != 0) {
+                        TokenUtils.transfer(bridgeToken, payable(plan.beneficiaries[slot]), expectedOut);
+                    }
+                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
+                } else if (kind == RouteKind.Bridge) {
+                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], RATE_DENOMINATOR);
+                    address bridger = plan.bridgers[slot];
+
+                    if (expectedOut != 0) {
+                        TokenUtils.transfer(bridgeToken, payable(bridger), expectedOut);
+                        IBridger(bridger)
+                            .bridge(bridgeToken, expectedOut, plan.targetChainIds[slot], plan.beneficiaries[slot]);
+                    }
+
+                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
+                } else {
+                    SafeTransferLib.safeTransfer(usdt, plan.beneficiaries[slot], amountUsdt);
+                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
+                }
+            }
+
+            unchecked {
+                ++secondHead;
+                --remaining;
+            }
+        }
     }
 
     function _applyPnlDelta(int256 delta, uint8 reason) internal {
@@ -971,97 +1008,19 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         _applyPnlDelta(_toInt(raw - netOut), PNL_REASON_FEE);
     }
 
-    function _validateBridgePair(address bridgeToken, uint256 targetChainId, BridgePair storage pair)
-        internal
-        view
-        returns (uint256 ratePpm)
-    {
-        if (bridgeToken == address(0)) revert InvalidBridgeToken();
-        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
-
-        if (pair.deprecated) revert BridgePairDeprecated();
-        ratePpm = bridgeRatePpm[bridgeToken];
-        if (ratePpm == 0) revert RateNotSet();
-        if (pair.bridger == address(0)) revert NoBridger();
-    }
-
-    function _validateLocalSwapToken(address token) internal view returns (uint256 ratePpm) {
-        if (token == address(0)) revert InvalidBridgeToken();
-        if (bridgePairs[token][block.chainid].deprecated) revert BridgePairDeprecated();
-        ratePpm = bridgeRatePpm[token];
-        if (ratePpm == 0) revert RateNotSet();
-    }
-
-    function _isLocalUsdt(address token, uint256 chainId) internal view returns (bool) {
-        return token == usdt && chainId == block.chainid;
-    }
-
-    function _validatePayoutTarget(address targetToken, uint256 targetChainId) internal view {
-        if (targetChainId == block.chainid) {
-            if (targetToken == usdt) return;
-            _validateLocalSwapToken(targetToken);
-            return;
-        }
-
-        BridgePair storage pair = bridgePairs[targetToken][targetChainId];
-        _validateBridgePair(targetToken, targetChainId, pair);
-    }
-
     // forge-lint: disable-next-line(mixed-case-variable)
-    function _enqueueClaimForBridgeToken(address bridgeToken, uint256 amountUSDT, uint256 leaseId)
-        internal
-        returns (uint256 claimIndex)
-    {
+    function _enqueueClaimForBridgeToken(
+        address bridgeToken,
+        uint256 amountUsdt,
+        uint256 leaseId,
+        uint256 targetChainId,
+        address beneficiary
+    ) internal returns (uint256 claimIndex) {
         Claim[] storage queue = claimsByBridgeToken[bridgeToken];
-        queue.push(Claim({amountUSDT: amountUSDT, leaseId: leaseId}));
+        queue.push(
+            Claim({amountUSDT: amountUsdt, leaseId: leaseId, targetChainId: targetChainId, beneficiary: beneficiary})
+        );
         return queue.length - 1;
-    }
-
-    function _decodeIsEventChainTip(bytes memory data) internal pure returns (bytes32 tip) {
-        uint256 dataEnd = data.length;
-        if (dataEnd != 4 + 32) revert TronInvalidCalldataLength();
-        assembly ("memory-safe") {
-            tip := mload(add(data, 0x24)) // selector (4) + tip (32)
-        }
-    }
-
-    function _decodeMulticallEventChainTip(bytes memory data) internal pure returns (bytes32 tip) {
-        uint256 dataEnd = data.length;
-        if (dataEnd < 4 + 32) revert TronInvalidCalldataLength();
-
-        uint256 base = 4;
-        uint256 offArray;
-        assembly ("memory-safe") {
-            offArray := mload(add(data, 0x24))
-        }
-        uint256 arrayOffset = base + offArray;
-        (uint256 arrStart, uint256 arrEnd, uint256 cursor) = _readDyn(data, arrayOffset, dataEnd);
-
-        uint256 n = _readU256(data, arrStart);
-        cursor = arrStart + 32;
-        for (uint256 i = 0; i < n; ++i) {
-            (uint256 callStart, uint256 callEnd, uint256 newCursor) = _readDyn(data, cursor, arrEnd);
-            uint256 callDataOffset = callStart + 32;
-            if (callEnd > dataEnd || callEnd < callDataOffset) revert TronInvalidCalldataLength();
-
-            bytes4 innerSel;
-            assembly ("memory-safe") {
-                innerSel := shr(224, mload(add(data, add(0x20, callDataOffset))))
-            }
-
-            if (innerSel == SELECTOR_IS_EVENT_CHAIN_TIP) {
-                uint256 callLen = callEnd - callDataOffset;
-                if (callLen != 4 + 32) revert TronInvalidCalldataLength();
-                assembly ("memory-safe") {
-                    tip := mload(add(data, add(0x20, add(callDataOffset, 4))))
-                }
-                return tip;
-            }
-
-            cursor = newCursor;
-        }
-
-        revert NoEventChainTipInMulticall();
     }
 
     function _processReceiverPulled(bytes32 receiverSalt, uint256 usdtAmount, uint64 dumpTimestamp) internal {
@@ -1097,7 +1056,9 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
             uint256 netOut = _computeNetOut(cur, remaining);
             _bookFee(remaining, netOut);
             if (netOut > 0) {
-                uint256 claimIndex = _enqueueClaimForBridgeToken(cur.payout.targetToken, netOut, currentLeaseId);
+                PayoutConfig storage p = cur.payout;
+                uint256 claimIndex =
+                    _enqueueClaimForBridgeToken(p.targetToken, netOut, currentLeaseId, p.targetChainId, p.beneficiary);
                 _emitClaimCreated(claimIndex, currentLeaseId, netOut);
             }
         }
@@ -1134,84 +1095,12 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         }
     }
 
-    /// @dev Decode TRC-20 transfer / transferFrom calldata (first recognizable transfer).
-    function _decodeTrc20FromCalldata(bytes memory data, bytes21 senderTron)
-        internal
-        pure
-        returns (bytes21 fromTron, bytes21 toTron, uint256 amount)
-    {
-        if (data.length < 4) revert TronInvalidCalldataLength();
-        // casting to 'bytes4' is safe because in sig we only need first 4 bytes of data
-        // and we parse data later in the function properly anyway
+    function _toInt(uint256 x) internal pure returns (int256) {
+        if (x > uint256(type(int256).max)) revert AmountTooLargeForInt();
+        // casting to 'int256' is safe because we check if x is greater than max int256 value
+        // and revert if so in the line above
         // forge-lint: disable-next-line(unsafe-typecast)
-        bytes4 sig = bytes4(data);
-        if (sig == SELECTOR_TRANSFER) {
-            (toTron, amount) = _decodeTrc20TransferArgs(data);
-            fromTron = senderTron;
-        } else if (sig == SELECTOR_TRANSFER_FROM) {
-            (fromTron, toTron, amount) = _decodeTrc20TransferFromArgs(data);
-        } else {
-            revert NotATrc20Transfer();
-        }
-    }
-
-    function _decodeTrc20TransferArgs(bytes memory data) internal pure returns (bytes21 toTron, uint256 amount) {
-        uint256 dataEnd = data.length;
-        if (dataEnd != 4 + 32 * 2) revert TronInvalidTrc20DataLength();
-        bytes32 word1;
-        bytes32 word2;
-        assembly ("memory-safe") {
-            word1 := mload(add(data, 0x24)) // 0x20 (data) + 4 (selector)
-            word2 := mload(add(data, 0x44)) // 0x20 (data) + 36
-        }
-        address toAddr = address(uint160(uint256(word1)));
-        toTron = _evmToTronAddress(toAddr);
-        amount = uint256(word2);
-    }
-
-    function _decodeTrc20TransferFromArgs(bytes memory data)
-        internal
-        pure
-        returns (bytes21 fromTron, bytes21 toTron, uint256 amount)
-    {
-        uint256 dataEnd = data.length;
-        if (dataEnd != 4 + 32 * 3) revert TronInvalidTrc20DataLength();
-        bytes32 w1;
-        bytes32 w2;
-        bytes32 w3;
-        assembly ("memory-safe") {
-            w1 := mload(add(data, 0x24)) // from
-            w2 := mload(add(data, 0x44)) // to
-            w3 := mload(add(data, 0x64)) // amount
-        }
-        address fromAddr = address(uint160(uint256(w1)));
-        address toAddr2 = address(uint160(uint256(w2)));
-        fromTron = _evmToTronAddress(fromAddr);
-        toTron = _evmToTronAddress(toAddr2);
-        amount = uint256(w3);
-    }
-
-    function _readDyn(bytes memory data, uint256 offset, uint256 limit)
-        internal
-        pure
-        returns (uint256 start, uint256 end, uint256 newCursor)
-    {
-        start = offset;
-        uint256 len = _readU256(data, start);
-        end = start + 32 + len;
-        if (end > limit) revert TronInvalidCalldataLength();
-        return (start, end, end);
-    }
-
-    function _readU256(bytes memory data, uint256 offset) internal pure returns (uint256 v) {
-        assembly ("memory-safe") {
-            v := mload(add(data, add(0x20, offset)))
-        }
-    }
-
-    /// @dev Convert an EVM address into Tron-style 21-byte address (0x41 prefix + 20-byte address).
-    function _evmToTronAddress(address a) internal pure returns (bytes21) {
-        return bytes21((uint168(0x41) << 160) | uint168(uint160(a)));
+        return int256(x);
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
