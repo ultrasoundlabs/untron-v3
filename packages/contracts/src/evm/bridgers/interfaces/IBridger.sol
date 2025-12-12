@@ -8,6 +8,7 @@ pragma solidity ^0.8.26;
 ///      and SHOULD initiate a bridge to `targetChainId` that delivers funds to `beneficiary` on
 ///      the destination chain. UntronV3 does not verify delivery; correctness/trust is delegated
 ///      to the configured bridger implementation.
+/// @author Ultrasound Labs
 interface IBridger {
     /// @notice Bridge `amount` of `token` to `beneficiary` on `targetChainId`.
     /// @dev Called by UntronV3 after transferring `amount` of `token` to this contract.

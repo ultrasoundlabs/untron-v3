@@ -8,7 +8,8 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @dev Minimal interface for Circle CCTP V2 TokenMessengerV2.
-/// Signature matches Circle's TokenMessengerV2 depositForBurn.
+///      Signature matches Circle's TokenMessengerV2 depositForBurn.
+/// @author Ultrasound Labs
 interface ITokenMessengerV2 {
     function depositForBurn(
         uint256 amount,
