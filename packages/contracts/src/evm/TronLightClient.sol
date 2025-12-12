@@ -6,7 +6,9 @@ import {IBlockRangeProver} from "./blockRangeProvers/interfaces/IBlockRangeProve
 
 contract TronLightClient {
     // 1 day = 86400 seconds = 28800 blocks (3 sec each) = 4 Tron epochs (7200 each)
-    uint256 internal constant LATEST_BLOCK_IDS_ARRAY_LENGTH = 28800;
+    // 1 week = 604800 seconds = 201600 blocks (3 sec each) = 28 Tron epochs (7200 each)
+    // TODO: consider removing rounded storage entirely
+    uint256 internal constant LATEST_BLOCK_IDS_ARRAY_LENGTH = 201600;
     uint256 internal constant TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
     uint256 internal constant SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
     uint256 internal constant TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version

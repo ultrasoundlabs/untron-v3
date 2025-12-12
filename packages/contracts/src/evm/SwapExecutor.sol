@@ -49,19 +49,16 @@ contract SwapExecutor is ReentrancyGuard {
     /// - Reverts with {NotOwner} if `msg.sender` is not `OWNER`.
     /// - Reverts with {CallFailed} if any underlying call fails.
     /// - Reverts with {InsufficientOutput} if the post-call token balance is less than `expectedAmount`.
-    /// - Uses `TokenUtils` to safely transfer the expected and surplus token amounts.
+    /// - Uses `TokenUtils` to transfer all output to `recipient`.
     /// @param calls Array of low-level calls that will be executed in order.
     /// @param token Address of the ERC-20 token whose balance is checked and distributed.
     /// @param expectedAmount Minimum amount of `token` that must be present after executing `calls`.
-    /// @param recipient Address receiving exactly `expectedAmount` of `token`.
-    /// @param surplusRecipient Address receiving any surplus `token` balance above `expectedAmount`.
-    function execute(
-        Call[] calldata calls,
-        address token,
-        uint256 expectedAmount,
-        address payable recipient,
-        address payable surplusRecipient
-    ) external nonReentrant {
+    /// @return actualOut The total amount of `token` produced by the swap calls.
+    function execute(Call[] calldata calls, address token, uint256 expectedAmount, address payable recipient)
+        external
+        nonReentrant
+        returns (uint256 actualOut)
+    {
         if (msg.sender != OWNER) revert NotOwner();
 
         // Execute provided calls.
@@ -72,16 +69,14 @@ contract SwapExecutor is ReentrancyGuard {
             if (!success) revert CallFailed(i);
         }
 
-        /// Check that at least one of the expectedOutput tokens is present
-        /// with enough balance.
-        uint256 balance = TokenUtils.getBalanceOf(token, address(this));
-        if (balance < expectedAmount) revert InsufficientOutput();
+        // Determine actual output and enforce minimums.
+        actualOut = TokenUtils.getBalanceOf(token, address(this));
+        if (actualOut < expectedAmount) revert InsufficientOutput();
 
-        // Transfer the expected amount of the token to the recipient.
-        TokenUtils.transfer({token: token, recipient: recipient, amount: expectedAmount});
-
-        // Transfer any surplus tokens to the surplus recipient.
-        TokenUtils.transfer({token: token, recipient: surplusRecipient, amount: balance - expectedAmount});
+        // Transfer full output to the recipient (protocol-owned).
+        if (actualOut != 0) {
+            TokenUtils.transfer({token: token, recipient: recipient, amount: actualOut});
+        }
     }
 
     /// @notice Accepts native token (e.g. ETH) deposits used by swap calls.
