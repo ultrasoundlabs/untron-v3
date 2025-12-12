@@ -5,7 +5,7 @@ import {UntronReceiver} from "./UntronReceiver.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
 import {IRebalancer} from "./rebalancers/interfaces/IRebalancer.sol";
 import {Create2Utils} from "../utils/Create2Utils.sol";
-import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
+import {EventChainGenesis} from "../utils/EventChainGenesis.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
 /// @title UntronControllerIndex
@@ -18,7 +18,7 @@ contract UntronControllerIndex {
 
     /// @notice The hash of the latest event in the event chain.
     /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
-    bytes32 public eventChainTip = UntronControllerIndexGenesisEventChainHash.VALUE;
+    bytes32 public eventChainTip = EventChainGenesis.UntronControllerIndex;
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS

@@ -2,8 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Create2Utils} from "../utils/Create2Utils.sol";
-import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControllerIndexGenesisEventChainHash.sol";
-import {UntronV3IndexGenesisEventChainHash} from "../utils/UntronV3IndexGenesisEventChainHash.sol";
+import {EventChainGenesis} from "../utils/EventChainGenesis.sol";
 import {TronTxReader} from "./TronTxReader.sol";
 import {TronCalldataLib} from "./TronCalldataLib.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
@@ -32,7 +31,7 @@ contract UntronV3Index {
 
     /// @notice The hash of the latest event in the event chain.
     /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
-    bytes32 public eventChainTip = UntronV3IndexGenesisEventChainHash.VALUE;
+    bytes32 public eventChainTip = EventChainGenesis.UntronControllerIndex;
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
@@ -361,7 +360,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
     mapping(uint256 => bool) public isChainDeprecated;
 
     /// @notice Last processed controller event-chain tip (starts at controller genesis).
-    bytes32 public lastControllerEventTip = EVENT_CHAIN_GENESIS_TIP;
+    bytes32 public lastControllerEventTip = EventChainGenesis.UntronControllerIndex;
 
     /// @notice Queue of controller events awaiting processing on EVM.
     ControllerEvent[] internal controllerEvents;
@@ -426,9 +425,6 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
         keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
     bytes32 internal constant EVENT_SIG_USDT_SET = keccak256("UsdtSet(address)");
     bytes32 internal constant EVENT_SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
-
-    // Event chain genesis tip (matches UntronControllerIndex initial value).
-    bytes32 internal constant EVENT_CHAIN_GENESIS_TIP = UntronControllerIndexGenesisEventChainHash.VALUE;
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
