@@ -32,6 +32,13 @@ library TokenUtils {
         }
     }
 
+    /// Does an ERC20 transferFrom. For ETH, it's a no-op.
+    function transferFrom(address token, address from, address payable recipient, uint256 amount) internal {
+        if (token != address(0)) {
+            SafeTransferLib.safeTransferFrom({token: token, from: from, to: recipient, amount: amount});
+        }
+    }
+
     /// @notice Full-precision mulDiv: floor(x * y / denominator).
     /// @dev    Thin wrapper over OpenZeppelin Math.mulDiv for consistency across codebase.
     function mulDiv(uint256 x, uint256 y, uint256 denominator) internal pure returns (uint256) {

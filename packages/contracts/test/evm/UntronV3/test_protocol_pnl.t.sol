@@ -56,12 +56,12 @@ contract UntronV3Harness is UntronV3 {
     }
 
     function claimQueueLength(address bridgeToken) external view returns (uint256) {
-        return claimsByBridgeToken[bridgeToken].length;
+        return claimsByTargetToken[bridgeToken].length;
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
     function claimAt(address bridgeToken, uint256 idx) external view returns (uint256 amountUSDT, uint256 leaseId) {
-        Claim storage c = claimsByBridgeToken[bridgeToken][idx];
+        Claim storage c = claimsByTargetToken[bridgeToken][idx];
         return (c.amountUSDT, c.leaseId);
     }
 
@@ -166,6 +166,31 @@ contract UntronV3ProtocolPnlTest is Test {
         (uint256 claimAmount, uint256 claimLeaseId) = untron.claimAt(DUMMY_USDT, 0);
         assertEq(claimAmount, 99);
         assertEq(claimLeaseId, leaseId);
+    }
+
+    function testReceiverPulledNoActiveLeaseBooksProtocolProfit() public {
+        bytes32 salt = keccak256("salt_no_lease");
+
+        untron.exposedProcessReceiverPulled(salt, 100, uint64(block.timestamp));
+
+        assertEq(untron.protocolPnl(), 100);
+        assertEq(untron.claimQueueLength(DUMMY_USDT), 0);
+    }
+
+    function testReceiverPulledDumpBeforeFirstLeaseStartBooksProtocolProfit() public {
+        bytes32 salt = keccak256("salt_future_start");
+        uint32 leaseFeePpm = 10_000;
+        uint64 flatFee = 0;
+        uint64 nukeableAfter = uint64(block.timestamp + 1 days);
+
+        untron.createLease(
+            salt, address(this), nukeableAfter, leaseFeePpm, flatFee, block.chainid, DUMMY_USDT, address(0xB0B)
+        );
+
+        untron.exposedProcessReceiverPulled(salt, 100, uint64(block.timestamp - 1));
+
+        assertEq(untron.protocolPnl(), 100);
+        assertEq(untron.claimQueueLength(DUMMY_USDT), 0);
     }
 
     function _evmToTron(address a) internal pure returns (bytes21) {
