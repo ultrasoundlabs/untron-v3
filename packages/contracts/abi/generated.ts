@@ -283,11 +283,12 @@ export const iBridgerAbi = [
     type: 'function',
     inputs: [
       { name: 'token', internalType: 'address', type: 'address' },
-      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
-      { name: 'payload', internalType: 'bytes', type: 'bytes' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
     ],
     name: 'bridge',
-    outputs: [{ name: 'outAmount', internalType: 'uint256', type: 'uint256' }],
+    outputs: [],
     stateMutability: 'nonpayable',
   },
 ] as const
@@ -3716,11 +3717,7 @@ export const safeTransferLibAbi = [
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 export const swapExecutorAbi = [
-  {
-    type: 'constructor',
-    inputs: [{ name: 'owner', internalType: 'address', type: 'address' }],
-    stateMutability: 'nonpayable',
-  },
+  { type: 'constructor', inputs: [], stateMutability: 'nonpayable' },
   { type: 'receive', stateMutability: 'payable' },
   {
     type: 'function',
@@ -3761,7 +3758,7 @@ export const swapExecutorAbi = [
     name: 'CallFailed',
   },
   { type: 'error', inputs: [], name: 'InsufficientOutput' },
-  { type: 'error', inputs: [], name: 'OnlyOwner' },
+  { type: 'error', inputs: [], name: 'NotOwner' },
   { type: 'error', inputs: [], name: 'Reentrancy' },
 ] as const
 
@@ -4997,25 +4994,6 @@ export const untronControllerAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'token',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-      {
-        name: 'totalAmount',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'TokensPulled',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
-      {
         name: 'inAmount',
         internalType: 'uint256',
         type: 'uint256',
@@ -5254,25 +5232,6 @@ export const untronControllerIndexAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'token',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-      {
-        name: 'totalAmount',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'TokensPulled',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
-      {
         name: 'inAmount',
         internalType: 'uint256',
         type: 'uint256',
@@ -5351,6 +5310,20 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'bridgePairs',
+    outputs: [
+      { name: 'ratePpm', internalType: 'uint256', type: 'uint256' },
+      { name: 'bridger', internalType: 'address', type: 'address' },
+      { name: 'deprecated', internalType: 'bool', type: 'bool' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'cancelOwnershipHandover',
     outputs: [],
@@ -5358,8 +5331,11 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
-    name: 'claims',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'claimsByBridgeToken',
     outputs: [
       { name: 'amountUSDT', internalType: 'uint256', type: 'uint256' },
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
@@ -5438,7 +5414,20 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: 'maxClaims', internalType: 'uint256', type: 'uint256' }],
+    inputs: [
+      { name: 'bridgeToken', internalType: 'address', type: 'address' },
+      { name: 'maxClaims', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'calls',
+        internalType: 'struct Call[]',
+        type: 'tuple[]',
+        components: [
+          { name: 'to', internalType: 'address', type: 'address' },
+          { name: 'value', internalType: 'uint256', type: 'uint256' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+    ],
     name: 'fill',
     outputs: [],
     stateMutability: 'nonpayable',
@@ -5509,14 +5498,14 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [],
-    name: 'nextClaimIndex',
+    name: 'nextControllerEventIndex',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
     type: 'function',
-    inputs: [],
-    name: 'nextControllerEventIndex',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'nextIndexByBridgeToken',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -5645,6 +5634,39 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [
+      { name: 'bridgeToken', internalType: 'address', type: 'address' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'ratePpm', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setBridgeRate',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'bridgeToken', internalType: 'address', type: 'address' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'deprecated', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setBridgeTokenChainDeprecated',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'bridgeToken', internalType: 'address', type: 'address' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'bridger', internalType: 'address', type: 'address' },
+    ],
+    name: 'setBridger',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'deprecated', internalType: 'bool', type: 'bool' },
     ],
@@ -5714,12 +5736,8 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'targetToken', internalType: 'address', type: 'address' },
-      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
-      { name: 'swapper', internalType: 'address', type: 'address' },
-    ],
-    name: 'setSwapper',
+    inputs: [{ name: 'sink', internalType: 'address', type: 'address' }],
+    name: 'setSurplusSink',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -5739,12 +5757,18 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: '', internalType: 'address', type: 'address' },
-      { name: '', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'swapperForTokenAndChain',
+    inputs: [],
+    name: 'surplusSink',
     outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'swapExecutor',
+    outputs: [
+      { name: '', internalType: 'contract SwapExecutor', type: 'address' },
+    ],
     stateMutability: 'view',
   },
   {
@@ -5790,6 +5814,81 @@ export const untronV3Abi = [
     name: 'withdraw',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'bridgeToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'deprecated',
+        internalType: 'bool',
+        type: 'bool',
+        indexed: false,
+      },
+    ],
+    name: 'BridgePairDeprecatedSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'bridgeToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'ratePpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'BridgeRateSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'bridgeToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'bridger',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'BridgerSet',
   },
   {
     type: 'event',
@@ -6100,26 +6199,9 @@ export const untronV3Abi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'targetToken',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-      {
-        name: 'targetChainId',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
-        name: 'swapper',
-        internalType: 'address',
-        type: 'address',
-        indexed: false,
-      },
+      { name: 'sink', internalType: 'address', type: 'address', indexed: true },
     ],
-    name: 'SwapperSet',
+    name: 'SurplusSinkSet',
   },
   {
     type: 'event',
@@ -6156,12 +6238,13 @@ export const untronV3Abi = [
     name: 'UsdtSet',
   },
   { type: 'error', inputs: [], name: 'AlreadyInitialized' },
+  { type: 'error', inputs: [], name: 'BridgePairDeprecated' },
   { type: 'error', inputs: [], name: 'ChainDeprecated' },
   { type: 'error', inputs: [], name: 'DepositAlreadyProcessed' },
   { type: 'error', inputs: [], name: 'EventRelayNoProgress' },
   { type: 'error', inputs: [], name: 'EventTipMismatch' },
   { type: 'error', inputs: [], name: 'InsufficientUsdtBalance' },
-  { type: 'error', inputs: [], name: 'InvalidChainId' },
+  { type: 'error', inputs: [], name: 'InvalidBridgeToken' },
   { type: 'error', inputs: [], name: 'InvalidLeaseId' },
   { type: 'error', inputs: [], name: 'InvalidLeaseTimeframe' },
   { type: 'error', inputs: [], name: 'InvalidReceiverForSalt' },
@@ -6170,15 +6253,17 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
   { type: 'error', inputs: [], name: 'NoActiveLease' },
+  { type: 'error', inputs: [], name: 'NoBridger' },
   { type: 'error', inputs: [], name: 'NoEventChainTipInMulticall' },
   { type: 'error', inputs: [], name: 'NoHandoverRequest' },
-  { type: 'error', inputs: [], name: 'NoSwapper' },
   { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
   { type: 'error', inputs: [], name: 'NotEventChainTip' },
   { type: 'error', inputs: [], name: 'NotLessee' },
   { type: 'error', inputs: [], name: 'NotRealtor' },
   { type: 'error', inputs: [], name: 'NotTronUsdt' },
+  { type: 'error', inputs: [], name: 'RateNotSet' },
   { type: 'error', inputs: [], name: 'SignatureExpired' },
+  { type: 'error', inputs: [], name: 'SurplusSinkNotSet' },
   { type: 'error', inputs: [], name: 'TronInvalidCalldataLength' },
   { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
   { type: 'error', inputs: [], name: 'Unauthorized' },
@@ -6197,6 +6282,81 @@ export const untronV3IndexAbi = [
     name: 'eventChainTip',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'bridgeToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'deprecated',
+        internalType: 'bool',
+        type: 'bool',
+        indexed: false,
+      },
+    ],
+    name: 'BridgePairDeprecatedSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'bridgeToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'ratePpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'BridgeRateSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'bridgeToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'bridger',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'BridgerSet',
   },
   {
     type: 'event',
@@ -6462,26 +6622,9 @@ export const untronV3IndexAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'targetToken',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-      {
-        name: 'targetChainId',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
-        name: 'swapper',
-        internalType: 'address',
-        type: 'address',
-        indexed: false,
-      },
+      { name: 'sink', internalType: 'address', type: 'address', indexed: true },
     ],
-    name: 'SwapperSet',
+    name: 'SurplusSinkSet',
   },
   {
     type: 'event',

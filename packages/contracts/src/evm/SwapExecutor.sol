@@ -18,9 +18,8 @@ struct Call {
     bytes data;
 }
 
-/// @notice Thrown when the owner address attempts to call a restricted function.
-/// @dev Used to prevent the `OWNER` from calling `execute`.
-error OnlyOwner();
+/// @notice Thrown when a caller other than the owner attempts to call a restricted function.
+error NotOwner();
 /// @notice Thrown when one of the low-level calls in `execute` fails.
 /// @param callIndex Index of the call in the `calls` array that failed.
 error CallFailed(uint256 callIndex);
@@ -37,18 +36,17 @@ error InsufficientOutput();
 /// @author Ultrasound Labs
 contract SwapExecutor is ReentrancyGuard {
     /// @notice Immutable address representing the owner/controller of this executor.
-    /// @dev This address is not allowed to call `execute` directly.
+    /// @dev Only this address is allowed to call `execute` directly.
     address public immutable OWNER;
 
-    /// @notice Initializes the SwapExecutor with an immutable owner address.
-    /// @param owner Address treated as the owner/controller of this executor.
-    constructor(address owner) {
-        OWNER = owner;
+    /// @notice Initializes the SwapExecutor with an immutable owner address (msg.sender).
+    constructor() {
+        OWNER = msg.sender;
     }
 
     /// @notice Executes a batch of arbitrary calls and settles token outputs.
     /// @dev
-    /// - Reverts with {OnlyOwner} if `msg.sender` equals `OWNER`.
+    /// - Reverts with {NotOwner} if `msg.sender` is not `OWNER`.
     /// - Reverts with {CallFailed} if any underlying call fails.
     /// - Reverts with {InsufficientOutput} if the post-call token balance is less than `expectedAmount`.
     /// - Uses `TokenUtils` to safely transfer the expected and surplus token amounts.
@@ -64,7 +62,7 @@ contract SwapExecutor is ReentrancyGuard {
         address payable recipient,
         address payable surplusRecipient
     ) external nonReentrant {
-        if (msg.sender != OWNER) revert OnlyOwner();
+        if (msg.sender != OWNER) revert NotOwner();
 
         // Execute provided calls.
         uint256 callsLength = calls.length;

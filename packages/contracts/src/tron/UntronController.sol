@@ -45,9 +45,6 @@ contract UntronControllerIndex {
         uint256 exchangeRate,
         uint256 usdtAmount
     );
-    /// @notice Emitted when tokens are pulled from receivers to the controller.
-    /// @dev    Only used in pullFromReceivers function.
-    event TokensPulled(address indexed token, uint256 totalAmount);
     /// @notice Emitted when USDT is rebalanced via a particular rebalancer.
     /// @dev    Only used in bridgeUsdt function.
     event UsdtRebalanced(uint256 inAmount, uint256 outAmount, address indexed rebalancer);
@@ -132,11 +129,6 @@ contract UntronControllerIndex {
             PulledFromReceiver.selector, abi.encode(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount)
         );
         emit PulledFromReceiver(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount);
-    }
-
-    function _emitTokensPulled(address token, uint256 totalAmount) internal {
-        _appendEventChain(TokensPulled.selector, abi.encode(token, totalAmount));
-        emit TokensPulled(token, totalAmount);
     }
 
     function _emitUsdtRebalanced(uint256 inAmount, uint256 outAmount, address rebalancer) internal {
@@ -457,7 +449,9 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
                 totalToken += sweepAmount;
                 totalUsdt += usdtAmount;
 
-                // Per-receiver event used by EVM side; block metadata is hashed into the event chain separately.
+                // we're not interested in logging zero amount pulls
+                // and they'd make the event chain system kinda vulnerable to spam of PulledFromReceiver events
+                // so the event is only emitted if the call did indeed pull something
                 _emitPulledFromReceiver(receiverSalts[i], token, sweepAmount, rateUsed, usdtAmount);
             }
         }
@@ -478,11 +472,6 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
                 // Increase canonical USDT accounting.
                 pulledUsdt += totalUsdt;
             }
-
-            // we're not interested in logging zero amount pulls
-            // and they'd make the event chain system kinda vulnerable to spam of TokensPulled events
-            // so the event is only emitted if the call did indeed pull something
-            _emitTokensPulled(token, totalToken);
         }
     }
 

@@ -6,16 +6,16 @@ import {UntronControllerIndexGenesisEventChainHash} from "../utils/UntronControl
 import {UntronV3IndexGenesisEventChainHash} from "../utils/UntronV3IndexGenesisEventChainHash.sol";
 import {TronTxReader} from "./TronTxReader.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
+import {TokenUtils} from "../utils/TokenUtils.sol";
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-/// @notice Minimal interface for swappers used during `fill()`.
-interface ISwapper {
-    // forge-lint: disable-next-line(mixed-case-variable)
-    function handlePayout(uint256 amountUSDT, uint256 targetChainId, address targetToken, address beneficiary) external;
+/// @notice Interface for contracts bridging payout tokens cross-chain.
+interface IBridger {
+    function bridge(address token, uint256 amount, uint256 targetChainId, address beneficiary) external;
 }
 
 /// @title UntronV3Index
@@ -36,7 +36,6 @@ contract UntronV3Index {
 
     event UsdtSet(address indexed usdt);
     event RealtorSet(address indexed realtor, bool allowed);
-    event SwapperSet(address indexed targetToken, uint256 indexed targetChainId, address swapper);
     event ChainDeprecatedSet(uint256 indexed targetChainId, bool deprecated);
     event ProtocolFloorSet(uint256 floorPpm);
     event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
@@ -65,6 +64,10 @@ contract UntronV3Index {
     event LpWithdrawn(address indexed lp, uint256 amount);
     event TronReaderSet(address indexed reader);
     event TronUsdtSet(address indexed tronUsdt);
+    event BridgeRateSet(address indexed bridgeToken, uint256 indexed targetChainId, uint256 ratePpm);
+    event BridgerSet(address indexed bridgeToken, uint256 indexed targetChainId, address bridger);
+    event BridgePairDeprecatedSet(address indexed bridgeToken, uint256 indexed targetChainId, bool deprecated);
+    event SurplusSinkSet(address indexed sink);
 
     /*//////////////////////////////////////////////////////////////
                 APPEND EVENT CHAIN IMPLEMENTATION
@@ -90,11 +93,6 @@ contract UntronV3Index {
     function _emitRealtorSet(address realtor, bool allowed) internal {
         _appendEventChain(RealtorSet.selector, abi.encode(realtor, allowed));
         emit RealtorSet(realtor, allowed);
-    }
-
-    function _emitSwapperSet(address targetToken, uint256 targetChainId, address swapper) internal {
-        _appendEventChain(SwapperSet.selector, abi.encode(targetToken, targetChainId, swapper));
-        emit SwapperSet(targetToken, targetChainId, swapper);
     }
 
     function _emitChainDeprecatedSet(uint256 targetChainId, bool deprecated) internal {
@@ -183,13 +181,10 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Per-lease payout configuration, mutable by the lessee.
-    /// @dev Swapper selection is per-chain and owner-controlled; leases only
-    ///      specify destination chain, target token, and beneficiary.
+    /// @dev Owner controls bridge pair availability; leases specify destination chain, bridge token, and beneficiary.
     struct PayoutConfig {
         uint256 targetChainId;
-        // target token on THIS chain, not destination chain.
-        // so if we're deploying on Arbitrum and you need USDC on Base,
-        // you would specify USDC on Arbitrum here.
+        // bridge token on THIS chain, not destination chain.
         address targetToken;
         address beneficiary;
     }
@@ -205,6 +200,8 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
 
     // Parts-per-million denominator used for fee calculations (1_000_000 = 100%).
     uint256 internal constant PPM_DENOMINATOR = 1_000_000;
+    /// @notice Denominator for bridge token rate tables.
+    uint256 internal constant RATE_DENOMINATOR = 1_000_000;
 
     /// @notice Lease scoped by receiver salt (not token).
     struct Lease {
@@ -234,6 +231,13 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         uint256 leaseId;
     }
 
+    /// @notice Bridge configuration for a token and destination chain.
+    struct BridgePair {
+        uint256 ratePpm;
+        address bridger;
+        bool deprecated;
+    }
+
     /// @notice Raw controller event reconstructed from the Tron event chain.
     /// @dev Stores raw data; processing happens later based on `sig`.
     struct ControllerEvent {
@@ -260,6 +264,12 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     /// @dev Used to enforce that preEntitle only recognizes Tron USDT transfers.
     address public tronUsdt;
 
+    /// @notice Swap executor used for batched swaps before bridging.
+    SwapExecutor public swapExecutor;
+
+    /// @notice Address receiving surplus output from swap executor runs.
+    address public surplusSink;
+
     /// @notice Next lease identifier (starts from 1 so 0 can mean "missing").
     uint256 public nextLeaseId = 1;
 
@@ -281,12 +291,16 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     /// @notice LP principal tracking.
     mapping(address => uint256) public lpPrincipal;
 
-    /// @notice Swapper per destination token + destination chain, configured by the owner.
-    mapping(address => mapping(uint256 => address)) public swapperForTokenAndChain;
+    /// @notice Bridge pair configuration per bridge token and destination chain.
+    mapping(address => mapping(uint256 => BridgePair)) public bridgePairs;
 
     /// @notice Mapping of what chains are deprecated.
     /// @dev For deprecated chains, lessees can't set them in the payout config.
     mapping(uint256 => bool) public isChainDeprecated;
+
+    /// @notice Track known bridge token and chain pairs for enumeration.
+    mapping(address => bool) internal isBridgeTokenKnown;
+    mapping(address => mapping(uint256 => bool)) internal isBridgeTokenChainKnown;
 
     /// @notice Last processed controller event-chain tip (starts at controller genesis).
     bytes32 public lastControllerEventTip = EVENT_CHAIN_GENESIS_TIP;
@@ -295,11 +309,11 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     ControllerEvent[] internal controllerEvents;
     uint256 public nextControllerEventIndex;
 
-    /// @notice Global FIFO claim queue.
-    Claim[] public claims;
+    /// @notice Per-bridge-token FIFO claim queues for grouped swap+bridge fills.
+    mapping(address => Claim[]) public claimsByBridgeToken;
 
-    /// @notice Index of the next claim to try filling.
-    uint256 public nextClaimIndex;
+    /// @notice Per-bridge-token head index for grouped queues.
+    mapping(address => uint256) public nextIndexByBridgeToken;
 
     /// @notice Guard against double-processing of recognizable Tron deposits.
     /// @dev Keyed by Tron tx leaf (sha256(Transaction.encode(tx))).
@@ -314,7 +328,6 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
 
     error ZeroAmount();
     error NotRealtor();
-    error NoSwapper();
     error LeaseFeeTooLow();
     error InvalidLeaseTimeframe();
     error LeaseNotNukeableYet();
@@ -332,8 +345,12 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     error EventRelayNoProgress();
     error InvalidSignature();
     error SignatureExpired();
-    error InvalidChainId();
     error ChainDeprecated();
+    error BridgePairDeprecated();
+    error RateNotSet();
+    error NoBridger();
+    error SurplusSinkNotSet();
+    error InvalidBridgeToken();
 
     // Tron tx decoding errors (local copy of reader-side invariants)
     error NotATrc20Transfer();
@@ -368,6 +385,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     /// @param create2Prefix Chain-specific byte prefix used for CREATE2 address computation (0x41 for Tron).
     /// @param tronReader_ Address of the initial external Tron tx reader contract (can be updated by owner).
     constructor(address controllerAddress, bytes1 create2Prefix, address tronReader_) Create2Utils(create2Prefix) {
+        swapExecutor = new SwapExecutor(); // its address is gonna be keccak256(rlp([address(this), 1]))
         CONTROLLER_ADDRESS = controllerAddress;
         tronReader = TronTxReader(tronReader_);
         _initializeOwner(msg.sender);
@@ -388,15 +406,6 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     function setRealtor(address realtor, bool allowed) external onlyOwner {
         isRealtor[realtor] = allowed;
         _emitRealtorSet(realtor, allowed);
-    }
-
-    /// @notice Set the swapper for a given destination token and destination chain.
-    /// @dev Do not ever set swapperForTokenAndChain[targetToken][chainId] = address(0) for pairs already in use;
-    ///      use isChainDeprecated to block new usage instead. We don't explicitly forbid 0x00 here
-    ///      because owner could as well specify 0x01 or 0xdead and brick the chain this way too.
-    function setSwapper(address targetToken, uint256 targetChainId, address swapper) external onlyOwner {
-        swapperForTokenAndChain[targetToken][targetChainId] = swapper;
-        _emitSwapperSet(targetToken, targetChainId, swapper);
     }
 
     /// @notice Set the deprecated status for a given destination chain.
@@ -424,6 +433,39 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     function setTronReader(address reader) external onlyOwner {
         tronReader = TronTxReader(reader);
         _emitTronReaderSet(reader);
+    }
+
+    /// @notice Set the surplus sink that receives swap output above expected minimums.
+    function setSurplusSink(address sink) external onlyOwner {
+        surplusSink = sink;
+        emit SurplusSinkSet(sink);
+    }
+
+    /// @notice Set bridge rate for a bridge token and destination chain.
+    /// @dev Rate is expressed in bridge token units per RATE_DENOMINATOR of USDT.
+    function setBridgeRate(address bridgeToken, uint256 targetChainId, uint256 ratePpm) external onlyOwner {
+        if (bridgeToken == address(0)) revert InvalidBridgeToken();
+        if (ratePpm == 0) revert RateNotSet();
+        BridgePair storage pair = bridgePairs[bridgeToken][targetChainId];
+        pair.ratePpm = ratePpm;
+        emit BridgeRateSet(bridgeToken, targetChainId, ratePpm);
+    }
+
+    /// @notice Set the bridger for a bridge token and destination chain.
+    function setBridger(address bridgeToken, uint256 targetChainId, address bridger) external onlyOwner {
+        if (bridgeToken == address(0)) revert InvalidBridgeToken();
+        if (bridger == address(0)) revert NoBridger();
+        bridgePairs[bridgeToken][targetChainId].bridger = bridger;
+        emit BridgerSet(bridgeToken, targetChainId, bridger);
+    }
+
+    /// @notice Deprecate or re-enable a bridge token + chain pair.
+    function setBridgeTokenChainDeprecated(address bridgeToken, uint256 targetChainId, bool deprecated)
+        external
+        onlyOwner
+    {
+        bridgePairs[bridgeToken][targetChainId].deprecated = deprecated;
+        emit BridgePairDeprecatedSet(bridgeToken, targetChainId, deprecated);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -470,11 +512,10 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         l.leaseFeePpm = leaseFeePpm;
         l.flatFee = flatFee;
 
-        if (swapperForTokenAndChain[targetToken][targetChainId] == address(0)) revert InvalidChainId();
-        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
+        _validatePayoutTarget(targetToken, targetChainId);
 
         // Store payout configuration so that target chain configuration is
-        // available for owner-recommended swappers or direct payouts.
+        // available for owner-recommended bridging or direct payouts.
         l.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
 
         ids.push(leaseId);
@@ -491,8 +532,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         if (l.lessee == address(0)) revert InvalidLeaseId();
         if (msg.sender != l.lessee) revert NotLessee();
 
-        if (swapperForTokenAndChain[targetToken][targetChainId] == address(0)) revert InvalidChainId();
-        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
+        _validatePayoutTarget(targetToken, targetChainId);
 
         l.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
 
@@ -518,8 +558,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         address beneficiary_ = config.beneficiary;
         bytes32 typehash = PAYOUT_CONFIG_UPDATE_TYPEHASH;
 
-        if (swapperForTokenAndChain[targetToken_][targetChainId_] == address(0)) revert InvalidChainId();
-        if (isChainDeprecated[targetChainId_]) revert ChainDeprecated();
+        _validatePayoutTarget(targetToken_, targetChainId_);
 
         bytes32 structHash;
         assembly {
@@ -607,8 +646,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         netOut = _computeNetOut(l, amountQ);
 
         if (netOut > 0) {
-            claims.push(Claim({amountUSDT: netOut, leaseId: leaseId}));
-            claimIndex = claims.length - 1;
+            claimIndex = _enqueueClaimForBridgeToken(l.payout.targetToken, netOut, leaseId);
             _emitClaimCreated(claimIndex, leaseId, netOut);
         }
 
@@ -627,7 +665,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         bytes32[] calldata proof,
         uint256 index,
         ControllerEvent[] calldata events
-    ) external onlyOwner returns (bytes32 tipNew) {
+    ) external returns (bytes32 tipNew) {
         TronTxReader.TriggerSmartContract memory callData =
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
 
@@ -734,60 +772,118 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
                              CLAIM QUEUE
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Fill up to `maxClaims` claims from the head of the queue.
-    /// @dev For cross-chain payouts, reverts if the owner-configured
-    ///      swapper for the target chain reverts for a claim.
-    function fill(uint256 maxClaims) external {
-        uint256 claimIdx = nextClaimIndex;
-        uint256 end = claims.length;
-        uint256 processed;
-        uint256 available = usdtBalance();
+    /// @notice Fill up to `maxClaims` claims for a bridge token, optionally swapping once then bridging.
+    /// @dev `calls` may be empty if no swap is needed (e.g. USDT -> USDT bridging), surplus goes to the sink.
+    function fill(address bridgeToken, uint256 maxClaims, Call[] calldata calls) external {
+        if (bridgeToken == address(0)) revert InvalidBridgeToken();
+        if (maxClaims == 0) return;
 
-        while (claimIdx < end && processed < maxClaims) {
-            Claim storage c = claims[claimIdx];
+        Claim[] storage queue = claimsByBridgeToken[bridgeToken];
+        uint256 queueLen = queue.length;
+        uint256 head = nextIndexByBridgeToken[bridgeToken];
+        uint256 startHead = head;
+        uint256 processedSlots;
+        uint256 available = usdtBalance();
+        uint256 totalUsdt;
+        uint256 expectedOutTotal;
+
+        while (head < queueLen && processedSlots < maxClaims) {
+            Claim storage c = queue[head];
 
             if (c.amountUSDT == 0) {
                 unchecked {
-                    ++claimIdx;
-                    ++processed;
+                    ++head;
+                    ++processedSlots;
                 }
                 continue;
             }
 
-            if (available < c.amountUSDT) {
-                break;
-            }
-
             Lease storage l = leases[c.leaseId];
             PayoutConfig storage p = l.payout;
-            uint256 targetChainId = p.targetChainId;
-            address targetToken = p.targetToken;
 
-            if (targetChainId == block.chainid && targetToken == usdt) {
-                // Same-chain payout: send USDT directly to the beneficiary.
-                SafeTransferLib.safeTransfer(usdt, p.beneficiary, c.amountUSDT);
+            if (_isLocalUsdt(p.targetToken, p.targetChainId)) {
+                uint256 amountUsdtDirect = c.amountUSDT;
+                if (available < amountUsdtDirect) break;
+
+                SafeTransferLib.safeTransfer(usdt, p.beneficiary, amountUsdtDirect);
+                _emitClaimFilled(head, c.leaseId, amountUsdtDirect);
+                c.amountUSDT = 0;
+
+                unchecked {
+                    available -= amountUsdtDirect;
+                }
             } else {
-                // Cross-chain payout: use the owner-configured swapper for the (token, chain) pair.
-                address swapper = swapperForTokenAndChain[targetToken][targetChainId];
-                if (swapper == address(0)) revert NoSwapper();
+                BridgePair storage pair = bridgePairs[bridgeToken][p.targetChainId];
+                _validateBridgePair(bridgeToken, p.targetChainId, pair);
 
-                SafeTransferLib.safeTransfer(usdt, swapper, c.amountUSDT);
-                ISwapper(swapper).handlePayout(c.amountUSDT, targetChainId, p.targetToken, p.beneficiary);
+                uint256 amountUsdtBridge = c.amountUSDT;
+                if (available < amountUsdtBridge) break;
+
+                uint256 expectedOut = TokenUtils.mulDiv(amountUsdtBridge, pair.ratePpm, RATE_DENOMINATOR);
+
+                totalUsdt += amountUsdtBridge;
+                expectedOutTotal += expectedOut;
+                unchecked {
+                    available -= amountUsdtBridge;
+                }
+
+                unchecked {
+                    ++head;
+                    ++processedSlots;
+                }
+                continue;
             }
 
             unchecked {
-                available -= c.amountUSDT;
-            }
-
-            _emitClaimFilled(claimIdx, c.leaseId, c.amountUSDT);
-
-            unchecked {
-                ++claimIdx;
-                ++processed;
+                ++head;
+                ++processedSlots;
             }
         }
 
-        nextClaimIndex = claimIdx;
+        if (processedSlots == 0) {
+            return;
+        }
+
+        if (totalUsdt != 0) {
+            SwapExecutor executor = swapExecutor;
+            address sink = surplusSink;
+            if (sink == address(0)) revert SurplusSinkNotSet();
+
+            SafeTransferLib.safeTransfer(usdt, address(executor), totalUsdt);
+            executor.execute(calls, bridgeToken, expectedOutTotal, payable(address(this)), payable(sink));
+        }
+
+        uint256 secondHead = startHead;
+        uint256 remaining = processedSlots;
+        while (remaining != 0) {
+            Claim storage c2 = queue[secondHead];
+            uint256 amountUsdt = c2.amountUSDT;
+
+            if (amountUsdt != 0) {
+                Lease storage l2 = leases[c2.leaseId];
+                PayoutConfig storage p2 = l2.payout;
+                BridgePair storage pair2 = bridgePairs[bridgeToken][p2.targetChainId];
+                _validateBridgePair(bridgeToken, p2.targetChainId, pair2);
+
+                uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, pair2.ratePpm, RATE_DENOMINATOR);
+                address bridger = pair2.bridger;
+
+                if (expectedOut != 0) {
+                    TokenUtils.transfer(bridgeToken, payable(bridger), expectedOut);
+                    IBridger(bridger).bridge(bridgeToken, expectedOut, p2.targetChainId, p2.beneficiary);
+                }
+
+                _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
+                c2.amountUSDT = 0;
+            }
+
+            unchecked {
+                ++secondHead;
+                --remaining;
+            }
+        }
+
+        nextIndexByBridgeToken[bridgeToken] = head;
     }
 
     /// @notice Returns the current USDT balance held by this contract.
@@ -800,6 +896,36 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
     /*//////////////////////////////////////////////////////////////
                            INTERNAL HELPERS
     //////////////////////////////////////////////////////////////*/
+
+    function _validateBridgePair(address bridgeToken, uint256 targetChainId, BridgePair storage pair) internal view {
+        if (bridgeToken == address(0)) revert InvalidBridgeToken();
+        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
+
+        if (pair.deprecated) revert BridgePairDeprecated();
+        if (pair.ratePpm == 0) revert RateNotSet();
+        if (pair.bridger == address(0)) revert NoBridger();
+    }
+
+    function _isLocalUsdt(address token, uint256 chainId) internal view returns (bool) {
+        return token == usdt && chainId == block.chainid;
+    }
+
+    function _validatePayoutTarget(address targetToken, uint256 targetChainId) internal view {
+        if (_isLocalUsdt(targetToken, targetChainId)) {
+            return;
+        }
+        BridgePair storage pair = bridgePairs[targetToken][targetChainId];
+        _validateBridgePair(targetToken, targetChainId, pair);
+    }
+
+    function _enqueueClaimForBridgeToken(address bridgeToken, uint256 amountUSDT, uint256 leaseId)
+        internal
+        returns (uint256 claimIndex)
+    {
+        Claim[] storage queue = claimsByBridgeToken[bridgeToken];
+        queue.push(Claim({amountUSDT: amountUSDT, leaseId: leaseId}));
+        return queue.length - 1;
+    }
 
     function _decodeIsEventChainTip(bytes memory data) internal pure returns (bytes32 tip) {
         uint256 dataEnd = data.length;
@@ -880,9 +1006,8 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
 
             uint256 netOut = _computeNetOut(cur, remaining);
             if (netOut > 0) {
-                claims.push(Claim({amountUSDT: netOut, leaseId: currentLeaseId}));
-                uint256 claimIdx = claims.length - 1;
-                _emitClaimCreated(claimIdx, currentLeaseId, netOut);
+                uint256 claimIndex = _enqueueClaimForBridgeToken(cur.payout.targetToken, netOut, currentLeaseId);
+                _emitClaimCreated(claimIndex, currentLeaseId, netOut);
             }
         }
     }
