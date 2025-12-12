@@ -1,4 +1,4 @@
-# TRC20TxReader's multi-layered testing
+# TronTxReader's multi-layered testing
 
 - [Layer 0](./layer0.t.sol): local math and packing is correct
 - [Layer 1](./layer1.t.sol): given valid Tron data, the client accepts and stores it

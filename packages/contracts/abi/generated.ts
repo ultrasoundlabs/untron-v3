@@ -3180,18 +3180,6 @@ export const ownableAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// PayoutValidationLib
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const payoutValidationLibAbi = [
-  { type: 'error', inputs: [], name: 'BridgePairDeprecated' },
-  { type: 'error', inputs: [], name: 'ChainDeprecated' },
-  { type: 'error', inputs: [], name: 'InvalidBridgeToken' },
-  { type: 'error', inputs: [], name: 'NoBridger' },
-  { type: 'error', inputs: [], name: 'RateNotSet' },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ReentrancyGuard
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4141,7 +4129,7 @@ export const tronTxReaderAbi = [
         internalType: 'struct TronTxReader.TriggerSmartContract',
         type: 'tuple',
         components: [
-          { name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
           { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
           {
             name: 'tronBlockTimestamp',
@@ -4165,7 +4153,7 @@ export const tronTxReaderAbi = [
       { name: 'index', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'verifyTxInclusion',
-    outputs: [{ name: 'txLeaf', internalType: 'bytes32', type: 'bytes32' }],
+    outputs: [],
     stateMutability: 'view',
   },
   { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
@@ -5484,12 +5472,7 @@ export const untronV3Abi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'txLeaf',
-        internalType: 'bytes32',
-        type: 'bytes32',
-        indexed: true,
-      },
+      { name: 'txId', internalType: 'bytes32', type: 'bytes32', indexed: true },
       {
         name: 'leaseId',
         internalType: 'uint256',
@@ -5923,12 +5906,7 @@ export const untronV3IndexAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'txLeaf',
-        internalType: 'bytes32',
-        type: 'bytes32',
-        indexed: true,
-      },
+      { name: 'txId', internalType: 'bytes32', type: 'bytes32', indexed: true },
       {
         name: 'leaseId',
         internalType: 'uint256',

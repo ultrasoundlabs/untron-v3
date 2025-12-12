@@ -21,10 +21,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // From: apps/research/src/scripts
-// To:   packages/contracts/test/evm/TRC20TxReader/fixtures
+// To:   packages/contracts/test/evm/TronTxReader/fixtures
 const TRC20_FIXTURES_DIR = resolve(
   __dirname,
-  "../../../../packages/contracts/test/evm/TRC20TxReader/fixtures"
+  "../../../../packages/contracts/test/evm/TronTxReader/fixtures"
 );
 
 function toHex(buf: Uint8Array | Buffer): string {
@@ -259,7 +259,7 @@ async function main() {
     console.error(
       "Usage: tsx genTrc20TxFixture.ts <blockNumber> [outPath]\n" +
         "Or:    tsx src/run.ts genTrc20TxFixture <blockNumber> [outPath]\n" +
-        "Example: tsx genTrc20TxFixture.ts 55000000 packages/contracts/test/evm/TRC20TxReader/fixtures/trc20_block_55000000.json"
+        "Example: tsx genTrc20TxFixture.ts 55000000 packages/contracts/test/evm/TronTxReader/fixtures/trc20_block_55000000.json"
     );
     process.exit(1);
   }

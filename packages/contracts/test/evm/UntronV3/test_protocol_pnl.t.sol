@@ -9,7 +9,7 @@ contract MockTronTxReader {
     TronTxReader.TriggerSmartContract internal nextCallData;
 
     function setNextCallData(
-        bytes32 txLeaf,
+        bytes32 txId,
         uint256 tronBlockNumber,
         uint32 tronBlockTimestamp,
         bytes21 senderTron,
@@ -18,7 +18,7 @@ contract MockTronTxReader {
     ) external {
         bytes memory data_ = data;
         nextCallData = TronTxReader.TriggerSmartContract({
-            txLeaf: txLeaf,
+            txId: txId,
             tronBlockNumber: tronBlockNumber,
             tronBlockTimestamp: tronBlockTimestamp,
             senderTron: senderTron,
@@ -34,7 +34,7 @@ contract MockTronTxReader {
     {
         TronTxReader.TriggerSmartContract storage s = nextCallData;
         return TronTxReader.TriggerSmartContract({
-            txLeaf: s.txLeaf,
+            txId: s.txId,
             tronBlockNumber: s.tronBlockNumber,
             tronBlockTimestamp: s.tronBlockTimestamp,
             senderTron: s.senderTron,

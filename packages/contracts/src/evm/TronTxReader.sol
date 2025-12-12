@@ -51,7 +51,7 @@ library ProtoVarint {
 contract TronTxReader {
     // Types
     struct TriggerSmartContract {
-        bytes32 txLeaf;
+        bytes32 txId; // not tx leaf!!! this is the actual tx ID you can put in e.g. Tronscan
         uint256 tronBlockNumber;
         uint32 tronBlockTimestamp;
         bytes21 senderTron;
@@ -91,17 +91,10 @@ contract TronTxReader {
         bytes32[] calldata proof,
         uint256 index
     ) external view returns (TriggerSmartContract memory callData) {
-        bytes32 txLeaf = verifyTxInclusion(tronBlockNumber, encodedTx, proof, index);
-        TriggerSmartContract memory parsed = _parseTriggerSmartContract(encodedTx);
-
-        callData = TriggerSmartContract({
-            txLeaf: txLeaf,
-            tronBlockNumber: tronBlockNumber,
-            tronBlockTimestamp: TRON_LIGHT_CLIENT.getBlockTimestamp(tronBlockNumber),
-            senderTron: parsed.senderTron,
-            toTron: parsed.toTron,
-            data: parsed.data
-        });
+        verifyTxInclusion(tronBlockNumber, encodedTx, proof, index);
+        callData = _parseTriggerSmartContract(encodedTx);
+        callData.tronBlockNumber = tronBlockNumber;
+        callData.tronBlockTimestamp = TRON_LIGHT_CLIENT.getBlockTimestamp(tronBlockNumber);
     }
 
     // ---------------- Merkle helpers ----------------
@@ -110,9 +103,9 @@ contract TronTxReader {
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
-    ) public view returns (bytes32 txLeaf) {
+    ) public view {
         bytes32 root = TRON_LIGHT_CLIENT.getTxTrieRoot(tronBlockNumber);
-        txLeaf = sha256(encodedTx);
+        bytes32 txLeaf = sha256(encodedTx);
         if (!TronSha256MerkleVerifier.verify(root, txLeaf, proof, index)) revert InvalidTxMerkleProof();
     }
 
@@ -124,7 +117,7 @@ contract TronTxReader {
         pure
         returns (TriggerSmartContract memory _partial)
     {
-        (uint256 rawDataStart, uint256 rawDataEnd) = _parseRawData(encodedTx);
+        (uint256 rawDataStart, uint256 rawDataEnd, bytes32 txId) = _parseRawData(encodedTx);
         assert(rawDataStart <= rawDataEnd && rawDataEnd <= encodedTx.length);
 
         // 1. Parse the single Contract in raw_data.
@@ -152,7 +145,7 @@ contract TronTxReader {
         bytes memory data = _slice(encodedTx, dataStart, dataEnd);
 
         _partial = TriggerSmartContract({
-            txLeaf: bytes32(0), // To be filled by caller
+            txId: txId,
             tronBlockNumber: 0, // To be filled by caller
             tronBlockTimestamp: 0, // To be filled by caller
             senderTron: ownerTron,
@@ -162,14 +155,23 @@ contract TronTxReader {
     }
 
     // ---------------- Protobuf parsing ----------------
-    function _parseRawData(bytes calldata tx_) internal pure returns (uint256 rawDataStart, uint256 rawDataEnd) {
+    function _parseRawData(bytes calldata tx_)
+        internal
+        pure
+        returns (uint256 rawDataStart, uint256 rawDataEnd, bytes32 txId)
+    {
         uint256 totalLen = tx_.length;
         if (totalLen == 0 || uint8(tx_[0]) != 0x0A) revert NotTriggerSmartContract();
+
         uint256 offset = 1;
         uint64 rawDataLen;
         (rawDataLen, offset) = ProtoVarint.read(tx_, offset, totalLen);
+
         rawDataStart = offset;
         rawDataEnd = _advance(offset, uint256(rawDataLen), totalLen);
+
+        // txId = sha256(raw_data bytes)
+        txId = sha256(tx_[rawDataStart:rawDataEnd]);
     }
 
     function _readSingleContract(bytes calldata tx_, uint256 rawDataStart, uint256 rawDataEnd)

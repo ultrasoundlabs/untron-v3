@@ -26,11 +26,11 @@ contract TronTxReaderTest is Test {
         bytes fromTron;
         bytes selector;
         bytes toTron;
+        bytes32 txId;
         bytes32 txLeaf;
         string amount;
         string tronBlockNumber;
         string tronBlockTimestamp;
-        bytes txId;
         uint256 index;
     }
 
@@ -45,7 +45,7 @@ contract TronTxReaderTest is Test {
         // Load the JSON fixture containing Tron block and TRC-20 transactions.
         // Safe in test context: fixture file is readonly and controlled
         // forge-lint: disable-next-line(unsafe-cheatcode)
-        string memory json = vm.readFile("test/evm/TRC20TxReader/fixtures/trc20_block_78115149.json");
+        string memory json = vm.readFile("test/evm/TronTxReader/fixtures/trc20_block_78115149.json");
 
         // Parse block-level data from the JSON.
         uint256 blockNumber = abi.decode(vm.parseJson(json, ".blockNumber"), (uint256));
@@ -62,6 +62,7 @@ contract TronTxReaderTest is Test {
         for (uint256 i = 0; i < count; ++i) {
             string memory base = string.concat(".trc20Txs[", _uToString(i), "]");
             trc20Txs[i].index = abi.decode(vm.parseJson(json, string.concat(base, ".index")), (uint256));
+            trc20Txs[i].txId = abi.decode(vm.parseJson(json, string.concat(base, ".txId")), (bytes32));
             trc20Txs[i].txLeaf = abi.decode(vm.parseJson(json, string.concat(base, ".txLeaf")), (bytes32));
             trc20Txs[i].encodedTx = abi.decode(vm.parseJson(json, string.concat(base, ".encodedTx")), (bytes));
             trc20Txs[i].tronBlockNumber =
@@ -98,7 +99,7 @@ contract TronTxReaderTest is Test {
             // **Validate metadata against expected fixture data.**
             assertEq(callData.tronBlockNumber, blockNumber, "Block number mismatch");
             assertEq(callData.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
-            assertEq(callData.txLeaf, txJson.txLeaf, "Tx leaf mismatch");
+            assertEq(callData.txId, txJson.txId, "TxId mismatch");
 
             // Token contract address (Tron -> EVM).
             address tokenFromCall = _tronToEvmAddress(callData.toTron);
@@ -121,7 +122,7 @@ contract TronTxReaderTest is Test {
             // No nullifier logic in stateless reader; calling again should succeed and match.
             TronTxReader.TriggerSmartContract memory callData2 =
                 reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
-            assertEq(callData2.txLeaf, callData.txLeaf, "Repeated read txLeaf mismatch");
+            assertEq(callData2.txId, callData.txId, "Repeated read txId mismatch");
         }
     }
 

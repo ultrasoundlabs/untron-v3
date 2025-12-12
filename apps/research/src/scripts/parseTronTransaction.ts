@@ -3,6 +3,7 @@ import { parseEnv } from "../lib/env.js";
 import { log } from "../lib/logger.js";
 import { createTronClients } from "@untron/tron-protocol";
 import type { BytesMessage } from "@untron/tron-protocol/api";
+import { createHash } from "node:crypto";
 import {
   Transaction,
   Transaction_Contract_ContractType,
@@ -10,6 +11,7 @@ import {
   transaction_Result_codeToJSON,
   transaction_Result_contractResultToJSON,
   type Transaction_Contract,
+  Transaction_raw,
 } from "@untron/tron-protocol/tron";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
 
@@ -611,6 +613,15 @@ async function main() {
   const raw = tx.rawData;
   if (!raw) {
     throw new Error("Transaction rawData is missing");
+  }
+
+  // Tron txid is sha256(protobuf(Transaction.rawData)).
+  const rawDataBytes = Transaction_raw.encode(raw).finish();
+  const computedTxIdHex = createHash("sha256").update(rawDataBytes).digest("hex");
+  if (computedTxIdHex !== txIdHex) {
+    throw new Error(
+      `TxID mismatch: provided=0x${txIdHex} computed=0x${computedTxIdHex} (sha256(raw_data_bytes))`
+    );
   }
 
   const encodedTx = Transaction.encode(tx).finish();

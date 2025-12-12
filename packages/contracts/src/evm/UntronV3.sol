@@ -63,7 +63,7 @@ contract UntronV3Index {
     // forge-lint: disable-next-line(mixed-case-variable)
     event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
 
-    event DepositPreEntitled(bytes32 indexed txLeaf, uint256 indexed leaseId, uint256 rawAmount, uint256 netOut);
+    event DepositPreEntitled(bytes32 indexed txId, uint256 indexed leaseId, uint256 rawAmount, uint256 netOut);
 
     event LpDeposited(address indexed lp, uint256 amount);
     event LpWithdrawn(address indexed lp, uint256 amount);
@@ -167,9 +167,9 @@ contract UntronV3Index {
         emit ClaimFilled(claimIndex, leaseId, amountUSDT);
     }
 
-    function _emitDepositPreEntitled(bytes32 txLeaf, uint256 leaseId, uint256 rawAmount, uint256 netOut) internal {
-        _appendEventChain(DepositPreEntitled.selector, abi.encode(txLeaf, leaseId, rawAmount, netOut));
-        emit DepositPreEntitled(txLeaf, leaseId, rawAmount, netOut);
+    function _emitDepositPreEntitled(bytes32 txId, uint256 leaseId, uint256 rawAmount, uint256 netOut) internal {
+        _appendEventChain(DepositPreEntitled.selector, abi.encode(txId, leaseId, rawAmount, netOut));
+        emit DepositPreEntitled(txId, leaseId, rawAmount, netOut);
     }
 
     function _emitLpDeposited(address lp, uint256 amount) internal {
@@ -656,8 +656,8 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
         TronTxReader.TriggerSmartContract memory callData =
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
 
-        if (depositProcessed[callData.txLeaf]) revert DepositAlreadyProcessed();
-        depositProcessed[callData.txLeaf] = true;
+        if (depositProcessed[callData.txId]) revert DepositAlreadyProcessed();
+        depositProcessed[callData.txId] = true;
 
         // Enforce that the TRC-20 contract called is exactly Tron USDT.
         address tronUsdt_ = tronUsdt;
@@ -689,7 +689,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, UntronV3Index {
             _emitClaimCreated(claimIndex, leaseId, netOut);
         }
 
-        _emitDepositPreEntitled(callData.txLeaf, leaseId, amountQ, netOut);
+        _emitDepositPreEntitled(callData.txId, leaseId, amountQ, netOut);
     }
 
     /*//////////////////////////////////////////////////////////////
