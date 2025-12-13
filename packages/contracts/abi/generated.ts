@@ -5842,7 +5842,7 @@ export const untronV3Abi = [
     ],
     name: 'claimsByTargetToken',
     outputs: [
-      { name: 'amountUSDT', internalType: 'uint256', type: 'uint256' },
+      { name: 'amountUsdt', internalType: 'uint256', type: 'uint256' },
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'beneficiary', internalType: 'address', type: 'address' },
@@ -6457,7 +6457,7 @@ export const untronV3Abi = [
         indexed: true,
       },
       {
-        name: 'amountUSDT',
+        name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -6482,7 +6482,7 @@ export const untronV3Abi = [
         indexed: true,
       },
       {
-        name: 'amountUSDT',
+        name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -7043,7 +7043,7 @@ export const untronV3IndexAbi = [
         indexed: true,
       },
       {
-        name: 'amountUSDT',
+        name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -7068,7 +7068,7 @@ export const untronV3IndexAbi = [
         indexed: true,
       },
       {
-        name: 'amountUSDT',
+        name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -7584,7 +7584,7 @@ export const untronV3IndexedOwnableAbi = [
         indexed: true,
       },
       {
-        name: 'amountUSDT',
+        name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -7609,7 +7609,7 @@ export const untronV3IndexedOwnableAbi = [
         indexed: true,
       },
       {
-        name: 'amountUSDT',
+        name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,

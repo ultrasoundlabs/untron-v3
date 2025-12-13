@@ -60,9 +60,9 @@ contract UntronV3Harness is UntronV3 {
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
-    function claimAt(address bridgeToken, uint256 idx) external view returns (uint256 amountUSDT, uint256 leaseId) {
+    function claimAt(address bridgeToken, uint256 idx) external view returns (uint256 amountUsdt, uint256 leaseId) {
         Claim storage c = claimsByTargetToken[bridgeToken][idx];
-        return (c.amountUSDT, c.leaseId);
+        return (c.amountUsdt, c.leaseId);
     }
 
     function exposedProcessReceiverPulled(bytes32 receiverSalt, uint256 usdtAmount, uint64 dumpTimestamp) external {

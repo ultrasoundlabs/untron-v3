@@ -302,7 +302,7 @@ Steps in `UntronV3`:
      ```
 5. Append to global FIFO claim queue:
    ```
-   claims.push({ amountUSDT: netOut, leaseId: L })
+   claims.push({ amountUsdt: netOut, leaseId: L })
    ```
 6. Update raw volume:
    ```
@@ -358,7 +358,7 @@ When a relayer proves a `pullFromReceivers` tx for `(receiverSalt S, tronToken T
      ```
      percentageOut = remaining * (1 - leaseFee_L_current)
      netOut        = max(0, percentageOut - flatFee_L_current)
-     claims.push({ amountUSDT: netOut, leaseId: L_current })
+     claims.push({ amountUsdt: netOut, leaseId: L_current })
      ```
 
 This ensures:
@@ -378,7 +378,7 @@ This ensures:
 There is one global FIFO claim queue:
 - Each claim:
   ```
-  { amountUSDT, leaseId }
+  { amountUsdt, leaseId }
   ```
 
 **Payout logic:**
@@ -387,7 +387,7 @@ There is one global FIFO claim queue:
 Pseudo-flow:
 ```
 while there is a next claim C at queue head:
-    if usdtBalance < C.amountUSDT:
+    if usdtBalance < C.amountUsdt:
         break
 
     let L = C.leaseId
@@ -396,8 +396,8 @@ while there is a next claim C at queue head:
     (swapper, targetChain, targetToken, beneficiary) = L.currentPayoutConfig()
 
     // send USDT to swapper & call it
-    transfer USDT: C.amountUSDT -> swapper
-    call swapper.handlePayout(C.amountUSDT, targetChain, targetToken, beneficiary)
+    transfer USDT: C.amountUsdt -> swapper
+    call swapper.handlePayout(C.amountUsdt, targetChain, targetToken, beneficiary)
 
     if call reverts:
         revert fill()  // queue stays stuck on this claim
@@ -432,8 +432,8 @@ All protocol USDT sits in `UntronV3`’s balance. On top of that:
 No APY, no share price; just principal tracking.
 
 ### Claim fills
-- When `fill()` succeeds for a claim of `C.amountUSDT`:
-  - `usdtBalance` decreases by `C.amountUSDT`.
+- When `fill()` succeeds for a claim of `C.amountUsdt`:
+  - `usdtBalance` decreases by `C.amountUsdt`.
   - `lpPrincipal` is not changed here.
   - Economically:
     - LP + team are fronting user withdrawal before the matching dump/bridge.
@@ -491,7 +491,7 @@ Swappers are Arbitrum contracts that:
   - Swappers just define the “USDT → final asset” conversion path.
 
 **Typical flow for a claim:**
-1. `fill()` sends `amountUSDT` to swapper.
+1. `fill()` sends `amountUsdt` to swapper.
 2. Swapper:
    - swaps USDT → desired stable (if needed),
    - optionally calls some bridge to move it to targetChain,

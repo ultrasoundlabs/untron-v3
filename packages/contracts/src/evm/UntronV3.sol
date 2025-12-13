@@ -122,7 +122,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         /// @notice Number of queue slots inspected/consumed (including already-empty slots).
         uint256 processedSlots;
         /// @notice Total USDT that must be transferred to the swap executor for this plan.
-        /// @dev Sum of `amountUSDT` for non-LocalUsdt claims included in the plan.
+        /// @dev Sum of `amountUsdt` for non-LocalUsdt claims included in the plan.
         uint256 totalUsdt;
         /// @notice Total expected `targetToken` output from swaps for this plan.
         /// @dev Used as the minimum output passed to `SwapExecutor.execute`.
@@ -193,7 +193,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         /// @notice USDT-denominated claim amount.
         /// @dev Set to 0 when filled (tombstone); queue head skips over zeros.
         // forge-lint: disable-next-line(mixed-case-variable)
-        uint256 amountUSDT;
+        uint256 amountUsdt;
         /// @notice Lease that produced this claim (for indexing/analytics).
         uint256 leaseId;
         // target token is the key of the queue the claim is sitting in;
@@ -337,7 +337,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     mapping(address => Claim[]) public claimsByTargetToken;
 
     /// @notice Per-target-token head index (cursor) for grouped queues.
-    /// @dev We do not pop from arrays; instead we advance this cursor and tombstone filled claims with `amountUSDT = 0`.
+    /// @dev We do not pop from arrays; instead we advance this cursor and tombstone filled claims with `amountUsdt = 0`.
     mapping(address => uint256) public nextIndexByTargetToken;
 
     /// @notice Guard against double-processing of recognizable Tron deposits.
@@ -450,7 +450,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @notice Set the protocol accounting token (USDT) contract address on this chain.
     /// @dev This token is used for:
     /// - LP vault deposits/withdrawals,
-    /// - claim accounting (`Claim.amountUSDT`),
+    /// - claim accounting (`Claim.amountUsdt`),
     /// - protocol profit withdrawals (`withdrawProtocolProfit`).
     ///
     /// This is intentionally not immutable ("ship of Theseus"): leases can last for a long time and the
@@ -619,7 +619,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
     /// @notice Set the expected swap/bridge rate for a target token.
     /// @dev This rate is used to compute `expectedOut` for claims:
-    /// `expectedOut = amountUSDT * swapRatePpm[targetToken] / _RATE_DENOMINATOR`.
+    /// `expectedOut = amountUsdt * swapRatePpm[targetToken] / _RATE_DENOMINATOR`.
     ///
     /// The rate is independent of the destination chain. Cross-chain routes additionally require a bridger.
     /// @param targetToken Token that claims will be settled in (locally or bridged).
@@ -1209,7 +1209,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     ///
     /// Fill mechanics:
     /// - Claims are stored in a per-`targetToken` FIFO queue `claimsByTargetToken[targetToken]`.
-    /// - `_buildFillPlan` scans forward from the current head, skipping already-filled slots (`amountUSDT == 0`),
+    /// - `_buildFillPlan` scans forward from the current head, skipping already-filled slots (`amountUsdt == 0`),
     ///   and stops when it hits `maxClaims` slots or runs out of liquid USDT (`usdtBalance()`).
     /// - Local USDT claims are paid immediately during planning (no swap needed).
     /// - For other claims, the plan aggregates:
@@ -1442,7 +1442,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             Claim storage c = queue[head];
 
             // Skip tombstoned (already filled) claims.
-            if (c.amountUSDT == 0) {
+            if (c.amountUsdt == 0) {
                 unchecked {
                     ++head;
                     ++processedSlots;
@@ -1460,13 +1460,13 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             plan.ratesPpm[processedSlots] = rt.ratePpm;
             plan.bridgers[processedSlots] = rt.bridger;
 
-            uint256 amountUsdt = c.amountUSDT;
+            uint256 amountUsdt = c.amountUsdt;
             // Stop if we don't have enough USDT liquidity to cover this claim.
             if (available < amountUsdt) break;
 
             if (rt.kind == RouteKind.LocalUsdt) {
                 // For LocalUsdt, settle immediately without swapping.
-                c.amountUSDT = 0;
+                c.amountUsdt = 0;
                 TokenUtils.transfer(usdt, payable(c.beneficiary), amountUsdt);
                 _emitClaimFilled(head, c.leaseId, amountUsdt);
             } else {
@@ -1505,11 +1505,11 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // Replay the same slot iteration performed in `_buildFillPlan`.
         while (remaining != 0) {
             Claim storage c2 = queue[secondHead];
-            uint256 amountUsdt = c2.amountUSDT;
+            uint256 amountUsdt = c2.amountUsdt;
 
             if (amountUsdt != 0) {
                 // Tombstone before any external interaction.
-                c2.amountUSDT = 0;
+                c2.amountUsdt = 0;
                 uint256 slot = plan.processedSlots - remaining;
                 RouteKind kind = plan.kinds[slot];
 
@@ -1580,7 +1580,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // Append claim to the per-token queue.
         Claim[] storage queue = claimsByTargetToken[targetToken];
         queue.push(
-            Claim({amountUSDT: amountUsdt, leaseId: leaseId, targetChainId: targetChainId, beneficiary: beneficiary})
+            Claim({amountUsdt: amountUsdt, leaseId: leaseId, targetChainId: targetChainId, beneficiary: beneficiary})
         );
         // Claim index is the array index of the appended element.
         return queue.length - 1;

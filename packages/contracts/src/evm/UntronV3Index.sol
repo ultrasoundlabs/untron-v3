@@ -116,14 +116,14 @@ contract UntronV3Index {
     /// @notice Emitted when a claim is created.
     /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
-    /// @param amountUSDT The claim amount in USDT units.
-    event ClaimCreated(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
+    /// @param amountUsdt The claim amount in USDT units.
+    event ClaimCreated(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUsdt);
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emitted when a claim is filled.
     /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
-    /// @param amountUSDT The filled amount in USDT units.
-    event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
+    /// @param amountUsdt The filled amount in USDT units.
+    event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUsdt);
 
     /// @notice Emitted when a deposit is pre-entitled to a lease.
     /// @param txId The deposit transaction id.
@@ -362,20 +362,20 @@ contract UntronV3Index {
     /// @notice Emits {ClaimCreated} and appends it to the event chain.
     /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
-    /// @param amountUSDT The claim amount in USDT units.
-    function _emitClaimCreated(uint256 claimIndex, uint256 leaseId, uint256 amountUSDT) internal {
-        _appendEventChain(ClaimCreated.selector, abi.encode(claimIndex, leaseId, amountUSDT));
-        emit ClaimCreated(claimIndex, leaseId, amountUSDT);
+    /// @param amountUsdt The claim amount in USDT units.
+    function _emitClaimCreated(uint256 claimIndex, uint256 leaseId, uint256 amountUsdt) internal {
+        _appendEventChain(ClaimCreated.selector, abi.encode(claimIndex, leaseId, amountUsdt));
+        emit ClaimCreated(claimIndex, leaseId, amountUsdt);
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emits {ClaimFilled} and appends it to the event chain.
     /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
-    /// @param amountUSDT The filled amount in USDT units.
-    function _emitClaimFilled(uint256 claimIndex, uint256 leaseId, uint256 amountUSDT) internal {
-        _appendEventChain(ClaimFilled.selector, abi.encode(claimIndex, leaseId, amountUSDT));
-        emit ClaimFilled(claimIndex, leaseId, amountUSDT);
+    /// @param amountUsdt The filled amount in USDT units.
+    function _emitClaimFilled(uint256 claimIndex, uint256 leaseId, uint256 amountUsdt) internal {
+        _appendEventChain(ClaimFilled.selector, abi.encode(claimIndex, leaseId, amountUsdt));
+        emit ClaimFilled(claimIndex, leaseId, amountUsdt);
     }
 
     /// @notice Emits {DepositPreEntitled} and appends it to the event chain.
