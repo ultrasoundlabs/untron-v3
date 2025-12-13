@@ -452,6 +452,16 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         _emitBridgerSet(targetToken, targetChainId, bridger);
     }
 
+    /// @notice Pauses the protocol.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @notice Unpauses the protocol.
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     /// @notice Withdraws positive protocol PnL to the owner.
     function withdrawProtocolProfit(int256 amount) external onlyOwner {
         if (amount <= 0) revert ZeroAmount();
@@ -482,7 +492,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint256 targetChainId,
         address targetToken,
         address beneficiary
-    ) external returns (uint256 leaseId) {
+    ) external whenNotPaused returns (uint256 leaseId) {
         if (!isRealtor[msg.sender]) revert NotRealtor();
 
         _enforceLeaseRateLimit(msg.sender);
@@ -531,6 +541,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Callable only by the current lessee.
     function setPayoutConfig(uint256 leaseId, uint256 targetChainId, address targetToken, address beneficiary)
         external
+        whenNotPaused
     {
         Lease storage l = leases[leaseId];
         if (l.lessee == address(0)) revert InvalidLeaseId();
@@ -555,7 +566,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         PayoutConfig calldata config,
         uint256 deadline,
         bytes calldata signature
-    ) external {
+    ) external whenNotPaused {
         if (block.timestamp > deadline) revert SignatureExpired();
 
         Lease storage l = leases[leaseId];
@@ -632,7 +643,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
-    ) external returns (uint256 claimIndex, uint256 leaseId, uint256 netOut) {
+    ) external whenNotPaused returns (uint256 claimIndex, uint256 leaseId, uint256 netOut) {
         TronTxReader.TriggerSmartContract memory callData =
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
 
@@ -684,7 +695,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         bytes32[] calldata proof,
         uint256 index,
         ControllerEvent[] calldata events
-    ) external returns (bytes32 tipNew) {
+    ) external whenNotPaused returns (bytes32 tipNew) {
         TronTxReader.TriggerSmartContract memory callData =
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
 
@@ -732,7 +743,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
     /// @notice Process up to `maxEvents` queued controller events.
     /// @dev Applies only events UntronV3 cares about; unknown events are skipped but still advance the cursor.
-    function processControllerEvents(uint256 maxEvents) external {
+    function processControllerEvents(uint256 maxEvents) external whenNotPaused {
         uint256 idx = nextControllerEventIndex;
         uint256 end = controllerEvents.length;
         uint256 processed;
@@ -774,7 +785,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @notice Deposit USDT into the fast-fill vault.
     /// @dev fast-fill vaults are 0% APY by design. All incentivized LPing logic
     ///      must be handled by external contracts.
-    function deposit(uint256 amount) external {
+    function deposit(uint256 amount) external whenNotPaused {
         if (amount == 0) revert ZeroAmount();
 
         TokenUtils.transferFrom(usdt, msg.sender, payable(address(this)), amount);
@@ -784,7 +795,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /// @notice Withdraw USDT from the fast-fill vault.
-    function withdraw(uint256 amount) external {
+    function withdraw(uint256 amount) external whenNotPaused {
         if (amount == 0) revert ZeroAmount();
 
         uint256 principal = lpPrincipal[msg.sender];
@@ -805,7 +816,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev `calls` may be empty if no swap is needed (e.g. USDT -> USDT bridging).
     ///      Any swap output above `expectedOutTotal` is paid to the relayer (`msg.sender`).
     ///      This function is non-reentant because it calls executor that performs arbitrary onchain calls.
-    function fill(address targetToken, uint256 maxClaims, Call[] calldata calls) external nonReentrant {
+    function fill(address targetToken, uint256 maxClaims, Call[] calldata calls) external nonReentrant whenNotPaused {
         if (targetToken == address(0)) revert InvalidTargetToken();
         if (maxClaims == 0) return;
 
