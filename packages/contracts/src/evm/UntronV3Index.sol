@@ -29,6 +29,7 @@ contract UntronV3Index {
     event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
     event ProtocolLeaseRateLimitSet(uint256 maxLeases, uint256 windowSeconds);
     event RealtorLeaseRateLimitSet(address indexed realtor, uint8 mode, uint256 maxLeases, uint256 windowSeconds);
+    event LesseePayoutConfigRateLimitSet(uint256 maxUpdates, uint256 windowSeconds);
     event TronUsdtSet(address indexed tronUsdt);
     event SwapRateSet(address indexed targetToken, uint256 ratePpm);
     event BridgerSet(address indexed targetToken, uint256 indexed targetChainId, address bridger);
@@ -127,6 +128,11 @@ contract UntronV3Index {
     function _emitProtocolLeaseRateLimitSet(uint256 maxLeases, uint256 windowSeconds) internal {
         _appendEventChain(ProtocolLeaseRateLimitSet.selector, abi.encode(maxLeases, windowSeconds));
         emit ProtocolLeaseRateLimitSet(maxLeases, windowSeconds);
+    }
+
+    function _emitLesseePayoutConfigRateLimitSet(uint256 maxUpdates, uint256 windowSeconds) internal {
+        _appendEventChain(LesseePayoutConfigRateLimitSet.selector, abi.encode(maxUpdates, windowSeconds));
+        emit LesseePayoutConfigRateLimitSet(maxUpdates, windowSeconds);
     }
 
     function _emitRealtorLeaseRateLimitSet(address realtor, uint8 mode, uint256 maxLeases, uint256 windowSeconds)

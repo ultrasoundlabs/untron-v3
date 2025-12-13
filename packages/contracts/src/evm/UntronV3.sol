@@ -42,6 +42,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint32 floorPpm;
         uint32 leaseRateLimitMaxLeases;
         uint32 leaseRateLimitWindowSeconds;
+        uint32 payoutConfigRateLimitMaxUpdates;
+        uint32 payoutConfigRateLimitWindowSeconds;
     }
 
     struct RealtorConfig {
@@ -177,6 +179,9 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @notice Timeline of lease creations per realtor for rate limiting.
     mapping(address => uint64[]) internal leaseCreationTimestampsByRealtor;
 
+    /// @notice Timeline of payout config updates per lessee for rate limiting.
+    mapping(address => uint64[]) internal payoutConfigUpdateTimestampsByLessee;
+
     /// @notice Signed protocol profit-and-loss (fees earned minus rebalance drift).
     int256 public protocolPnl;
 
@@ -246,6 +251,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     error AmountTooLargeForInt();
     error LeaseRateLimitConfigInvalid();
     error LeaseRateLimitExceeded();
+    error PayoutConfigRateLimitConfigInvalid();
+    error PayoutConfigRateLimitExceeded();
 
     // Tron tx decoding errors (local copy of reader-side invariants)
     error TronInvalidCalldataLength();
@@ -346,6 +353,22 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         _emitProtocolLeaseRateLimitSet(maxLeases, windowSeconds);
     }
 
+    /// @notice Sets the protocol-wide lessee payout config update rate limit.
+    /// @dev Setting both values to 0 disables the lessee payout config update rate limit.
+    function setLesseePayoutConfigRateLimit(uint256 maxUpdates, uint256 windowSeconds) external onlyOwner {
+        if (maxUpdates > type(uint32).max || windowSeconds > type(uint32).max) {
+            revert PayoutConfigRateLimitConfigInvalid();
+        }
+        if ((maxUpdates == 0) != (windowSeconds == 0)) revert PayoutConfigRateLimitConfigInvalid();
+        // casting to 'uint32' is safe because we cap values to type(uint32).max above
+        // forge-lint: disable-next-line(unsafe-typecast)
+        protocolConfig.payoutConfigRateLimitMaxUpdates = uint32(maxUpdates);
+        // casting to 'uint32' is safe because we cap values to type(uint32).max above
+        // forge-lint: disable-next-line(unsafe-typecast)
+        protocolConfig.payoutConfigRateLimitWindowSeconds = uint32(windowSeconds);
+        _emitLesseePayoutConfigRateLimitSet(maxUpdates, windowSeconds);
+    }
+
     /// @notice Configure lease creation rate limiting for a specific realtor.
     /// @dev `Inherit` uses the protocol-wide config, `Override` sets realtor-specific values, `Disabled` skips the check.
     function setRealtorLeaseRateLimit(
@@ -379,6 +402,12 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     function protocolLeaseRateLimit() external view returns (uint256 maxLeases, uint256 windowSeconds) {
         ProtocolConfig storage cfg = protocolConfig;
         return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the protocol-wide payout config update rate limit for lessees.
+    function lesseePayoutConfigRateLimit() external view returns (uint256 maxUpdates, uint256 windowSeconds) {
+        ProtocolConfig storage cfg = protocolConfig;
+        return (cfg.payoutConfigRateLimitMaxUpdates, cfg.payoutConfigRateLimitWindowSeconds);
     }
 
     /// @notice Returns the raw realtor lease rate limit config (mode + values).
@@ -507,6 +536,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if (l.lessee == address(0)) revert InvalidLeaseId();
         if (msg.sender != l.lessee) revert NotLessee();
 
+        _enforcePayoutConfigRateLimit(msg.sender);
+
         // this technically makes changing beneficiaries but not chains revert too
         // but i think it's fine because hey mf you're the one who stops us from deprecating it
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
@@ -529,6 +560,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
         Lease storage l = leases[leaseId];
         if (l.lessee == address(0)) revert InvalidLeaseId();
+
+        _enforcePayoutConfigRateLimit(l.lessee);
 
         uint256 nonce = leaseNonces[leaseId];
         uint256 targetChainId_ = config.targetChainId;
@@ -854,6 +887,24 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if (len >= maxLeases) {
             uint64 oldest = timestamps[len - maxLeases];
             if (uint256(nowTs) < uint256(oldest) + windowSeconds) revert LeaseRateLimitExceeded();
+        }
+
+        timestamps.push(nowTs);
+    }
+
+    function _enforcePayoutConfigRateLimit(address lessee) internal {
+        ProtocolConfig storage cfg = protocolConfig;
+        uint256 maxUpdates = cfg.payoutConfigRateLimitMaxUpdates;
+        uint256 windowSeconds = cfg.payoutConfigRateLimitWindowSeconds;
+        if (maxUpdates == 0 || windowSeconds == 0) return;
+
+        uint64 nowTs = uint64(block.timestamp);
+        uint64[] storage timestamps = payoutConfigUpdateTimestampsByLessee[lessee];
+        uint256 len = timestamps.length;
+
+        if (len >= maxUpdates) {
+            uint64 oldest = timestamps[len - maxUpdates];
+            if (uint256(nowTs) < uint256(oldest) + windowSeconds) revert PayoutConfigRateLimitExceeded();
         }
 
         timestamps.push(nowTs);

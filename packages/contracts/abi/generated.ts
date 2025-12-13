@@ -5999,6 +5999,16 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'lesseePayoutConfigRateLimit',
+    outputs: [
+      { name: 'maxUpdates', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: '', internalType: 'address', type: 'address' }],
     name: 'lpPrincipal',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -6191,6 +6201,16 @@ export const untronV3Abi = [
       { name: 'deprecated', internalType: 'bool', type: 'bool' },
     ],
     name: 'setChainDeprecated',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'maxUpdates', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setLesseePayoutConfigRateLimit',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -6597,6 +6617,25 @@ export const untronV3Abi = [
     type: 'event',
     anonymous: false,
     inputs: [
+      {
+        name: 'maxUpdates',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'windowSeconds',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LesseePayoutConfigRateLimitSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
       { name: 'lp', internalType: 'address', type: 'address', indexed: true },
       {
         name: 'amount',
@@ -6904,6 +6943,8 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'NotLessee' },
   { type: 'error', inputs: [], name: 'NotRealtor' },
   { type: 'error', inputs: [], name: 'NotTronUsdt' },
+  { type: 'error', inputs: [], name: 'PayoutConfigRateLimitConfigInvalid' },
+  { type: 'error', inputs: [], name: 'PayoutConfigRateLimitExceeded' },
   { type: 'error', inputs: [], name: 'RateNotSet' },
   { type: 'error', inputs: [], name: 'Reentrancy' },
   { type: 'error', inputs: [], name: 'SignatureExpired' },
@@ -7157,6 +7198,25 @@ export const untronV3IndexAbi = [
       },
     ],
     name: 'LeaseNonceUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxUpdates',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'windowSeconds',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LesseePayoutConfigRateLimitSet',
   },
   {
     type: 'event',
@@ -7679,6 +7739,25 @@ export const untronV3IndexedOwnableAbi = [
       },
     ],
     name: 'LeaseNonceUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxUpdates',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'windowSeconds',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LesseePayoutConfigRateLimitSet',
   },
   {
     type: 'event',
