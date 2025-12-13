@@ -141,7 +141,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Claim amounts are denominated in USDT; settlement may pay USDT or `targetToken` depending on route.
     struct Claim {
         /// @notice USDT-denominated claim amount.
-        /// @dev Slots are deleted when filled; head cursor advances and skips defaulted (zero) slots if any exist.
+        /// @dev Slots are deleted when filled.
         // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountUsdt;
         /// @notice Lease that produced this claim (for indexing/analytics).
@@ -1129,12 +1129,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         (uint256 end, uint256 totalUsdt, uint256 expectedOutTotal) =
             _planFillBatch(targetToken, queue, head, maxClaims, ratePpm);
 
-        // If we only skipped legacy tombstones (or had no liquidity), just advance the head to `end` and return.
-        if (totalUsdt == 0) {
-            nextIndexByTargetToken[targetToken] = end;
-            return;
-        }
-
         uint256 surplusOut;
         if (targetToken != usdt) {
             surplusOut = _swapForBatch(targetToken, totalUsdt, expectedOutTotal, calls);
@@ -1549,7 +1543,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         for (uint256 idx = start; idx < end; ++idx) {
             Claim storage c = queue[idx];
             uint256 amountUsdt = c.amountUsdt;
-            if (amountUsdt == 0) return;
 
             uint256 leaseId = c.leaseId;
             uint256 targetChainId = c.targetChainId;
@@ -1780,14 +1773,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         while (end < queueLen && plannedClaims < maxClaims) {
             Claim storage cScan = queue[end];
             uint256 amountUsdt = cScan.amountUsdt;
-
-            // Skip already-consumed slots (legacy tombstones).
-            if (amountUsdt == 0) {
-                unchecked {
-                    ++end;
-                }
-                continue;
-            }
 
             if (availableUsdt < amountUsdt) break;
 
