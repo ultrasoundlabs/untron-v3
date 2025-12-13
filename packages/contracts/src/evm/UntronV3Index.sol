@@ -22,7 +22,7 @@ contract UntronV3Index {
 
     /// @notice The hash of the latest event in the event chain.
     /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
-    bytes32 public eventChainTip = EventChainGenesis.UntronControllerIndex;
+    bytes32 public eventChainTip = EventChainGenesis.UntronV3Index;
 
     // TODO: make per-event sig or per-object event chains
 
