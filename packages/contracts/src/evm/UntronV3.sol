@@ -51,19 +51,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                                   TYPES
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice How a USDT-denominated claim is settled for a given `(targetChainId, targetToken)` pair.
-    enum RouteKind {
-        /// @dev `targetChainId == block.chainid && targetToken == usdt`.
-        ///      Claim is paid directly in USDT to `beneficiary`.
-        LocalUsdt,
-        /// @dev `targetChainId == block.chainid && targetToken != usdt`.
-        ///      Claim is converted into `targetToken` (via external swap calls) and paid locally.
-        LocalSwap,
-        /// @dev `targetChainId != block.chainid`.
-        ///      Claim is converted into `targetToken` then handed to a configured bridger to deliver cross-chain.
-        Bridge
-    }
-
     /// @notice How the lease creation rate limit is chosen for a given realtor.
     enum LeaseRateLimitMode {
         /// @dev Use the protocol-wide config stored in `_protocolConfig`.
@@ -100,45 +87,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint32 leaseRateLimitWindowSeconds;
         /// @notice How to interpret the rate limit fields for this realtor.
         LeaseRateLimitMode leaseRateLimitMode;
-    }
-
-    /// @notice Resolved payout route metadata for a claim.
-    struct Route {
-        /// @notice Settlement strategy.
-        RouteKind kind;
-        /// @notice Expected output rate, in `targetToken` units per `_RATE_DENOMINATOR` USDT.
-        /// @dev Used for both LocalSwap and Bridge routes to compute `expectedOut`.
-        uint256 ratePpm;
-        /// @notice Bridger contract address (only meaningful for `kind == Bridge`).
-        address bridger;
-    }
-
-    /// @notice Execution plan produced by `_buildFillPlan` for a batch claim fill.
-    /// @dev This is a memory-only structure used to:
-    /// - decide which claims can be processed with current `usdtBalance()`,
-    /// - accumulate how much USDT must be swapped,
-    /// - and remember per-slot route metadata for settlement.
-    struct FillPlan {
-        /// @notice New queue head after processing `processedSlots` slots.
-        uint256 newHead;
-        /// @notice Number of queue slots inspected/consumed (including already-empty slots).
-        uint256 processedSlots;
-        /// @notice Total USDT that must be transferred to the swap executor for this plan.
-        /// @dev Sum of `amountUsdt` for non-LocalUsdt claims included in the plan.
-        uint256 totalUsdt;
-        /// @notice Total expected `targetToken` output from swaps for this plan.
-        /// @dev Used as the minimum output passed to `SwapExecutor.execute`.
-        uint256 expectedOutTotal;
-        /// @notice Per-slot route kinds for the `processedSlots` plan slots.
-        RouteKind[] kinds;
-        /// @notice Per-slot swap/bridge rates in ppm for the `processedSlots` plan slots.
-        uint256[] ratesPpm;
-        /// @notice Per-slot bridger addresses for the `processedSlots` plan slots (only for Bridge slots).
-        address[] bridgers;
-        /// @notice Per-slot beneficiaries for the `processedSlots` plan slots.
-        address[] beneficiaries;
-        /// @notice Per-slot destination chain IDs for the `processedSlots` plan slots.
-        uint256[] targetChainIds;
     }
 
     /// @notice Per-lease payout configuration, mutable by the lessee.
@@ -193,7 +141,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Claim amounts are denominated in USDT; settlement may pay USDT or `targetToken` depending on route.
     struct Claim {
         /// @notice USDT-denominated claim amount.
-        /// @dev Set to 0 when filled (tombstone); queue head skips over zeros.
+        /// @dev Slots are deleted when filled; head cursor advances and skips defaulted (zero) slots if any exist.
         // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountUsdt;
         /// @notice Lease that produced this claim (for indexing/analytics).
@@ -350,7 +298,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     mapping(address => uint256) public swapRatePpm;
 
     /// @notice Bridger registry used when settling cross-chain claims.
-    /// @dev Keyed by `(targetToken, targetChainId)`; a missing bridger makes `_resolveRoute` revert.
+    /// @dev Keyed by `(targetToken, targetChainId)`; missing entries make payout configs unroutable.
     mapping(address => mapping(uint256 => IBridger)) public bridgers;
 
     /// @notice Mapping of what chains are deprecated.
@@ -381,7 +329,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     // slither-disable-end uninitialized-state
 
     /// @notice Per-target-token head index (cursor) for grouped queues.
-    /// @dev We do not pop from arrays; instead we advance this cursor and tombstone filled claims with `amountUsdt = 0`.
+    /// @dev We do not pop from arrays; instead we advance this cursor and delete filled claim slots.
     mapping(address => uint256) public nextIndexByTargetToken;
 
     /// @notice Guard against double-processing of recognizable Tron deposits.
@@ -673,7 +621,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if (targetToken == address(0)) revert InvalidTargetToken();
         if (ratePpm == 0) revert RateNotSet();
 
-        // Store the rate used by `_resolveRoute`.
+        // Store the rate used by fill-time swapping.
         swapRatePpm[targetToken] = ratePpm;
 
         // Emit via UntronV3Index (and append to event chain).
@@ -681,7 +629,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /// @notice Set the bridger implementation for a `(targetToken, targetChainId)` pair.
-    /// @dev Required for `RouteKind.Bridge`. When settling a bridged claim, UntronV3 will:
+    /// @dev Required for cross-chain payouts (`targetChainId != block.chainid`). When settling a bridged claim, UntronV3 will:
     /// 1) `transfer(targetToken, bridger, amount)`, then
     /// 2) call `IBridger(bridger).bridge(targetToken, amount, targetChainId, beneficiary)`.
     /// @param targetToken Token that will be bridged.
@@ -692,7 +640,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if (targetToken == address(0)) revert InvalidTargetToken();
         if (bridger == address(0)) revert NoBridger();
 
-        // Store bridger used by `_resolveRoute`.
+        // Store bridger used by fill-time bridging.
         bridgers[targetToken][targetChainId] = IBridger(bridger);
 
         // Emit via UntronV3Index (and append to event chain).
@@ -753,7 +701,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// - `targetChainId` must not be deprecated.
     /// - `nukeableAfter` must be >= current timestamp.
     /// - For a reused `receiverSalt`, the previous lease must already be nukeable.
-    /// - The payout config must be valid according to `_resolveRoute` (rate set, bridger set, etc.).
+    /// - The payout config must be routable (rate set if `targetToken != usdt`; bridger set if `targetChainId != block.chainid`).
     ///
     /// This function does not deploy the receiver; it only registers lease metadata. Deterministic receiver
     /// addresses are derived on Tron using CREATE2 with `receiverSalt`.
@@ -781,7 +729,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
         // Validate that the payout route is currently supported/configured.
         // This makes lease creation fail fast if rate/bridger isn't configured yet.
-        _resolveRoute(targetChainId, targetToken);
+        _enforcePayoutConfigRoutable(targetChainId, targetToken);
 
         // Allocate the new lease id.
         leaseId = ++nextLeaseId;
@@ -816,7 +764,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// - Caller must be the current lessee.
     /// - Caller must satisfy the payout-config update rate limit (if enabled).
     /// - `targetChainId` must not be deprecated.
-    /// - The `(targetChainId, targetToken)` pair must be routable (`_resolveRoute` succeeds).
+    /// - The payout config must be routable (rate set if `targetToken != usdt`; bridger set if `targetChainId != block.chainid`).
     /// @param leaseId Lease to update.
     /// @param targetChainId New destination chain id.
     /// @param targetToken New settlement token on THIS chain.
@@ -838,8 +786,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // but i think it's fine because hey mf you're the one who stops us from deprecating it
         // Disallow setting deprecated chains even if only changing beneficiary.
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
-        // Validate route configuration (rate/bridger availability).
-        _resolveRoute(targetChainId, targetToken);
+        // Validate chain + route configuration (rate/bridger availability).
+        _enforcePayoutConfigRoutable(targetChainId, targetToken);
 
         // Persist new payout config for future claims created by this lease.
         lease.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
@@ -862,7 +810,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// - `leaseId` must exist.
     /// - Lessee must satisfy payout-config update rate limit (if enabled).
     /// - `targetChainId` must not be deprecated.
-    /// - The `(targetChainId, targetToken)` pair must be routable (`_resolveRoute` succeeds).
+    /// - The payout config must be routable (rate set if `targetToken != usdt`; bridger set if `targetChainId != block.chainid`).
     /// @param leaseId Lease to update.
     /// @param config New payout configuration.
     /// @param deadline Timestamp after which the signature is invalid.
@@ -1147,28 +1095,20 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                              CLAIM QUEUE
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Fill up to `maxClaims` claims for a target token, optionally swapping once then bridging.
-    /// @dev `calls` may be empty if no swap is needed (e.g. USDT -> USDT bridging).
+    /// @notice Fill up to `maxClaims` claims for a target token, swapping once if needed then settling sequentially.
+    /// @dev `calls` may be empty if no swap is needed (e.g. when `targetToken == usdt`).
     ///      Any swap output above `expectedOutTotal` is paid to the relayer (`msg.sender`).
     ///      This function is non-reentant because it calls executor that performs arbitrary onchain calls.
     ///
     /// Fill mechanics:
     /// - Claims are stored in a per-`targetToken` FIFO queue `claimsByTargetToken[targetToken]`.
-    /// - `_buildFillPlan` scans forward from the current head, skipping already-filled slots (`amountUsdt == 0`),
-    ///   and stops when it hits `maxClaims` slots or runs out of liquid USDT (`usdtBalance()`).
-    /// - Local USDT claims are paid immediately during planning (no swap needed).
-    /// - For other claims, the plan aggregates:
-    ///   - total USDT to be swapped (`plan.totalUsdt`),
-    ///   - total expected `targetToken` out (`plan.expectedOutTotal`),
-    ///   based on the owner-configured `swapRatePpm`.
-    /// - If a swap is needed, USDT is transferred into `SWAP_EXECUTOR` and `calls` are executed.
-    ///   The executor enforces that the resulting `targetToken` balance is at least `expectedOutTotal`.
-    /// - `_executeFillPlan` then pays each claim:
-    ///   - `LocalSwap`: transfers `expectedOut` `targetToken` to beneficiary
-    ///   - `Bridge`: transfers `expectedOut` to bridger and calls `bridge(...)`
+    /// - For `targetToken != usdt`, this function:
+    ///   - scans forward from the head to determine how many claims fit under current `usdtBalance()`,
+    ///   - swaps USDT -> `targetToken` once for the batch,
+    ///   - then fills those claims sequentially, either locally or via a configured bridger.
     ///
     /// @param targetToken The queue key: claims to be filled are `claimsByTargetToken[targetToken]`.
-    /// @param maxClaims Maximum number of queue slots to process in this call.
+    /// @param maxClaims Maximum number of non-empty claims to fill in this call.
     /// @param calls Arbitrary swap calls executed by `SwapExecutor` if the plan requires swapping.
     function fill(address targetToken, uint256 maxClaims, Call[] calldata calls) external nonReentrant whenNotPaused {
         // Basic input validation.
@@ -1176,37 +1116,35 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // Explicitly allow early return for maxClaims == 0 to save gas.
         if (maxClaims == 0) return;
 
-        // Load queue and current head cursor.
         Claim[] storage queue = claimsByTargetToken[targetToken];
-        uint256 surplusOut;
-        uint256 startHead = nextIndexByTargetToken[targetToken];
 
-        // Build plan based on current liquidity.
-        FillPlan memory plan = _buildFillPlan(targetToken, maxClaims, queue, startHead, usdtBalance());
+        uint256 head = nextIndexByTargetToken[targetToken];
 
-        // If nothing can be processed (no slots scanned), return early.
-        if (plan.processedSlots == 0) {
+        uint256 ratePpm;
+        if (targetToken != usdt) {
+            ratePpm = swapRatePpm[targetToken];
+            if (ratePpm == 0) revert RateNotSet();
+        }
+
+        (uint256 end, uint256 totalUsdt, uint256 expectedOutTotal) =
+            _planFillBatch(targetToken, queue, head, maxClaims, ratePpm);
+
+        // If we only skipped legacy tombstones (or had no liquidity), just advance the head to `end` and return.
+        if (totalUsdt == 0) {
+            nextIndexByTargetToken[targetToken] = end;
             return;
         }
 
-        // Advance head cursor to the planned new head.
-        nextIndexByTargetToken[targetToken] = plan.newHead;
-
-        // If the plan requires a swap, transfer USDT into the executor and execute the provided calls.
-        if (plan.totalUsdt != 0) {
-            TokenUtils.transfer(usdt, payable(address(SWAP_EXECUTOR)), plan.totalUsdt);
-            uint256 actualOut = SWAP_EXECUTOR.execute(calls, targetToken, plan.expectedOutTotal, payable(address(this)));
-
-            // Pay any swap surplus (above expected) to the filler as incentive.
-            if (actualOut > plan.expectedOutTotal) {
-                surplusOut = actualOut - plan.expectedOutTotal;
-            }
+        uint256 surplusOut;
+        if (targetToken != usdt) {
+            surplusOut = _swapForBatch(targetToken, totalUsdt, expectedOutTotal, calls);
         }
 
-        // Settle claims included in the plan.
-        _executeFillPlan(targetToken, queue, startHead, plan);
+        _settleClaimRange({targetToken: targetToken, ratePpm: ratePpm, queue: queue, start: head, end: end});
 
-        // Transfer surplus output token to the filler.
+        nextIndexByTargetToken[targetToken] = end;
+
+        // Transfer swap surplus output token to the filler.
         if (surplusOut != 0) {
             TokenUtils.transfer(targetToken, payable(msg.sender), surplusOut);
         }
@@ -1476,161 +1414,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
     }
 
-    /* solhint-disable function-max-lines */
-    // internally we've decided that _buildFillPlan function is tight enough,
-    // and splitting it would worsen readability
-
-    /// @notice Builds a fill plan.
-    /// @dev Build a `FillPlan` for filling up to `maxClaims` slots from `queue`, starting at `head`,
-    /// constrained by `available` USDT liquidity.
-    ///
-    /// Important side effects:
-    /// - This function can *immediately* settle `LocalUsdt` claims by transferring USDT and tombstoning the slot.
-    ///   This is why the function is not `view` and why it receives a `storage` reference to the queue.
-    ///
-    /// Plan output:
-    /// - `processedSlots` is the number of queue slots advanced (including tombstoned / already-empty slots).
-    /// - `newHead` is the next head cursor after scanning.
-    /// - `totalUsdt` / `expectedOutTotal` are the aggregated amounts needed for swaps/bridges.
-    ///
-    /// @param targetToken Queue key being filled (also used to resolve routes).
-    /// @param maxClaims Max number of queue slots to process.
-    /// @param queue Storage reference to claim queue.
-    /// @param head Starting head index (usually `nextIndexByTargetToken[targetToken]`).
-    /// @param available Available USDT liquidity to allocate for this plan.
-    /// @return plan The fill plan for provided settlement.
-    function _buildFillPlan(
-        address targetToken,
-        uint256 maxClaims,
-        Claim[] storage queue,
-        uint256 head,
-        uint256 available
-    ) internal returns (FillPlan memory plan) {
-        uint256 queueLen = queue.length;
-
-        // Pre-allocate per-slot arrays sized to `maxClaims` for direct indexing by slot.
-        plan.kinds = new RouteKind[](maxClaims);
-        plan.ratesPpm = new uint256[](maxClaims);
-        plan.bridgers = new address[](maxClaims);
-        plan.beneficiaries = new address[](maxClaims);
-        plan.targetChainIds = new uint256[](maxClaims);
-
-        uint256 processedSlots;
-        uint256 totalUsdt;
-        uint256 expectedOutTotal;
-
-        // Scan forward from `head` until we reach end of queue, hit maxClaims slots, or run out of liquidity.
-        while (head < queueLen && processedSlots < maxClaims) {
-            Claim storage c = queue[head];
-
-            // Skip tombstoned (already filled) claims.
-            if (c.amountUsdt == 0) {
-                unchecked {
-                    ++head;
-                    ++processedSlots;
-                }
-                continue;
-            }
-
-            // Copy claim metadata for settlement.
-            plan.beneficiaries[processedSlots] = c.beneficiary;
-            plan.targetChainIds[processedSlots] = c.targetChainId;
-
-            // Resolve how this claim should be settled given its chain/token pair.
-            Route memory rt = _resolveRoute(c.targetChainId, targetToken);
-            plan.kinds[processedSlots] = rt.kind;
-            plan.ratesPpm[processedSlots] = rt.ratePpm;
-            plan.bridgers[processedSlots] = rt.bridger;
-
-            uint256 amountUsdt = c.amountUsdt;
-            // Stop if we don't have enough USDT liquidity to cover this claim.
-            if (available < amountUsdt) break;
-
-            if (rt.kind == RouteKind.LocalUsdt) {
-                // For LocalUsdt, settle immediately without swapping.
-                c.amountUsdt = 0;
-                TokenUtils.transfer(usdt, payable(c.beneficiary), amountUsdt);
-                _emitClaimFilled(head, c.leaseId, amountUsdt);
-            } else {
-                // For swap/bridge routes, accumulate USDT to swap and expected token out.
-                uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, rt.ratePpm, _RATE_DENOMINATOR);
-                totalUsdt += amountUsdt;
-                expectedOutTotal += expectedOut;
-            }
-
-            unchecked {
-                // Decrease remaining liquidity, advance scan cursor, and count this processed slot.
-                available -= amountUsdt;
-                ++head;
-                ++processedSlots;
-            }
-        }
-
-        // Materialize summary fields into `plan`.
-        plan.newHead = head;
-        plan.processedSlots = processedSlots;
-        plan.totalUsdt = totalUsdt;
-        plan.expectedOutTotal = expectedOutTotal;
-    }
-
-    /* solhint-enable function-max-lines */
-
-    /// @notice Execute a previously computed `FillPlan` by settling each claim in `[startHead, startHead + processedSlots)`.
-    /// @param targetToken The token used to settle swap/bridge claims (queue key).
-    /// @param queue Storage reference to claim queue.
-    /// @param startHead Head cursor used when building the plan.
-    /// @param plan The plan returned by `_buildFillPlan`.
-    function _executeFillPlan(address targetToken, Claim[] storage queue, uint256 startHead, FillPlan memory plan)
-        internal
-    {
-        uint256 secondHead = startHead;
-        uint256 remaining = plan.processedSlots;
-
-        // Replay the same slot iteration performed in `_buildFillPlan`.
-        while (remaining != 0) {
-            Claim storage c2 = queue[secondHead];
-            uint256 amountUsdt = c2.amountUsdt;
-
-            if (amountUsdt != 0) {
-                // Tombstone before any external interaction.
-                c2.amountUsdt = 0;
-                uint256 slot = plan.processedSlots - remaining;
-                RouteKind kind = plan.kinds[slot];
-
-                if (kind == RouteKind.LocalSwap) {
-                    // Local swap: pay `targetToken` to the beneficiary on this chain.
-                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], _RATE_DENOMINATOR);
-                    if (expectedOut != 0) {
-                        TokenUtils.transfer(targetToken, payable(plan.beneficiaries[slot]), expectedOut);
-                    }
-                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
-                } else if (kind == RouteKind.Bridge) {
-                    // Bridge: transfer token to bridger and instruct it to bridge to the destination chain.
-                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], _RATE_DENOMINATOR);
-                    address bridger = plan.bridgers[slot];
-
-                    if (expectedOut != 0) {
-                        TokenUtils.transfer(targetToken, payable(bridger), expectedOut);
-                        IBridger(bridger)
-                            .bridge(targetToken, expectedOut, plan.targetChainIds[slot], plan.beneficiaries[slot]);
-                    }
-
-                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
-                } else {
-                    // Local USDT (should normally have been handled in `_buildFillPlan`, but kept as a safe fallback).
-                    TokenUtils.transfer(usdt, payable(plan.beneficiaries[slot]), amountUsdt);
-                    _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
-                }
-            }
-
-            unchecked {
-                // Advance to next queue slot.
-                ++secondHead;
-                --remaining;
-            }
-        }
-    }
-
     /// @notice Apply a delta to `protocolPnl` and emit the updated value via `UntronV3Index`.
     /// @param delta Signed change to apply.
     /// @param reason Reason code for indexing/analytics.
@@ -1736,6 +1519,68 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
     }
 
+    /// @notice Execute a swap for a batch of claims.
+    /// @param targetToken Token to swap into.
+    /// @param totalUsdt Total USDT to swap.
+    /// @param expectedOutTotal Total expected output.
+    /// @param calls Swap calls.
+    /// @return surplusOut Amount of urplus output.
+    function _swapForBatch(address targetToken, uint256 totalUsdt, uint256 expectedOutTotal, Call[] calldata calls)
+        internal
+        returns (uint256 surplusOut)
+    {
+        TokenUtils.transfer(usdt, payable(address(SWAP_EXECUTOR)), totalUsdt);
+        uint256 actualOut = SWAP_EXECUTOR.execute(calls, targetToken, expectedOutTotal, payable(address(this)));
+        if (actualOut > expectedOutTotal) {
+            surplusOut = actualOut - expectedOutTotal;
+        }
+    }
+
+    /// @notice Settle a contiguous range of claim slots for a given queue token.
+    /// @param targetToken The target token to settle.
+    /// @param ratePpm The rate in parts per million.
+    /// @param queue The claim queue.
+    /// @param start The first index (inclusive) to settle.
+    /// @param end The end index (exclusive) to settle.
+    /// @dev Assumes `ratePpm != 0` if `targetToken != usdt`.
+    function _settleClaimRange(address targetToken, uint256 ratePpm, Claim[] storage queue, uint256 start, uint256 end)
+        internal
+    {
+        for (uint256 idx = start; idx < end; ++idx) {
+            Claim storage c = queue[idx];
+            uint256 amountUsdt = c.amountUsdt;
+            if (amountUsdt == 0) return;
+
+            uint256 leaseId = c.leaseId;
+            uint256 targetChainId = c.targetChainId;
+            address beneficiary = c.beneficiary;
+            bool needsBridge = targetChainId != block.chainid;
+
+            uint256 outAmount =
+                targetToken == usdt ? amountUsdt : TokenUtils.mulDiv(amountUsdt, ratePpm, _RATE_DENOMINATOR);
+
+            IBridger bridger;
+            if (needsBridge) {
+                bridger = bridgers[targetToken][targetChainId];
+                if (address(bridger) == address(0)) revert NoBridger();
+            }
+
+            // Delete before any external interaction.
+            delete queue[idx];
+
+            if (outAmount != 0) {
+                if (needsBridge) {
+                    TokenUtils.transfer(targetToken, payable(address(bridger)), outAmount);
+                    bridger.bridge(targetToken, outAmount, targetChainId, beneficiary);
+                } else {
+                    TokenUtils.transfer(targetToken, payable(beneficiary), outAmount);
+                }
+            }
+
+            _emitClaimFilled(idx, leaseId, amountUsdt);
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                           INTERNAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -1755,7 +1600,18 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // but i think it's fine because hey mf you're the one who stops us from deprecating it
         // Disallow setting deprecated chains even if only changing beneficiary.
         if (isChainDeprecated[targetChainId_]) revert ChainDeprecated();
-        _resolveRoute(targetChainId_, targetToken_);
+
+        if (targetToken_ == address(0)) revert InvalidTargetToken();
+
+        bool needsSwap = targetToken_ != usdt;
+        bool needsBridge = targetChainId_ != block.chainid;
+
+        if (needsSwap) {
+            if (swapRatePpm[targetToken_] == 0) revert RateNotSet();
+        }
+        if (needsBridge) {
+            if (address(bridgers[targetToken_][targetChainId_]) == address(0)) revert NoBridger();
+        }
     }
 
     /// @notice Compute the EIP-712 digest for a payout config update.
@@ -1856,47 +1712,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         enabled = (maxLeases != 0 && windowSeconds != 0);
     }
 
-    /// @notice The internal function for resolving settlement routes.
-    /// @dev Resolve the settlement route for a `(targetChainId, targetToken)` pair.
-    ///
-    /// Logic:
-    /// - If `targetChainId == block.chainid`:
-    ///   - if `targetToken == usdt` -> `LocalUsdt`
-    ///   - else require `swapRatePpm[targetToken] != 0` -> `LocalSwap`
-    /// - Else (cross-chain):
-    ///   - require `swapRatePpm[targetToken] != 0`
-    ///   - require `bridgers[targetToken][targetChainId] != 0` -> `Bridge`
-    ///
-    /// @param targetChainId Destination chain id.
-    /// @param targetToken Token on THIS chain used for settlement.
-    /// @return r Resolved route metadata.
-    function _resolveRoute(uint256 targetChainId, address targetToken) internal view returns (Route memory r) {
-        if (targetToken == address(0)) revert InvalidTargetToken();
-
-        if (targetChainId == block.chainid) {
-            if (targetToken == usdt) {
-                // Direct local USDT payout.
-                return Route({kind: RouteKind.LocalUsdt, ratePpm: 0, bridger: address(0)});
-            }
-
-            // Local swap payout requires a configured rate for this token.
-            uint256 rate = swapRatePpm[targetToken];
-            if (rate == 0) revert RateNotSet();
-
-            return Route({kind: RouteKind.LocalSwap, ratePpm: rate, bridger: address(0)});
-        }
-
-        // Cross-chain payout requires a configured bridger and a configured swap rate.
-        IBridger bridger = bridgers[targetToken][targetChainId];
-
-        uint256 rate2 = swapRatePpm[targetToken];
-        if (rate2 == 0) revert RateNotSet();
-
-        if (address(bridger) == address(0)) revert NoBridger();
-
-        return Route({kind: RouteKind.Bridge, ratePpm: rate2, bridger: address(bridger)});
-    }
-
     /// @notice Find the lease that was active for `receiverSalt` at timestamp `ts`.
     /// @dev This walks the receiver's lease timeline backwards and returns the last lease whose `startTime <= ts`.
     /// @param receiverSalt Receiver salt whose timeline is queried.
@@ -1936,6 +1751,61 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             }
         } else {
             netOut = 0;
+        }
+    }
+
+    /// @notice Plan filling a batch of claims.
+    /// @param targetToken Token to fill.
+    /// @param queue Queue of claims.
+    /// @param head Head of the queue.
+    /// @param maxClaims Maximum number of claims to fill.
+    /// @param ratePpm Rate per million.
+    /// @return end Index of the last claim filled.
+    /// @return totalUsdt Total USDT filled.
+    /// @return expectedOutTotal Total expected output.
+    function _planFillBatch(
+        address targetToken,
+        Claim[] storage queue,
+        uint256 head,
+        uint256 maxClaims,
+        uint256 ratePpm
+    ) internal view returns (uint256 end, uint256 totalUsdt, uint256 expectedOutTotal) {
+        bool needsSwap = targetToken != usdt;
+
+        uint256 availableUsdt = usdtBalance();
+        uint256 queueLen = queue.length;
+        end = head;
+
+        uint256 plannedClaims;
+        while (end < queueLen && plannedClaims < maxClaims) {
+            Claim storage cScan = queue[end];
+            uint256 amountUsdt = cScan.amountUsdt;
+
+            // Skip already-consumed slots (legacy tombstones).
+            if (amountUsdt == 0) {
+                unchecked {
+                    ++end;
+                }
+                continue;
+            }
+
+            if (availableUsdt < amountUsdt) break;
+
+            // Ensure any required bridge route exists before we swap for this batch.
+            if (needsSwap && cScan.targetChainId != block.chainid) {
+                if (address(bridgers[targetToken][cScan.targetChainId]) == address(0)) revert NoBridger();
+            }
+
+            totalUsdt += amountUsdt;
+            if (needsSwap) {
+                expectedOutTotal += TokenUtils.mulDiv(amountUsdt, ratePpm, _RATE_DENOMINATOR);
+            }
+
+            unchecked {
+                availableUsdt -= amountUsdt;
+                ++end;
+                ++plannedClaims;
+            }
         }
     }
 
