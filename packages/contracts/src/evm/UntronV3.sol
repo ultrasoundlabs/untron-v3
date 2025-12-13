@@ -16,6 +16,8 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
+/* solhint-disable max-states-count */
+
 /// @title Untron V3 hub
 /// @notice Turns provable Tron-side controller activity into EVM-side payouts.
 /// @dev High-level responsibilities:
@@ -221,6 +223,9 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                              STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
 
+    /* solhint-disable gas-small-strings */
+    // keccak of string literals is evaluated at compile time
+
     /// @dev EIP-712 typehash for gasless payout config updates.
     /// @dev Used to build `PayoutConfigUpdate(...)` struct hashes inside `setPayoutConfigWithSig`.
     bytes32 internal constant _PAYOUT_CONFIG_UPDATE_TYPEHASH = keccak256(
@@ -249,6 +254,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     ///      Updates `protocolPnl` to account for rebalance drift.
     bytes32 internal constant _EVENT_SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
 
+    /* solhint-enable gas-small-strings */
+
     /// @notice The address of the UntronController contract on Tron (source chain), in EVM format.
     /// @dev Stored as a 20-byte EVM address; converted to Tron 21-byte format when comparing Tron calldata.
     address public immutable CONTROLLER_ADDRESS;
@@ -274,8 +281,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Deployed in the constructor; only this UntronV3 instance can call `SwapExecutor.execute`.
     SwapExecutor public immutable SWAP_EXECUTOR;
 
-    /// @notice Next lease identifier (starts from 1 so 0 can mean "missing").
-    uint256 public nextLeaseId = 1;
+    /// @notice Next lease identifier.
+    uint256 public nextLeaseId = 0;
 
     /// @notice Mapping from lease id to lease data.
     /// @dev `leaseId` is assigned monotonically starting from 1.
@@ -708,7 +715,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @param amount Amount of profit to withdraw (must be > 0 and <= current `protocolPnl`).
     function withdrawProtocolProfit(int256 amount) external onlyOwner {
         // Require a strictly-positive withdrawal request.
-        if (amount <= 0) revert ZeroAmount();
+        if (amount < 1) revert ZeroAmount();
         // Ensure the protocol has at least this much positive PnL to withdraw.
         if (amount > protocolPnl) revert InsufficientProtocolProfit();
         // Casting to 'uint256' is safe because we reverted negative/zero values above.
@@ -769,58 +776,34 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         address targetToken,
         address beneficiary
     ) external whenNotPaused returns (uint256 leaseId) {
-        // Realtors are the only actors allowed to create leases.
-        if (!isRealtor[msg.sender]) revert NotRealtor();
-
-        // Apply effective (protocol-wide or realtor override) rate limiting.
-        _enforceLeaseRateLimit(msg.sender);
-
-        // Enforce fee bounds and floors.
-        uint256 minFee = _minLeaseFeePpm(msg.sender);
-        if (leaseFeePpm < minFee || leaseFeePpm > _PPM_DENOMINATOR) revert LeaseFeeTooLow();
-
-        // Disallow creating leases that immediately target a deprecated chain.
-        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
-
-        // Record the lease start time as the EVM chain timestamp at creation.
-        uint64 startTime = uint64(block.timestamp);
-        // Prevent leases that are already nukeable (nukeableAfter must be in the future/present).
-        if (nukeableAfter < startTime) revert InvalidLeaseTimeframe();
-
-        // Uniqueness is enforced per receiver salt regardless of token.
-        uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
-        if (ids.length != 0) {
-            Lease storage last = leases[ids[ids.length - 1]];
-            // Disallow nuking before previous lease becomes nukeable.
-            if (block.timestamp < last.nukeableAfter) revert LeaseNotNukeableYet();
-        }
-
-        // Allocate the new lease id.
-        leaseId = nextLeaseId++;
-
-        // Populate lease storage.
-        Lease storage l = leases[leaseId];
-        l.receiverSalt = receiverSalt;
-        l.realtor = msg.sender;
-        l.lessee = lessee;
-        l.startTime = startTime;
-        l.nukeableAfter = nukeableAfter;
-        l.leaseFeePpm = leaseFeePpm;
-        l.flatFee = flatFee;
+        address realtor = msg.sender;
+        _enforceCreateLeasePreconditions(realtor, receiverSalt, nukeableAfter, leaseFeePpm, targetChainId);
 
         // Validate that the payout route is currently supported/configured.
         // This makes lease creation fail fast if rate/bridger isn't configured yet.
         _resolveRoute(targetChainId, targetToken);
 
-        // Store payout configuration so that target chain configuration is
-        // available for owner-recommended bridging or direct payouts.
-        l.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
+        // Allocate the new lease id.
+        leaseId = ++nextLeaseId;
+        uint64 startTime = _leaseStartTime();
 
-        // Append to the receiver's lease timeline.
-        ids.push(leaseId);
+        // Populate lease storage and append to the receiver's lease timeline.
+        _storeLease(
+            leaseId,
+            receiverSalt,
+            realtor,
+            lessee,
+            startTime,
+            nukeableAfter,
+            leaseFeePpm,
+            flatFee,
+            targetChainId,
+            targetToken,
+            beneficiary
+        );
 
         // Emit lease creation and initial payout config via UntronV3Index.
-        _emitLeaseCreated(leaseId, receiverSalt, msg.sender, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
+        _emitLeaseCreated(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
         // this is slightly crutchy because we technically enshrine the initial config
         // at creation time, but this simplifies indexing logic quite a bunch
         _emitPayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
@@ -843,10 +826,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         whenNotPaused
     {
         // Load and validate lease.
-        Lease storage l = leases[leaseId];
-        if (l.lessee == address(0)) revert InvalidLeaseId();
+        Lease storage lease = leases[leaseId];
+        if (lease.lessee == address(0)) revert InvalidLeaseId();
         // Only the current lessee can update payout config.
-        if (msg.sender != l.lessee) revert NotLessee();
+        if (msg.sender != lease.lessee) revert NotLessee();
 
         // Apply per-lessee rate limiting for payout config updates.
         _enforcePayoutConfigRateLimit(msg.sender);
@@ -859,7 +842,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         _resolveRoute(targetChainId, targetToken);
 
         // Persist new payout config for future claims created by this lease.
-        l.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
+        lease.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
 
         // Emit via UntronV3Index (and append to event chain).
         _emitPayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
@@ -894,72 +877,25 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if (block.timestamp > deadline) revert SignatureExpired();
 
         // Load and validate lease existence.
-        Lease storage l = leases[leaseId];
-        if (l.lessee == address(0)) revert InvalidLeaseId();
+        Lease storage lease = leases[leaseId];
+        if (lease.lessee == address(0)) revert InvalidLeaseId();
 
         // Apply per-lessee rate limiting (based on the signer/lessee, not the relayer).
-        _enforcePayoutConfigRateLimit(l.lessee);
+        _enforcePayoutConfigRateLimit(lease.lessee);
 
         // Snapshot nonce and config fields to avoid repeated calldata reads.
         uint256 nonce = leaseNonces[leaseId];
         uint256 targetChainId_ = config.targetChainId;
         address targetToken_ = config.targetToken;
         address beneficiary_ = config.beneficiary;
-        bytes32 typehash = _PAYOUT_CONFIG_UPDATE_TYPEHASH;
 
-        // this technically makes changing beneficiaries but not chains revert too
-        // but i think it's fine because hey mf you're the one who stops us from deprecating it
-        // Disallow setting deprecated chains even if only changing beneficiary.
-        if (isChainDeprecated[targetChainId_]) revert ChainDeprecated();
-        // Validate route configuration (rate/bridger availability).
-        _resolveRoute(targetChainId_, targetToken_);
+        // Validate chain + route configuration (rate/bridger availability).
+        _enforcePayoutConfigRoutable(targetChainId_, targetToken_);
 
-        // Build the EIP-712 struct hash using assembly to avoid expensive abi.encode.
-        bytes32 structHash;
-        assembly {
-            // Load free memory pointer
-            let ptr := mload(0x40)
-
-            // abi.encode(
-            //   _PAYOUT_CONFIG_UPDATE_TYPEHASH,
-            //   leaseId,
-            //   config.targetChainId,
-            //   config.targetToken,
-            //   config.beneficiary,
-            //   nonce,
-            //   deadline
-            // )
-            mstore(ptr, typehash)
-            mstore(add(ptr, 0x20), leaseId)
-            mstore(add(ptr, 0x40), targetChainId_)
-            mstore(add(ptr, 0x60), targetToken_)
-            mstore(add(ptr, 0x80), beneficiary_)
-            mstore(add(ptr, 0xa0), nonce)
-            mstore(add(ptr, 0xc0), deadline)
-
-            structHash := keccak256(ptr, 0xe0)
-
-            // Update free memory pointer
-            mstore(0x40, add(ptr, 0xe0))
-        }
-
-        // Domain-separated EIP-712 digest.
-        bytes32 digest = _hashTypedData(structHash);
-
-        // ECDSA or ERC1271 depending on `lessee` code length.
-        bool ok = l.lessee.isValidSignatureNow(digest, signature);
-        if (!ok) revert InvalidSignature();
-
-        // Consume nonce (unchecked is safe: 2^256 wrap is not realistically reachable).
-        unchecked {
-            leaseNonces[leaseId] = nonce + 1;
-        }
-        _emitLeaseNonceUpdated(leaseId, nonce + 1);
-
-        // Persist new payout config for future claims created by this lease.
-        l.payout = PayoutConfig({
-            targetChainId: config.targetChainId, targetToken: config.targetToken, beneficiary: config.beneficiary
-        });
+        bytes32 digest = _payoutConfigUpdateDigest(leaseId, targetChainId_, targetToken_, beneficiary_, nonce, deadline);
+        _enforceValidSignature(lease.lessee, digest, signature);
+        _consumeLeaseNonce(leaseId, nonce);
+        _setLeasePayoutConfig(lease, config);
 
         // Emit via UntronV3Index (and append to event chain).
         _emitPayoutConfigUpdated(leaseId, config.targetChainId, config.targetToken, config.beneficiary);
@@ -1031,22 +967,21 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // Attribute to the lease that was active at the Tron tx timestamp.
         leaseId = _findActiveLeaseId(receiverSalt, callData.tronBlockTimestamp);
         if (leaseId == 0) revert NoActiveLease();
-
-        Lease storage l = leases[leaseId];
+        Lease storage lease = leases[leaseId];
 
         // Recognize raw volume and mark it as unbacked until the controller reports receiver pulls.
-        l.recognizedRaw += amountQ;
-        l.unbackedRaw += amountQ;
+        lease.recognizedRaw += amountQ;
+        lease.unbackedRaw += amountQ;
 
         // Compute net payout after lease fee schedule.
-        netOut = _computeNetOut(l, amountQ);
+        netOut = _computeNetOut(lease, amountQ);
 
         // Book protocol fee revenue immediately as PnL (raw - netOut).
         _bookFee(amountQ, netOut);
 
         // Enqueue a claim for later settlement if there is a positive net payout.
         if (netOut > 0) {
-            PayoutConfig storage p = l.payout;
+            PayoutConfig storage p = lease.payout;
             claimIndex = _enqueueClaimForTargetToken(p.targetToken, netOut, leaseId, p.targetChainId, p.beneficiary);
             _emitClaimCreated(claimIndex, leaseId, netOut);
         }
@@ -1098,49 +1033,21 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         bytes21 controllerTron = TronCalldataUtils.evmToTronAddress(CONTROLLER_ADDRESS);
         if (callData.toTron != controllerTron) revert NotEventChainTip();
 
-        // Extract the 4-byte selector from the Tron call data.
-        bytes memory data = callData.data;
-        if (data.length < 4) revert TronInvalidCalldataLength();
-        bytes4 sel;
-        assembly ("memory-safe") {
-            sel := shr(224, mload(add(data, 0x20)))
-        }
-
         // Decode the new tip from either a direct `isEventChainTip` call or a multicall wrapper.
-        if (sel == _SELECTOR_IS_EVENT_CHAIN_TIP) {
-            tipNew = TronCalldataUtils.decodeIsEventChainTip(data);
-        } else if (sel == _SELECTOR_MULTICALL) {
-            tipNew = TronCalldataUtils.decodeMulticallEventChainTip(data, _SELECTOR_IS_EVENT_CHAIN_TIP);
-        } else {
-            revert NotEventChainTip();
-        }
+        tipNew = _decodeEventChainTip(callData.data);
 
         // Ensure progress (avoid accepting a no-op relay).
         bytes32 tip = lastControllerEventTip;
         if (tipNew == tip) revert EventRelayNoProgress();
 
-        // Hash-link provided events starting from the current tip, emitting an index event per hop.
-        uint256 n = events.length;
-        for (uint256 i = 0; i < n; ++i) {
-            ControllerEvent calldata ev = events[i];
-            _emitControllerEventChainTipUpdated(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data);
-            tip = sha256(abi.encodePacked(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data));
-        }
-        // The computed tip must match the tip proven by the Tron transaction.
-        if (tip != tipNew) revert EventTipMismatch();
+        bytes32 computedTip = _hashLinkControllerEventsAndEmit(tip, events);
+        if (computedTip != tipNew) revert EventTipMismatch();
 
         // Commit the new tip.
         lastControllerEventTip = tipNew;
 
         // Enqueue raw events for later processing (separated to allow partial processing/batching).
-        for (uint256 j = 0; j < n; ++j) {
-            ControllerEvent calldata ev = events[j];
-            _controllerEvents.push(
-                ControllerEvent({
-                    sig: ev.sig, data: ev.data, blockNumber: ev.blockNumber, blockTimestamp: ev.blockTimestamp
-                })
-            );
-        }
+        _enqueueControllerEvents(events);
     }
 
     /// @notice Process up to `maxEvents` queued controller events.
@@ -1175,6 +1082,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                     uint256 inAmount,
                     uint256 outAmount, /*rebalancer*/
                 ) = abi.decode(ev.data, (uint256, uint256, address));
+                // solhint-disable-next-line gas-strict-inequalities
                 int256 delta = outAmount >= inAmount ? _toInt(outAmount - inAmount) : -_toInt(inAmount - outAmount);
                 _applyPnlDelta(delta, PnlReason.REBALANCE);
             }
@@ -1281,6 +1189,9 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             return;
         }
 
+        // Advance head cursor to the planned new head.
+        nextIndexByTargetToken[targetToken] = plan.newHead;
+
         // If the plan requires a swap, transfer USDT into the executor and execute the provided calls.
         if (plan.totalUsdt != 0) {
             TokenUtils.transfer(usdt, payable(address(SWAP_EXECUTOR)), plan.totalUsdt);
@@ -1294,9 +1205,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
         // Settle claims included in the plan.
         _executeFillPlan(targetToken, queue, startHead, plan);
-
-        // Advance head cursor to the planned new head.
-        nextIndexByTargetToken[targetToken] = plan.newHead;
 
         // Transfer surplus output token to the filler.
         if (surplusOut != 0) {
@@ -1400,6 +1308,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint64[] storage timestamps = _leaseCreationTimestampsByRealtor[realtor];
         uint256 len = timestamps.length;
 
+        // solhint-disable-next-line gas-strict-inequalities
         if (len >= maxLeases) {
             // Oldest timestamp among the most recent `maxLeases` creations.
             uint64 oldest = timestamps[len - maxLeases];
@@ -1424,6 +1333,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint64[] storage timestamps = _payoutConfigUpdateTimestampsByLessee[lessee];
         uint256 len = timestamps.length;
 
+        // solhint-disable-next-line gas-strict-inequalities
         if (len >= maxUpdates) {
             // Oldest timestamp among the most recent `maxUpdates` updates.
             uint64 oldest = timestamps[len - maxUpdates];
@@ -1434,6 +1344,141 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // Append timestamp for this update (arrays grow unbounded by design).
         timestamps.push(nowTs);
     }
+
+    /// @notice Enforce all non-route preconditions for `createLease`.
+    /// @param realtor Realtor creating the lease (must be whitelisted).
+    /// @param receiverSalt CREATE2 receiver salt for the deterministic Tron receiver.
+    /// @param nukeableAfter Earliest time at which a subsequent lease for this receiver may be created.
+    /// @param leaseFeePpm Lease fee in ppm to validate against configured floors/bounds.
+    /// @param targetChainId Destination chain id to validate against deprecations.
+    function _enforceCreateLeasePreconditions(
+        address realtor,
+        bytes32 receiverSalt,
+        uint64 nukeableAfter,
+        uint32 leaseFeePpm,
+        uint256 targetChainId
+    ) internal {
+        // Realtors are the only actors allowed to create leases.
+        if (!isRealtor[realtor]) revert NotRealtor();
+
+        // Apply effective (protocol-wide or realtor override) rate limiting.
+        _enforceLeaseRateLimit(realtor);
+
+        // Enforce fee bounds and floors.
+        uint256 minFee = _minLeaseFeePpm(realtor);
+        if (leaseFeePpm < minFee || leaseFeePpm > _PPM_DENOMINATOR) revert LeaseFeeTooLow();
+
+        // Disallow creating leases that immediately target a deprecated chain.
+        if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
+
+        // Prevent leases that are already nukeable (nukeableAfter must be in the future/present).
+        if (nukeableAfter < _leaseStartTime()) revert InvalidLeaseTimeframe();
+
+        // Uniqueness is enforced per receiver salt regardless of token.
+        uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
+        if (ids.length != 0) {
+            Lease storage last = leases[ids[ids.length - 1]];
+            // Disallow nuking before previous lease becomes nukeable.
+            if (block.timestamp < last.nukeableAfter) revert LeaseNotNukeableYet();
+        }
+    }
+
+    /// @notice Persist a newly created lease and append it to the receiver's lease timeline.
+    /// @param leaseId Newly allocated lease id.
+    /// @param receiverSalt CREATE2 receiver salt for the deterministic Tron receiver.
+    /// @param realtor Realtor creating the lease.
+    /// @param lessee Lessee that can later update payout config.
+    /// @param startTime Lease start time on this chain.
+    /// @param nukeableAfter Earliest time at which a subsequent lease for this receiver may be created.
+    /// @param leaseFeePpm Lease fee in ppm.
+    /// @param flatFee Flat fee component of the lease fee schedule.
+    /// @param targetChainId Destination chain for payouts.
+    /// @param targetToken Settlement token on this chain.
+    /// @param beneficiary Recipient of the payout.
+    function _storeLease(
+        uint256 leaseId,
+        bytes32 receiverSalt,
+        address realtor,
+        address lessee,
+        uint64 startTime,
+        uint64 nukeableAfter,
+        uint32 leaseFeePpm,
+        uint64 flatFee,
+        uint256 targetChainId,
+        address targetToken,
+        address beneficiary
+    ) internal {
+        Lease storage lease = leases[leaseId];
+        lease.receiverSalt = receiverSalt;
+        lease.realtor = realtor;
+        lease.lessee = lessee;
+        lease.startTime = startTime;
+        lease.nukeableAfter = nukeableAfter;
+        lease.leaseFeePpm = leaseFeePpm;
+        lease.flatFee = flatFee;
+
+        // Store payout configuration so that target chain configuration is
+        // available for owner-recommended bridging or direct payouts.
+        lease.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
+
+        // Append to the receiver's lease timeline.
+        _leaseIdsByReceiver[receiverSalt].push(leaseId);
+    }
+
+    /// @notice Consume a lease nonce and emit the updated value.
+    /// @param leaseId Lease whose nonce is being consumed.
+    /// @param nonce Current nonce value.
+    function _consumeLeaseNonce(uint256 leaseId, uint256 nonce) internal {
+        // Consume nonce (unchecked is safe: 2^256 wrap is not realistically reachable).
+        unchecked {
+            leaseNonces[leaseId] = nonce + 1;
+        }
+        _emitLeaseNonceUpdated(leaseId, nonce + 1);
+    }
+
+    /// @notice Persist payout config for future claims created by a lease.
+    /// @param lease Lease being updated.
+    /// @param config New payout configuration.
+    function _setLeasePayoutConfig(Lease storage lease, PayoutConfig calldata config) internal {
+        lease.payout = PayoutConfig({
+            targetChainId: config.targetChainId, targetToken: config.targetToken, beneficiary: config.beneficiary
+        });
+    }
+
+    /// @notice Hash-link a list of controller events starting from `tip`, emitting an index event per hop.
+    /// @param tip Starting tip (current `lastControllerEventTip`).
+    /// @param events Controller events to hash-link.
+    /// @return New tip after hashing all events.
+    function _hashLinkControllerEventsAndEmit(bytes32 tip, ControllerEvent[] calldata events)
+        internal
+        returns (bytes32)
+    {
+        uint256 n = events.length;
+        for (uint256 i = 0; i < n; ++i) {
+            ControllerEvent calldata ev = events[i];
+            _emitControllerEventChainTipUpdated(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data);
+            tip = sha256(abi.encodePacked(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data));
+        }
+        return tip;
+    }
+
+    /// @notice Enqueue controller events for later processing.
+    /// @param events Controller events to append to the processing queue.
+    function _enqueueControllerEvents(ControllerEvent[] calldata events) internal {
+        uint256 n = events.length;
+        for (uint256 i = 0; i < n; ++i) {
+            ControllerEvent calldata ev = events[i];
+            _controllerEvents.push(
+                ControllerEvent({
+                    sig: ev.sig, data: ev.data, blockNumber: ev.blockNumber, blockTimestamp: ev.blockTimestamp
+                })
+            );
+        }
+    }
+
+    /* solhint-disable function-max-lines */
+    // internally we've decided that _buildFillPlan function is tight enough,
+    // and splitting it would worsen readability
 
     /// @notice Builds a fill plan.
     /// @dev Build a `FillPlan` for filling up to `maxClaims` slots from `queue`, starting at `head`,
@@ -1527,6 +1572,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         plan.totalUsdt = totalUsdt;
         plan.expectedOutTotal = expectedOutTotal;
     }
+
+    /* solhint-enable function-max-lines */
 
     /// @notice Execute a previously computed `FillPlan` by settling each claim in `[startHead, startHead + processedSlots)`.
     /// @param targetToken The token used to settle swap/bridge claims (queue key).
@@ -1693,6 +1740,83 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                           INTERNAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Return the current lease start time (EVM `block.timestamp`) as `uint64`.
+    /// @return startTime Current timestamp as `uint64`.
+    function _leaseStartTime() internal view returns (uint64 startTime) {
+        // Record the lease start time as the EVM chain timestamp.
+        startTime = uint64(block.timestamp);
+    }
+
+    /// @notice Enforce that a payout config is valid to set (not deprecated + routable).
+    /// @param targetChainId_ Destination chain id.
+    /// @param targetToken_ Settlement token on this chain.
+    function _enforcePayoutConfigRoutable(uint256 targetChainId_, address targetToken_) internal view {
+        // this technically makes changing beneficiaries but not chains revert too
+        // but i think it's fine because hey mf you're the one who stops us from deprecating it
+        // Disallow setting deprecated chains even if only changing beneficiary.
+        if (isChainDeprecated[targetChainId_]) revert ChainDeprecated();
+        _resolveRoute(targetChainId_, targetToken_);
+    }
+
+    /// @notice Compute the EIP-712 digest for a payout config update.
+    /// @param leaseId Lease being updated.
+    /// @param targetChainId_ Destination chain id.
+    /// @param targetToken_ Settlement token on this chain.
+    /// @param beneficiary_ Recipient of the payout.
+    /// @param nonce Current per-lease nonce.
+    /// @param deadline Timestamp after which the signature is invalid.
+    /// @return digest EIP-712 digest to validate against the signature.
+    function _payoutConfigUpdateDigest(
+        uint256 leaseId,
+        uint256 targetChainId_,
+        address targetToken_,
+        address beneficiary_,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes32 digest) {
+        bytes32 typehash = _PAYOUT_CONFIG_UPDATE_TYPEHASH;
+
+        bytes32 structHash;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            // Load free memory pointer
+            let ptr := mload(0x40)
+
+            // abi.encode(
+            //   _PAYOUT_CONFIG_UPDATE_TYPEHASH,
+            //   leaseId,
+            //   targetChainId,
+            //   targetToken,
+            //   beneficiary,
+            //   nonce,
+            //   deadline
+            // )
+            mstore(ptr, typehash)
+            mstore(add(ptr, 0x20), leaseId)
+            mstore(add(ptr, 0x40), targetChainId_)
+            mstore(add(ptr, 0x60), targetToken_)
+            mstore(add(ptr, 0x80), beneficiary_)
+            mstore(add(ptr, 0xa0), nonce)
+            mstore(add(ptr, 0xc0), deadline)
+
+            structHash := keccak256(ptr, 0xe0)
+
+            // Update free memory pointer
+            mstore(0x40, add(ptr, 0xe0))
+        }
+
+        digest = _hashTypedData(structHash);
+    }
+
+    /// @notice Enforce a valid ECDSA/ERC-1271 signature.
+    /// @param signer Expected signer (lessee).
+    /// @param digest EIP-712 digest that was signed.
+    /// @param signature Signature bytes.
+    function _enforceValidSignature(address signer, bytes32 digest, bytes calldata signature) internal view {
+        bool ok = signer.isValidSignatureNow(digest, signature);
+        if (!ok) revert InvalidSignature();
+    }
+
     /// @notice Compute the effective minimum lease fee (ppm) for a given realtor.
     /// @param realtor Realtor to compute minimum for.
     /// @return minFeePpm The maximum of protocol-wide and realtor-specific fee floors.
@@ -1788,8 +1912,9 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             unchecked {
                 --i;
             }
-            Lease storage l = leases[ids[i]];
-            if (l.startTime <= ts) {
+            Lease storage lease = leases[ids[i]];
+            // solhint-disable-next-line gas-strict-inequalities
+            if (lease.startTime <= ts) {
                 leaseId = ids[i];
                 break;
             }
@@ -1797,14 +1922,14 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /// @notice Compute the net payout for `amountQ` raw volume under lease `l` after applying percentage and flat fees.
-    /// @param l Lease whose fees apply.
+    /// @param lease Lease whose fees apply.
     /// @param amountQ Raw recognized amount.
     /// @return netOut Net amount after fees (floored at 0).
-    function _computeNetOut(Lease storage l, uint256 amountQ) internal view returns (uint256 netOut) {
-        uint256 feePpm = l.leaseFeePpm;
+    function _computeNetOut(Lease storage lease, uint256 amountQ) internal view returns (uint256 netOut) {
+        uint256 feePpm = lease.leaseFeePpm;
         // Percentage-based payout after ppm fee.
         uint256 percentageOut = amountQ * (_PPM_DENOMINATOR - feePpm) / _PPM_DENOMINATOR;
-        uint256 flat = l.flatFee;
+        uint256 flat = lease.flatFee;
         if (percentageOut > flat) {
             unchecked {
                 netOut = percentageOut - flat;
@@ -1817,6 +1942,27 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /*//////////////////////////////////////////////////////////////
                           INTERNAL PURE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Decode an `isEventChainTip` call (plain or multicall-wrapped) and return the tip.
+    /// @param data Tron calldata bytes from the proved transaction.
+    /// @return tipNew The decoded event-chain tip.
+    function _decodeEventChainTip(bytes memory data) internal pure returns (bytes32 tipNew) {
+        // Extract the 4-byte selector from the Tron call data.
+        if (data.length < 4) revert TronInvalidCalldataLength();
+        bytes4 sel;
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            sel := shr(224, mload(add(data, 0x20)))
+        }
+
+        if (sel == _SELECTOR_IS_EVENT_CHAIN_TIP) {
+            return TronCalldataUtils.decodeIsEventChainTip(data);
+        }
+        if (sel == _SELECTOR_MULTICALL) {
+            return TronCalldataUtils.decodeMulticallEventChainTip(data, _SELECTOR_IS_EVENT_CHAIN_TIP);
+        }
+        revert NotEventChainTip();
+    }
 
     /// @notice Convert a `uint256` into `int256` with bounds checking.
     /// @param x Unsigned value to cast.

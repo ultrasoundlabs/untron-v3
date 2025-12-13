@@ -4913,13 +4913,14 @@ export const tronTxReaderAbi = [
     stateMutability: 'view',
   },
   { type: 'error', inputs: [], name: 'InvalidTxMerkleProof' },
+  { type: 'error', inputs: [], name: 'NoTronLightClient' },
   { type: 'error', inputs: [], name: 'NotTriggerSmartContract' },
+  { type: 'error', inputs: [], name: 'ProtoInvalidWireType' },
+  { type: 'error', inputs: [], name: 'ProtoTruncated' },
   { type: 'error', inputs: [], name: 'TronInvalidContractLength' },
   { type: 'error', inputs: [], name: 'TronInvalidContractPrefix' },
   { type: 'error', inputs: [], name: 'TronInvalidOwnerLength' },
   { type: 'error', inputs: [], name: 'TronInvalidOwnerPrefix' },
-  { type: 'error', inputs: [], name: 'TronProtoInvalidWireType' },
-  { type: 'error', inputs: [], name: 'TronProtoTruncated' },
   { type: 'error', inputs: [], name: 'TronTxNotSuccessful' },
 ] as const
 

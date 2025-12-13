@@ -3,67 +3,7 @@ pragma solidity ^0.8.26;
 
 import {TronLightClient} from "./TronLightClient.sol";
 import {TronSha256MerkleVerifier} from "../utils/TronSha256MerkleVerifier.sol";
-
-// Generic protobuf parsing errors (file-scoped so the library can use them)
-error TronProtoTruncated();
-error TronProtoInvalidWireType();
-
-/// @title ProtoVarint
-/// @author Untron
-/// @notice Minimal protobuf varint reader/skip utilities for parsing Tron protobuf-encoded transactions.
-/// @dev
-/// - Protobuf "varint" encoding is used for both keys (fieldNum + wireType) and integer values.
-/// - This library is intentionally tiny and opinionated: it supports only 64-bit varints and
-///   reverts (instead of returning error codes) on malformed/truncated input.
-library ProtoVarint {
-    /// @notice Reads a protobuf varint from `data` starting at `pos`, bounded by `limit`.
-    /// @dev Reverts with `TronProtoTruncated()` if the varint is malformed or extends past `limit`.
-    /// @param data The calldata byte array being parsed.
-    /// @param pos The starting offset within `data` (inclusive).
-    /// @param limit The maximum offset within `data` that may be read (exclusive).
-    /// @return value The decoded varint value.
-    /// @return newPos The first position in `data` after the varint.
-    function read(bytes calldata data, uint256 pos, uint256 limit)
-        internal
-        pure
-        returns (uint64 value, uint256 newPos)
-    {
-        uint64 v;
-        uint64 shift;
-
-        // Max 10 bytes for a 64-bit varint.
-        for (uint256 i = 0; i < 10; ++i) {
-            if (pos >= limit) revert TronProtoTruncated();
-            uint8 b = uint8(data[pos++]);
-            v |= uint64(b & 0x7F) << shift;
-            if ((b & 0x80) == 0) {
-                return (v, pos);
-            }
-            shift += 7;
-        }
-
-        // If we exit without returning, it’s malformed.
-        revert TronProtoTruncated();
-    }
-
-    /// @notice Skips over a protobuf varint at `pos`, bounded by `limit`.
-    /// @dev Reverts with `TronProtoTruncated()` if the varint is malformed or extends past `limit`.
-    /// @param data The calldata byte array being parsed.
-    /// @param pos The starting offset within `data` (inclusive).
-    /// @param limit The maximum offset within `data` that may be read (exclusive).
-    /// @return newPos The first position in `data` after the varint.
-    function skip(bytes calldata data, uint256 pos, uint256 limit) internal pure returns (uint256 newPos) {
-        // Max 10 bytes
-        for (uint256 i = 0; i < 10; ++i) {
-            if (pos >= limit) revert TronProtoTruncated();
-            uint8 b = uint8(data[pos++]);
-            if ((b & 0x80) == 0) {
-                return pos;
-            }
-        }
-        revert TronProtoTruncated();
-    }
-}
+import {ProtoVarint, ProtoTruncated, ProtoInvalidWireType} from "../utils/ProtoVarint.sol";
 
 /// @title TronTxReader
 /// @notice Stateless helper bound to a Tron light client that verifies inclusion and exposes
@@ -111,6 +51,7 @@ contract TronTxReader {
     TronLightClient public immutable TRON_LIGHT_CLIENT;
 
     // Errors
+    error NoTronLightClient();
     error InvalidTxMerkleProof();
     error NotTriggerSmartContract();
     error TronTxNotSuccessful();
@@ -122,7 +63,7 @@ contract TronTxReader {
     /// @notice Sets the Tron light client used for transaction inclusion verification and timestamps.
     /// @param tronLightClient_ The deployed `TronLightClient` address (must be non-zero).
     constructor(address tronLightClient_) {
-        require(tronLightClient_ != address(0), "LightClientZero");
+        if (tronLightClient_ == address(0)) revert NoTronLightClient();
         TRON_LIGHT_CLIENT = TronLightClient(tronLightClient_);
     }
 
@@ -189,10 +130,12 @@ contract TronTxReader {
         returns (TriggerSmartContract memory _partial)
     {
         (uint256 rawDataStart, uint256 rawDataEnd, bytes32 txId) = _parseRawData(encodedTx);
+        // solhint-disable-next-line gas-strict-inequalities
         assert(rawDataStart <= rawDataEnd && rawDataEnd <= encodedTx.length);
 
         // 1. Parse the single Contract in raw_data.
         (uint256 cStart, uint256 cEnd, uint64 cType) = _readSingleContract(encodedTx, rawDataStart, rawDataEnd);
+        // solhint-disable-next-line gas-strict-inequalities
         assert(cStart < cEnd && cEnd <= rawDataEnd);
 
         // 2. Enforce that it is a TriggerSmartContract.
@@ -293,25 +236,8 @@ contract TronTxReader {
 
                 (cStart, cEnd, cursor) = _readLength(tx_, cursor, rawDataEnd);
 
-                // Read contract type: field #1 (VARINT) inside the Contract message.
-                uint256 p = cStart;
                 bool foundType;
-                uint256 prevP = p;
-                while (p < cEnd) {
-                    prevP = p;
-
-                    uint64 cFieldNum;
-                    uint64 cWireType;
-                    (cFieldNum, cWireType, p) = _readKey(tx_, p, cEnd);
-                    assert(p > prevP); // Ensure forward progress
-                    if (cFieldNum == 1 && cWireType == _WIRE_VARINT) {
-                        (contractType, p) = ProtoVarint.read(tx_, p, cEnd);
-                        foundType = true;
-                        break;
-                    }
-                    p = _skipField(tx_, p, cEnd, cWireType);
-                }
-
+                (contractType, foundType) = _readContractType(tx_, cStart, cEnd);
                 if (!foundType) revert NotTriggerSmartContract();
 
                 // We’ve found the single contract and its type; we don’t care about later fields in raw_data.
@@ -322,6 +248,36 @@ contract TronTxReader {
         }
 
         if (!seenContract) revert NotTriggerSmartContract();
+    }
+
+    /// @notice Reads `Contract.type` (field #1) from a Tron `Contract` message.
+    /// @param tx_ The transaction data.
+    /// @param contractStart The start position of the contract data.
+    /// @param contractEnd The end position of the contract data.
+    /// @return contractType The type of the contract.
+    /// @return foundType Whether the contract type was found.
+    function _readContractType(bytes calldata tx_, uint256 contractStart, uint256 contractEnd)
+        internal
+        pure
+        returns (uint64 contractType, bool foundType)
+    {
+        uint256 p = contractStart;
+
+        // Monotonicity assertion: p must increase.
+        uint256 prevP = p;
+        while (p < contractEnd) {
+            prevP = p;
+
+            uint64 cFieldNum;
+            uint64 cWireType;
+            (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
+            assert(p > prevP); // Ensure forward progress
+            if (cFieldNum == 1 && cWireType == _WIRE_VARINT) {
+                (contractType, p) = ProtoVarint.read(tx_, p, contractEnd);
+                return (contractType, true);
+            }
+            p = _skipField(tx_, p, contractEnd, cWireType);
+        }
     }
 
     /// @notice Extracts the embedded `TriggerSmartContract` message from a `Contract`'s parameter field.
@@ -409,7 +365,8 @@ contract TronTxReader {
     /// @param start The start offset within `data` (inclusive).
     /// @return out The 21-byte value loaded from calldata.
     function _readBytes21(bytes calldata data, uint256 start) internal pure returns (bytes21 out) {
-        if (start + 21 > data.length) revert TronProtoTruncated();
+        if (start + 21 > data.length) revert ProtoTruncated();
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             out := calldataload(add(data.offset, start))
         }
@@ -482,14 +439,15 @@ contract TronTxReader {
         while (offset < totalLen && uint8(encodedTx[offset]) == 0x12) {
             prevOffset = offset;
 
-            offset++;
+            ++offset;
             uint64 sigLen;
             (sigLen, offset) = ProtoVarint.read(encodedTx, offset, totalLen);
             assert(offset > prevOffset); // Ensure forward progress
             offset = _advance(offset, uint256(sigLen), totalLen);
         }
+        // solhint-disable-next-line gas-strict-inequalities
         if (offset >= totalLen || uint8(encodedTx[offset]) != 0x2A) return true;
-        offset++;
+        ++offset;
         uint256 resStart;
         uint256 resEnd;
         (resStart, resEnd,) = _readLength(encodedTx, offset, totalLen);
@@ -535,7 +493,7 @@ contract TronTxReader {
         (len, cursor) = ProtoVarint.read(data, cursor, limit);
         start = cursor;
         uint256 ulen = uint256(len);
-        if (ulen > limit - cursor) revert TronProtoTruncated();
+        if (ulen > limit - cursor) revert ProtoTruncated();
         end = cursor + ulen;
         return (start, end, end);
     }
@@ -576,18 +534,18 @@ contract TronTxReader {
         }
         if (wireType == _WIRE_FIXED32) return _advance(cursor, 4, limit);
         if (wireType == _WIRE_FIXED64) return _advance(cursor, 8, limit);
-        revert TronProtoInvalidWireType();
+        revert ProtoInvalidWireType();
     }
 
     /// @notice Advances `cursor` by `delta` bytes, bounded by `limit`.
-    /// @dev Reverts with `TronProtoTruncated()` if advancing would exceed `limit`.
+    /// @dev Reverts with `ProtoTruncated()` if advancing would exceed `limit`.
     /// @param cursor The current cursor position.
     /// @param delta The number of bytes to advance.
     /// @param limit The maximum offset allowed (exclusive).
     /// @return The advanced cursor position (`cursor + delta`).
     function _advance(uint256 cursor, uint256 delta, uint256 limit) internal pure returns (uint256) {
         // Explicit non-overflow + bounds condition.
-        if (delta > limit - cursor) revert TronProtoTruncated();
+        if (delta > limit - cursor) revert ProtoTruncated();
         return cursor + delta;
     }
 
@@ -598,7 +556,7 @@ contract TronTxReader {
     /// @param end The end offset within `data` (exclusive).
     /// @return out The copied bytes slice in memory.
     function _slice(bytes calldata data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
-        if (end < start || end > data.length) revert TronProtoTruncated();
+        if (end < start || end > data.length) revert ProtoTruncated();
         uint256 len = end - start;
         out = new bytes(len);
         for (uint256 i = 0; i < len; ++i) {
