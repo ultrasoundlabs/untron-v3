@@ -32,6 +32,25 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         Bridge
     }
 
+    enum LeaseRateLimitMode {
+        Inherit,
+        Override,
+        Disabled
+    }
+
+    struct ProtocolConfig {
+        uint32 floorPpm;
+        uint32 leaseRateLimitMaxLeases;
+        uint32 leaseRateLimitWindowSeconds;
+    }
+
+    struct RealtorConfig {
+        uint32 minFeePpm;
+        uint32 leaseRateLimitMaxLeases;
+        uint32 leaseRateLimitWindowSeconds;
+        LeaseRateLimitMode leaseRateLimitMode;
+    }
+
     struct Route {
         RouteKind kind;
         uint256 ratePpm;
@@ -149,11 +168,14 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @notice Whitelisted realtors.
     mapping(address => bool) public isRealtor;
 
-    /// @notice Global protocol minimum fee in parts per million (applies to all Tron USDT volume).
-    uint256 public protocolFloorPpm;
+    /// @notice Protocol-wide configuration, managed by the owner.
+    ProtocolConfig internal protocolConfig;
 
-    /// @notice Realtor-specific minimum fee in parts per million (applies to all Tron USDT volume).
-    mapping(address => uint256) public realtorMinFeePpm;
+    /// @notice Realtor-specific configuration overrides, managed by the owner.
+    mapping(address => RealtorConfig) internal realtorConfig;
+
+    /// @notice Timeline of lease creations per realtor for rate limiting.
+    mapping(address => uint64[]) internal leaseCreationTimestampsByRealtor;
 
     /// @notice Signed protocol profit-and-loss (fees earned minus rebalance drift).
     int256 public protocolPnl;
@@ -222,6 +244,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     error NoBridger();
     error InvalidTargetToken();
     error AmountTooLargeForInt();
+    error LeaseRateLimitConfigInvalid();
+    error LeaseRateLimitExceeded();
 
     // Tron tx decoding errors (local copy of reader-side invariants)
     error TronInvalidCalldataLength();
@@ -281,15 +305,99 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @notice Set global protocol minimum fee in parts per million (applies to all Tron USDT volume).
     function setProtocolFloorPpm(uint256 floorPpm) external onlyOwner {
         if (floorPpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
-        protocolFloorPpm = floorPpm;
+        // casting to 'uint32' is safe because floorPpm <= PPM_DENOMINATOR (1_000_000)
+        // forge-lint: disable-next-line(unsafe-typecast)
+        protocolConfig.floorPpm = uint32(floorPpm);
         _emitProtocolFloorSet(floorPpm);
     }
 
     /// @notice Set realtor-specific minimum fee in parts per million (applies to all Tron USDT volume).
     function setRealtorMinFeePpm(address realtor, uint256 minFeePpm) external onlyOwner {
         if (minFeePpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
-        realtorMinFeePpm[realtor] = minFeePpm;
+        // casting to 'uint32' is safe because minFeePpm <= PPM_DENOMINATOR (1_000_000)
+        // forge-lint: disable-next-line(unsafe-typecast)
+        realtorConfig[realtor].minFeePpm = uint32(minFeePpm);
         _emitRealtorMinFeeSet(realtor, minFeePpm);
+    }
+
+    /// @notice Returns the protocol-wide minimum fee in parts per million.
+    /// @dev Preserves the legacy public getter name.
+    function protocolFloorPpm() public view returns (uint256) {
+        return uint256(protocolConfig.floorPpm);
+    }
+
+    /// @notice Returns the realtor-specific minimum fee override in parts per million.
+    /// @dev Preserves the legacy public getter name.
+    function realtorMinFeePpm(address realtor) public view returns (uint256) {
+        return uint256(realtorConfig[realtor].minFeePpm);
+    }
+
+    /// @notice Sets the protocol-wide lease creation rate limit for all realtors.
+    /// @dev Setting both values to 0 disables the protocol-wide rate limit.
+    function setProtocolLeaseRateLimit(uint256 maxLeases, uint256 windowSeconds) external onlyOwner {
+        if (maxLeases > type(uint32).max || windowSeconds > type(uint32).max) revert LeaseRateLimitConfigInvalid();
+        if ((maxLeases == 0) != (windowSeconds == 0)) revert LeaseRateLimitConfigInvalid();
+        // casting to 'uint32' is safe because we cap values to type(uint32).max above
+        // forge-lint: disable-next-line(unsafe-typecast)
+        protocolConfig.leaseRateLimitMaxLeases = uint32(maxLeases);
+        // casting to 'uint32' is safe because we cap values to type(uint32).max above
+        // forge-lint: disable-next-line(unsafe-typecast)
+        protocolConfig.leaseRateLimitWindowSeconds = uint32(windowSeconds);
+        _emitProtocolLeaseRateLimitSet(maxLeases, windowSeconds);
+    }
+
+    /// @notice Configure lease creation rate limiting for a specific realtor.
+    /// @dev `Inherit` uses the protocol-wide config, `Override` sets realtor-specific values, `Disabled` skips the check.
+    function setRealtorLeaseRateLimit(
+        address realtor,
+        LeaseRateLimitMode mode,
+        uint256 maxLeases,
+        uint256 windowSeconds
+    ) external onlyOwner {
+        RealtorConfig storage cfg = realtorConfig[realtor];
+        cfg.leaseRateLimitMode = mode;
+
+        if (mode == LeaseRateLimitMode.Override) {
+            if (maxLeases > type(uint32).max || windowSeconds > type(uint32).max) revert LeaseRateLimitConfigInvalid();
+            if (maxLeases == 0 || windowSeconds == 0) revert LeaseRateLimitConfigInvalid();
+            // casting to 'uint32' is safe because we cap values to type(uint32).max above
+            // forge-lint: disable-next-line(unsafe-typecast)
+            cfg.leaseRateLimitMaxLeases = uint32(maxLeases);
+            // casting to 'uint32' is safe because we cap values to type(uint32).max above
+            // forge-lint: disable-next-line(unsafe-typecast)
+            cfg.leaseRateLimitWindowSeconds = uint32(windowSeconds);
+        } else {
+            if (maxLeases != 0 || windowSeconds != 0) revert LeaseRateLimitConfigInvalid();
+            cfg.leaseRateLimitMaxLeases = 0;
+            cfg.leaseRateLimitWindowSeconds = 0;
+        }
+
+        _emitRealtorLeaseRateLimitSet(realtor, uint8(mode), maxLeases, windowSeconds);
+    }
+
+    /// @notice Returns the protocol-wide lease rate limit config.
+    function protocolLeaseRateLimit() external view returns (uint256 maxLeases, uint256 windowSeconds) {
+        ProtocolConfig storage cfg = protocolConfig;
+        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the raw realtor lease rate limit config (mode + values).
+    function realtorLeaseRateLimit(address realtor)
+        external
+        view
+        returns (LeaseRateLimitMode mode, uint256 maxLeases, uint256 windowSeconds)
+    {
+        RealtorConfig storage cfg = realtorConfig[realtor];
+        return (cfg.leaseRateLimitMode, cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the effective lease rate limit config for a realtor after applying overrides.
+    function effectiveLeaseRateLimit(address realtor)
+        external
+        view
+        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
+    {
+        (enabled, maxLeases, windowSeconds) = _effectiveLeaseRateLimit(realtor);
     }
 
     /// @notice Set or update the external Tron tx reader contract address.
@@ -348,9 +456,9 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     ) external returns (uint256 leaseId) {
         if (!isRealtor[msg.sender]) revert NotRealtor();
 
-        uint256 minFee = protocolFloorPpm;
-        uint256 realtorMin = realtorMinFeePpm[msg.sender];
-        if (realtorMin > minFee) minFee = realtorMin;
+        _enforceLeaseRateLimit(msg.sender);
+
+        uint256 minFee = _minLeaseFeePpm(msg.sender);
         if (leaseFeePpm < minFee || leaseFeePpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
 
@@ -706,6 +814,50 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /*//////////////////////////////////////////////////////////////
                            INTERNAL HELPERS
     //////////////////////////////////////////////////////////////*/
+
+    function _minLeaseFeePpm(address realtor) internal view returns (uint256) {
+        uint256 minFee = uint256(protocolConfig.floorPpm);
+        uint256 realtorMin = uint256(realtorConfig[realtor].minFeePpm);
+        if (realtorMin > minFee) minFee = realtorMin;
+        return minFee;
+    }
+
+    function _effectiveLeaseRateLimit(address realtor)
+        internal
+        view
+        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
+    {
+        RealtorConfig storage rcfg = realtorConfig[realtor];
+        LeaseRateLimitMode mode = rcfg.leaseRateLimitMode;
+        if (mode == LeaseRateLimitMode.Disabled) return (false, 0, 0);
+
+        if (mode == LeaseRateLimitMode.Override) {
+            maxLeases = rcfg.leaseRateLimitMaxLeases;
+            windowSeconds = rcfg.leaseRateLimitWindowSeconds;
+        } else {
+            ProtocolConfig storage pcfg = protocolConfig;
+            maxLeases = pcfg.leaseRateLimitMaxLeases;
+            windowSeconds = pcfg.leaseRateLimitWindowSeconds;
+        }
+
+        enabled = (maxLeases != 0 && windowSeconds != 0);
+    }
+
+    function _enforceLeaseRateLimit(address realtor) internal {
+        (bool enabled, uint256 maxLeases, uint256 windowSeconds) = _effectiveLeaseRateLimit(realtor);
+        if (!enabled) return;
+
+        uint64 nowTs = uint64(block.timestamp);
+        uint64[] storage timestamps = leaseCreationTimestampsByRealtor[realtor];
+        uint256 len = timestamps.length;
+
+        if (len >= maxLeases) {
+            uint64 oldest = timestamps[len - maxLeases];
+            if (uint256(nowTs) < uint256(oldest) + windowSeconds) revert LeaseRateLimitExceeded();
+        }
+
+        timestamps.push(nowTs);
+    }
 
     function _resolveRoute(uint256 targetChainId, address targetToken) internal view returns (Route memory r) {
         if (targetToken == address(0)) revert InvalidTargetToken();
