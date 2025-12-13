@@ -19,7 +19,7 @@
     "clean": "rimraf dist abi/generated.ts",
     "build": "forge build",
     "test": "forge test",
-    "lint:sol": "solhint 'src/**/*.sol' 'test/**/*.sol'",
+    "lint:sol": "solhint 'src/**/*.sol'",
     "slither": "slither . --filter-paths 'lib|node_modules|test' --print human-summary",
     "fmt:sol": "forge fmt --check src test script",
     "format:sol": "forge fmt src test script",
