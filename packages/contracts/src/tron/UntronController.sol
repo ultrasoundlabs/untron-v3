@@ -554,6 +554,16 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         // compare against the caller-provided value to enforce invariants at
         // the controller layer.
         bytes memory data = abi.encodeWithSelector(IRebalancer.rebalance.selector, usdt, inAmount, payload);
+
+        // In UntronController, rebalancers are specified by the owner (admin), thus are trusted.
+        // (See first line, where if the payload for this rebalancer is not specified, we revert with RouteNotSet).
+        // One of owner's responsibilities is to ensure that the rebalancer address is correct and secure,
+        // and that the rebalancer implementation is stateless and can't perform malicious actions
+        // no matter what input was given by the permissionless relayer.
+        // A good implementation example of such rebalancer is LegacyMeshRebalancer,
+        // that uses no state and operates with exactly inAmount of USDT in a trusted OFT contract
+        // defined in owner-specified payload.
+        // slither-disable-next-line controlled-delegatecall
         (bool ok, bytes memory ret) = rebalancer.delegatecall(data);
         if (!ok) {
             assembly {

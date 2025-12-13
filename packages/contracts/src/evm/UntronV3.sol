@@ -281,9 +281,19 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev `leaseId` is assigned monotonically starting from 1.
     mapping(uint256 => Lease) public leases;
 
+    // Slither may misdetect that _leaseIdsByReceiver is never initialized.
+    // This is not true: in createLease, the storage element is taken as an "ids"
+    // variable and is used to append a new lease ID to receiver salt-specific
+    // leases array.
+    // If you believe that this comment is no longer true under status quo code,
+    // please update the code respectively.
+    // slither-disable-start uninitialized-state
+
     /// @notice Timeline of leases per receiver salt.
     /// @dev The array is append-only. The "active lease at time T" is the last lease with `startTime <= T`.
     mapping(bytes32 => uint256[]) internal _leaseIdsByReceiver;
+
+    // slither-disable-end uninitialized-state
 
     /// @notice Whitelisted realtors.
     mapping(address => bool) public isRealtor;
@@ -296,11 +306,29 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Includes realtor-specific fee floors and rate limit override settings.
     mapping(address => RealtorConfig) internal _realtorConfig;
 
+    // Slither may misdetect that _leaseCreationTimestampsByRealtor is never initialized.
+    // This is not true: in _enforceLeaseRateLimit, the storage element is taken as a
+    // "timestamps" variable and is used to enforce lease creation rate limits.
+    // If you believe that this comment is no longer true under status quo code,
+    // please update the code respectively.
+    // slither-disable-start uninitialized-state
+
     /// @notice Timeline of lease creations per realtor for rate limiting.
     mapping(address => uint64[]) internal _leaseCreationTimestampsByRealtor;
 
+    // slither-disable-end uninitialized-state
+
+    // Slither may misdetect that _payoutConfigUpdateTimestampsByLessee is never initialized.
+    // This is not true: in _enforcePayoutConfigRateLimit, the storage element is taken as a
+    // "timestamps" variable and is used to enforce payout configuration update rate limits.
+    // If you believe that this comment is no longer true under status quo code,
+    // please update the code respectively.
+    // slither-disable-start uninitialized-state
+
     /// @notice Timeline of payout config updates per lessee for rate limiting.
     mapping(address => uint64[]) internal _payoutConfigUpdateTimestampsByLessee;
+
+    // slither-disable-end uninitialized-state
 
     /// @notice Signed protocol profit-and-loss (fees earned minus rebalance drift).
     /// @dev Positive deltas come from lease fees and favorable rebalances.
@@ -332,9 +360,18 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @notice Cursor into `_controllerEvents` indicating the next event to process.
     uint256 public nextControllerEventIndex;
 
+    // Slither may misdetect that claimsByTargetToken is never initialized.
+    // This is not true: in _enqueueClaimForTargetToken, the storage element is taken as a
+    // "queue" variable and is used to add a claim to the target-token-specific claim queue.
+    // If you believe that this comment is no longer true under status quo code,
+    // please update the code respectively.
+    // slither-disable-start uninitialized-state
+
     /// @notice Per-target-token FIFO claim queues for grouped swap+bridge fills.
     /// @dev Each `targetToken` has its own queue so fills can amortize swaps/bridges.
     mapping(address => Claim[]) public claimsByTargetToken;
+
+    // slither-disable-end uninitialized-state
 
     /// @notice Per-target-token head index (cursor) for grouped queues.
     /// @dev We do not pop from arrays; instead we advance this cursor and tombstone filled claims with `amountUsdt = 0`.

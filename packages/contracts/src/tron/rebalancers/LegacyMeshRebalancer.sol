@@ -71,6 +71,12 @@ contract LegacyMeshRebalancer is IRebalancer {
         MessagingFee memory msgFee = oft.quoteSend(sp, false);
 
         // Execute the bridge send from controller context; refund to controller
+
+        // In LegacyMeshRebalancer, oft address is taken from the payload
+        // specified by UntronController's owner (admin), thus is trusted.
+        // One of owner's responsibilities is to ensure that the oft address
+        // is correct and secure.
+        // slither-disable-next-line arbitrary-send-eth
         oft.send{value: msgFee.nativeFee}(sp, msgFee, address(this));
 
         // Return the expected out amount so the caller can enforce invariants.

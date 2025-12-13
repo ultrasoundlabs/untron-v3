@@ -53,6 +53,10 @@ library TokenUtils {
     /// @param amount The amount to transfer.
     function transferFrom(address token, address from, address payable recipient, uint256 amount) internal {
         if (token != address(0)) {
+            // TokenUtils is a library agnostic to who we're transferring from.
+            // Ensuring that 'from' is 'msg.sender' or acknowledging not doing it
+            // is the responsibility of the caller.
+            // slither-disable-next-line arbitrary-send-erc20
             SafeTransferLib.safeTransferFrom({token: token, from: from, to: recipient, amount: amount});
         }
     }
