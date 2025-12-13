@@ -24,54 +24,64 @@ interface ITokenMessengerV2 {
 
 /// @notice Simple, stateless CCTP V2 bridger (USDC-only).
 /// @dev Uses Standard Transfer params: destinationCaller=0x0 (anyone can relay),
-///      maxFee=0, minFinalityThreshold=2000 (standard).
+///      maxFee=1 bps (rounded up), minFinalityThreshold=1000 (fast finality).
 contract CCTPV2Bridger is IBridger, Ownable {
     error NotUntron();
     error UnsupportedToken(address token);
     error UnsupportedChainId(uint256 chainId);
     error ZeroBeneficiary();
     error ApproveFailed();
+    error InsufficientUsdcBalance(uint256 balance, uint256 required);
 
     /// @notice The only caller allowed to initiate a burn (expected to be UntronV3).
-    address public immutable untron;
+    address public immutable UNTRON;
 
     /// @notice Circle TokenMessengerV2 on this chain.
-    ITokenMessengerV2 public immutable tokenMessengerV2;
+    ITokenMessengerV2 public immutable TOKEN_MESSENGER_V2;
 
     /// @notice The only supported token (CCTP burns/mints USDC).
-    IERC20 public immutable usdc;
+    IERC20 public immutable USDC;
 
-    uint32 internal constant FINALITY_STANDARD = 2000;
+    uint32 internal constant FINALITY_STANDARD = 1000; // fast finality
+    uint256 internal constant ONE_BPS_DENOMINATOR = 10_000;
 
-    constructor(address _untron, address _tokenMessengerV2, address _usdc) {
-        untron = _untron;
-        tokenMessengerV2 = ITokenMessengerV2(_tokenMessengerV2);
-        usdc = IERC20(_usdc);
+    constructor(address untron, address tokenMessengerV2, address usdc) {
+        UNTRON = untron;
+        TOKEN_MESSENGER_V2 = ITokenMessengerV2(tokenMessengerV2);
+        USDC = IERC20(usdc);
         _initializeOwner(msg.sender);
     }
 
     /// @inheritdoc IBridger
     function bridge(address token, uint256 amount, uint256 targetChainId, address beneficiary) external {
-        if (msg.sender != untron) revert NotUntron();
+        if (msg.sender != UNTRON) revert NotUntron();
         if (beneficiary == address(0)) revert ZeroBeneficiary();
-        if (token != address(usdc)) revert UnsupportedToken(token);
+        if (token != address(USDC)) revert UnsupportedToken(token);
 
         uint32 destinationDomain = _circleDomainForChainId(targetChainId);
 
-        // Approve TokenMessengerV2 to pull `amount` USDC from this contract to burn.
-        if (!usdc.approve(address(tokenMessengerV2), amount)) revert ApproveFailed();
+        // `amount` is the desired mint amount on destination; provide the maxFee from this contract's balance.
+        uint256 maxFee = amount / ONE_BPS_DENOMINATOR;
+        if (amount % ONE_BPS_DENOMINATOR != 0) maxFee += 1;
+        uint256 burnAmount = amount + maxFee;
+
+        uint256 balance = USDC.balanceOf(address(this));
+        if (balance < burnAmount) revert InsufficientUsdcBalance(balance, burnAmount);
+
+        // Approve TokenMessengerV2 to pull `burnAmount` USDC from this contract to burn (amount + fee).
+        if (!USDC.approve(address(TOKEN_MESSENGER_V2), burnAmount)) revert ApproveFailed();
 
         // Convert EVM address to bytes32 (left-padded) as required by CCTP.
         bytes32 mintRecipient = bytes32(uint256(uint160(beneficiary)));
 
-        ITokenMessengerV2(tokenMessengerV2)
+        ITokenMessengerV2(TOKEN_MESSENGER_V2)
             .depositForBurn(
-                amount,
+                burnAmount,
                 destinationDomain,
                 mintRecipient,
                 token,
                 bytes32(0), // destinationCaller = 0 => anyone can call receiveMessage on destination
-                0, // maxFee = 0 for standard transfer
+                maxFee, // maxFee = 1 bps (rounded up)
                 FINALITY_STANDARD
             );
     }
