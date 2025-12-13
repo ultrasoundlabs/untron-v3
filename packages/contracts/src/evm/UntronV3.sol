@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {UntronV3IndexedOwnable} from "./UntronV3Index.sol";
 import {TronTxReader} from "./TronTxReader.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
 import {IBridger} from "./bridgers/interfaces/IBridger.sol";
@@ -14,194 +15,11 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
-
-/// @title  UntronV3Index
-/// @notice Hash-chain-based event index for Untron V3 hub, friendly to offchain indexers.
-/// @dev    UntronV3 must not emit events itself. All events must be defined and emitted through UntronV3Index.
-/// @author Ultrasound Labs
-contract UntronV3Index {
-    /*//////////////////////////////////////////////////////////////
-                                INDEXES
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice The hash of the latest event in the event chain.
-    /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
-    bytes32 public eventChainTip = EventChainGenesis.UntronControllerIndex;
-
-    /*//////////////////////////////////////////////////////////////
-                                  EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event UsdtSet(address indexed usdt);
-    event RealtorSet(address indexed realtor, bool allowed);
-    event ChainDeprecatedSet(uint256 indexed targetChainId, bool deprecated);
-    event ProtocolFloorSet(uint256 floorPpm);
-    event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
-    event TronUsdtSet(address indexed tronUsdt);
-    event SwapRateSet(address indexed targetToken, uint256 ratePpm);
-    event BridgerSet(address indexed targetToken, uint256 indexed targetChainId, address bridger);
-
-    event LeaseCreated(
-        uint256 indexed leaseId,
-        bytes32 indexed receiverSalt,
-        address realtor,
-        address lessee,
-        uint64 startTime,
-        uint64 nukeableAfter,
-        uint32 leaseFeePpm,
-        uint64 flatFee
-    );
-
-    event PayoutConfigUpdated(uint256 indexed leaseId, uint256 targetChainId, address targetToken, address beneficiary);
-
-    // forge-lint: disable-next-line(mixed-case-variable)
-    event ClaimCreated(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
-    // forge-lint: disable-next-line(mixed-case-variable)
-    event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUSDT);
-
-    event DepositPreEntitled(bytes32 indexed txId, uint256 indexed leaseId, uint256 rawAmount, uint256 netOut);
-
-    event LpDeposited(address indexed lp, uint256 amount);
-    event LpWithdrawn(address indexed lp, uint256 amount);
-    event TronReaderSet(address indexed reader);
-
-    // Protocol PnL update reason codes.
-    enum PnlReason {
-        FEE, // positive
-        REBALANCE, // positive
-        WITHDRAWAL, // negative
-        RECEIVER_PULL_NO_LEASE // positive
-    }
-
-    event ProtocolPnlUpdated(int256 pnl, int256 delta, PnlReason reason);
-    event TokensRescued(address token, uint256 amount);
-
-    /*//////////////////////////////////////////////////////////////
-                APPEND EVENT CHAIN IMPLEMENTATION
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Appends an event to the event chain.
-    /// @param eventSignature The signature of the event.
-    /// @param abiEncodedEventData The ABI-encoded data of the event.
-    function _appendEventChain(bytes32 eventSignature, bytes memory abiEncodedEventData) internal {
-        eventChainTip =
-            sha256(abi.encodePacked(eventChainTip, block.number, block.timestamp, eventSignature, abiEncodedEventData));
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            EMITTERS
-    //////////////////////////////////////////////////////////////*/
-
-    function _emitUsdtSet(address usdt_) internal {
-        _appendEventChain(UsdtSet.selector, abi.encode(usdt_));
-        emit UsdtSet(usdt_);
-    }
-
-    function _emitRealtorSet(address realtor, bool allowed) internal {
-        _appendEventChain(RealtorSet.selector, abi.encode(realtor, allowed));
-        emit RealtorSet(realtor, allowed);
-    }
-
-    function _emitChainDeprecatedSet(uint256 targetChainId, bool deprecated) internal {
-        _appendEventChain(ChainDeprecatedSet.selector, abi.encode(targetChainId, deprecated));
-        emit ChainDeprecatedSet(targetChainId, deprecated);
-    }
-
-    function _emitProtocolFloorSet(uint256 floorPpm) internal {
-        _appendEventChain(ProtocolFloorSet.selector, abi.encode(floorPpm));
-        emit ProtocolFloorSet(floorPpm);
-    }
-
-    function _emitRealtorMinFeeSet(address realtor, uint256 minFeePpm) internal {
-        _appendEventChain(RealtorMinFeeSet.selector, abi.encode(realtor, minFeePpm));
-        emit RealtorMinFeeSet(realtor, minFeePpm);
-    }
-
-    function _emitTronReaderSet(address reader) internal {
-        _appendEventChain(TronReaderSet.selector, abi.encode(reader));
-        emit TronReaderSet(reader);
-    }
-
-    function _emitTronUsdtSet(address tronUsdt) internal {
-        _appendEventChain(TronUsdtSet.selector, abi.encode(tronUsdt));
-        emit TronUsdtSet(tronUsdt);
-    }
-
-    function _emitSwapRateSet(address targetToken, uint256 ratePpm) internal {
-        _appendEventChain(SwapRateSet.selector, abi.encode(targetToken, ratePpm));
-        emit SwapRateSet(targetToken, ratePpm);
-    }
-
-    function _emitBridgerSet(address targetToken, uint256 targetChainId, address bridger) internal {
-        _appendEventChain(BridgerSet.selector, abi.encode(targetToken, targetChainId, bridger));
-        emit BridgerSet(targetToken, targetChainId, bridger);
-    }
-
-    function _emitLeaseCreated(
-        uint256 leaseId,
-        bytes32 receiverSalt,
-        address realtor,
-        address lessee,
-        uint64 startTime,
-        uint64 nukeableAfter,
-        uint32 leaseFeePpm,
-        uint64 flatFee
-    ) internal {
-        _appendEventChain(
-            LeaseCreated.selector,
-            abi.encode(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee)
-        );
-        emit LeaseCreated(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
-    }
-
-    function _emitPayoutConfigUpdated(uint256 leaseId, uint256 targetChainId, address targetToken, address beneficiary)
-        internal
-    {
-        _appendEventChain(PayoutConfigUpdated.selector, abi.encode(leaseId, targetChainId, targetToken, beneficiary));
-        emit PayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
-    }
-
-    // forge-lint: disable-next-line(mixed-case-variable)
-    function _emitClaimCreated(uint256 claimIndex, uint256 leaseId, uint256 amountUSDT) internal {
-        _appendEventChain(ClaimCreated.selector, abi.encode(claimIndex, leaseId, amountUSDT));
-        emit ClaimCreated(claimIndex, leaseId, amountUSDT);
-    }
-
-    // forge-lint: disable-next-line(mixed-case-variable)
-    function _emitClaimFilled(uint256 claimIndex, uint256 leaseId, uint256 amountUSDT) internal {
-        _appendEventChain(ClaimFilled.selector, abi.encode(claimIndex, leaseId, amountUSDT));
-        emit ClaimFilled(claimIndex, leaseId, amountUSDT);
-    }
-
-    function _emitDepositPreEntitled(bytes32 txId, uint256 leaseId, uint256 rawAmount, uint256 netOut) internal {
-        _appendEventChain(DepositPreEntitled.selector, abi.encode(txId, leaseId, rawAmount, netOut));
-        emit DepositPreEntitled(txId, leaseId, rawAmount, netOut);
-    }
-
-    function _emitLpDeposited(address lp, uint256 amount) internal {
-        _appendEventChain(LpDeposited.selector, abi.encode(lp, amount));
-        emit LpDeposited(lp, amount);
-    }
-
-    function _emitLpWithdrawn(address lp, uint256 amount) internal {
-        _appendEventChain(LpWithdrawn.selector, abi.encode(lp, amount));
-        emit LpWithdrawn(lp, amount);
-    }
-
-    function _emitProtocolPnlUpdated(int256 pnl, int256 delta, PnlReason reason) internal {
-        _appendEventChain(ProtocolPnlUpdated.selector, abi.encode(pnl, delta, reason));
-        emit ProtocolPnlUpdated(pnl, delta, reason);
-    }
-
-    function _emitTokensRescued(address token, uint256 amount) internal {
-        _appendEventChain(TokensRescued.selector, abi.encode(token, amount));
-        emit TokensRescued(token, amount);
-    }
-}
 
 /// @title Hub contract for Untron V3 protocol.
-contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, UntronV3Index {
+/// @dev UntronV3 must not emit events directly; all event emissions must go through UntronV3Index.
+/// @author Ultrasound Labs
+contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3IndexedOwnable {
     using SignatureCheckerLib for address;
 
     /*//////////////////////////////////////////////////////////////
@@ -501,7 +319,6 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
     function withdrawProtocolProfit(int256 amount) external onlyOwner {
         if (amount <= 0) revert ZeroAmount();
         if (amount > protocolPnl) revert InsufficientProtocolProfit();
-        protocolPnl -= amount;
         // casting to 'uint256' is safe because we revert negative values in the first line
         // forge-lint: disable-next-line(unsafe-typecast)
         TokenUtils.transfer(usdt, payable(msg.sender), uint256(amount));
@@ -568,6 +385,9 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
         ids.push(leaseId);
 
         _emitLeaseCreated(leaseId, receiverSalt, msg.sender, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
+        // this is slightly crutchy because we technically enshrine the initial config
+        // at creation time, but this simplifies indexing logic quite a bunch
+        _emitPayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
     }
 
     /// @notice Update payout configuration for an existing lease.
@@ -650,6 +470,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
         unchecked {
             leaseNonces[leaseId] = nonce + 1;
         }
+        _emitLeaseNonceUpdated(leaseId, nonce + 1);
 
         l.payout = PayoutConfig({
             targetChainId: config.targetChainId, targetToken: config.targetToken, beneficiary: config.beneficiary
@@ -751,6 +572,7 @@ contract UntronV3 is Create2Utils, EIP712, Ownable, ReentrancyGuard, Pausable, U
         uint256 n = events.length;
         for (uint256 i = 0; i < n; ++i) {
             ControllerEvent calldata ev = events[i];
+            _emitControllerEventChainTipUpdated(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data);
             tip = sha256(abi.encodePacked(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data));
         }
         if (tip != tipNew) revert EventTipMismatch();
