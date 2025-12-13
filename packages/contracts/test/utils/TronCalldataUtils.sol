@@ -30,29 +30,29 @@ contract TronCalldataUtilsHarness {
 }
 
 contract TronCalldataUtilsTest is Test {
-    TronCalldataUtilsHarness internal h;
+    TronCalldataUtilsHarness internal _h;
 
     function setUp() public {
-        h = new TronCalldataUtilsHarness();
+        _h = new TronCalldataUtilsHarness();
     }
 
     function test_evmToTronAddress_prefixAndBody() public view {
         address a = address(0x1234567890123456789012345678901234567890);
-        bytes21 got = h.evmToTron(a);
+        bytes21 got = _h.evmToTron(a);
         bytes21 expected = bytes21((uint168(0x41) << 160) | uint168(uint160(a)));
         assertEq(bytes32(got), bytes32(expected));
     }
 
     function test_decodeTrc20_transfer() public view {
-        bytes21 senderTron = h.evmToTron(address(0xAAAA));
+        bytes21 senderTron = _h.evmToTron(address(0xAAAA));
         address toAddr = address(0xBEEF);
         uint256 amount = 100;
 
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), toAddr, amount);
 
-        (bytes21 fromTron, bytes21 toTron, uint256 gotAmount) = h.decodeTrc20(data, senderTron);
+        (bytes21 fromTron, bytes21 toTron, uint256 gotAmount) = _h.decodeTrc20(data, senderTron);
         assertEq(bytes32(fromTron), bytes32(senderTron));
-        assertEq(bytes32(toTron), bytes32(h.evmToTron(toAddr)));
+        assertEq(bytes32(toTron), bytes32(_h.evmToTron(toAddr)));
         assertEq(gotAmount, amount);
     }
 
@@ -65,44 +65,44 @@ contract TronCalldataUtilsTest is Test {
             bytes4(keccak256("transferFrom(address,address,uint256)")), fromAddr, toAddr, amount
         );
 
-        (bytes21 fromTron, bytes21 toTron, uint256 gotAmount) = h.decodeTrc20(data, h.evmToTron(address(0)));
-        assertEq(bytes32(fromTron), bytes32(h.evmToTron(fromAddr)));
-        assertEq(bytes32(toTron), bytes32(h.evmToTron(toAddr)));
+        (bytes21 fromTron, bytes21 toTron, uint256 gotAmount) = _h.decodeTrc20(data, _h.evmToTron(address(0)));
+        assertEq(bytes32(fromTron), bytes32(_h.evmToTron(fromAddr)));
+        assertEq(bytes32(toTron), bytes32(_h.evmToTron(toAddr)));
         assertEq(gotAmount, amount);
     }
 
     function test_decodeTrc20_reverts_on_short_data() public {
-        bytes21 senderTron = h.evmToTron(address(0));
+        bytes21 senderTron = _h.evmToTron(address(0));
         vm.expectRevert(TronCalldataUtils.TronInvalidCalldataLength.selector);
-        h.decodeTrc20(hex"01", senderTron);
+        _h.decodeTrc20(hex"01", senderTron);
     }
 
     function test_decodeTrc20_reverts_on_bad_selector() public {
-        bytes21 senderTron = h.evmToTron(address(0));
+        bytes21 senderTron = _h.evmToTron(address(0));
         bytes memory data =
             abi.encodeWithSelector(bytes4(keccak256("approve(address,uint256)")), address(0x1), uint256(1));
         vm.expectRevert(TronCalldataUtils.NotATrc20Transfer.selector);
-        h.decodeTrc20(data, senderTron);
+        _h.decodeTrc20(data, senderTron);
     }
 
     function test_decodeTrc20_reverts_on_bad_length_transfer() public {
-        bytes21 senderTron = h.evmToTron(address(0));
+        bytes21 senderTron = _h.evmToTron(address(0));
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), address(0x1));
         vm.expectRevert(TronCalldataUtils.TronInvalidTrc20DataLength.selector);
-        h.decodeTrc20(data, senderTron);
+        _h.decodeTrc20(data, senderTron);
     }
 
     function test_decodeIsEventChainTip_ok() public view {
         bytes32 tip = keccak256("tip");
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("isEventChainTip(bytes32)")), tip);
-        assertEq(h.decodeIsTip(data), tip);
+        assertEq(_h.decodeIsTip(data), tip);
     }
 
     function test_decodeIsEventChainTip_reverts_on_bad_length() public {
         bytes32 tip = keccak256("tip");
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("isEventChainTip(bytes32)")), tip, uint256(1));
         vm.expectRevert(TronCalldataUtils.TronInvalidCalldataLength.selector);
-        h.decodeIsTip(data);
+        _h.decodeIsTip(data);
     }
 
     function test_decodeMulticallEventChainTip_standard_abi_finds_inner() public view {
@@ -116,7 +116,7 @@ contract TronCalldataUtilsTest is Test {
 
         bytes memory data = abi.encodeWithSelector(multicallSel, calls);
 
-        assertEq(h.decodeMulticallTip(data, isTipSel), tip);
+        assertEq(_h.decodeMulticallTip(data, isTipSel), tip);
     }
 
     function test_decodeMulticallEventChainTip_reverts_if_missing_standard() public {
@@ -129,6 +129,6 @@ contract TronCalldataUtilsTest is Test {
         bytes memory data = abi.encodeWithSelector(multicallSel, calls);
 
         vm.expectRevert(TronCalldataUtils.NoEventChainTipInMulticall.selector);
-        h.decodeMulticallTip(data, isTipSel);
+        _h.decodeMulticallTip(data, isTipSel);
     }
 }

@@ -12,11 +12,11 @@ import {UntronReceiver} from "../tron/UntronReceiver.sol";
 contract Create2Utils {
     // TODO: make it deploy minimal proxies maybe?
     // Chain-specific byte prefix used in CREATE2 address calculation (0xff for EVM, 0x41 for Tron).
-    bytes1 private immutable CREATE2_PREFIX;
+    bytes1 private immutable _CREATE2_PREFIX;
 
     constructor(bytes1 create2Prefix) {
         // TODO: maybe make it configurable?
-        CREATE2_PREFIX = create2Prefix;
+        _CREATE2_PREFIX = create2Prefix;
     }
 
     /// @dev Deploys the receiver contract using CREATE2 and the provided salt.
@@ -48,7 +48,7 @@ contract Create2Utils {
     function predictReceiverAddress(address controller, bytes32 salt) public view returns (address predicted) {
         predicted = address(
             uint160(
-                uint256(keccak256(abi.encodePacked(CREATE2_PREFIX, controller, salt, keccak256(receiverBytecode()))))
+                uint256(keccak256(abi.encodePacked(_CREATE2_PREFIX, controller, salt, keccak256(receiverBytecode()))))
             )
         );
     }

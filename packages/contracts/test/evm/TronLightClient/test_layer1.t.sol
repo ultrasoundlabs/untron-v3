@@ -6,21 +6,21 @@ import {TronLightClient} from "../../../src/evm/TronLightClient.sol";
 import {IBlockRangeProver} from "../../../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
 
 contract TronLightClientLayer1Test is Test {
-    TronLightClient internal client;
+    TronLightClient internal _client;
 
     // Fixture data
-    bytes32 internal startingBlockId;
-    bytes32 internal startingBlockTxTrieRoot;
-    bytes32 internal endingBlockId;
-    bytes32 internal endingBlockTxTrieRoot;
-    bytes internal metadata;
-    bytes internal sigs;
+    bytes32 internal _startingBlockId;
+    bytes32 internal _startingBlockTxTrieRoot;
+    bytes32 internal _endingBlockId;
+    bytes32 internal _endingBlockTxTrieRoot;
+    bytes internal _metadata;
+    bytes internal _sigs;
     // SR owner accounts (Tron witnesses).
-    bytes20[27] internal srs;
+    bytes20[27] internal _srs;
     // Delegatee signing keys for each SR index.
-    bytes20[27] internal witnessDelegatees;
-    uint256[] internal blockNumbers;
-    bytes32[] internal blockIds;
+    bytes20[27] internal _witnessDelegatees;
+    uint256[] internal _blockNumbers;
+    bytes32[] internal _blockIds;
 
     function setUp() public {
         // Read JSON fixture
@@ -35,21 +35,21 @@ contract TronLightClientLayer1Test is Test {
         string memory json = vm.readFile(path);
 
         // Parse primitive fields
-        startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
-        startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
+        _startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
+        _startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
         uint256 startingTimestampSec = vm.parseJsonUint(json, ".startingBlockTimestamp");
-        endingBlockId = vm.parseJsonBytes32(json, ".endingBlockId");
-        endingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".endingBlockTxTrieRoot");
+        _endingBlockId = vm.parseJsonBytes32(json, ".endingBlockId");
+        _endingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".endingBlockTxTrieRoot");
 
-        metadata = vm.parseJsonBytes(json, ".compressedTronBlockMetadata");
-        sigs = vm.parseJsonBytes(json, ".compressedSignatures");
+        _metadata = vm.parseJsonBytes(json, ".compressedTronBlockMetadata");
+        _sigs = vm.parseJsonBytes(json, ".compressedSignatures");
 
         // Parse blockNumbers and blockIds for additional checks
         {
             uint256[] memory numsDyn = vm.parseJsonUintArray(json, ".blockNumbers");
             bytes32[] memory idsDyn = vm.parseJsonBytes32Array(json, ".blockIds");
-            blockNumbers = numsDyn;
-            blockIds = idsDyn;
+            _blockNumbers = numsDyn;
+            _blockIds = idsDyn;
         }
 
         // Parse SRS as addresses (SR owner accounts), then cast to bytes20[27]
@@ -60,58 +60,58 @@ contract TronLightClientLayer1Test is Test {
         require(delegateeAddrs.length == 27, "fixture witnessDelegatees must be length 27");
 
         for (uint256 i = 0; i < 27; i++) {
-            srs[i] = bytes20(srsAddrs[i]);
-            witnessDelegatees[i] = bytes20(delegateeAddrs[i]);
+            _srs[i] = bytes20(srsAddrs[i]);
+            _witnessDelegatees[i] = bytes20(delegateeAddrs[i]);
         }
 
-        client = new TronLightClient(
+        _client = new TronLightClient(
             IBlockRangeProver(address(0)),
-            startingBlockId,
-            startingBlockTxTrieRoot,
+            _startingBlockId,
+            _startingBlockTxTrieRoot,
             // casting to 'uint32' is safe because startingTimestampSec is masked to 32 bits
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(startingTimestampSec & 0xFFFFFFFF),
-            srs,
-            witnessDelegatees
+            _srs,
+            _witnessDelegatees
         );
     }
 
     function test_proveBlocks_happyPath_fixture() public {
         // Call proveBlocks with the real Tron data
-        client.proveBlocks(startingBlockId, metadata, sigs);
+        _client.proveBlocks(_startingBlockId, _metadata, _sigs);
 
         // latestProvenBlock should be the endingBlockId from the fixture
-        assertEq(client.latestProvenBlock(), endingBlockId, "latestProvenBlock mismatch");
+        assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch");
 
         // The last block in the proven range should be present in the ring buffer.
-        uint256 numLast = blockNumbers[blockNumbers.length - 1];
+        uint256 numLast = _blockNumbers[_blockNumbers.length - 1];
 
-        assertEq(client.getBlockId(numLast), blockIds[blockIds.length - 1], "getBlockId(last) mismatch");
+        assertEq(_client.getBlockId(numLast), _blockIds[_blockIds.length - 1], "getBlockId(last) mismatch");
 
         // We intentionally DO NOT store every intermediate block in storage; only
         // anchor blocks (e.g. the initial and ending ones) are persisted. A
         // mid-range block lookup should therefore fail with BlockNotRelayed.
-        uint256 idxMid = blockNumbers.length / 2;
-        uint256 numMid = blockNumbers[idxMid];
+        uint256 idxMid = _blockNumbers.length / 2;
+        uint256 numMid = _blockNumbers[idxMid];
         vm.expectRevert(TronLightClient.BlockNotRelayed.selector);
-        client.getBlockId(numMid);
+        _client.getBlockId(numMid);
 
         // The starting anchor used in the constructor should also be present;
         // for this fixture it is the parent of blockNumbers[0].
-        uint256 parentNum = blockNumbers[0] - 1;
-        assertEq(client.getBlockId(parentNum), startingBlockId, "getBlockId(parent) mismatch");
+        uint256 parentNum = _blockNumbers[0] - 1;
+        assertEq(_client.getBlockId(parentNum), _startingBlockId, "getBlockId(parent) mismatch");
 
         // And the txTrieRoots for both the starting anchor and ending block should match the fixture.
-        assertEq(client.getTxTrieRoot(parentNum), startingBlockTxTrieRoot, "getTxTrieRoot(parent) mismatch");
-        assertEq(client.getTxTrieRoot(numLast), endingBlockTxTrieRoot, "getTxTrieRoot(last) mismatch");
+        assertEq(_client.getTxTrieRoot(parentNum), _startingBlockTxTrieRoot, "getTxTrieRoot(parent) mismatch");
+        assertEq(_client.getTxTrieRoot(numLast), _endingBlockTxTrieRoot, "getTxTrieRoot(last) mismatch");
     }
 
     function test_proveBlocks_revertsOnInvalidSignature() public {
         // Corrupt a single byte in the signatures to trigger InvalidWitnessSigner
-        bytes memory badSigs = sigs;
+        bytes memory badSigs = _sigs;
         badSigs[0] = bytes1(uint8(badSigs[0]) ^ 0x01);
 
         vm.expectRevert(TronLightClient.InvalidWitnessSigner.selector);
-        client.proveBlocks(startingBlockId, metadata, badSigs);
+        _client.proveBlocks(_startingBlockId, _metadata, badSigs);
     }
 }

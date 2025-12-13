@@ -15,7 +15,7 @@ contract TronLightClientHarness is TronLightClient {
     ) TronLightClient(p, initial, initialTxTrieRoot, initialTimestamp, srs_, witnessDelegatees_) {}
 
     function hashBlockPublic(TronBlockMetadata memory b, uint256 n) external view returns (bytes32) {
-        return hashBlock(b, n);
+        return _hashBlock(b, n);
     }
 
     function encodeBlockHeaderPublic(TronBlockMetadata memory b, uint256 n) external view returns (bytes memory) {

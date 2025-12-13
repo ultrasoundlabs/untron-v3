@@ -11,10 +11,10 @@ contract TronSha256MerkleVerifierHarness {
 }
 
 contract TronSha256MerkleVerifierTest is Test {
-    TronSha256MerkleVerifierHarness harness;
+    TronSha256MerkleVerifierHarness _harness;
 
     function setUp() public {
-        harness = new TronSha256MerkleVerifierHarness();
+        _harness = new TronSha256MerkleVerifierHarness();
     }
 
     function _fixtureProof() internal pure returns (bytes32 root, bytes32 leaf, bytes32[] memory proof, uint256 index) {
@@ -39,7 +39,7 @@ contract TronSha256MerkleVerifierTest is Test {
     function test_verify_AcceptsValidFixtureProof() public view {
         (bytes32 root, bytes32 leaf, bytes32[] memory proof, uint256 index) = _fixtureProof();
 
-        bool ok = harness.verify(root, leaf, proof, index);
+        bool ok = _harness.verify(root, leaf, proof, index);
         assertTrue(ok, "valid Tron tx Merkle proof should verify");
     }
 
@@ -49,8 +49,7 @@ contract TronSha256MerkleVerifierTest is Test {
         // Flip the lowest bit to get an obviously wrong leaf.
         leaf = bytes32(uint256(leaf) ^ uint256(1));
 
-        bool ok = harness.verify(root, leaf, proof, index);
+        bool ok = _harness.verify(root, leaf, proof, index);
         assertFalse(ok, "Merkle proof with wrong leaf must fail verification");
     }
 }
-

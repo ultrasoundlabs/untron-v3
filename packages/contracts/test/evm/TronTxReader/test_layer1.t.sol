@@ -7,12 +7,12 @@ import {MockTronLightClient} from "./mocks/MockTronLightClient.sol";
 
 /// @dev This test deploys TronTxReader and uses its public helpers.
 contract TronTxReaderTest is Test {
-    MockTronLightClient internal lightClient;
-    TronTxReader internal reader;
+    MockTronLightClient internal _lightClient;
+    TronTxReader internal _reader;
 
     // TRC-20 selectors used in fixture.
-    bytes4 internal constant SELECTOR_TRANSFER = bytes4(0xa9059cbb);
-    bytes4 internal constant SELECTOR_TRANSFER_FROM = bytes4(0x23b872dd);
+    bytes4 internal constant _SELECTOR_TRANSFER = bytes4(0xa9059cbb);
+    bytes4 internal constant _SELECTOR_TRANSFER_FROM = bytes4(0x23b872dd);
 
     // IMPORTANT: Field order must match the JSON object's key order for abi.decode to succeed.
     // JSON key order (per fixture):
@@ -36,8 +36,8 @@ contract TronTxReaderTest is Test {
 
     /// @notice Deploy a mock light client and the TronTxReader bound to it.
     function setUp() public {
-        lightClient = new MockTronLightClient();
-        reader = new TronTxReader(address(lightClient));
+        _lightClient = new MockTronLightClient();
+        _reader = new TronTxReader(address(_lightClient));
     }
 
     /// @notice Test decoding of real TRC-20 transactions using a fixture from Tron mainnet.
@@ -80,7 +80,7 @@ contract TronTxReaderTest is Test {
         assertTrue(trc20Txs.length > 0, "No TRC20 transactions in fixture");
 
         // Set the block timestamp in our mock light client.
-        lightClient.setBlockTimestamp(blockNumber, blockTimestamp);
+        _lightClient.setBlockTimestamp(blockNumber, blockTimestamp);
 
         // Loop through each TRC-20 transaction from the fixture.
         for (uint256 i = 0; i < trc20Txs.length; ++i) {
@@ -88,13 +88,13 @@ contract TronTxReaderTest is Test {
 
             // For proof verification, use the txLeaf as the root and an empty proof.
             // (This simulates a block with a single transaction for simplicity.)
-            lightClient.setTxTrieRoot(blockNumber, txJson.txLeaf);
+            _lightClient.setTxTrieRoot(blockNumber, txJson.txLeaf);
             bytes32[] memory proof = new bytes32[](0);
             uint256 index = 0;
 
             // Call the TronTxReader function to verify inclusion and extract generic call data.
             TronTxReader.TriggerSmartContract memory callData =
-                reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
+                _reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
 
             // **Validate metadata against expected fixture data.**
             assertEq(callData.tronBlockNumber, blockNumber, "Block number mismatch");
@@ -113,7 +113,7 @@ contract TronTxReaderTest is Test {
             assertEq(toTron, bytes21(txJson.toTron), "To address mismatch");
             uint256 expectedAmount = vm.parseUint(txJson.amount);
             assertEq(amount, expectedAmount, "Transfer amount mismatch");
-            bool isTransferFrom = _first4(callData.data) == SELECTOR_TRANSFER_FROM;
+            bool isTransferFrom = _first4(callData.data) == _SELECTOR_TRANSFER_FROM;
             assertEq(isTransferFrom, txJson.isTransferFrom, "Transfer type mismatch");
 
             // Selector sanity check.
@@ -121,7 +121,7 @@ contract TronTxReaderTest is Test {
 
             // No nullifier logic in stateless reader; calling again should succeed and match.
             TronTxReader.TriggerSmartContract memory callData2 =
-                reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
+                _reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
             assertEq(callData2.txId, callData.txId, "Repeated read txId mismatch");
         }
     }
@@ -152,10 +152,10 @@ contract TronTxReaderTest is Test {
     {
         if (data.length < 4) revert("Trc20CalldataTooShort");
         bytes4 sig = _first4(data);
-        if (sig == SELECTOR_TRANSFER) {
+        if (sig == _SELECTOR_TRANSFER) {
             (toTron, amount) = _decodeTrc20TransferArgs(data);
             fromTron = senderTron;
-        } else if (sig == SELECTOR_TRANSFER_FROM) {
+        } else if (sig == _SELECTOR_TRANSFER_FROM) {
             (fromTron, toTron, amount) = _decodeTrc20TransferFromArgs(data);
         } else {
             revert("NotATrc20Transfer");

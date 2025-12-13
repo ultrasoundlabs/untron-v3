@@ -80,20 +80,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         address beneficiary;
     }
 
-    /// @dev EIP-712 typehash for gasless payout config updates.
-    bytes32 internal constant PAYOUT_CONFIG_UPDATE_TYPEHASH = keccak256(
-        "PayoutConfigUpdate(uint256 leaseId,uint256 targetChainId,address targetToken,address beneficiary,uint256 nonce,uint256 deadline)"
-    );
-
-    /*//////////////////////////////////////////////////////////////
-                                     CONSTANTS
-    //////////////////////////////////////////////////////////////*/
-
-    // Parts-per-million denominator used for fee calculations (1_000_000 = 100%).
-    uint256 internal constant PPM_DENOMINATOR = 1_000_000;
-    /// @notice Denominator for target token rate tables.
-    uint256 internal constant RATE_DENOMINATOR = 1_000_000;
-
     /// @notice Lease scoped by receiver salt (not token).
     struct Lease {
         // Identity
@@ -136,8 +122,28 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /*//////////////////////////////////////////////////////////////
-                                 STORAGE
+                             STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
+
+    /// @dev EIP-712 typehash for gasless payout config updates.
+    bytes32 internal constant _PAYOUT_CONFIG_UPDATE_TYPEHASH = keccak256(
+        "PayoutConfigUpdate(uint256 leaseId,uint256 targetChainId,address targetToken,address beneficiary,uint256 nonce,uint256 deadline)"
+    );
+
+    // Parts-per-million denominator used for fee calculations (1_000_000 = 100%).
+    uint256 internal constant _PPM_DENOMINATOR = 1_000_000;
+    /// @notice Denominator for target token rate tables.
+    uint256 internal constant _RATE_DENOMINATOR = 1_000_000;
+
+    // UntronController _SELECTORs
+    bytes4 internal constant _SELECTOR_IS_EVENT_CHAIN_TIP = bytes4(keccak256("isEventChainTip(bytes32)"));
+    bytes4 internal constant _SELECTOR_MULTICALL = bytes4(keccak256("multicall(bytes[])"));
+
+    // UntronController event signatures used in the event chain
+    bytes32 internal constant _EVENT_SIG_PULLED_FROM_RECEIVER =
+        keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
+    bytes32 internal constant _EVENT_SIG_USDT_SET = keccak256("UsdtSet(address)");
+    bytes32 internal constant _EVENT_SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
 
     /// @notice The address of the UntronController contract on Tron (source chain), in EVM format.
     address public immutable CONTROLLER_ADDRESS;
@@ -165,22 +171,22 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     mapping(uint256 => Lease) public leases;
 
     /// @notice Timeline of leases per receiver salt.
-    mapping(bytes32 => uint256[]) internal leaseIdsByReceiver;
+    mapping(bytes32 => uint256[]) internal _leaseIdsByReceiver;
 
     /// @notice Whitelisted realtors.
     mapping(address => bool) public isRealtor;
 
     /// @notice Protocol-wide configuration, managed by the owner.
-    ProtocolConfig internal protocolConfig;
+    ProtocolConfig internal _protocolConfig;
 
     /// @notice Realtor-specific configuration overrides, managed by the owner.
-    mapping(address => RealtorConfig) internal realtorConfig;
+    mapping(address => RealtorConfig) internal _realtorConfig;
 
     /// @notice Timeline of lease creations per realtor for rate limiting.
-    mapping(address => uint64[]) internal leaseCreationTimestampsByRealtor;
+    mapping(address => uint64[]) internal _leaseCreationTimestampsByRealtor;
 
     /// @notice Timeline of payout config updates per lessee for rate limiting.
-    mapping(address => uint64[]) internal payoutConfigUpdateTimestampsByLessee;
+    mapping(address => uint64[]) internal _payoutConfigUpdateTimestampsByLessee;
 
     /// @notice Signed protocol profit-and-loss (fees earned minus rebalance drift).
     int256 public protocolPnl;
@@ -189,7 +195,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     mapping(address => uint256) public lpPrincipal;
 
     /// @notice Swap rate per token, in parts-per-million of USDT.
-    /// @dev Rate is expressed in swap destination token units per RATE_DENOMINATOR of USDT.
+    /// @dev Rate is expressed in swap destination token units per _RATE_DENOMINATOR of USDT.
     mapping(address => uint256) public swapRatePpm;
 
     /// @notice Officially used bridgers for bridging target tokens in claims
@@ -204,7 +210,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     bytes32 public lastControllerEventTip = EventChainGenesis.UntronControllerIndex;
 
     /// @notice Queue of controller events awaiting processing on EVM.
-    ControllerEvent[] internal controllerEvents;
+    ControllerEvent[] internal _controllerEvents;
     uint256 public nextControllerEventIndex;
 
     /// @notice Per-target-token FIFO claim queues for grouped swap+bridge fills.
@@ -258,20 +264,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     error TronInvalidCalldataLength();
 
     /*//////////////////////////////////////////////////////////////
-                              TRON CALL CONSTANTS
-    //////////////////////////////////////////////////////////////*/
-
-    // UntronController selectors
-    bytes4 internal constant SELECTOR_IS_EVENT_CHAIN_TIP = bytes4(keccak256("isEventChainTip(bytes32)"));
-    bytes4 internal constant SELECTOR_MULTICALL = bytes4(keccak256("multicall(bytes[])"));
-
-    // UntronController event signatures used in the event chain
-    bytes32 internal constant EVENT_SIG_PULLED_FROM_RECEIVER =
-        keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
-    bytes32 internal constant EVENT_SIG_USDT_SET = keccak256("UsdtSet(address)");
-    bytes32 internal constant EVENT_SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
-
-    /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
@@ -311,32 +303,20 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
     /// @notice Set global protocol minimum fee in parts per million (applies to all Tron USDT volume).
     function setProtocolFloorPpm(uint256 floorPpm) external onlyOwner {
-        if (floorPpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
-        // casting to 'uint32' is safe because floorPpm <= PPM_DENOMINATOR (1_000_000)
+        if (floorPpm > _PPM_DENOMINATOR) revert LeaseFeeTooLow();
+        // casting to 'uint32' is safe because floorPpm <= _PPM_DENOMINATOR (1_000_000)
         // forge-lint: disable-next-line(unsafe-typecast)
-        protocolConfig.floorPpm = uint32(floorPpm);
+        _protocolConfig.floorPpm = uint32(floorPpm);
         _emitProtocolFloorSet(floorPpm);
     }
 
     /// @notice Set realtor-specific minimum fee in parts per million (applies to all Tron USDT volume).
     function setRealtorMinFeePpm(address realtor, uint256 minFeePpm) external onlyOwner {
-        if (minFeePpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
-        // casting to 'uint32' is safe because minFeePpm <= PPM_DENOMINATOR (1_000_000)
+        if (minFeePpm > _PPM_DENOMINATOR) revert LeaseFeeTooLow();
+        // casting to 'uint32' is safe because minFeePpm <= _PPM_DENOMINATOR (1_000_000)
         // forge-lint: disable-next-line(unsafe-typecast)
-        realtorConfig[realtor].minFeePpm = uint32(minFeePpm);
+        _realtorConfig[realtor].minFeePpm = uint32(minFeePpm);
         _emitRealtorMinFeeSet(realtor, minFeePpm);
-    }
-
-    /// @notice Returns the protocol-wide minimum fee in parts per million.
-    /// @dev Preserves the legacy public getter name.
-    function protocolFloorPpm() public view returns (uint256) {
-        return uint256(protocolConfig.floorPpm);
-    }
-
-    /// @notice Returns the realtor-specific minimum fee override in parts per million.
-    /// @dev Preserves the legacy public getter name.
-    function realtorMinFeePpm(address realtor) public view returns (uint256) {
-        return uint256(realtorConfig[realtor].minFeePpm);
     }
 
     /// @notice Sets the protocol-wide lease creation rate limit for all realtors.
@@ -346,10 +326,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if ((maxLeases == 0) != (windowSeconds == 0)) revert LeaseRateLimitConfigInvalid();
         // casting to 'uint32' is safe because we cap values to type(uint32).max above
         // forge-lint: disable-next-line(unsafe-typecast)
-        protocolConfig.leaseRateLimitMaxLeases = uint32(maxLeases);
+        _protocolConfig.leaseRateLimitMaxLeases = uint32(maxLeases);
         // casting to 'uint32' is safe because we cap values to type(uint32).max above
         // forge-lint: disable-next-line(unsafe-typecast)
-        protocolConfig.leaseRateLimitWindowSeconds = uint32(windowSeconds);
+        _protocolConfig.leaseRateLimitWindowSeconds = uint32(windowSeconds);
         _emitProtocolLeaseRateLimitSet(maxLeases, windowSeconds);
     }
 
@@ -362,10 +342,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         if ((maxUpdates == 0) != (windowSeconds == 0)) revert PayoutConfigRateLimitConfigInvalid();
         // casting to 'uint32' is safe because we cap values to type(uint32).max above
         // forge-lint: disable-next-line(unsafe-typecast)
-        protocolConfig.payoutConfigRateLimitMaxUpdates = uint32(maxUpdates);
+        _protocolConfig.payoutConfigRateLimitMaxUpdates = uint32(maxUpdates);
         // casting to 'uint32' is safe because we cap values to type(uint32).max above
         // forge-lint: disable-next-line(unsafe-typecast)
-        protocolConfig.payoutConfigRateLimitWindowSeconds = uint32(windowSeconds);
+        _protocolConfig.payoutConfigRateLimitWindowSeconds = uint32(windowSeconds);
         _emitLesseePayoutConfigRateLimitSet(maxUpdates, windowSeconds);
     }
 
@@ -377,7 +357,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint256 maxLeases,
         uint256 windowSeconds
     ) external onlyOwner {
-        RealtorConfig storage cfg = realtorConfig[realtor];
+        RealtorConfig storage cfg = _realtorConfig[realtor];
         cfg.leaseRateLimitMode = mode;
 
         if (mode == LeaseRateLimitMode.Override) {
@@ -398,37 +378,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         _emitRealtorLeaseRateLimitSet(realtor, uint8(mode), maxLeases, windowSeconds);
     }
 
-    /// @notice Returns the protocol-wide lease rate limit config.
-    function protocolLeaseRateLimit() external view returns (uint256 maxLeases, uint256 windowSeconds) {
-        ProtocolConfig storage cfg = protocolConfig;
-        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
-    }
-
-    /// @notice Returns the protocol-wide payout config update rate limit for lessees.
-    function lesseePayoutConfigRateLimit() external view returns (uint256 maxUpdates, uint256 windowSeconds) {
-        ProtocolConfig storage cfg = protocolConfig;
-        return (cfg.payoutConfigRateLimitMaxUpdates, cfg.payoutConfigRateLimitWindowSeconds);
-    }
-
-    /// @notice Returns the raw realtor lease rate limit config (mode + values).
-    function realtorLeaseRateLimit(address realtor)
-        external
-        view
-        returns (LeaseRateLimitMode mode, uint256 maxLeases, uint256 windowSeconds)
-    {
-        RealtorConfig storage cfg = realtorConfig[realtor];
-        return (cfg.leaseRateLimitMode, cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
-    }
-
-    /// @notice Returns the effective lease rate limit config for a realtor after applying overrides.
-    function effectiveLeaseRateLimit(address realtor)
-        external
-        view
-        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
-    {
-        (enabled, maxLeases, windowSeconds) = _effectiveLeaseRateLimit(realtor);
-    }
-
     /// @notice Set or update the external Tron tx reader contract address.
     function setTronReader(address reader) external onlyOwner {
         tronReader = TronTxReader(reader);
@@ -436,7 +385,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /// @notice Set bridge rate for a target token (independent of destination chain).
-    /// @dev Rate is expressed in target token units per RATE_DENOMINATOR of USDT.
+    /// @dev Rate is expressed in target token units per _RATE_DENOMINATOR of USDT.
     function setSwapRate(address targetToken, uint256 ratePpm) external onlyOwner {
         if (targetToken == address(0)) revert InvalidTargetToken();
         if (ratePpm == 0) revert RateNotSet();
@@ -498,14 +447,14 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         _enforceLeaseRateLimit(msg.sender);
 
         uint256 minFee = _minLeaseFeePpm(msg.sender);
-        if (leaseFeePpm < minFee || leaseFeePpm > PPM_DENOMINATOR) revert LeaseFeeTooLow();
+        if (leaseFeePpm < minFee || leaseFeePpm > _PPM_DENOMINATOR) revert LeaseFeeTooLow();
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
 
         uint64 startTime = uint64(block.timestamp);
         if (nukeableAfter < startTime) revert InvalidLeaseTimeframe();
 
         // Uniqueness is enforced per receiver salt regardless of token.
-        uint256[] storage ids = leaseIdsByReceiver[receiverSalt];
+        uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
         if (ids.length != 0) {
             Lease storage last = leases[ids[ids.length - 1]];
             // Disallow nuking before previous lease becomes nukeable.
@@ -578,7 +527,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint256 targetChainId_ = config.targetChainId;
         address targetToken_ = config.targetToken;
         address beneficiary_ = config.beneficiary;
-        bytes32 typehash = PAYOUT_CONFIG_UPDATE_TYPEHASH;
+        bytes32 typehash = _PAYOUT_CONFIG_UPDATE_TYPEHASH;
 
         // this technically makes changing beneficiaries but not chains revert too
         // but i think it's fine because hey mf you're the one who stops us from deprecating it
@@ -591,7 +540,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             let ptr := mload(0x40)
 
             // abi.encode(
-            //   PAYOUT_CONFIG_UPDATE_TYPEHASH,
+            //   _PAYOUT_CONFIG_UPDATE_TYPEHASH,
             //   leaseId,
             //   config.targetChainId,
             //   config.targetToken,
@@ -710,10 +659,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             sel := shr(224, mload(add(data, 0x20)))
         }
 
-        if (sel == SELECTOR_IS_EVENT_CHAIN_TIP) {
+        if (sel == _SELECTOR_IS_EVENT_CHAIN_TIP) {
             tipNew = TronCalldataUtils.decodeIsEventChainTip(data);
-        } else if (sel == SELECTOR_MULTICALL) {
-            tipNew = TronCalldataUtils.decodeMulticallEventChainTip(data, SELECTOR_IS_EVENT_CHAIN_TIP);
+        } else if (sel == _SELECTOR_MULTICALL) {
+            tipNew = TronCalldataUtils.decodeMulticallEventChainTip(data, _SELECTOR_IS_EVENT_CHAIN_TIP);
         } else {
             revert NotEventChainTip();
         }
@@ -733,7 +682,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
         for (uint256 j = 0; j < n; ++j) {
             ControllerEvent calldata ev = events[j];
-            controllerEvents.push(
+            _controllerEvents.push(
                 ControllerEvent({
                     sig: ev.sig, data: ev.data, blockNumber: ev.blockNumber, blockTimestamp: ev.blockTimestamp
                 })
@@ -745,22 +694,22 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Applies only events UntronV3 cares about; unknown events are skipped but still advance the cursor.
     function processControllerEvents(uint256 maxEvents) external whenNotPaused {
         uint256 idx = nextControllerEventIndex;
-        uint256 end = controllerEvents.length;
+        uint256 end = _controllerEvents.length;
         uint256 processed;
 
         while (idx < end && processed < maxEvents) {
-            ControllerEvent storage ev = controllerEvents[idx];
+            ControllerEvent storage ev = _controllerEvents[idx];
             bytes32 sig = ev.sig;
 
-            if (sig == EVENT_SIG_PULLED_FROM_RECEIVER) {
+            if (sig == _EVENT_SIG_PULLED_FROM_RECEIVER) {
                 (bytes32 receiverSalt,/*token*/,/*tokenAmount*/,/* exchangeRate */, uint256 usdtAmount) =
                     abi.decode(ev.data, (bytes32, address, uint256, uint256, uint256));
                 _processReceiverPulled(receiverSalt, usdtAmount, ev.blockTimestamp);
-            } else if (sig == EVENT_SIG_USDT_SET) {
+            } else if (sig == _EVENT_SIG_USDT_SET) {
                 address newTronUsdt = abi.decode(ev.data, (address));
                 tronUsdt = newTronUsdt;
                 _emitTronUsdtSet(newTronUsdt);
-            } else if (sig == EVENT_SIG_USDT_REBALANCED) {
+            } else if (sig == _EVENT_SIG_USDT_REBALANCED) {
                 (
                     uint256 inAmount,
                     uint256 outAmount, /*rebalancer*/
@@ -848,6 +797,57 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
     }
 
+    /*//////////////////////////////////////////////////////////////
+                             EXTERNAL VIEW
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Returns the protocol-wide lease rate limit config.
+    function protocolLeaseRateLimit() external view returns (uint256 maxLeases, uint256 windowSeconds) {
+        ProtocolConfig storage cfg = _protocolConfig;
+        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the protocol-wide payout config update rate limit for lessees.
+    function lesseePayoutConfigRateLimit() external view returns (uint256 maxUpdates, uint256 windowSeconds) {
+        ProtocolConfig storage cfg = _protocolConfig;
+        return (cfg.payoutConfigRateLimitMaxUpdates, cfg.payoutConfigRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the raw realtor lease rate limit config (mode + values).
+    function realtorLeaseRateLimit(address realtor)
+        external
+        view
+        returns (LeaseRateLimitMode mode, uint256 maxLeases, uint256 windowSeconds)
+    {
+        RealtorConfig storage cfg = _realtorConfig[realtor];
+        return (cfg.leaseRateLimitMode, cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the effective lease rate limit config for a realtor after applying overrides.
+    function effectiveLeaseRateLimit(address realtor)
+        external
+        view
+        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
+    {
+        (enabled, maxLeases, windowSeconds) = _effectiveLeaseRateLimit(realtor);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                              PUBLIC VIEW
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Returns the protocol-wide minimum fee in parts per million.
+    /// @dev Preserves the legacy public getter name.
+    function protocolFloorPpm() public view returns (uint256) {
+        return uint256(_protocolConfig.floorPpm);
+    }
+
+    /// @notice Returns the realtor-specific minimum fee override in parts per million.
+    /// @dev Preserves the legacy public getter name.
+    function realtorMinFeePpm(address realtor) public view returns (uint256) {
+        return uint256(_realtorConfig[realtor].minFeePpm);
+    }
+
     /// @notice Returns the current USDT balance held by this contract.
     function usdtBalance() public view returns (uint256) {
         address usdt_ = usdt; // not sure if the compiler would optimize it into this anyway
@@ -856,43 +856,15 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /*//////////////////////////////////////////////////////////////
-                           INTERNAL HELPERS
+                           INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-
-    function _minLeaseFeePpm(address realtor) internal view returns (uint256) {
-        uint256 minFee = uint256(protocolConfig.floorPpm);
-        uint256 realtorMin = uint256(realtorConfig[realtor].minFeePpm);
-        if (realtorMin > minFee) minFee = realtorMin;
-        return minFee;
-    }
-
-    function _effectiveLeaseRateLimit(address realtor)
-        internal
-        view
-        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
-    {
-        RealtorConfig storage rcfg = realtorConfig[realtor];
-        LeaseRateLimitMode mode = rcfg.leaseRateLimitMode;
-        if (mode == LeaseRateLimitMode.Disabled) return (false, 0, 0);
-
-        if (mode == LeaseRateLimitMode.Override) {
-            maxLeases = rcfg.leaseRateLimitMaxLeases;
-            windowSeconds = rcfg.leaseRateLimitWindowSeconds;
-        } else {
-            ProtocolConfig storage pcfg = protocolConfig;
-            maxLeases = pcfg.leaseRateLimitMaxLeases;
-            windowSeconds = pcfg.leaseRateLimitWindowSeconds;
-        }
-
-        enabled = (maxLeases != 0 && windowSeconds != 0);
-    }
 
     function _enforceLeaseRateLimit(address realtor) internal {
         (bool enabled, uint256 maxLeases, uint256 windowSeconds) = _effectiveLeaseRateLimit(realtor);
         if (!enabled) return;
 
         uint64 nowTs = uint64(block.timestamp);
-        uint64[] storage timestamps = leaseCreationTimestampsByRealtor[realtor];
+        uint64[] storage timestamps = _leaseCreationTimestampsByRealtor[realtor];
         uint256 len = timestamps.length;
 
         if (len >= maxLeases) {
@@ -904,13 +876,13 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     function _enforcePayoutConfigRateLimit(address lessee) internal {
-        ProtocolConfig storage cfg = protocolConfig;
+        ProtocolConfig storage cfg = _protocolConfig;
         uint256 maxUpdates = cfg.payoutConfigRateLimitMaxUpdates;
         uint256 windowSeconds = cfg.payoutConfigRateLimitWindowSeconds;
         if (maxUpdates == 0 || windowSeconds == 0) return;
 
         uint64 nowTs = uint64(block.timestamp);
-        uint64[] storage timestamps = payoutConfigUpdateTimestampsByLessee[lessee];
+        uint64[] storage timestamps = _payoutConfigUpdateTimestampsByLessee[lessee];
         uint256 len = timestamps.length;
 
         if (len >= maxUpdates) {
@@ -919,30 +891,6 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
 
         timestamps.push(nowTs);
-    }
-
-    function _resolveRoute(uint256 targetChainId, address targetToken) internal view returns (Route memory r) {
-        if (targetToken == address(0)) revert InvalidTargetToken();
-
-        if (targetChainId == block.chainid) {
-            if (targetToken == usdt) {
-                return Route({kind: RouteKind.LocalUsdt, ratePpm: 0, bridger: address(0)});
-            }
-
-            uint256 rate = swapRatePpm[targetToken];
-            if (rate == 0) revert RateNotSet();
-
-            return Route({kind: RouteKind.LocalSwap, ratePpm: rate, bridger: address(0)});
-        }
-
-        IBridger bridger = bridgers[targetToken][targetChainId];
-
-        uint256 rate2 = swapRatePpm[targetToken];
-        if (rate2 == 0) revert RateNotSet();
-
-        if (address(bridger) == address(0)) revert NoBridger();
-
-        return Route({kind: RouteKind.Bridge, ratePpm: rate2, bridger: address(bridger)});
     }
 
     function _buildFillPlan(
@@ -991,7 +939,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                 TokenUtils.transfer(usdt, payable(c.beneficiary), amountUsdt);
                 _emitClaimFilled(head, c.leaseId, amountUsdt);
             } else {
-                uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, rt.ratePpm, RATE_DENOMINATOR);
+                uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, rt.ratePpm, _RATE_DENOMINATOR);
                 totalUsdt += amountUsdt;
                 expectedOutTotal += expectedOut;
             }
@@ -1025,13 +973,13 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                 RouteKind kind = plan.kinds[slot];
 
                 if (kind == RouteKind.LocalSwap) {
-                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], RATE_DENOMINATOR);
+                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], _RATE_DENOMINATOR);
                     if (expectedOut != 0) {
                         TokenUtils.transfer(targetToken, payable(plan.beneficiaries[slot]), expectedOut);
                     }
                     _emitClaimFilled(secondHead, c2.leaseId, amountUsdt);
                 } else if (kind == RouteKind.Bridge) {
-                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], RATE_DENOMINATOR);
+                    uint256 expectedOut = TokenUtils.mulDiv(amountUsdt, plan.ratesPpm[slot], _RATE_DENOMINATOR);
                     address bridger = plan.bridgers[slot];
 
                     if (expectedOut != 0) {
@@ -1087,7 +1035,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint256 remaining = usdtAmount;
 
         // Repay historical unbacked volume across leases for receiverSalt.
-        uint256[] storage ids = leaseIdsByReceiver[receiverSalt];
+        uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
         uint256 len = ids.length;
         for (uint256 j = 0; j < len && remaining != 0; ++j) {
             Lease storage oldL = leases[ids[j]];
@@ -1123,8 +1071,64 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
     }
 
+    /*//////////////////////////////////////////////////////////////
+                          INTERNAL VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function _minLeaseFeePpm(address realtor) internal view returns (uint256) {
+        uint256 minFee = uint256(_protocolConfig.floorPpm);
+        uint256 realtorMin = uint256(_realtorConfig[realtor].minFeePpm);
+        if (realtorMin > minFee) minFee = realtorMin;
+        return minFee;
+    }
+
+    function _effectiveLeaseRateLimit(address realtor)
+        internal
+        view
+        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
+    {
+        RealtorConfig storage rcfg = _realtorConfig[realtor];
+        LeaseRateLimitMode mode = rcfg.leaseRateLimitMode;
+        if (mode == LeaseRateLimitMode.Disabled) return (false, 0, 0);
+
+        if (mode == LeaseRateLimitMode.Override) {
+            maxLeases = rcfg.leaseRateLimitMaxLeases;
+            windowSeconds = rcfg.leaseRateLimitWindowSeconds;
+        } else {
+            ProtocolConfig storage pcfg = _protocolConfig;
+            maxLeases = pcfg.leaseRateLimitMaxLeases;
+            windowSeconds = pcfg.leaseRateLimitWindowSeconds;
+        }
+
+        enabled = (maxLeases != 0 && windowSeconds != 0);
+    }
+
+    function _resolveRoute(uint256 targetChainId, address targetToken) internal view returns (Route memory r) {
+        if (targetToken == address(0)) revert InvalidTargetToken();
+
+        if (targetChainId == block.chainid) {
+            if (targetToken == usdt) {
+                return Route({kind: RouteKind.LocalUsdt, ratePpm: 0, bridger: address(0)});
+            }
+
+            uint256 rate = swapRatePpm[targetToken];
+            if (rate == 0) revert RateNotSet();
+
+            return Route({kind: RouteKind.LocalSwap, ratePpm: rate, bridger: address(0)});
+        }
+
+        IBridger bridger = bridgers[targetToken][targetChainId];
+
+        uint256 rate2 = swapRatePpm[targetToken];
+        if (rate2 == 0) revert RateNotSet();
+
+        if (address(bridger) == address(0)) revert NoBridger();
+
+        return Route({kind: RouteKind.Bridge, ratePpm: rate2, bridger: address(bridger)});
+    }
+
     function _findActiveLeaseId(bytes32 receiverSalt, uint64 ts) internal view returns (uint256 leaseId) {
-        uint256[] storage ids = leaseIdsByReceiver[receiverSalt];
+        uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
         uint256 len = ids.length;
         if (len == 0) return 0;
 
@@ -1143,7 +1147,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
 
     function _computeNetOut(Lease storage l, uint256 amountQ) internal view returns (uint256 netOut) {
         uint256 feePpm = l.leaseFeePpm;
-        uint256 percentageOut = amountQ * (PPM_DENOMINATOR - feePpm) / PPM_DENOMINATOR;
+        uint256 percentageOut = amountQ * (_PPM_DENOMINATOR - feePpm) / _PPM_DENOMINATOR;
         uint256 flat = l.flatFee;
         if (percentageOut > flat) {
             unchecked {
@@ -1153,6 +1157,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             netOut = 0;
         }
     }
+
+    /*//////////////////////////////////////////////////////////////
+                          INTERNAL PURE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     function _toInt(uint256 x) internal pure returns (int256) {
         if (x > uint256(type(int256).max)) revert AmountTooLargeForInt();

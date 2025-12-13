@@ -11,34 +11,34 @@ contract UntronV3PayoutConfigHarness is UntronV3 {
 }
 
 contract UntronV3PayoutConfigRateLimitTest is Test {
-    UntronV3PayoutConfigHarness internal untron;
+    UntronV3PayoutConfigHarness internal _untron;
 
-    address internal constant DUMMY_USDT = address(0x1000);
-    address internal constant CONTROLLER = address(0xCAFE);
+    address internal constant _DUMMY_USDT = address(0x1000);
+    address internal constant _CONTROLLER = address(0xCAFE);
 
     function setUp() public {
-        untron = new UntronV3PayoutConfigHarness(CONTROLLER, 0xff, address(0));
-        untron.setUsdt(DUMMY_USDT);
-        untron.setRealtor(address(this), true);
+        _untron = new UntronV3PayoutConfigHarness(_CONTROLLER, 0xff, address(0));
+        _untron.setUsdt(_DUMMY_USDT);
+        _untron.setRealtor(address(this), true);
     }
 
     function testSetPayoutConfigIsRateLimited() public {
         address lessee = address(0xBEEF);
         uint256 leaseId = _createLeaseForLessee(lessee);
 
-        untron.setLesseePayoutConfigRateLimit(2, 1 hours);
+        _untron.setLesseePayoutConfigRateLimit(2, 1 hours);
 
         vm.startPrank(lessee);
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x1111));
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x2222));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x1111));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x2222));
         vm.expectRevert(UntronV3.PayoutConfigRateLimitExceeded.selector);
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x3333));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x3333));
         vm.stopPrank();
 
         vm.warp(block.timestamp + 1 hours);
 
         vm.prank(lessee);
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x4444));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x4444));
     }
 
     function testSetPayoutConfigWithSigIsRateLimited() public {
@@ -46,42 +46,42 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
         address lessee = vm.addr(lesseeKey);
         uint256 leaseId = _createLeaseForLessee(lessee);
 
-        untron.setLesseePayoutConfigRateLimit(2, 1 hours);
+        _untron.setLesseePayoutConfigRateLimit(2, 1 hours);
 
         UntronV3.PayoutConfig memory c1 = UntronV3.PayoutConfig({
-            targetChainId: block.chainid, targetToken: DUMMY_USDT, beneficiary: address(0x1111)
+            targetChainId: block.chainid, targetToken: _DUMMY_USDT, beneficiary: address(0x1111)
         });
         UntronV3.PayoutConfig memory c2 = UntronV3.PayoutConfig({
-            targetChainId: block.chainid, targetToken: DUMMY_USDT, beneficiary: address(0x2222)
+            targetChainId: block.chainid, targetToken: _DUMMY_USDT, beneficiary: address(0x2222)
         });
         UntronV3.PayoutConfig memory c3 = UntronV3.PayoutConfig({
-            targetChainId: block.chainid, targetToken: DUMMY_USDT, beneficiary: address(0x3333)
+            targetChainId: block.chainid, targetToken: _DUMMY_USDT, beneficiary: address(0x3333)
         });
 
         uint256 deadline = block.timestamp + 1 days;
 
-        untron.setPayoutConfigWithSig(leaseId, c1, deadline, _signPayoutConfigUpdate(lesseeKey, leaseId, c1, deadline));
-        untron.setPayoutConfigWithSig(leaseId, c2, deadline, _signPayoutConfigUpdate(lesseeKey, leaseId, c2, deadline));
+        _untron.setPayoutConfigWithSig(leaseId, c1, deadline, _signPayoutConfigUpdate(lesseeKey, leaseId, c1, deadline));
+        _untron.setPayoutConfigWithSig(leaseId, c2, deadline, _signPayoutConfigUpdate(lesseeKey, leaseId, c2, deadline));
 
         vm.prank(lessee);
         vm.expectRevert(UntronV3.PayoutConfigRateLimitExceeded.selector);
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x9999));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x9999));
 
         bytes memory sig3 = _signPayoutConfigUpdate(lesseeKey, leaseId, c3, deadline);
         vm.expectRevert(UntronV3.PayoutConfigRateLimitExceeded.selector);
-        untron.setPayoutConfigWithSig(leaseId, c3, deadline, sig3);
+        _untron.setPayoutConfigWithSig(leaseId, c3, deadline, sig3);
     }
 
     function testSetPayoutConfigRateLimitDisabledAllowsUnlimitedUpdates() public {
         address lessee = address(0xBEEF);
         uint256 leaseId = _createLeaseForLessee(lessee);
 
-        untron.setLesseePayoutConfigRateLimit(0, 0);
+        _untron.setLesseePayoutConfigRateLimit(0, 0);
 
         vm.startPrank(lessee);
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x1111));
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x2222));
-        untron.setPayoutConfig(leaseId, block.chainid, DUMMY_USDT, address(0x3333));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x1111));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x2222));
+        _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x3333));
         vm.stopPrank();
     }
 
@@ -91,8 +91,8 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
         uint64 flatFee = 0;
         uint64 nukeableAfter = uint64(block.timestamp + 1 days);
 
-        leaseId = untron.createLease(
-            salt, lessee, nukeableAfter, leaseFeePpm, flatFee, block.chainid, DUMMY_USDT, address(0xB0B)
+        leaseId = _untron.createLease(
+            salt, lessee, nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
         );
     }
 
@@ -102,7 +102,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
         UntronV3.PayoutConfig memory config,
         uint256 deadline
     ) internal view returns (bytes memory signature) {
-        uint256 nonce = untron.leaseNonces(leaseId);
+        uint256 nonce = _untron.leaseNonces(leaseId);
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
@@ -123,7 +123,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
                 keccak256(bytes("Untron")),
                 keccak256(bytes("1")),
                 block.chainid,
-                address(untron)
+                address(_untron)
             )
         );
 

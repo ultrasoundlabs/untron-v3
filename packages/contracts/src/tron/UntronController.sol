@@ -206,7 +206,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
 
     /// @notice Fixed scale for exchange rates: USDT-per-tokenUnit is expressed per RATE_SCALE of token units.
     /// @dev For token with T decimals, rate = priceInUsdt * 10^T * RATE_SCALE.
-    uint256 internal constant RATE_SCALE = 1e18;
+    uint256 internal constant _RATE_SCALE = 1e18;
 
     /*//////////////////////////////////////////////////////////////
                                   ERRORS
@@ -402,7 +402,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         uint256 rateUsed;
 
         if (isUsdt) {
-            rateUsed = RATE_SCALE;
+            rateUsed = _RATE_SCALE;
         } else {
             uint256 configuredRate = lpExchangeRateFor[token];
             if (configuredRate == 0 || configuredRate != exchangeRate) revert ExchangeRateMismatch();
@@ -444,7 +444,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
                 if (isUsdt) {
                     usdtAmount = sweepAmount;
                 } else {
-                    usdtAmount = TokenUtils.mulDiv(sweepAmount, rateUsed, RATE_SCALE);
+                    usdtAmount = TokenUtils.mulDiv(sweepAmount, rateUsed, _RATE_SCALE);
                 }
                 totalToken += sweepAmount;
                 totalUsdt += usdtAmount;

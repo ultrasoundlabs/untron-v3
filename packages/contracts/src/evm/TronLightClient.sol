@@ -8,10 +8,10 @@ contract TronLightClient {
     // 1 day = 86400 seconds = 28800 blocks (3 sec each) = 4 Tron epochs (7200 each)
     // 1 week = 604800 seconds = 201600 blocks (3 sec each) = 28 Tron epochs (7200 each)
     // TODO: consider removing rounded storage entirely
-    uint256 internal constant LATEST_BLOCK_IDS_ARRAY_LENGTH = 201600;
-    uint256 internal constant TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
-    uint256 internal constant SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
-    uint256 internal constant TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
+    uint256 internal constant _LATEST_BLOCK_IDS_ARRAY_LENGTH = 201600;
+    uint256 internal constant _TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
+    uint256 internal constant _SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
+    uint256 internal constant _TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
 
     IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
     /// @notice EVM addresses of the elected Super Representatives (witness accounts) for this epoch.
@@ -21,9 +21,9 @@ contract TronLightClient {
     /// A given SR may delegate its witness permission to a separate key; those delegatees live here.
     bytes20[27] public witnessDelegatees;
     bytes32 public latestProvenBlock;
-    bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockIds;
-    bytes32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestTxTrieRoots;
-    uint32[LATEST_BLOCK_IDS_ARRAY_LENGTH] internal latestBlockTimestamps;
+    bytes32[_LATEST_BLOCK_IDS_ARRAY_LENGTH] internal _latestBlockIds;
+    bytes32[_LATEST_BLOCK_IDS_ARRAY_LENGTH] internal _latestTxTrieRoots;
+    uint32[_LATEST_BLOCK_IDS_ARRAY_LENGTH] internal _latestBlockTimestamps;
 
     constructor(
         IBlockRangeProver blockRangeProver,
@@ -34,7 +34,7 @@ contract TronLightClient {
         bytes20[27] memory _witnessDelegatees
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
-        appendBlockId(initialBlockHash, initialTxTrieRoot, initialTimestamp);
+        _appendBlockId(initialBlockHash, initialTxTrieRoot, initialTimestamp);
         srs = _srs;
         witnessDelegatees = _witnessDelegatees;
     }
@@ -64,31 +64,31 @@ contract TronLightClient {
         bytes calldata compressedSignatures
     ) external {
         uint256 tronBlocksLength = compressedTronBlockMetadata.length;
-        if (tronBlocksLength == 0 || tronBlocksLength % TRON_BLOCK_METADATA_SIZE != 0) {
+        if (tronBlocksLength == 0 || tronBlocksLength % _TRON_BLOCK_METADATA_SIZE != 0) {
             revert InvalidCompressedTronBlockMetadataLength();
         }
 
-        uint256 numBlocks = tronBlocksLength / TRON_BLOCK_METADATA_SIZE;
+        uint256 numBlocks = tronBlocksLength / _TRON_BLOCK_METADATA_SIZE;
 
-        if (compressedSignatures.length != numBlocks * SIGNATURE_SIZE) {
+        if (compressedSignatures.length != numBlocks * _SIGNATURE_SIZE) {
             revert InvalidCompressedSignaturesLength();
         }
 
         bytes32 blockId = startingBlock;
-        bytes memory signature = new bytes(SIGNATURE_SIZE);
+        bytes memory signature = new bytes(_SIGNATURE_SIZE);
 
         // Recover the parent block number from the starting blockId and
         // increment it as we walk forward through the chain.
-        uint256 blockNumber = blockIdToNumber(startingBlock);
+        uint256 blockNumber = _blockIdToNumber(startingBlock);
         bool intersectedExisting = false;
 
         // If the starting block is already within our circular window, enforce
         // consistency and treat it as an anchor for this proof range.
         {
-            uint256 startingIndex = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
-            bytes32 startingSlot = latestBlockIds[startingIndex];
+            uint256 startingIndex = blockNumber % _LATEST_BLOCK_IDS_ARRAY_LENGTH;
+            bytes32 startingSlot = _latestBlockIds[startingIndex];
             if (startingSlot != bytes32(0)) {
-                if (blockIdToNumber(startingSlot) > blockNumber) revert BlockTooOld();
+                if (_blockIdToNumber(startingSlot) > blockNumber) revert BlockTooOld();
                 if (startingSlot != startingBlock) revert InvalidChain();
                 intersectedExisting = true;
             }
@@ -108,7 +108,7 @@ contract TronLightClient {
                 blockNumber++;
             }
 
-            bytes32 blockHash = hashBlock(tronBlock, blockNumber);
+            bytes32 blockHash = _hashBlock(tronBlock, blockNumber);
             // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
             // So we store the block number in the upper 8 bytes and the hash tail in the lower 24 bytes.
             uint256 blockHashTail = uint256(blockHash) & ((uint256(1) << 192) - 1);
@@ -118,8 +118,8 @@ contract TronLightClient {
             assembly {
                 calldatacopy(
                     add(signature, 32),
-                    add(compressedSignatures.offset, mul(i, SIGNATURE_SIZE)),
-                    SIGNATURE_SIZE
+                    add(compressedSignatures.offset, mul(i, _SIGNATURE_SIZE)),
+                    _SIGNATURE_SIZE
                 )
             }
 
@@ -127,18 +127,18 @@ contract TronLightClient {
             // OpenZeppelin's ECDSA expects the Ethereum-style v value (27/28) when using the 65-byte
             // signature overload, so normalize here before calling `ECDSA.recover`.
             unchecked {
-                uint8 v = uint8(signature[SIGNATURE_SIZE - 1]);
+                uint8 v = uint8(signature[_SIGNATURE_SIZE - 1]);
                 if (v < 27) {
                     v += 27;
-                    signature[SIGNATURE_SIZE - 1] = bytes1(v);
+                    signature[_SIGNATURE_SIZE - 1] = bytes1(v);
                 }
             }
 
             bytes20 signer = bytes20(ECDSA.recover(blockHash, signature));
             if (signer != witnessDelegatees[tronBlock.witnessAddressIndex]) revert InvalidWitnessSigner();
-            bytes32 blockIdSlotAtOurIndex = latestBlockIds[blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH];
+            bytes32 blockIdSlotAtOurIndex = _latestBlockIds[blockNumber % _LATEST_BLOCK_IDS_ARRAY_LENGTH];
             if (blockIdSlotAtOurIndex != bytes32(0)) {
-                if (blockIdToNumber(blockIdSlotAtOurIndex) > blockNumber) revert BlockTooOld();
+                if (_blockIdToNumber(blockIdSlotAtOurIndex) > blockNumber) revert BlockTooOld();
                 if (blockIdSlotAtOurIndex != blockId) revert InvalidChain();
                 intersectedExisting = true;
             }
@@ -147,7 +147,7 @@ contract TronLightClient {
         }
 
         if (!intersectedExisting) revert UnanchoredBlockRange();
-        appendBlockId(blockId, lastTronBlock.txTrieRoot, lastTronBlock.timestamp);
+        _appendBlockId(blockId, lastTronBlock.txTrieRoot, lastTronBlock.timestamp);
         latestProvenBlock = blockId;
     }
 
@@ -162,40 +162,40 @@ contract TronLightClient {
         BLOCK_RANGE_PROVER.proveBlockRange(
             srs, witnessDelegatees, startingBlock, endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp, zkProof
         );
-        appendBlockId(endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp);
+        _appendBlockId(endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp);
         latestProvenBlock = endingBlock;
     }
 
     function getBlockId(uint256 blockNumber) public view returns (bytes32) {
-        bytes32 stored = latestBlockIds[blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH];
+        bytes32 stored = _latestBlockIds[blockNumber % _LATEST_BLOCK_IDS_ARRAY_LENGTH];
         if (stored == bytes32(0)) revert BlockNotRelayed();
-        if (blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
+        if (_blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
         return stored;
     }
 
     function getTxTrieRoot(uint256 blockNumber) external view returns (bytes32) {
-        uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
-        bytes32 stored = latestBlockIds[index];
+        uint256 index = blockNumber % _LATEST_BLOCK_IDS_ARRAY_LENGTH;
+        bytes32 stored = _latestBlockIds[index];
         if (stored == bytes32(0)) revert BlockNotRelayed();
-        if (blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
-        return latestTxTrieRoots[index];
+        if (_blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
+        return _latestTxTrieRoots[index];
     }
 
     function getBlockTimestamp(uint256 blockNumber) external view returns (uint32) {
-        uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
-        bytes32 stored = latestBlockIds[index];
+        uint256 index = blockNumber % _LATEST_BLOCK_IDS_ARRAY_LENGTH;
+        bytes32 stored = _latestBlockIds[index];
         if (stored == bytes32(0)) revert BlockNotRelayed();
-        if (blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
-        return latestBlockTimestamps[index];
+        if (_blockIdToNumber(stored) != blockNumber) revert BlockTooOld();
+        return _latestBlockTimestamps[index];
     }
 
-    function appendBlockId(bytes32 blockId, bytes32 txTrieRoot, uint32 timestamp) internal {
-        uint256 blockNumber = blockIdToNumber(blockId);
-        uint256 index = blockNumber % LATEST_BLOCK_IDS_ARRAY_LENGTH;
-        latestBlockIds[index] = blockId;
-        latestTxTrieRoots[index] = txTrieRoot;
-        latestBlockTimestamps[index] = timestamp;
-        if (blockIdToNumber(latestProvenBlock) < blockNumber) {
+    function _appendBlockId(bytes32 blockId, bytes32 txTrieRoot, uint32 timestamp) internal {
+        uint256 blockNumber = _blockIdToNumber(blockId);
+        uint256 index = blockNumber % _LATEST_BLOCK_IDS_ARRAY_LENGTH;
+        _latestBlockIds[index] = blockId;
+        _latestTxTrieRoots[index] = txTrieRoot;
+        _latestBlockTimestamps[index] = timestamp;
+        if (_blockIdToNumber(latestProvenBlock) < blockNumber) {
             latestProvenBlock = blockId;
         }
     }
@@ -212,7 +212,7 @@ contract TronLightClient {
     /// - field 10 (varint): version (currently always 32 on Tron mainnet)
     ///
     /// @return blockHash The SHA256 hash of the encoded block header (NOT blockId!!!)
-    function hashBlock(TronBlockMetadata memory tronBlock, uint256 blockNumber)
+    function _hashBlock(TronBlockMetadata memory tronBlock, uint256 blockNumber)
         internal
         view
         returns (bytes32 blockHash)
@@ -334,7 +334,7 @@ contract TronLightClient {
             mstore8(ptr, 0x50)
             ptr := add(ptr, 1)
             // Current mainnet value is 32, which fits in a single varint byte.
-            mstore8(ptr, TRON_BLOCK_VERSION)
+            mstore8(ptr, _TRON_BLOCK_VERSION)
             ptr := add(ptr, 1)
 
             // Set the actual length of the bytes buffer to the number of bytes written.
@@ -345,7 +345,7 @@ contract TronLightClient {
 
     // Conversion & helper (internal pure) functions
 
-    function blockIdToNumber(bytes32 blockId) internal pure returns (uint256 blockNumber) {
+    function _blockIdToNumber(bytes32 blockId) internal pure returns (uint256 blockNumber) {
         // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
         return uint256(blockId) >> 192;
     }
@@ -361,7 +361,7 @@ contract TronLightClient {
         pure
         returns (TronBlockMetadata memory tronBlock)
     {
-        uint256 offset = index * TRON_BLOCK_METADATA_SIZE;
+        uint256 offset = index * _TRON_BLOCK_METADATA_SIZE;
 
         bytes32 parentHash;
         bytes32 txTrieRoot;

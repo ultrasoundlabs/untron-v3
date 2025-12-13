@@ -42,8 +42,8 @@ contract CCTPV2Bridger is IBridger, Ownable {
     /// @notice The only supported token (CCTP burns/mints USDC).
     IERC20 public immutable USDC;
 
-    uint32 internal constant FINALITY_STANDARD = 1000; // fast finality
-    uint256 internal constant ONE_BPS_DENOMINATOR = 10_000;
+    uint32 internal constant _FINALITY_STANDARD = 1000; // fast finality
+    uint256 internal constant _ONE_BPS_DENOMINATOR = 10_000;
 
     constructor(address untron, address tokenMessengerV2, address usdc) {
         UNTRON = untron;
@@ -61,8 +61,8 @@ contract CCTPV2Bridger is IBridger, Ownable {
         uint32 destinationDomain = _circleDomainForChainId(targetChainId);
 
         // `amount` is the desired mint amount on destination; provide the maxFee from this contract's balance.
-        uint256 maxFee = amount / ONE_BPS_DENOMINATOR;
-        if (amount % ONE_BPS_DENOMINATOR != 0) maxFee += 1;
+        uint256 maxFee = amount / _ONE_BPS_DENOMINATOR;
+        if (amount % _ONE_BPS_DENOMINATOR != 0) maxFee += 1;
         uint256 burnAmount = amount + maxFee;
 
         uint256 balance = USDC.balanceOf(address(this));
@@ -82,7 +82,7 @@ contract CCTPV2Bridger is IBridger, Ownable {
                 token,
                 bytes32(0), // destinationCaller = 0 => anyone can call receiveMessage on destination
                 maxFee, // maxFee = 1 bps (rounded up)
-                FINALITY_STANDARD
+                _FINALITY_STANDARD
             );
     }
 

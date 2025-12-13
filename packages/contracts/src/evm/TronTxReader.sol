@@ -60,13 +60,13 @@ contract TronTxReader {
     }
 
     // Protobuf wire types
-    uint8 internal constant WIRE_VARINT = 0;
-    uint8 internal constant WIRE_FIXED64 = 1;
-    uint8 internal constant WIRE_LENGTH_DELIMITED = 2;
-    uint8 internal constant WIRE_FIXED32 = 5;
+    uint8 internal constant _WIRE_VARINT = 0;
+    uint8 internal constant _WIRE_FIXED64 = 1;
+    uint8 internal constant _WIRE_LENGTH_DELIMITED = 2;
+    uint8 internal constant _WIRE_FIXED32 = 5;
 
     // Tron contract types
-    uint64 internal constant CONTRACT_TRIGGER_SMART = 31;
+    uint64 internal constant _CONTRACT_TRIGGER_SMART = 31;
 
     // State
     TronLightClient public immutable TRON_LIGHT_CLIENT;
@@ -125,7 +125,7 @@ contract TronTxReader {
         assert(cStart < cEnd && cEnd <= rawDataEnd);
 
         // 2. Enforce that it is a TriggerSmartContract.
-        if (cType != CONTRACT_TRIGGER_SMART) revert NotTriggerSmartContract();
+        if (cType != _CONTRACT_TRIGGER_SMART) revert NotTriggerSmartContract();
 
         // 3. Extract the TriggerSmartContract message from inside the Contract.
         (uint256 trigStart, uint256 trigEnd) = _extractTriggerSmartContract(encodedTx, cStart, cEnd);
@@ -192,7 +192,7 @@ contract TronTxReader {
             (fieldNum, wireType, cursor) = _readKey(tx_, cursor, rawDataEnd);
             assert(cursor > prevCursor); // Ensure forward progress
 
-            if (fieldNum == 11 && wireType == WIRE_LENGTH_DELIMITED) {
+            if (fieldNum == 11 && wireType == _WIRE_LENGTH_DELIMITED) {
                 // Enforce "exactly one" contract at the protobuf level.
                 if (seenContract) {
                     // Optional: define a dedicated error if you want.
@@ -214,7 +214,7 @@ contract TronTxReader {
                     uint64 cWireType;
                     (cFieldNum, cWireType, p) = _readKey(tx_, p, cEnd);
                     assert(p > prevP); // Ensure forward progress
-                    if (cFieldNum == 1 && cWireType == WIRE_VARINT) {
+                    if (cFieldNum == 1 && cWireType == _WIRE_VARINT) {
                         (contractType, p) = ProtoVarint.read(tx_, p, cEnd);
                         foundType = true;
                         break;
@@ -252,7 +252,7 @@ contract TronTxReader {
             uint64 cWireType;
             (cFieldNum, cWireType, p) = _readKey(tx_, p, contractEnd);
             assert(p > prevP); // Ensure forward progress
-            if (cFieldNum == 2 && cWireType == WIRE_LENGTH_DELIMITED) {
+            if (cFieldNum == 2 && cWireType == _WIRE_LENGTH_DELIMITED) {
                 (paramStart, paramEnd, p) = _readLength(tx_, p, contractEnd);
                 (uint256 valueStart, uint256 valueEnd) = _parseAnyValueField(tx_, paramStart, paramEnd);
                 if (valueStart != 0) {
@@ -283,9 +283,9 @@ contract TronTxReader {
             uint64 anyWireType;
             (anyFieldNum, anyWireType, q) = _readKey(encodedTx, q, paramEnd);
             assert(q > prevQ); // Ensure forward progress
-            if (anyFieldNum == 1 && anyWireType == WIRE_LENGTH_DELIMITED) {
+            if (anyFieldNum == 1 && anyWireType == _WIRE_LENGTH_DELIMITED) {
                 (, q,) = _readLength(encodedTx, q, paramEnd);
-            } else if (anyFieldNum == 2 && anyWireType == WIRE_LENGTH_DELIMITED) {
+            } else if (anyFieldNum == 2 && anyWireType == _WIRE_LENGTH_DELIMITED) {
                 (valueStart, q,) = _readLength(encodedTx, q, paramEnd);
                 valueEnd = q;
             } else {
@@ -317,21 +317,21 @@ contract TronTxReader {
             uint64 tWireType;
             (tFieldNum, tWireType, trigCursor) = _readKey(encodedTx, trigCursor, trigEnd);
             assert(trigCursor > prevTrigCursor); // Ensure forward progress
-            if (tFieldNum == 1 && tWireType == WIRE_LENGTH_DELIMITED) {
+            if (tFieldNum == 1 && tWireType == _WIRE_LENGTH_DELIMITED) {
                 uint256 oStart;
                 uint256 oEnd;
                 (oStart, oEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
                 if (oEnd - oStart != 21) revert TronInvalidOwnerLength();
                 ownerTron = _readBytes21(encodedTx, oStart);
                 if (uint8(ownerTron[0]) != 0x41) revert TronInvalidOwnerPrefix();
-            } else if (tFieldNum == 2 && tWireType == WIRE_LENGTH_DELIMITED) {
+            } else if (tFieldNum == 2 && tWireType == _WIRE_LENGTH_DELIMITED) {
                 uint256 cStart;
                 uint256 cEnd;
                 (cStart, cEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
                 if (cEnd - cStart != 21) revert TronInvalidContractLength();
                 contractTron = _readBytes21(encodedTx, cStart);
                 if (uint8(contractTron[0]) != 0x41) revert TronInvalidContractPrefix();
-            } else if (tFieldNum == 4 && tWireType == WIRE_LENGTH_DELIMITED) {
+            } else if (tFieldNum == 4 && tWireType == _WIRE_LENGTH_DELIMITED) {
                 (dataStart, dataEnd, trigCursor) = _readLength(encodedTx, trigCursor, trigEnd);
             } else {
                 trigCursor = _skipField(encodedTx, trigCursor, trigEnd, tWireType);
@@ -367,7 +367,7 @@ contract TronTxReader {
             uint64 wireType;
             (fieldNum, wireType, offset) = _readKey(encodedTx, offset, resEnd);
             assert(offset > prevResOffset); // Ensure forward progress
-            if (fieldNum == 2 && wireType == WIRE_VARINT) {
+            if (fieldNum == 2 && wireType == _WIRE_VARINT) {
                 uint64 statusCode;
                 (statusCode, offset) = ProtoVarint.read(encodedTx, offset, resEnd);
                 if (statusCode != 0) return false;
@@ -407,13 +407,13 @@ contract TronTxReader {
         pure
         returns (uint256 newCursor)
     {
-        if (wireType == WIRE_VARINT) return ProtoVarint.skip(data, cursor, limit);
-        if (wireType == WIRE_LENGTH_DELIMITED) {
+        if (wireType == _WIRE_VARINT) return ProtoVarint.skip(data, cursor, limit);
+        if (wireType == _WIRE_LENGTH_DELIMITED) {
             (, uint256 end,) = _readLength(data, cursor, limit);
             return end;
         }
-        if (wireType == WIRE_FIXED32) return _advance(cursor, 4, limit);
-        if (wireType == WIRE_FIXED64) return _advance(cursor, 8, limit);
+        if (wireType == _WIRE_FIXED32) return _advance(cursor, 4, limit);
+        if (wireType == _WIRE_FIXED64) return _advance(cursor, 8, limit);
         revert TronProtoInvalidWireType();
     }
 
