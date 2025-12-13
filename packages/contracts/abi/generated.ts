@@ -6,11 +6,34 @@ export const cctpv2BridgerAbi = [
   {
     type: 'constructor',
     inputs: [
-      { name: '_untron', internalType: 'address', type: 'address' },
-      { name: '_tokenMessengerV2', internalType: 'address', type: 'address' },
-      { name: '_usdc', internalType: 'address', type: 'address' },
+      { name: 'untron', internalType: 'address', type: 'address' },
+      { name: 'tokenMessengerV2', internalType: 'address', type: 'address' },
+      { name: 'usdc', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'TOKEN_MESSENGER_V2',
+    outputs: [
+      { name: '', internalType: 'contract ITokenMessengerV2', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'UNTRON',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'USDC',
+    outputs: [{ name: '', internalType: 'contract IERC20', type: 'address' }],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -72,33 +95,10 @@ export const cctpv2BridgerAbi = [
   },
   {
     type: 'function',
-    inputs: [],
-    name: 'tokenMessengerV2',
-    outputs: [
-      { name: '', internalType: 'contract ITokenMessengerV2', type: 'address' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
     inputs: [{ name: 'newOwner', internalType: 'address', type: 'address' }],
     name: 'transferOwnership',
     outputs: [],
     stateMutability: 'payable',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'untron',
-    outputs: [{ name: '', internalType: 'address', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'usdc',
-    outputs: [{ name: '', internalType: 'contract IERC20', type: 'address' }],
-    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -157,6 +157,14 @@ export const cctpv2BridgerAbi = [
   },
   { type: 'error', inputs: [], name: 'AlreadyInitialized' },
   { type: 'error', inputs: [], name: 'ApproveFailed' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'balance', internalType: 'uint256', type: 'uint256' },
+      { name: 'required', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'InsufficientUsdcBalance',
+  },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
   { type: 'error', inputs: [], name: 'NoHandoverRequest' },
   { type: 'error', inputs: [], name: 'NotUntron' },
@@ -4934,13 +4942,34 @@ export const usdt0BridgerAbi = [
   {
     type: 'constructor',
     inputs: [
-      { name: '_untron', internalType: 'address', type: 'address' },
-      { name: '_usdt0', internalType: 'address', type: 'address' },
-      { name: '_oft', internalType: 'address', type: 'address' },
+      { name: 'untron', internalType: 'address', type: 'address' },
+      { name: 'usdt0', internalType: 'address', type: 'address' },
+      { name: 'oft', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
   },
   { type: 'receive', stateMutability: 'payable' },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'OFT',
+    outputs: [{ name: '', internalType: 'contract IOFT', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'UNTRON',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'USDT0',
+    outputs: [{ name: '', internalType: 'contract IERC20', type: 'address' }],
+    stateMutability: 'view',
+  },
   {
     type: 'function',
     inputs: [
@@ -4979,13 +5008,6 @@ export const usdt0BridgerAbi = [
   {
     type: 'function',
     inputs: [],
-    name: 'oft',
-    outputs: [{ name: '', internalType: 'contract IOFT', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
     name: 'owner',
     outputs: [{ name: 'result', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
@@ -5019,20 +5041,6 @@ export const usdt0BridgerAbi = [
     name: 'transferOwnership',
     outputs: [],
     stateMutability: 'payable',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'untron',
-    outputs: [{ name: '', internalType: 'address', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'usdt0',
-    outputs: [{ name: '', internalType: 'contract IERC20', type: 'address' }],
-    stateMutability: 'view',
   },
   {
     type: 'function',
