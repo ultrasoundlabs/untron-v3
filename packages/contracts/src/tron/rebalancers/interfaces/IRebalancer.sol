@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 /// @title IRebalancer
 /// @notice Minimal interface for pluggable bridge implementations.
 /// @dev Each rebalancer handles token bridging for a specific bridge protocol.
+/// @author Ultrasound Labs
 interface IRebalancer {
     /// @notice Bridge `inAmount` of `token` according to `payload`, returning the expected out amount.
     /// @dev MUST revert on failure. The payload format is rebalancer-specific.

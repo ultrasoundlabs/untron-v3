@@ -14,12 +14,15 @@ contract Create2Utils {
     // Chain-specific byte prefix used in CREATE2 address calculation (0xff for EVM, 0x41 for Tron).
     bytes1 private immutable _CREATE2_PREFIX;
 
+    /// @notice Initializes the contract with the specified CREATE2_PREFIX.
+    /// @param create2Prefix The CREATE2_PREFIX of the deployment chain (0xff for EVM, 0x41 for Tron).
     constructor(bytes1 create2Prefix) {
-        // TODO: maybe make it configurable?
         _CREATE2_PREFIX = create2Prefix;
     }
 
-    /// @dev Deploys the receiver contract using CREATE2 and the provided salt.
+    /// @notice Deploys the receiver contract using CREATE2 and the provided salt.
+    /// @param salt The salt used for CREATE2 address calculation.
+    /// @return receiver The address of the deployed receiver contract.
     function deployReceiver(bytes32 salt) public returns (address payable receiver) {
         bytes memory bytecode = receiverBytecode();
         // solhint-disable-next-line no-inline-assembly
@@ -34,6 +37,7 @@ contract Create2Utils {
     }
 
     /// @notice Returns the creation bytecode for a receiver.
+    /// @return bytes The bytecode for the receiver contract.
     /// @dev The UntronReceiver constructor has no explicit parameters and uses msg.sender
     ///      as the controller, so no controller address needs to be embedded here.
     function receiverBytecode() public pure returns (bytes memory) {
@@ -43,6 +47,7 @@ contract Create2Utils {
     /// @dev Predicts the deterministic address for a receiver deployed via CREATE2.
     /// @param controller The address of the UntronController (or other deployer) that will perform CREATE2.
     /// @param salt       The CREATE2 salt used for deterministic deployment.
+    /// @return predicted The predicted address of the receiver contract.
     /// @notice This function is pure read logic and can be used off-chain or from other chains
     ///         to precompute receiver addresses for a given controller and salt.
     function predictReceiverAddress(address controller, bytes32 salt) public view returns (address predicted) {
@@ -55,6 +60,7 @@ contract Create2Utils {
 
     /// @dev Predicts the deterministic address for a receiver deployed via CREATE2.
     /// @param salt       The CREATE2 salt used for deterministic deployment.
+    /// @return predicted The predicted address of the receiver contract.
     /// @notice This function calls predictReceiverAddress with controller == address(this)
     ///         and is supposed to be used when you need to determine address of a receiver
     ///         the calling contract is going to deploy.

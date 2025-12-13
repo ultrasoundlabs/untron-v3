@@ -54,6 +54,7 @@ contract SwapExecutor is ReentrancyGuard {
     /// @param calls Array of low-level calls that will be executed in order.
     /// @param token Address of the ERC-20 token whose balance is checked and distributed.
     /// @param expectedAmount Minimum amount of `token` that must be present after executing `calls`.
+    /// @param recipient Address to which the token output will be transferred.
     /// @return actualOut The total amount of `token` produced by the swap calls.
     function execute(Call[] calldata calls, address token, uint256 expectedAmount, address payable recipient)
         external

@@ -24,6 +24,7 @@ contract UntronReceiver {
                                  CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Initializes the contract with the controller address.
     constructor() {
         _CONTROLLER = payable(msg.sender);
     }
@@ -32,7 +33,9 @@ contract UntronReceiver {
                                  FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Called by the controller to move `amount` of `token` held by this contract to `recipient`.
+    /// @notice Called by the controller to move `amount` of `token` held by this contract to controller.
+    /// @param token The address of the token to transfer.
+    /// @param amount The amount of tokens to transfer.
     function pull(address token, uint256 amount) external {
         if (msg.sender != _CONTROLLER) revert NotController();
         if (amount != 0) {
@@ -40,8 +43,8 @@ contract UntronReceiver {
         }
     }
 
-    // Tron forbids sending TRX to smart contracts via TransferContract,
-    // but we still keep receive() fallback (which has to be called using TriggerSmartContract)
-    // for future-proofness.
+    /// @notice Receive TRX to this contract
+    /// @dev Tron forbids sending TRX to smart contracts via TransferContract,
+    ///      so we keep receive() fallback (which has to be called using TriggerSmartContract).
     receive() external payable {}
 }

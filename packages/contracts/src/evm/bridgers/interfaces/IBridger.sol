@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+/// @title IBridger
 /// @notice Adapter interface for cross-chain payouts.
 /// @dev UntronV3 uses this as a plug-in point for bridging. When a claim’s route is `Bridge`,
 ///      UntronV3 will first `transfer(token, bridger, amount)` and then call `bridge(...)`.
@@ -11,6 +12,10 @@ pragma solidity ^0.8.26;
 /// @author Ultrasound Labs
 interface IBridger {
     /// @notice Bridge `amount` of `token` to `beneficiary` on `targetChainId`.
+    /// @param token Address of the ERC-20 token being bridged.
+    /// @param amount Amount of `token` being bridged.
+    /// @param targetChainId Chain ID of the target chain for the bridge.
+    /// @param beneficiary Address on the target chain that will receive the bridged funds.
     /// @dev Called by UntronV3 after transferring `amount` of `token` to this contract.
     function bridge(address token, uint256 amount, uint256 targetChainId, address beneficiary) external;
 }

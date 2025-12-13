@@ -8,7 +8,21 @@ import {TronSha256MerkleVerifier} from "../utils/TronSha256MerkleVerifier.sol";
 error TronProtoTruncated();
 error TronProtoInvalidWireType();
 
+/// @title ProtoVarint
+/// @author Untron
+/// @notice Minimal protobuf varint reader/skip utilities for parsing Tron protobuf-encoded transactions.
+/// @dev
+/// - Protobuf "varint" encoding is used for both keys (fieldNum + wireType) and integer values.
+/// - This library is intentionally tiny and opinionated: it supports only 64-bit varints and
+///   reverts (instead of returning error codes) on malformed/truncated input.
 library ProtoVarint {
+    /// @notice Reads a protobuf varint from `data` starting at `pos`, bounded by `limit`.
+    /// @dev Reverts with `TronProtoTruncated()` if the varint is malformed or extends past `limit`.
+    /// @param data The calldata byte array being parsed.
+    /// @param pos The starting offset within `data` (inclusive).
+    /// @param limit The maximum offset within `data` that may be read (exclusive).
+    /// @return value The decoded varint value.
+    /// @return newPos The first position in `data` after the varint.
     function read(bytes calldata data, uint256 pos, uint256 limit)
         internal
         pure
@@ -32,6 +46,12 @@ library ProtoVarint {
         revert TronProtoTruncated();
     }
 
+    /// @notice Skips over a protobuf varint at `pos`, bounded by `limit`.
+    /// @dev Reverts with `TronProtoTruncated()` if the varint is malformed or extends past `limit`.
+    /// @param data The calldata byte array being parsed.
+    /// @param pos The starting offset within `data` (inclusive).
+    /// @param limit The maximum offset within `data` that may be read (exclusive).
+    /// @return newPos The first position in `data` after the varint.
     function skip(bytes calldata data, uint256 pos, uint256 limit) internal pure returns (uint256 newPos) {
         // Max 10 bytes
         for (uint256 i = 0; i < 10; ++i) {
@@ -48,8 +68,26 @@ library ProtoVarint {
 /// @title TronTxReader
 /// @notice Stateless helper bound to a Tron light client that verifies inclusion and exposes
 ///         a generic TriggerSmartContract call view (sender, to, calldata).
+/// @dev
+/// This contract does two distinct jobs:
+/// 1) Inclusion verification: prove that a protobuf-encoded Tron `Transaction` is part of a
+///    specific Tron block by verifying a SHA-256 Merkle proof against the transaction trie root
+///    obtained from `TronLightClient`.
+/// 2) Protobuf extraction: parse the same `Transaction` bytes and extract the embedded
+///    `TriggerSmartContract` parameters (owner address, contract address, call data), plus
+///    compute the Tron transaction id (`sha256(raw_data)`).
+///
+/// Design notes:
+/// - Parsing is performed directly on calldata to minimize copying; only the final `data` slice
+///   is materialized into memory.
+/// - The parser is intentionally narrow: it expects exactly one `Contract` in `raw_data`, and
+///   requires that contract to be of type `TriggerSmartContract` (type id 31).
+/// - Tron addresses are returned as `bytes21` in the canonical "0x41 || 20-byte-address" form.
+/// @author Ultrasound Labs
 contract TronTxReader {
     // Types
+    /// @notice Parsed subset of a Tron `TriggerSmartContract` transaction.
+    /// @dev `txId` is the Tron transaction identifier shown by explorers and equals `sha256(raw_data)`.
     struct TriggerSmartContract {
         bytes32 txId; // not tx leaf!!! this is the actual tx ID you can put in e.g. Tronscan
         uint256 tronBlockNumber;
@@ -69,6 +107,7 @@ contract TronTxReader {
     uint64 internal constant _CONTRACT_TRIGGER_SMART = 31;
 
     // State
+    /// @notice The light client used to obtain block metadata and the transaction Merkle root.
     TronLightClient public immutable TRON_LIGHT_CLIENT;
 
     // Errors
@@ -80,11 +119,24 @@ contract TronTxReader {
     error TronInvalidContractLength();
     error TronInvalidContractPrefix();
 
+    /// @notice Sets the Tron light client used for transaction inclusion verification and timestamps.
+    /// @param tronLightClient_ The deployed `TronLightClient` address (must be non-zero).
     constructor(address tronLightClient_) {
         require(tronLightClient_ != address(0), "LightClientZero");
         TRON_LIGHT_CLIENT = TronLightClient(tronLightClient_);
     }
 
+    /// @notice Verifies inclusion of `encodedTx` in `tronBlockNumber` and returns parsed TriggerSmartContract call data.
+    /// @dev Reverts if:
+    /// - The Merkle proof is invalid (`InvalidTxMerkleProof`)
+    /// - The transaction is not a single `TriggerSmartContract` (`NotTriggerSmartContract`)
+    /// - The transaction result indicates failure (`TronTxNotSuccessful`)
+    /// - The owner/contract addresses are not in canonical Tron `bytes21` format
+    /// @param tronBlockNumber The Tron block number whose tx root is used for verification.
+    /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param proof The SHA-256 Merkle proof for the transaction leaf within the block's transaction tree.
+    /// @param index The 0-based leaf index in the Merkle tree used by the verifier.
+    /// @return callData The extracted TriggerSmartContract view (txId, sender, to, calldata, block metadata).
     function readTriggerSmartContract(
         uint256 tronBlockNumber,
         bytes calldata encodedTx,
@@ -98,6 +150,14 @@ contract TronTxReader {
     }
 
     // ---------------- Merkle helpers ----------------
+    /// @notice Verifies that `encodedTx` is included in `tronBlockNumber` using the provided Merkle proof.
+    /// @dev
+    /// - The leaf hash is `sha256(encodedTx)` (hash of the full Transaction bytes).
+    /// - The expected root is `TronLightClient.getTxTrieRoot(tronBlockNumber)`.
+    /// @param tronBlockNumber The Tron block number whose tx root is used for verification.
+    /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param proof The sibling hashes forming a Merkle path from leaf to root.
+    /// @param index The 0-based leaf index used by the Merkle verifier.
     function verifyTxInclusion(
         uint256 tronBlockNumber,
         bytes calldata encodedTx,
@@ -111,7 +171,18 @@ contract TronTxReader {
 
     // ---------------- Generic TriggerSmartContract reader ----------------
     /// @notice Pure helper to parse a TriggerSmartContract from raw encoded transaction data.
-    /// @dev Does not perform Merkle verification or light client checks.
+    /// @dev
+    /// Does not perform Merkle verification or light client checks.
+    ///
+    /// Parsing outline:
+    /// 1) Extract `raw_data` (field #1) and compute `txId = sha256(raw_data)`.
+    /// 2) Require exactly one `Contract` entry in `raw_data` (field #11).
+    /// 3) Require contract type == 31 (`TriggerSmartContract`).
+    /// 4) Extract the embedded `TriggerSmartContract` protobuf message from the contract parameter (Any.value).
+    /// 5) Parse owner_address (field #1), contract_address (field #2), and data (field #4).
+    /// 6) Parse transaction result status; require success.
+    /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @return _partial A partially-filled TriggerSmartContract view (block metadata left as zero).
     function _parseTriggerSmartContract(bytes calldata encodedTx)
         internal
         pure
@@ -155,6 +226,14 @@ contract TronTxReader {
     }
 
     // ---------------- Protobuf parsing ----------------
+    /// @notice Locates the `raw_data` field in a Tron `Transaction` and computes the Tron transaction id.
+    /// @dev
+    /// Tron `Transaction` encoding starts with field #1 (`raw_data`) which is length-delimited.
+    /// This function expects the first byte to be 0x0A (field 1, wire type 2).
+    /// @param tx_ The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @return rawDataStart The start offset of the `raw_data` message within `tx_` (inclusive).
+    /// @return rawDataEnd The end offset of the `raw_data` message within `tx_` (exclusive).
+    /// @return txId The Tron transaction id, defined as `sha256(raw_data_bytes)`.
     function _parseRawData(bytes calldata tx_)
         internal
         pure
@@ -174,6 +253,17 @@ contract TronTxReader {
         txId = sha256(tx_[rawDataStart:rawDataEnd]);
     }
 
+    /// @notice Reads and validates the single `Contract` entry in `raw_data` and returns its byte range and type.
+    /// @dev
+    /// - `raw_data` contains a repeated `contract` field (field #11), each of which is a `Contract` message.
+    /// - This parser enforces that there is exactly one such entry, and then reads its internal
+    ///   `type` (field #1, varint).
+    /// @param tx_ The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param rawDataStart Start offset of the `raw_data` message (inclusive).
+    /// @param rawDataEnd End offset of the `raw_data` message (exclusive).
+    /// @return cStart Start offset of the `Contract` message bytes (inclusive).
+    /// @return cEnd End offset of the `Contract` message bytes (exclusive).
+    /// @return contractType The parsed `Contract.type` enum value.
     function _readSingleContract(bytes calldata tx_, uint256 rawDataStart, uint256 rawDataEnd)
         internal
         pure
@@ -234,6 +324,15 @@ contract TronTxReader {
         if (!seenContract) revert NotTriggerSmartContract();
     }
 
+    /// @notice Extracts the embedded `TriggerSmartContract` message from a `Contract`'s parameter field.
+    /// @dev
+    /// Tron stores contract parameters as a protobuf `Any` inside `Contract.parameter` (field #2).
+    /// We parse `Any.value` (field #2 within Any) and return the byte range of the contained message.
+    /// @param tx_ The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param contractStart Start offset of the `Contract` message bytes (inclusive).
+    /// @param contractEnd End offset of the `Contract` message bytes (exclusive).
+    /// @return trigStart Start offset of the embedded `TriggerSmartContract` message bytes (inclusive).
+    /// @return trigEnd End offset of the embedded `TriggerSmartContract` message bytes (exclusive).
     function _extractTriggerSmartContract(bytes calldata tx_, uint256 contractStart, uint256 contractEnd)
         internal
         pure
@@ -265,6 +364,16 @@ contract TronTxReader {
         }
     }
 
+    /// @notice Parses a protobuf `Any` message and returns the byte range of its `value` field.
+    /// @dev
+    /// `Any` fields used here:
+    /// - field #1: `type_url` (ignored)
+    /// - field #2: `value` (length-delimited bytes containing the embedded message)
+    /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param paramStart Start offset of the `Any` message bytes (inclusive).
+    /// @param paramEnd End offset of the `Any` message bytes (exclusive).
+    /// @return valueStart Start offset of the embedded message bytes (inclusive).
+    /// @return valueEnd End offset of the embedded message bytes (exclusive).
     function _parseAnyValueField(bytes calldata encodedTx, uint256 paramStart, uint256 paramEnd)
         internal
         pure
@@ -294,6 +403,11 @@ contract TronTxReader {
         }
     }
 
+    /// @notice Loads a canonical Tron address (`bytes21`) from calldata.
+    /// @dev Reads 21 bytes starting at `start`. Reverts if out-of-bounds.
+    /// @param data The calldata byte array being parsed.
+    /// @param start The start offset within `data` (inclusive).
+    /// @return out The 21-byte value loaded from calldata.
     function _readBytes21(bytes calldata data, uint256 start) internal pure returns (bytes21 out) {
         if (start + 21 > data.length) revert TronProtoTruncated();
         assembly ("memory-safe") {
@@ -301,6 +415,18 @@ contract TronTxReader {
         }
     }
 
+    /// @notice Parses the `TriggerSmartContract` message fields we care about (owner, contract, calldata).
+    /// @dev Expected fields within `TriggerSmartContract`:
+    /// - field #1: owner_address (length-delimited, must be 21 bytes, prefix 0x41)
+    /// - field #2: contract_address (length-delimited, must be 21 bytes, prefix 0x41)
+    /// - field #4: data (length-delimited, arbitrary bytes)
+    /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param trigStart Start offset of the embedded `TriggerSmartContract` message bytes (inclusive).
+    /// @param trigEnd End offset of the embedded `TriggerSmartContract` message bytes (exclusive).
+    /// @return ownerTron The sender/owner Tron address in canonical bytes21 form.
+    /// @return contractTron The destination contract Tron address in canonical bytes21 form.
+    /// @return dataStart Start offset of the call data bytes within `encodedTx` (inclusive).
+    /// @return dataEnd End offset of the call data bytes within `encodedTx` (exclusive).
     function _parseTriggerHeaders(bytes calldata encodedTx, uint256 trigStart, uint256 trigEnd)
         internal
         pure
@@ -339,6 +465,17 @@ contract TronTxReader {
         }
     }
 
+    /// @notice Parses the transaction result status and returns whether it indicates success.
+    /// @dev
+    /// Tron `Transaction` includes optional `signature` entries and an optional `ret`/result section.
+    /// This function:
+    /// - Skips any signature fields (field #2, tag 0x12) starting at `offset`.
+    /// - If a result section (tag 0x2A) is not present, treats the tx as successful.
+    /// - If present, looks for a status/code field (field #2, varint) and requires it to be 0.
+    /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
+    /// @param offset The starting offset within `encodedTx` where `raw_data` ended.
+    /// @param totalLen The total length of `encodedTx` (upper bound for reads).
+    /// @return success True if the parsed result indicates success (or result is absent); false otherwise.
     function _parseTxSuccess(bytes calldata encodedTx, uint256 offset, uint256 totalLen) internal pure returns (bool) {
         // Skip signatures (field 2, tag 0x12)
         uint256 prevOffset = offset;
@@ -379,6 +516,16 @@ contract TronTxReader {
     }
 
     // ---------------- Utilities ----------------
+    /// @notice Reads a length-delimited protobuf field payload and returns its bounds.
+    /// @dev Interprets the next bytes at `cursor` as a varint length `len`, then returns
+    /// `[start, end)` where `start` is the first byte of the payload and `end = start + len`.
+    /// Reverts if `len` exceeds `limit - start`.
+    /// @param data The calldata byte array being parsed.
+    /// @param cursor The cursor positioned at the start of the length varint.
+    /// @param limit The maximum offset within `data` that may be read (exclusive).
+    /// @return start The payload start offset (inclusive).
+    /// @return end The payload end offset (exclusive).
+    /// @return newCursor The cursor position after the payload (equals `end`).
     function _readLength(bytes calldata data, uint256 cursor, uint256 limit)
         internal
         pure
@@ -393,6 +540,14 @@ contract TronTxReader {
         return (start, end, end);
     }
 
+    /// @notice Reads a protobuf key (field number + wire type) at `pos`.
+    /// @dev A protobuf key is a varint where: `fieldNum = key >> 3` and `wireType = key & 0x7`.
+    /// @param data The calldata byte array being parsed.
+    /// @param pos The start offset within `data` (inclusive).
+    /// @param limit The maximum offset within `data` that may be read (exclusive).
+    /// @return fieldNum The decoded protobuf field number.
+    /// @return wireType The decoded protobuf wire type (0, 1, 2, or 5 are expected here).
+    /// @return newPos The first position in `data` after the key varint.
     function _readKey(bytes calldata data, uint256 pos, uint256 limit)
         internal
         pure
@@ -402,6 +557,13 @@ contract TronTxReader {
         return (key >> 3, key & 0x7, p);
     }
 
+    /// @notice Skips over a protobuf field payload based on its wire type.
+    /// @dev Supports VARINT, FIXED32, FIXED64, and LENGTH_DELIMITED. Reverts on unknown wire types.
+    /// @param data The calldata byte array being parsed.
+    /// @param cursor The cursor positioned at the start of the field payload (immediately after the key).
+    /// @param limit The maximum offset within `data` that may be read (exclusive).
+    /// @param wireType The protobuf wire type for the field payload.
+    /// @return newCursor The cursor position immediately after the skipped payload.
     function _skipField(bytes calldata data, uint256 cursor, uint256 limit, uint64 wireType)
         internal
         pure
@@ -417,12 +579,24 @@ contract TronTxReader {
         revert TronProtoInvalidWireType();
     }
 
+    /// @notice Advances `cursor` by `delta` bytes, bounded by `limit`.
+    /// @dev Reverts with `TronProtoTruncated()` if advancing would exceed `limit`.
+    /// @param cursor The current cursor position.
+    /// @param delta The number of bytes to advance.
+    /// @param limit The maximum offset allowed (exclusive).
+    /// @return The advanced cursor position (`cursor + delta`).
     function _advance(uint256 cursor, uint256 delta, uint256 limit) internal pure returns (uint256) {
         // Explicit non-overflow + bounds condition.
         if (delta > limit - cursor) revert TronProtoTruncated();
         return cursor + delta;
     }
 
+    /// @notice Copies a `[start, end)` slice from calldata into a new `bytes` in memory.
+    /// @dev Reverts if `start/end` are out of bounds or inverted.
+    /// @param data The calldata byte array to copy from.
+    /// @param start The start offset within `data` (inclusive).
+    /// @param end The end offset within `data` (exclusive).
+    /// @return out The copied bytes slice in memory.
     function _slice(bytes calldata data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
         if (end < start || end > data.length) revert TronProtoTruncated();
         uint256 len = end - start;

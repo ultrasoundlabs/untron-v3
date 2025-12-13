@@ -26,18 +26,29 @@ contract UntronControllerIndex {
 
     /// @notice Emitted when the owner of the contract is changed.
     /// @dev    Only used in setOwner function and emitted in constructor on deployment.
+    /// @param newOwner New owner address.
     event OwnerChanged(address indexed newOwner);
     /// @notice Emitted when the executor of the contract is changed.
     /// @dev    Only used in setExecutor function.
+    /// @param newExecutor New executor address.
     event ExecutorChanged(address indexed newExecutor);
     /// @notice Emitted when a payload is set for a particular rebalancer.
     /// @dev    Only used in setPayload function.
+    /// @param rebalancer Rebalancer address.
+    /// @param payload Rebalancer-specific payload.
     event PayloadSet(address indexed rebalancer, bytes payload);
     /// @notice Emitted when a receiver is deployed.
     /// @dev    Only used in _pullFromReceiver function.
+    /// @param receiver Receiver address.
+    /// @param salt Salt used for deterministic deployment (CREATE2).
     event ReceiverDeployed(address indexed receiver, bytes32 salt);
     /// @notice Emitted for each receiver when tokens are swept into accounting.
     /// @dev    Includes source token amount, exchange rate (1 for USDT), and USDT-equivalent amount.
+    /// @param receiverSalt Salt used for deterministic receiver deployment (CREATE2).
+    /// @param token Token address.
+    /// @param tokenAmount Amount of token pulled from receiver.
+    /// @param exchangeRate Scaled exchange rate used for conversion.
+    /// @param usdtAmount USDT-equivalent amount accounted for this pull.
     event PulledFromReceiver(
         bytes32 indexed receiverSalt,
         address indexed token,
@@ -47,21 +58,32 @@ contract UntronControllerIndex {
     );
     /// @notice Emitted when USDT is rebalanced via a particular rebalancer.
     /// @dev    Only used in bridgeUsdt function.
+    /// @param inAmount Amount of USDT bridged in.
+    /// @param outAmount Amount of USDT expected out (as asserted by the rebalancer).
+    /// @param rebalancer Rebalancer used.
     event UsdtRebalanced(uint256 inAmount, uint256 outAmount, address indexed rebalancer);
     /// @notice Emitted when USDT is transferred from the controller to a recipient.
     /// @dev    Only used in transferUsdtFromController function.
+    /// @param recipient Recipient address.
+    /// @param amount Amount of USDT transferred.
     event ControllerUsdtTransfer(address indexed recipient, uint256 amount);
     /// @notice Emitted when the canonical USDT token is set or updated.
     /// @dev    Only used in setUsdt function.
+    /// @param newUsdt New USDT token address.
     event UsdtSet(address indexed newUsdt);
     /// @notice Emitted when the LP address is set or updated.
     /// @dev    Only used in setLp function.
+    /// @param newLp New LP address.
     event LpSet(address indexed newLp);
     /// @notice Emitted when the LP updates the exchange rate for a token.
     /// @dev    Only used in setLpExchangeRate function.
+    /// @param token Token address.
+    /// @param exchangeRate Scaled exchange rate set by the LP.
     event LpExchangeRateSet(address indexed token, uint256 exchangeRate);
     /// @notice Emitted when the LP withdraws purchased tokens from the controller.
     /// @dev    Only used in lpWithdrawTokens function.
+    /// @param token Token withdrawn.
+    /// @param amount Amount withdrawn.
     event LpTokensWithdrawn(address indexed token, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
@@ -98,26 +120,42 @@ contract UntronControllerIndex {
                             EMITTERS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Emits {OwnerChanged} and appends it to the event chain.
+    /// @param newOwner New owner address.
     function _emitOwnerChanged(address newOwner) internal {
         _appendEventChain(OwnerChanged.selector, abi.encode(newOwner));
         emit OwnerChanged(newOwner);
     }
 
+    /// @notice Emits {ExecutorChanged} and appends it to the event chain.
+    /// @param newExecutor New executor address.
     function _emitExecutorChanged(address newExecutor) internal {
         _appendEventChain(ExecutorChanged.selector, abi.encode(newExecutor));
         emit ExecutorChanged(newExecutor);
     }
 
+    /// @notice Emits {PayloadSet} and appends it to the event chain.
+    /// @param rebalancer Rebalancer address.
+    /// @param payload Rebalancer-specific payload.
     function _emitPayloadSet(address rebalancer, bytes memory payload) internal {
         _appendEventChain(PayloadSet.selector, abi.encode(rebalancer, payload));
         emit PayloadSet(rebalancer, payload);
     }
 
+    /// @notice Emits {ReceiverDeployed} and appends it to the event chain.
+    /// @param receiver Receiver address.
+    /// @param salt Salt used for deterministic deployment (CREATE2).
     function _emitReceiverDeployed(address receiver, bytes32 salt) internal {
         _appendEventChain(ReceiverDeployed.selector, abi.encode(receiver, salt));
         emit ReceiverDeployed(receiver, salt);
     }
 
+    /// @notice Emits {PulledFromReceiver} and appends it to the event chain.
+    /// @param receiverSalt Salt used for deterministic receiver deployment (CREATE2).
+    /// @param token Token address.
+    /// @param tokenAmount Amount of token pulled from receiver.
+    /// @param exchangeRate Scaled exchange rate used for conversion.
+    /// @param usdtAmount USDT-equivalent amount accounted for this pull.
     function _emitPulledFromReceiver(
         bytes32 receiverSalt,
         address token,
@@ -131,31 +169,48 @@ contract UntronControllerIndex {
         emit PulledFromReceiver(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount);
     }
 
+    /// @notice Emits {UsdtRebalanced} and appends it to the event chain.
+    /// @param inAmount Amount of USDT bridged in.
+    /// @param outAmount Amount of USDT expected out (as asserted by the rebalancer).
+    /// @param rebalancer Rebalancer used.
     function _emitUsdtRebalanced(uint256 inAmount, uint256 outAmount, address rebalancer) internal {
         _appendEventChain(UsdtRebalanced.selector, abi.encode(inAmount, outAmount, rebalancer));
         emit UsdtRebalanced(inAmount, outAmount, rebalancer);
     }
 
+    /// @notice Emits {ControllerUsdtTransfer} and appends it to the event chain.
+    /// @param recipient Recipient address.
+    /// @param amount Amount of USDT transferred.
     function _emitControllerUsdtTransfer(address recipient, uint256 amount) internal {
         _appendEventChain(ControllerUsdtTransfer.selector, abi.encode(recipient, amount));
         emit ControllerUsdtTransfer(recipient, amount);
     }
 
+    /// @notice Emits {UsdtSet} and appends it to the event chain.
+    /// @param newUsdt New USDT token address.
     function _emitUsdtSet(address newUsdt) internal {
         _appendEventChain(UsdtSet.selector, abi.encode(newUsdt));
         emit UsdtSet(newUsdt);
     }
 
+    /// @notice Emits {LpSet} and appends it to the event chain.
+    /// @param newLp New LP address.
     function _emitLpSet(address newLp) internal {
         _appendEventChain(LpSet.selector, abi.encode(newLp));
         emit LpSet(newLp);
     }
 
+    /// @notice Emits {LpExchangeRateSet} and appends it to the event chain.
+    /// @param token Token address.
+    /// @param exchangeRate Scaled exchange rate set by the LP.
     function _emitLpExchangeRateSet(address token, uint256 exchangeRate) internal {
         _appendEventChain(LpExchangeRateSet.selector, abi.encode(token, exchangeRate));
         emit LpExchangeRateSet(token, exchangeRate);
     }
 
+    /// @notice Emits {LpTokensWithdrawn} and appends it to the event chain.
+    /// @param token Token withdrawn.
+    /// @param amount Amount withdrawn.
     function _emitLpTokensWithdrawn(address token, uint256 amount) internal {
         _appendEventChain(LpTokensWithdrawn.selector, abi.encode(token, amount));
         emit LpTokensWithdrawn(token, amount);
@@ -518,7 +573,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         _emitUsdtRebalanced(inAmount, outAmount, rebalancer);
     }
 
-    // Accept native token for bridging fees
+    /// @notice Accepts native token for bridging fees.
     receive() external payable {}
 
     /*//////////////////////////////////////////////////////////////
@@ -557,8 +612,8 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         UntronReceiver(receiver).pull(token, amount);
     }
 
-    /// @dev Enforces accounting for token transfers in the canonical accounting token (USDT).
-    /// @param amount Amount of tokens to transfer.
+    /// @notice Enforces accounting for USDT spending from controller balance.
+    /// @param amount Amount of USDT to spend.
     function _enforceAccounting(uint256 amount) internal {
         uint256 pulled = pulledUsdt;
         if (amount > pulled) revert InsufficientPulledAmount();
@@ -567,27 +622,28 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         }
     }
 
-    /// @dev Computes USDT that can be spent without violating accounting invariants.
+    /// @notice Computes USDT that can be spent without violating accounting invariants.
+    /// @return Amount of USDT that can be withdrawn/spent without dipping into accounted `pulledUsdt`.
     function _maxWithdrawableUsdt() internal view returns (uint256) {
         uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt, address(this));
         if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
         return controllerUsdtBalance - pulledUsdt;
     }
 
-    /// @dev Reverts if the caller is not the owner.
-    ///      Used in an onlyOwner modifier only.
+    /// @notice Reverts if the caller is not the owner.
+    /// @dev    Used in an onlyOwner modifier only.
     function _onlyOwner() internal view {
         if (msg.sender != owner) revert OnlyOwner();
     }
 
-    /// @dev Reverts if the caller is not the executor.
-    ///      Used in an onlyExecutor modifier only.
+    /// @notice Reverts if the caller is not the executor.
+    /// @dev    Used in an onlyExecutor modifier only.
     function _onlyExecutor() internal view {
         if (msg.sender != executor) revert OnlyExecutor();
     }
 
-    /// @dev Reverts if the caller is not the LP.
-    ///      Used in an onlyLp modifier only.
+    /// @notice Reverts if the caller is not the LP.
+    /// @dev    Used in an onlyLp modifier only.
     function _onlyLp() internal view {
         if (msg.sender != lp) revert OnlyLp();
     }

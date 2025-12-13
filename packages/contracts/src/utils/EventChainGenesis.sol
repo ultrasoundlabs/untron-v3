@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @notice Values used as genesis event chain hash in Index contracts.
+/// @title EventChainGenesis
+/// @notice Genesis values for event chain-based indexes in Untron V3 protocol
 /// @dev Kept in a standalone library to avoid copying the constants across contracts.
 /// @author Ultrasound Labs
 library EventChainGenesis {

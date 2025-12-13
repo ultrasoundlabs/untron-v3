@@ -7,10 +7,19 @@ import {TokenUtils} from "../../../utils/TokenUtils.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-/// @dev Minimal interface for Circle CCTP V2 TokenMessengerV2.
-///      Signature matches Circle's TokenMessengerV2 depositForBurn.
+/// @title ITokenMessengerV2
+/// @notice Minimal interface for Circle CCTP V2 `TokenMessengerV2`.
+/// @dev Signature matches Circle's `TokenMessengerV2.depositForBurn`.
 /// @author Ultrasound Labs
 interface ITokenMessengerV2 {
+    /// @notice Burns `burnToken` on the source domain and emits a message that can be relayed to mint on the destination domain.
+    /// @param amount Amount of `burnToken` to burn on the source domain (in token's smallest units).
+    /// @param destinationDomain Circle domain id of the destination chain (NOT an EVM chainId).
+    /// @param mintRecipient Recipient of minted tokens on the destination domain as a `bytes32` (EVM addresses are left-padded).
+    /// @param burnToken ERC-20 token address to burn on the source domain (e.g., USDC).
+    /// @param destinationCaller If nonzero, restricts who can call `receiveMessage` on the destination; `bytes32(0)` allows anyone.
+    /// @param maxFee Maximum fee (in `burnToken` units) to pay for the transfer.
+    /// @param minFinalityThreshold Minimum finality threshold required by Circle for the burn event (e.g., 1000 for fast finality).
     function depositForBurn(
         uint256 amount,
         uint32 destinationDomain,
@@ -22,9 +31,11 @@ interface ITokenMessengerV2 {
     ) external;
 }
 
+/// @title CCTPV2Bridger
 /// @notice Simple, stateless CCTP V2 bridger (USDC-only).
 /// @dev Uses Standard Transfer params: destinationCaller=0x0 (anyone can relay),
 ///      maxFee=1 bps (rounded up), minFinalityThreshold=1000 (fast finality).
+/// @author Ultrasound Labs
 contract CCTPV2Bridger is IBridger, Ownable {
     error NotUntron();
     error UnsupportedToken(address token);
@@ -45,6 +56,10 @@ contract CCTPV2Bridger is IBridger, Ownable {
     uint32 internal constant _FINALITY_STANDARD = 1000; // fast finality
     uint256 internal constant _ONE_BPS_DENOMINATOR = 10_000;
 
+    /// @notice Creates a new CCTP V2 bridger instance.
+    /// @param untron The UntronV3 contract allowed to call `bridge`.
+    /// @param tokenMessengerV2 Circle `TokenMessengerV2` address on the current chain.
+    /// @param usdc USDC token address on the current chain.
     constructor(address untron, address tokenMessengerV2, address usdc) {
         UNTRON = untron;
         TOKEN_MESSENGER_V2 = ITokenMessengerV2(tokenMessengerV2);
@@ -86,11 +101,18 @@ contract CCTPV2Bridger is IBridger, Ownable {
             );
     }
 
+    /// @notice Withdraws tokens accidentally left in this contract.
+    /// @dev Owner-only escape hatch. Bridging custody is expected to be ephemeral (UntronV3 transfers in and immediately calls `bridge`).
+    /// @param token The ERC-20 token to withdraw.
+    /// @param amount Amount of `token` to withdraw.
     function withdraw(address token, uint256 amount) external onlyOwner {
         TokenUtils.transfer(token, payable(msg.sender), amount);
     }
 
-    /// @dev Map EVM chainId -> Circle CCTP domain id. Circle domains are NOT chainIds.
+    /// @notice Maps an EVM `chainId` to a Circle CCTP domain id.
+    /// @dev Circle domains are NOT EVM chainIds; this mapping must match Circle's published domain table.
+    /// @param chainId EVM chain id of the destination chain.
+    /// @return Circle CCTP domain id for `chainId`.
     function _circleDomainForChainId(uint256 chainId) internal pure returns (uint32) {
         // TODO: switch to a constant mapping filled at constructor
 

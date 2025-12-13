@@ -6,9 +6,17 @@ import {IOFT, SendParam} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.
 import {MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
 import {TokenUtils} from "../../utils/TokenUtils.sol";
 
-/// @dev Minimal OFT interface with Legacy Mesh-specific functions.
+/// @title Interface for The Legacy Mesh OFT
+/// @notice Minimal OFT interface with Legacy Mesh-specific functions.
+/// @author USDT0 Team
 interface ILegacyMeshOFT is IOFT {
+    /// @notice Returns the fee in basis points for Legacy Mesh transactions.
+    /// @return feeBps The fee in basis points.
     function feeBps() external view returns (uint16);
+
+    /// @notice Returns the denominator for basis points calculations.
+    /// @return denominator The denominator for basis points calculations.
+    /// @dev Normally 10000, but we decided to fetch it from the contract anyway
     function BPS_DENOMINATOR() external view returns (uint16);
 }
 

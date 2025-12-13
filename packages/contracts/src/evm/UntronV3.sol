@@ -16,7 +16,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
-/// @title Untron V3 hub (EVM-side)
+/// @title Untron V3 hub
 /// @notice Turns provable Tron-side controller activity into EVM-side payouts.
 /// @dev High-level responsibilities:
 /// - Maintain a timeline of per-receiver `Lease`s (created by whitelisted "realtors") that define:
@@ -1337,6 +1337,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     }
 
     /// @notice Returns the current USDT balance held by this contract.
+    /// @return The USDT balance held by this contract.
     /// @dev Returns 0 if `usdt` is not set.
     function usdtBalance() public view returns (uint256) {
         address usdt_ = usdt; // not sure if the compiler would optimize it into this anyway
@@ -1348,9 +1349,9 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Enforces the effective lease creation rate limit for `realtor`, if enabled.
-    /// Uses an append-only timestamp array per realtor and checks the timestamp at index `len - maxLeases`
-    /// to determine whether the oldest of the last `maxLeases` creations is outside the window.
+    /// @notice Enforces the effective lease creation rate limit for `realtor`, if enabled.
+    /// @dev Uses an append-only timestamp array per realtor and checks the timestamp at index `len - maxLeases`
+    ///      to determine whether the oldest of the last `maxLeases` creations is outside the window.
     /// @param realtor Realtor whose lease creation is being rate-limited.
     function _enforceLeaseRateLimit(address realtor) internal {
         // Resolve effective config after applying mode/overrides.
@@ -1373,7 +1374,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         timestamps.push(nowTs);
     }
 
-    /// @dev Enforces the payout-config update rate limit for `lessee`, if enabled.
+    /// @notice Enforces the payout-config update rate limit for `lessee`, if enabled.
     /// @param lessee Lessee being rate-limited.
     function _enforcePayoutConfigRateLimit(address lessee) internal {
         ProtocolConfig storage cfg = _protocolConfig;
@@ -1397,6 +1398,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         timestamps.push(nowTs);
     }
 
+    /// @notice Builds a fill plan.
     /// @dev Build a `FillPlan` for filling up to `maxClaims` slots from `queue`, starting at `head`,
     /// constrained by `available` USDT liquidity.
     ///
@@ -1414,6 +1416,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @param queue Storage reference to claim queue.
     /// @param head Starting head index (usually `nextIndexByTargetToken[targetToken]`).
     /// @param available Available USDT liquidity to allocate for this plan.
+    /// @return plan The fill plan for provided settlement.
     function _buildFillPlan(
         address targetToken,
         uint256 maxClaims,
@@ -1488,7 +1491,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         plan.expectedOutTotal = expectedOutTotal;
     }
 
-    /// @dev Execute a previously computed `FillPlan` by settling each claim in `[startHead, startHead + processedSlots)`.
+    /// @notice Execute a previously computed `FillPlan` by settling each claim in `[startHead, startHead + processedSlots)`.
     /// @param targetToken The token used to settle swap/bridge claims (queue key).
     /// @param queue Storage reference to claim queue.
     /// @param startHead Head cursor used when building the plan.
@@ -1544,7 +1547,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
     }
 
-    /// @dev Apply a delta to `protocolPnl` and emit the updated value via `UntronV3Index`.
+    /// @notice Apply a delta to `protocolPnl` and emit the updated value via `UntronV3Index`.
     /// @param delta Signed change to apply.
     /// @param reason Reason code for indexing/analytics.
     function _applyPnlDelta(int256 delta, PnlReason reason) internal {
@@ -1553,15 +1556,14 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         _emitProtocolPnlUpdated(protocolPnl, delta, reason);
     }
 
-    /// @dev Book protocol fee revenue for a recognized raw amount.
+    /// @notice Book protocol fee revenue for a recognized raw amount.
     /// @param raw Raw recognized volume (USDT units).
     /// @param netOut Net amount that will be paid out to the beneficiary (USDT units).
     function _bookFee(uint256 raw, uint256 netOut) internal {
         _applyPnlDelta(_toInt(raw - netOut), PnlReason.FEE);
     }
 
-    // forge-lint: disable-next-line(mixed-case-variable)
-    /// @dev Append a claim to `claimsByTargetToken[targetToken]`.
+    /// @notice Append a claim to `claimsByTargetToken[targetToken]`.
     /// @param targetToken Queue key.
     /// @param amountUsdt USDT-denominated claim amount.
     /// @param leaseId Lease that produced the claim.
@@ -1584,6 +1586,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         return queue.length - 1;
     }
 
+    /// @notice The internal function for processing PulledFromReceiver controller events.
     /// @dev Handle a `PulledFromReceiver` controller event by reconciling unbacked volume and/or creating new claims.
     ///
     /// The controller reports a USDT amount pulled out of the receiver(s) for a given `receiverSalt`.
@@ -1653,7 +1656,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                           INTERNAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Compute the effective minimum lease fee (ppm) for a given realtor.
+    /// @notice Compute the effective minimum lease fee (ppm) for a given realtor.
     /// @param realtor Realtor to compute minimum for.
     /// @return minFeePpm The maximum of protocol-wide and realtor-specific fee floors.
     function _minLeaseFeePpm(address realtor) internal view returns (uint256) {
@@ -1663,7 +1666,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         return minFee;
     }
 
-    /// @dev Compute the effective lease creation rate limit for `realtor` after applying `LeaseRateLimitMode`.
+    /// @notice Compute the effective lease creation rate limit for `realtor` after applying `LeaseRateLimitMode`.
     /// @param realtor Realtor to query.
     /// @return enabled Whether rate limiting is enabled.
     /// @return maxLeases Effective max leases allowed per window.
@@ -1692,6 +1695,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         enabled = (maxLeases != 0 && windowSeconds != 0);
     }
 
+    /// @notice The internal function for resolving settlement routes.
     /// @dev Resolve the settlement route for a `(targetChainId, targetToken)` pair.
     ///
     /// Logic:
@@ -1732,7 +1736,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         return Route({kind: RouteKind.Bridge, ratePpm: rate2, bridger: address(bridger)});
     }
 
-    /// @dev Find the lease that was active for `receiverSalt` at timestamp `ts`.
+    /// @notice Find the lease that was active for `receiverSalt` at timestamp `ts`.
     /// @dev This walks the receiver's lease timeline backwards and returns the last lease whose `startTime <= ts`.
     /// @param receiverSalt Receiver salt whose timeline is queried.
     /// @param ts Timestamp to query (seconds since epoch; may be an EVM or Tron timestamp depending on caller).
@@ -1755,7 +1759,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         }
     }
 
-    /// @dev Compute the net payout for `amountQ` raw volume under lease `l` after applying percentage and flat fees.
+    /// @notice Compute the net payout for `amountQ` raw volume under lease `l` after applying percentage and flat fees.
     /// @param l Lease whose fees apply.
     /// @param amountQ Raw recognized amount.
     /// @return netOut Net amount after fees (floored at 0).
@@ -1777,7 +1781,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                           INTERNAL PURE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Convert a `uint256` into `int256` with bounds checking.
+    /// @notice Convert a `uint256` into `int256` with bounds checking.
     /// @param x Unsigned value to cast.
     /// @return Signed integer representation of `x`.
     function _toInt(uint256 x) internal pure returns (int256) {
@@ -1788,7 +1792,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         return int256(x);
     }
 
-    /// @dev EIP-712 domain name and version for signature-based payout config updates.
+    /// @notice EIP-712 domain name and version for signature-based payout config updates.
     /// @return name EIP-712 domain name.
     /// @return version EIP-712 domain version string.
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {

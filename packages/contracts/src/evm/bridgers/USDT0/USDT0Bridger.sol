@@ -9,7 +9,9 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IOFT, SendParam, OFTReceipt} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
 
+/// @title USDT0Bridger
 /// @notice Bridger for the USDT0 (USD₮0) protocol core mesh using LayerZero V2 OFT.
+/// @dev UntronV3 transfers `amount` of USDT0 to this contract, then calls `bridge` to send via LayerZero.
 /// @author Ultrasound Labs
 contract USDT0Bridger is IBridger, Ownable {
     // --- Errors ---
@@ -24,13 +26,20 @@ contract USDT0Bridger is IBridger, Ownable {
     error ZeroAddress();
 
     // --- Immutables ---
+    /// @notice The UntronV3 contract allowed to call `bridge`.
     address public immutable UNTRON;
+    /// @notice The USDT0 token address on the current chain.
     IERC20 public immutable USDT0;
+    /// @notice The USDT0 OFT module on this chain (LayerZero V2).
     IOFT public immutable OFT; // the USDT0 OFT module on this chain (OAdapterUpgradeable / OUpgradeable)
 
     /// @notice EVM chainId -> LayerZero endpoint ID (eid) for USDT0 core mesh destinations.
     mapping(uint256 => uint32) public eidByChainId;
 
+    /// @notice Creates a new USDT0 bridger instance.
+    /// @param untron The UntronV3 contract allowed to call `bridge`.
+    /// @param usdt0 USDT0 token address on the current chain.
+    /// @param oft The LayerZero OFT contract/module used to send USDT0 on the current chain.
     constructor(address untron, address usdt0, address oft) {
         if (untron == address(0) || usdt0 == address(0) || oft == address(0)) revert ZeroAddress();
 
@@ -63,6 +72,13 @@ contract USDT0Bridger is IBridger, Ownable {
     }
 
     // --- IBridger ---
+    /// @notice Sends `amount` of USDT0 to `beneficiary` on `targetChainId` using the USDT0 core mesh.
+    /// @dev This contract must already custody `amount` USDT0. The call quotes OFT dust/decimals conversion
+    ///      and LayerZero messaging fees, then executes `OFT.send`.
+    /// @param token ERC-20 token being bridged (must be USDT0).
+    /// @param amount Amount of `token` to bridge (in token's smallest units).
+    /// @param targetChainId EVM chain id of the destination chain.
+    /// @param beneficiary Recipient address on the destination chain.
     function bridge(address token, uint256 amount, uint256 targetChainId, address beneficiary) external {
         if (msg.sender != UNTRON) revert NotUntron();
         if (beneficiary == address(0)) revert ZeroBeneficiary();
@@ -99,9 +115,14 @@ contract USDT0Bridger is IBridger, Ownable {
         OFT.send{value: msgFee.nativeFee}(sp, msgFee, address(this));
     }
 
+    /// @notice Withdraws tokens accidentally left in this contract.
+    /// @dev Owner-only escape hatch; also used to recover bridged tokens if a send is not executed.
+    /// @param token The ERC-20 token to withdraw.
+    /// @param amount Amount of `token` to withdraw.
     function withdraw(address token, uint256 amount) external onlyOwner {
         TokenUtils.transfer(token, payable(msg.sender), amount);
     }
 
+    /// @notice Accepts native gas token needed to pay LayerZero messaging fees.
     receive() external payable {}
 }
