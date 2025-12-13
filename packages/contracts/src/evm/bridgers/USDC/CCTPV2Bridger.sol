@@ -77,7 +77,7 @@ contract CCTPV2Bridger is IBridger, Ownable {
 
         // `amount` is the desired mint amount on destination; provide the maxFee from this contract's balance.
         uint256 maxFee = amount / _ONE_BPS_DENOMINATOR;
-        if (amount % _ONE_BPS_DENOMINATOR != 0) maxFee += 1;
+        if (amount % _ONE_BPS_DENOMINATOR != 0) ++maxFee;
         uint256 burnAmount = amount + maxFee;
 
         uint256 balance = USDC.balanceOf(address(this));

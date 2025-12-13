@@ -15,7 +15,7 @@ library TronSha256MerkleVerifier {
     function verify(bytes32 root, bytes32 leaf, bytes32[] memory proof, uint256 index) internal pure returns (bool) {
         bytes32 computed = leaf;
 
-        for (uint256 i = 0; i < proof.length; i++) {
+        for (uint256 i = 0; i < proof.length; ++i) {
             bytes32 sibling = proof[i];
 
             // Check bit i of index

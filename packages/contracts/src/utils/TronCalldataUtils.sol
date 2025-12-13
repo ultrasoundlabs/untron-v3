@@ -17,9 +17,14 @@ library TronCalldataUtils {
     error TronInvalidCalldataLength();
     error NoEventChainTipInMulticall();
 
+    /* solhint-disable gas-small-strings */
+    // this is a false alarm. keccak over string literal is evaluated at compile time.
+
     /// @dev TRC-20 function selectors.
     bytes4 internal constant SELECTOR_TRANSFER = bytes4(keccak256("transfer(address,uint256)"));
     bytes4 internal constant SELECTOR_TRANSFER_FROM = bytes4(keccak256("transferFrom(address,address,uint256)"));
+
+    /* solhint-enable gas-small-strings */
 
     /// @notice Convert an EVM `address` into a Tron-style 21-byte "raw address".
     /// @dev The returned value is `0x41 || bytes20(a)` (no base58check encoding/decoding).
@@ -37,6 +42,7 @@ library TronCalldataUtils {
     function decodeIsEventChainTip(bytes memory data) internal pure returns (bytes32 tip) {
         uint256 dataEnd = data.length;
         if (dataEnd != 4 + 32) revert TronInvalidCalldataLength();
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             // `data` points to the bytes object; skip the 32-byte length slot then skip 4-byte selector.
             tip := mload(add(data, 0x24))
@@ -77,7 +83,7 @@ library TronCalldataUtils {
         uint256 offsetsEnd = offsetsStart + 32 * n;
         if (offsetsEnd > dataEnd) revert TronInvalidCalldataLength();
 
-        for (uint256 i = 0; i < n; i++) {
+        for (uint256 i = 0; i < n; ++i) {
             uint256 elementRel = _readU256(data, offsetsStart + 32 * i);
             // Element offsets are relative to `offsetsStart` (i.e., immediately after the length slot).
             uint256 elementStart = offsetsStart + elementRel;
@@ -91,6 +97,7 @@ library TronCalldataUtils {
             if (elementLen < 4) continue;
 
             bytes4 innerSel;
+            // solhint-disable-next-line no-inline-assembly
             assembly ("memory-safe") {
                 // `bytes4` values are left-aligned on the stack; loading the first word preserves
                 // the selector in the high 4 bytes.
@@ -146,6 +153,7 @@ library TronCalldataUtils {
         if (dataEnd != 4 + 32 * 2) revert TronInvalidTrc20DataLength();
         bytes32 word1;
         bytes32 word2;
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             word1 := mload(add(data, 0x24)) // 0x20 (data) + 4 (selector)
             word2 := mload(add(data, 0x44)) // 0x20 (data) + 36
@@ -171,6 +179,7 @@ library TronCalldataUtils {
         bytes32 w1;
         bytes32 w2;
         bytes32 w3;
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             w1 := mload(add(data, 0x24)) // from
             w2 := mload(add(data, 0x44)) // to
@@ -216,6 +225,7 @@ library TronCalldataUtils {
     /// @param offset The byte offset into `data` where the word begins.
     /// @return v The loaded 32-byte word interpreted as `uint256`.
     function _readU256(bytes memory data, uint256 offset) private pure returns (uint256 v) {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             v := mload(add(data, add(0x20, offset)))
         }

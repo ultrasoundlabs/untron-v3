@@ -111,8 +111,12 @@ contract USDT0Bridger is IBridger, Ownable {
         uint256 bal = address(this).balance;
         if (bal < msgFee.nativeFee) revert InsufficientNativeBalance(bal, msgFee.nativeFee);
 
+        /* solhint-disable check-send-result */
+
         // Execute send. Refund any excess (if any) back to this contract.
         OFT.send{value: msgFee.nativeFee}(sp, msgFee, address(this));
+
+        /* solhint-enable check-send-result */
     }
 
     /// @notice Withdraws tokens accidentally left in this contract.

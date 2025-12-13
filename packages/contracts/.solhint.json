@@ -17,6 +17,7 @@
     "func-name-mixedcase": "error",
     "var-name-mixedcase": "error",
     "private-vars-leading-underscore": "error",
-    "import-path-check": "off"
+    "import-path-check": "off",
+    "gas-indexed-events": "off"
   }
 }
