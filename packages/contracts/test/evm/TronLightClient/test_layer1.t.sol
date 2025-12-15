@@ -22,6 +22,14 @@ contract TronLightClientLayer1Test is Test {
     uint256[] internal _blockNumbers;
     bytes32[] internal _blockIds;
 
+    function _sliceBytes(bytes memory data, uint256 start, uint256 length) internal pure returns (bytes memory out) {
+        require(start + length <= data.length, "slice out of bounds");
+        out = new bytes(length);
+        for (uint256 i = 0; i < length; i++) {
+            out[i] = data[start + i];
+        }
+    }
+
     function setUp() public {
         // Read JSON fixture
         string memory root = vm.projectRoot();
@@ -83,7 +91,7 @@ contract TronLightClientLayer1Test is Test {
         // latestProvenBlock should be the endingBlockId from the fixture
         assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch");
 
-        // The last block in the proven range should be present in the ring buffer.
+        // The last block in the proven range should be present in storage.
         uint256 numLast = _blockNumbers[_blockNumbers.length - 1];
 
         assertEq(_client.getBlockId(numLast), _blockIds[_blockIds.length - 1], "getBlockId(last) mismatch");
@@ -104,6 +112,25 @@ contract TronLightClientLayer1Test is Test {
         // And the txTrieRoots for both the starting anchor and ending block should match the fixture.
         assertEq(_client.getTxTrieRoot(parentNum), _startingBlockTxTrieRoot, "getTxTrieRoot(parent) mismatch");
         assertEq(_client.getTxTrieRoot(numLast), _endingBlockTxTrieRoot, "getTxTrieRoot(last) mismatch");
+    }
+
+    function test_proveBlocks_allowsUnanchoredStartIfIntersectsLater() public {
+        // First prove the full fixture range so we store the ending block as an anchor.
+        _client.proveBlocks(_startingBlockId, _metadata, _sigs);
+
+        // Now prove only the second half of the range, starting from a block that is not stored.
+        // This succeeds because the proof intersects the already-stored ending anchor.
+        uint256 startIdx = _blockNumbers.length / 2;
+        require(startIdx > 0, "fixture must contain >1 block");
+
+        uint256 numSlice = _blockNumbers.length - startIdx;
+        bytes32 unanchoredStartingBlock = _blockIds[startIdx - 1];
+        bytes memory metaSlice = _sliceBytes(_metadata, startIdx * 69, numSlice * 69);
+        bytes memory sigsSlice = _sliceBytes(_sigs, startIdx * 65, numSlice * 65);
+
+        _client.proveBlocks(unanchoredStartingBlock, metaSlice, sigsSlice);
+
+        assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch after backfill");
     }
 
     function test_proveBlocks_revertsOnInvalidSignature() public {
