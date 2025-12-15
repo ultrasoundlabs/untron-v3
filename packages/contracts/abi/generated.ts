@@ -339,12 +339,7 @@ export const iBlockRangeProverAbi = [
   {
     type: 'function',
     inputs: [
-      { name: 'srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
-      {
-        name: 'witnessDelegatees',
-        internalType: 'bytes20[27]',
-        type: 'bytes20[27]',
-      },
+      { name: 'srDataHash', internalType: 'bytes32', type: 'bytes32' },
       { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
       {
@@ -4172,6 +4167,7 @@ export const tronLightClientAbi = [
         internalType: 'bytes20[27]',
         type: 'bytes20[27]',
       },
+      { name: 'srDataHash', internalType: 'bytes32', type: 'bytes32' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -4182,6 +4178,13 @@ export const tronLightClientAbi = [
     outputs: [
       { name: '', internalType: 'contract IBlockRangeProver', type: 'address' },
     ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'SR_DATA_HASH',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
   },
   {
@@ -4318,6 +4321,7 @@ export const tronLightClientHarnessAbi = [
         internalType: 'bytes20[27]',
         type: 'bytes20[27]',
       },
+      { name: 'srDataHash_', internalType: 'bytes32', type: 'bytes32' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -4328,6 +4332,13 @@ export const tronLightClientHarnessAbi = [
     outputs: [
       { name: '', internalType: 'contract IBlockRangeProver', type: 'address' },
     ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'SR_DATA_HASH',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
   },
   {
@@ -8351,12 +8362,7 @@ export const zkTronV1BlockRangeProverAbi = [
   {
     type: 'function',
     inputs: [
-      { name: 'srs', internalType: 'bytes20[27]', type: 'bytes20[27]' },
-      {
-        name: 'witnessDelegatees',
-        internalType: 'bytes20[27]',
-        type: 'bytes20[27]',
-      },
+      { name: 'srDataHash', internalType: 'bytes32', type: 'bytes32' },
       { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
       { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
       {
