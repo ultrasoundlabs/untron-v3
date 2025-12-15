@@ -159,6 +159,7 @@ contract UntronV3ProtocolPnlTest is Test {
         _reader.setNextCallData(
             keccak256("tx_pull_guard_eq"),
             3,
+            // forge-lint: disable-next-line(unsafe-typecast)
             uint32(pullTs),
             _evmToTron(address(0x4444)),
             _evmToTron(address(0)),
@@ -171,6 +172,7 @@ contract UntronV3ProtocolPnlTest is Test {
         _reader.setNextCallData(
             keccak256("tx_pull_guard_ok"),
             4,
+            // forge-lint: disable-next-line(unsafe-typecast)
             uint32(pullTs + 1),
             _evmToTron(address(0x5555)),
             _evmToTron(address(0)),
