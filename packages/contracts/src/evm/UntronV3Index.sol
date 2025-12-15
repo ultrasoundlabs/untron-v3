@@ -11,7 +11,7 @@ contract UntronV3Index {
     // Protocol PnL update reason codes.
     enum PnlReason {
         FEE, // positive
-        REBALANCE, // positive
+        REBALANCE, // positive if rebalanced at <0 bps fee, negative otherwise
         WITHDRAWAL, // negative
         RECEIVER_PULL_NO_LEASE // positive
     }
