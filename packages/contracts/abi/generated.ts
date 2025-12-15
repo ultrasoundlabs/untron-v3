@@ -5965,6 +5965,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'lastReceiverPullTimestamp',
+    outputs: [{ name: '', internalType: 'uint64', type: 'uint64' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     name: 'leaseNonces',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -6934,6 +6941,7 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'CannotRescueUSDT' },
   { type: 'error', inputs: [], name: 'ChainDeprecated' },
   { type: 'error', inputs: [], name: 'DepositAlreadyProcessed' },
+  { type: 'error', inputs: [], name: 'DepositNotAfterLastReceiverPull' },
   { type: 'error', inputs: [], name: 'EnforcedPause' },
   { type: 'error', inputs: [], name: 'EventRelayNoProgress' },
   { type: 'error', inputs: [], name: 'EventTipMismatch' },

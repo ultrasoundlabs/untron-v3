@@ -139,6 +139,47 @@ contract UntronV3ProtocolPnlTest is Test {
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 0);
     }
 
+    function testPreEntitleRevertsIfNotAfterLastReceiverPull() public {
+        bytes32 salt = keccak256("salt_pull_guard");
+        uint32 leaseFeePpm = 10_000;
+        uint64 flatFee = 0;
+        uint64 nukeableAfter = uint64(block.timestamp + 1 days);
+
+        _untron.createLease(
+            salt, address(this), nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
+        );
+
+        uint64 pullTs = uint64(block.timestamp);
+        _untron.exposedProcessReceiverPulled(salt, 1, pullTs);
+
+        address predictedReceiver = _untron.predictReceiverAddress(_CONTROLLER, salt);
+        bytes memory trc20Data =
+            abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), predictedReceiver, uint256(100));
+
+        _reader.setNextCallData(
+            keccak256("tx_pull_guard_eq"),
+            3,
+            uint32(pullTs),
+            _evmToTron(address(0x4444)),
+            _evmToTron(address(0)),
+            trc20Data
+        );
+
+        vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
+        _untron.preEntitle(salt, 3, hex"", new bytes32[](0), 0);
+
+        _reader.setNextCallData(
+            keccak256("tx_pull_guard_ok"),
+            4,
+            uint32(pullTs + 1),
+            _evmToTron(address(0x5555)),
+            _evmToTron(address(0)),
+            trc20Data
+        );
+
+        _untron.preEntitle(salt, 4, hex"", new bytes32[](0), 0);
+    }
+
     function testUsdtRebalancedBooksDrift() public {
         bytes32 sig = keccak256("UsdtRebalanced(uint256,uint256,address)");
         bytes memory data = abi.encode(uint256(1000), uint256(995), address(0x3333));

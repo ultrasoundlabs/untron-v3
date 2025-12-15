@@ -336,6 +336,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Keyed by the Tron transaction ID as computed by `TronTxReader` (sha256 of `raw_data` bytes).
     mapping(bytes32 => bool) public depositProcessed;
 
+    /// @notice Latest processed Tron timestamp of a `PulledFromReceiver` event for a receiver salt.
+    /// @dev Used to enforce that `preEntitle` cannot recognize deposits that occurred at/before the latest known pull.
+    mapping(bytes32 => uint64) public lastReceiverPullTimestamp;
+
     /// @notice Nonces per lease for gasless payout config updates.
     /// @dev Incremented in `setPayoutConfigWithSig` after a successful signature validation.
     mapping(uint256 => uint256) public leaseNonces;
@@ -366,6 +370,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     error NoActiveLease();
     /// @notice Thrown when a recognizable Tron deposit tx is submitted more than once.
     error DepositAlreadyProcessed();
+    /// @notice Thrown when a Tron deposit's block timestamp is not strictly after the latest known receiver pull.
+    error DepositNotAfterLastReceiverPull();
     /// @notice Thrown when a proved Tron transfer is not sent to the predicted receiver for a given salt.
     error InvalidReceiverForSalt();
     /// @notice Thrown when an LP attempts to withdraw more than their accounted principal.
@@ -853,6 +859,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                         PRE-ENTITLEMENT FROM TRON
     //////////////////////////////////////////////////////////////*/
 
+    /* solhint-disable function-max-lines */
+
     /// @notice Prove and pre-entitle a recognizable TRC-20 deposit on Tron to a lease.
     /// @dev This wires together:
     /// - `TronTxReader` (verifies inclusion + decodes a `TriggerSmartContract` tx),
@@ -871,6 +879,7 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// - The proved tx must be a successful `TriggerSmartContract` call to the TRC-20 contract `tronUsdt`.
     /// - The decoded TRC-20 transfer destination must match the predicted receiver for `receiverSalt`.
     /// - There must be an active lease for `receiverSalt` at the Tron tx timestamp.
+    /// - The Tron tx timestamp must be strictly greater than the latest processed receiver pull timestamp for `receiverSalt`.
     ///
     /// Accounting:
     /// - Increments `lease.recognizedRaw` and `lease.unbackedRaw` by the raw TRC-20 amount.
@@ -911,6 +920,14 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             TronCalldataUtils.decodeTrc20FromCalldata(callData.data, callData.senderTron);
         if (toTron != expectedToTron) revert InvalidReceiverForSalt();
 
+        // Enforce proof ordering against receiver pulls: do not recognize deposits that occurred at/before
+        // the latest known `PulledFromReceiver` timestamp for this receiver salt.
+        uint64 lastPullTs = lastReceiverPullTimestamp[receiverSalt];
+        // solhint-disable-next-line gas-strict-inequalities
+        if (lastPullTs != 0 && uint64(callData.tronBlockTimestamp) <= lastPullTs) {
+            revert DepositNotAfterLastReceiverPull();
+        }
+
         // Token is no longer part of lease uniqueness; use receiver salt only.
         // Attribute to the lease that was active at the Tron tx timestamp.
         leaseId = _findActiveLeaseId(receiverSalt, callData.tronBlockTimestamp);
@@ -937,6 +954,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         // Emit pre-entitlement event for offchain reconciliation.
         _emitDepositPreEntitled(callData.txId, leaseId, amountQ, netOut);
     }
+
+    /* solhint-enable function-max-lines */
 
     /*//////////////////////////////////////////////////////////////
                          CONTROLLER EVENT RELAY
@@ -1447,6 +1466,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         return queue.length - 1;
     }
 
+    /* solhint-disable function-max-lines */
+
     /// @notice The internal function for processing PulledFromReceiver controller events.
     /// @dev Handle a `PulledFromReceiver` controller event by reconciling unbacked volume and/or creating new claims.
     ///
@@ -1462,6 +1483,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @param usdtAmount Total USDT amount reported as pulled from receivers by the controller.
     /// @param dumpTimestamp Tron timestamp at which the pull occurred (used to find active lease).
     function _processReceiverPulled(bytes32 receiverSalt, uint256 usdtAmount, uint64 dumpTimestamp) internal {
+        // Track the latest observed pull timestamp for this receiver salt (monotonic by design).
+        uint64 prev = lastReceiverPullTimestamp[receiverSalt];
+        if (dumpTimestamp > prev) lastReceiverPullTimestamp[receiverSalt] = dumpTimestamp;
+
         if (usdtAmount == 0) {
             return;
         }
@@ -1512,6 +1537,8 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
             }
         }
     }
+
+    /* solhint-enable function-max-lines */
 
     /// @notice Execute a swap for a batch of claims.
     /// @param targetToken Token to swap into.
