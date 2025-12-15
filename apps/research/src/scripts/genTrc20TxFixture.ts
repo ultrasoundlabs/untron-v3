@@ -325,10 +325,13 @@ async function main() {
       continue;
     }
 
-    // Success: align with Solidity logic: STATUS_CODE == 0
+    // Success: align with Solidity logic:
+    // - If Result.ret (code) is absent, it defaults to 0 (SUCESS) per proto3.
+    // - For TriggerSmartContract, require contractRet == SUCCESS (1).
     const firstResult = tx.ret && tx.ret.length > 0 ? tx.ret[0]! : undefined;
     const statusCode = firstResult ? firstResult.ret : 0;
-    const success = statusCode === 0;
+    const contractRet = firstResult ? firstResult.contractRet : 0;
+    const success = statusCode === 0 && contractRet === 1;
 
     const { fromTron, toTron, tronTokenEvm, amount, isTransferFrom, selector } = decodedTrc20;
 

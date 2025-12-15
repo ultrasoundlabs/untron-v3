@@ -422,17 +422,22 @@ contract TronTxReader {
         }
     }
 
+    /* solhint-disable function-max-lines */
+    // TODO: maybe optimize it
+
     /// @notice Parses the transaction result status and returns whether it indicates success.
     /// @dev
-    /// Tron `Transaction` includes optional `signature` entries and an optional `ret`/result section.
+    /// Tron `Transaction` includes optional `signature` entries and a `ret`/result section.
     /// This function:
     /// - Skips any signature fields (field #2, tag 0x12) starting at `offset`.
-    /// - If a result section (tag 0x2A) is not present, treats the tx as successful.
-    /// - If present, looks for a status/code field (field #2, varint) and requires it to be 0.
+    /// - Requires at least one result entry (field #5, tag 0x2A) to be present.
+    /// - For each result entry:
+    ///   - If a status/code field (field #2, varint) is present, it must be 0 (SUCESS).
+    ///   - The contract execution result field (field #3, varint) must be 1 (SUCCESS).
     /// @param encodedTx The raw protobuf-encoded Tron `Transaction` bytes.
     /// @param offset The starting offset within `encodedTx` where `raw_data` ended.
     /// @param totalLen The total length of `encodedTx` (upper bound for reads).
-    /// @return success True if the parsed result indicates success (or result is absent); false otherwise.
+    /// @return success True if the parsed result indicates success; false otherwise.
     function _parseTxSuccess(bytes calldata encodedTx, uint256 offset, uint256 totalLen) internal pure returns (bool) {
         // Skip signatures (field 2, tag 0x12)
         uint256 prevOffset = offset;
@@ -445,33 +450,54 @@ contract TronTxReader {
             assert(offset > prevOffset); // Ensure forward progress
             offset = _advance(offset, uint256(sigLen), totalLen);
         }
+        // Parse one or more ret entries (field 5, tag 0x2A).
+        bool sawRet;
         // solhint-disable-next-line gas-strict-inequalities
-        if (offset >= totalLen || uint8(encodedTx[offset]) != 0x2A) return true;
-        ++offset;
-        uint256 resStart;
-        uint256 resEnd;
-        (resStart, resEnd,) = _readLength(encodedTx, offset, totalLen);
-        offset = resStart;
+        while (offset < totalLen && uint8(encodedTx[offset]) == 0x2A) {
+            sawRet = true;
+            ++offset;
 
-        // Monotonicity assertion: offset must increase.
-        uint256 prevResOffset = offset;
-        while (offset < resEnd) {
-            prevResOffset = offset;
+            uint256 resStart;
+            uint256 resEnd;
+            (resStart, resEnd, offset) = _readLength(encodedTx, offset, totalLen);
 
-            uint64 fieldNum;
-            uint64 wireType;
-            (fieldNum, wireType, offset) = _readKey(encodedTx, offset, resEnd);
-            assert(offset > prevResOffset); // Ensure forward progress
-            if (fieldNum == 2 && wireType == _WIRE_VARINT) {
-                uint64 statusCode;
-                (statusCode, offset) = ProtoVarint.read(encodedTx, offset, resEnd);
-                if (statusCode != 0) return false;
-            } else {
-                offset = _skipField(encodedTx, offset, resEnd, wireType);
+            // Defaults per proto3: code==0 (SUCESS) unless explicitly set.
+            uint64 code;
+            uint64 contractRet;
+            bool sawContractRet;
+
+            uint256 cursor = resStart;
+            uint256 prevResOffset = cursor;
+            while (cursor < resEnd) {
+                prevResOffset = cursor;
+
+                uint64 fieldNum;
+                uint64 wireType;
+                (fieldNum, wireType, cursor) = _readKey(encodedTx, cursor, resEnd);
+                assert(cursor > prevResOffset); // Ensure forward progress
+                if (wireType == _WIRE_VARINT) {
+                    uint64 v;
+                    (v, cursor) = ProtoVarint.read(encodedTx, cursor, resEnd);
+                    if (fieldNum == 2) {
+                        code = v;
+                        if (code != 0) return false;
+                    } else if (fieldNum == 3) {
+                        sawContractRet = true;
+                        contractRet = v;
+                    }
+                } else {
+                    cursor = _skipField(encodedTx, cursor, resEnd, wireType);
+                }
             }
+
+            // For TriggerSmartContract, require a contract execution result to be present and SUCCESS (1).
+            if (!sawContractRet || contractRet != 1) return false;
         }
-        return true;
+
+        return sawRet;
     }
+
+    /* solhint-enable function-max-lines */
 
     // ---------------- Utilities ----------------
     /// @notice Reads a length-delimited protobuf field payload and returns its bounds.
