@@ -262,23 +262,8 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         uint256 totalToken = 0;
         uint256 totalUsdt = 0;
         for (uint256 i = 0; i < receiverSalts.length; ++i) {
-            address receiver = predictReceiverAddress(receiverSalts[i]);
-            uint256 balance = TokenUtils.getBalanceOf(token, receiver);
-
-            uint256 sweepAmount = balance;
-            if (balance > 0) {
-                unchecked {
-                    // Sweep all but one base unit to keep the receiver's balance slot non-zero.
-                    //
-                    // Sending a TRC-20 token to a Tron address which already has some is ~2x cheaper
-                    // than sending them to an empty balance slot (65k vs 130k energy for Tron USDT
-                    // at the time of writing).
-                    //
-                    // This is a minor optimization that doesn't change the protocol's
-                    // correctness or security.
-                    --sweepAmount;
-                }
-            }
+            bytes32 receiverSalt = receiverSalts[i];
+            uint256 sweepAmount = _computeSweepAmount(token, receiverSalt);
 
             // Verify the expected amount of tokens to be swept matches the actual amount.
             // — why is this explicit in the calldata?
@@ -288,7 +273,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             if (amounts[i] != sweepAmount) revert IncorrectSweepAmount();
 
             if (sweepAmount != 0) {
-                _pullFromReceiver(receiverSalts[i], token, sweepAmount);
+                _pullFromReceiver(receiverSalt, token, sweepAmount);
 
                 uint256 usdtAmount;
                 if (isUsdt) {
@@ -302,7 +287,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
                 // we're not interested in logging zero amount pulls
                 // and they'd make the event chain system kinda vulnerable to spam of PulledFromReceiver events
                 // so the event is only emitted if the call did indeed pull something
-                _emitPulledFromReceiver(receiverSalts[i], token, sweepAmount, rateUsed, usdtAmount);
+                _emitPulledFromReceiver(receiverSalt, token, sweepAmount, rateUsed, usdtAmount);
             }
         }
 
@@ -326,6 +311,28 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     }
 
     /* solhint-enable function-max-lines */
+
+    /// @notice Computes the amount of tokens to sweep from the given token to the receiver.
+    /// @param token The token to sweep.
+    /// @param receiverSalt The salt used to predict the receiver address.
+    /// @return sweepAmount The amount of tokens to sweep.
+    function _computeSweepAmount(address token, bytes32 receiverSalt) private view returns (uint256 sweepAmount) {
+        address receiver = predictReceiverAddress(receiverSalt);
+        sweepAmount = TokenUtils.getBalanceOf(token, receiver);
+        if (sweepAmount > 0) {
+            unchecked {
+                // Sweep all but one base unit to keep the receiver's balance slot non-zero.
+                //
+                // Sending a TRC-20 token to a Tron address which already has some is ~2x cheaper
+                // than sending them to an empty balance slot (65k vs 130k energy for Tron USDT
+                // at the time of writing).
+                //
+                // This is a minor optimization that doesn't change the protocol's
+                // correctness or security.
+                --sweepAmount;
+            }
+        }
+    }
 
     /// @notice Bridges specified amount of USDT via the provided rebalancer using stored payload.
     /// @param rebalancer Rebalancer address.

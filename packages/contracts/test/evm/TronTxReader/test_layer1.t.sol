@@ -84,46 +84,48 @@ contract TronTxReaderTest is Test {
 
         // Loop through each TRC-20 transaction from the fixture.
         for (uint256 i = 0; i < trc20Txs.length; ++i) {
-            Trc20TxJson memory txJson = trc20Txs[i];
-
-            // For proof verification, use the txLeaf as the root and an empty proof.
-            // (This simulates a block with a single transaction for simplicity.)
-            _lightClient.setTxTrieRoot(blockNumber, txJson.txLeaf);
-            bytes32[] memory proof = new bytes32[](0);
-            uint256 index = 0;
-
-            // Call the TronTxReader function to verify inclusion and extract generic call data.
-            TronTxReader.TriggerSmartContract memory callData =
-                _reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
-
-            // **Validate metadata against expected fixture data.**
-            assertEq(callData.tronBlockNumber, blockNumber, "Block number mismatch");
-            assertEq(callData.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
-            assertEq(callData.txId, txJson.txId, "TxId mismatch");
-
-            // Token contract address (Tron -> EVM).
-            address tokenFromCall = _tronToEvmAddress(callData.toTron);
-            assertEq(tokenFromCall, txJson.tronTokenEvm, "Token contract address mismatch");
-
-            // Parse TRC-20 calldata and validate logical fields.
-            (bytes21 fromTron, bytes21 toTron, uint256 amount) =
-                _decodeTrc20FromCalldata(callData.data, callData.senderTron);
-
-            assertEq(fromTron, bytes21(txJson.fromTron), "From address mismatch");
-            assertEq(toTron, bytes21(txJson.toTron), "To address mismatch");
-            uint256 expectedAmount = vm.parseUint(txJson.amount);
-            assertEq(amount, expectedAmount, "Transfer amount mismatch");
-            bool isTransferFrom = _first4(callData.data) == _SELECTOR_TRANSFER_FROM;
-            assertEq(isTransferFrom, txJson.isTransferFrom, "Transfer type mismatch");
-
-            // Selector sanity check.
-            assertEq(_first4(callData.data), bytes4(txJson.selector), "Selector mismatch");
-
-            // No nullifier logic in stateless reader; calling again should succeed and match.
-            TronTxReader.TriggerSmartContract memory callData2 =
-                _reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
-            assertEq(callData2.txId, callData.txId, "Repeated read txId mismatch");
+            _assertTrc20Tx(blockNumber, blockTimestamp, trc20Txs[i]);
         }
+    }
+
+    function _assertTrc20Tx(uint256 blockNumber, uint32 blockTimestamp, Trc20TxJson memory txJson) internal {
+        // For proof verification, use the txLeaf as the root and an empty proof.
+        // (This simulates a block with a single transaction for simplicity.)
+        _lightClient.setTxTrieRoot(blockNumber, txJson.txLeaf);
+        bytes32[] memory proof = new bytes32[](0);
+        uint256 index = 0;
+
+        // Call the TronTxReader function to verify inclusion and extract generic call data.
+        TronTxReader.TriggerSmartContract memory callData =
+            _reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
+
+        // **Validate metadata against expected fixture data.**
+        assertEq(callData.tronBlockNumber, blockNumber, "Block number mismatch");
+        assertEq(callData.tronBlockTimestamp, blockTimestamp, "Block timestamp mismatch");
+        assertEq(callData.txId, txJson.txId, "TxId mismatch");
+
+        // Token contract address (Tron -> EVM).
+        address tokenFromCall = _tronToEvmAddress(callData.toTron);
+        assertEq(tokenFromCall, txJson.tronTokenEvm, "Token contract address mismatch");
+
+        // Parse TRC-20 calldata and validate logical fields.
+        (bytes21 fromTron, bytes21 toTron, uint256 amount) =
+            _decodeTrc20FromCalldata(callData.data, callData.senderTron);
+
+        assertEq(fromTron, bytes21(txJson.fromTron), "From address mismatch");
+        assertEq(toTron, bytes21(txJson.toTron), "To address mismatch");
+        uint256 expectedAmount = vm.parseUint(txJson.amount);
+        assertEq(amount, expectedAmount, "Transfer amount mismatch");
+        bool isTransferFrom = _first4(callData.data) == _SELECTOR_TRANSFER_FROM;
+        assertEq(isTransferFrom, txJson.isTransferFrom, "Transfer type mismatch");
+
+        // Selector sanity check.
+        assertEq(_first4(callData.data), bytes4(txJson.selector), "Selector mismatch");
+
+        // No nullifier logic in stateless reader; calling again should succeed and match.
+        TronTxReader.TriggerSmartContract memory callData2 =
+            _reader.readTriggerSmartContract(blockNumber, txJson.encodedTx, proof, index);
+        assertEq(callData2.txId, callData.txId, "Repeated read txId mismatch");
     }
 
     function testRevertWhenTxNotSuccessful() public {

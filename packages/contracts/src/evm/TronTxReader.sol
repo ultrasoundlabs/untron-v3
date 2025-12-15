@@ -129,12 +129,51 @@ contract TronTxReader {
         pure
         returns (TriggerSmartContract memory _partial)
     {
-        (uint256 rawDataStart, uint256 rawDataEnd, bytes32 txId) = _parseRawData(encodedTx);
-        // solhint-disable-next-line gas-strict-inequalities
-        assert(rawDataStart <= rawDataEnd && rawDataEnd <= encodedTx.length);
+        bytes32 txId;
+        uint256 rawDataEnd;
+        bytes21 ownerTron;
+        bytes21 contractTron;
+        uint256 dataStart;
+        uint256 dataEnd;
 
+        {
+            uint256 rawDataStart;
+            (rawDataStart, rawDataEnd, txId) = _parseRawData(encodedTx);
+            // solhint-disable-next-line gas-strict-inequalities
+            assert(rawDataStart <= rawDataEnd && rawDataEnd <= encodedTx.length);
+
+            (ownerTron, contractTron, dataStart, dataEnd) =
+                _parseTriggerFromRawData(encodedTx, rawDataStart, rawDataEnd);
+        }
+
+        if (dataStart == 0 && dataEnd == 0) revert NotTriggerSmartContract();
+
+        if (!_parseTxSuccess(encodedTx, rawDataEnd, encodedTx.length)) revert TronTxNotSuccessful();
+
+        _partial.txId = txId;
+        _partial.senderTron = ownerTron;
+        _partial.toTron = contractTron;
+        _partial.data = _slice(encodedTx, dataStart, dataEnd);
+    }
+
+    /// @notice Parses trigger information from the raw data section of a transaction
+    /// @param encodedTx The complete encoded transaction
+    /// @param rawDataStart Starting position of the raw data in the encoded transaction
+    /// @param rawDataEnd Ending position of the raw data in the encoded transaction
+    /// @return ownerTron The Tron address of the transaction owner
+    /// @return contractTron The Tron address of the contract being triggered
+    /// @return dataStart Starting position of the call data
+    /// @return dataEnd Ending position of the call data
+    function _parseTriggerFromRawData(bytes calldata encodedTx, uint256 rawDataStart, uint256 rawDataEnd)
+        private
+        pure
+        returns (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd)
+    {
         // 1. Parse the single Contract in raw_data.
-        (uint256 cStart, uint256 cEnd, uint64 cType) = _readSingleContract(encodedTx, rawDataStart, rawDataEnd);
+        uint256 cStart;
+        uint256 cEnd;
+        uint64 cType;
+        (cStart, cEnd, cType) = _readSingleContract(encodedTx, rawDataStart, rawDataEnd);
         // solhint-disable-next-line gas-strict-inequalities
         assert(cStart < cEnd && cEnd <= rawDataEnd);
 
@@ -142,30 +181,13 @@ contract TronTxReader {
         if (cType != _CONTRACT_TRIGGER_SMART) revert NotTriggerSmartContract();
 
         // 3. Extract the TriggerSmartContract message from inside the Contract.
-        (uint256 trigStart, uint256 trigEnd) = _extractTriggerSmartContract(encodedTx, cStart, cEnd);
+        uint256 trigStart;
+        uint256 trigEnd;
+        (trigStart, trigEnd) = _extractTriggerSmartContract(encodedTx, cStart, cEnd);
         if (trigStart == 0 && trigEnd == 0) revert NotTriggerSmartContract();
 
         // 4. Parse headers: owner, contract, and call data slice.
-        (bytes21 ownerTron, bytes21 contractTron, uint256 dataStart, uint256 dataEnd) =
-            _parseTriggerHeaders(encodedTx, trigStart, trigEnd);
-
-        if (dataStart == 0 && dataEnd == 0) revert NotTriggerSmartContract();
-
-        // 5. Enforce that the transaction result is successful.
-        bool success = _parseTxSuccess(encodedTx, rawDataEnd, encodedTx.length);
-        if (!success) revert TronTxNotSuccessful();
-
-        // 6. Materialize calldata bytes.
-        bytes memory data = _slice(encodedTx, dataStart, dataEnd);
-
-        _partial = TriggerSmartContract({
-            txId: txId,
-            tronBlockNumber: 0, // To be filled by caller
-            tronBlockTimestamp: 0, // To be filled by caller
-            senderTron: ownerTron,
-            toTron: contractTron,
-            data: data
-        });
+        (ownerTron, contractTron, dataStart, dataEnd) = _parseTriggerHeaders(encodedTx, trigStart, trigEnd);
     }
 
     // ---------------- Protobuf parsing ----------------
@@ -460,41 +482,48 @@ contract TronTxReader {
             uint256 resStart;
             uint256 resEnd;
             (resStart, resEnd, offset) = _readLength(encodedTx, offset, totalLen);
-
-            // Defaults per proto3: code==0 (SUCESS) unless explicitly set.
-            uint64 code;
-            uint64 contractRet;
-            bool sawContractRet;
-
-            uint256 cursor = resStart;
-            uint256 prevResOffset = cursor;
-            while (cursor < resEnd) {
-                prevResOffset = cursor;
-
-                uint64 fieldNum;
-                uint64 wireType;
-                (fieldNum, wireType, cursor) = _readKey(encodedTx, cursor, resEnd);
-                assert(cursor > prevResOffset); // Ensure forward progress
-                if (wireType == _WIRE_VARINT) {
-                    uint64 v;
-                    (v, cursor) = ProtoVarint.read(encodedTx, cursor, resEnd);
-                    if (fieldNum == 2) {
-                        code = v;
-                        if (code != 0) return false;
-                    } else if (fieldNum == 3) {
-                        sawContractRet = true;
-                        contractRet = v;
-                    }
-                } else {
-                    cursor = _skipField(encodedTx, cursor, resEnd, wireType);
-                }
-            }
-
-            // For TriggerSmartContract, require a contract execution result to be present and SUCCESS (1).
-            if (!sawContractRet || contractRet != 1) return false;
+            if (!_parseTxRetEntry(encodedTx, resStart, resEnd)) return false;
         }
 
         return sawRet;
+    }
+
+    /// @notice Parses a transaction return entry to check if the transaction was successful
+    /// @param encodedTx The complete encoded transaction
+    /// @param resStart Starting position of the return entry in the encoded transaction
+    /// @param resEnd Ending position of the return entry in the encoded transaction
+    /// @return True if the transaction was successful, false otherwise
+    function _parseTxRetEntry(bytes calldata encodedTx, uint256 resStart, uint256 resEnd) private pure returns (bool) {
+        // Defaults per proto3: code==0 (SUCESS) unless explicitly set.
+        uint64 contractRet;
+        bool sawContractRet;
+
+        uint256 cursor = resStart;
+        uint256 prevResOffset = cursor;
+        while (cursor < resEnd) {
+            prevResOffset = cursor;
+
+            uint64 fieldNum;
+            uint64 wireType;
+            (fieldNum, wireType, cursor) = _readKey(encodedTx, cursor, resEnd);
+            assert(cursor > prevResOffset); // Ensure forward progress
+
+            if (wireType == _WIRE_VARINT) {
+                uint64 v;
+                (v, cursor) = ProtoVarint.read(encodedTx, cursor, resEnd);
+                if (fieldNum == 2) {
+                    if (v != 0) return false;
+                } else if (fieldNum == 3) {
+                    sawContractRet = true;
+                    contractRet = v;
+                }
+            } else {
+                cursor = _skipField(encodedTx, cursor, resEnd, wireType);
+            }
+        }
+
+        // For TriggerSmartContract, require a contract execution result to be present and SUCCESS (1).
+        return sawContractRet && contractRet == 1;
     }
 
     /* solhint-enable function-max-lines */

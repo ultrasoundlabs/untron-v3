@@ -73,46 +73,62 @@ library TronCalldataUtils {
 
         // ABI decoding for: multicall(bytes[])
         // calldata = selector (4) | head (32: offset to bytes[]) | ...dynamic...
-        uint256 arrayRel = _readU256(data, 4);
         // The head offset is relative to the start of the arguments area (i.e. immediately after selector).
-        uint256 arrayStart = 4 + arrayRel;
+        uint256 arrayStart = 4 + _readU256(data, 4);
         if (arrayStart + 32 > dataEnd) revert TronInvalidCalldataLength();
 
         uint256 n = _readU256(data, arrayStart);
         uint256 offsetsStart = arrayStart + 32;
-        uint256 offsetsEnd = offsetsStart + 32 * n;
-        if (offsetsEnd > dataEnd) revert TronInvalidCalldataLength();
+        if (offsetsStart + 32 * n > dataEnd) revert TronInvalidCalldataLength();
 
         for (uint256 i = 0; i < n; ++i) {
-            uint256 elementRel = _readU256(data, offsetsStart + 32 * i);
-            // Element offsets are relative to `offsetsStart` (i.e., immediately after the length slot).
-            uint256 elementStart = offsetsStart + elementRel;
-            if (elementStart + 32 > dataEnd) revert TronInvalidCalldataLength();
-
-            uint256 elementLen = _readU256(data, elementStart);
-            uint256 elementDataStart = elementStart + 32;
-            uint256 elementDataEnd = elementDataStart + elementLen;
-            if (elementDataEnd > dataEnd) revert TronInvalidCalldataLength();
-
-            if (elementLen < 4) continue;
-
-            bytes4 innerSel;
-            // solhint-disable-next-line no-inline-assembly
-            assembly ("memory-safe") {
-                // `bytes4` values are left-aligned on the stack; loading the first word preserves
-                // the selector in the high 4 bytes.
-                innerSel := mload(add(data, add(0x20, elementDataStart)))
-            }
-
-            if (innerSel != selectorIsEventChainTip) continue;
-            if (elementLen != 4 + 32) revert TronInvalidCalldataLength();
-
-            // Skip inner selector and load the single `bytes32` argument.
-            tip = bytes32(_readU256(data, elementDataStart + 4));
-            return tip;
+            (bool ok, bytes32 tip_) =
+                _tryDecodeEventChainTipElement(data, offsetsStart, dataEnd, i, selectorIsEventChainTip);
+            if (ok) return tip_;
         }
 
         revert NoEventChainTipInMulticall();
+    }
+
+    /// @notice Tries to decode an event chain tip element from the given data.
+    /// @param data The calldata.
+    /// @param offsetsStart The start of the offsets array.
+    /// @param dataEnd The end of the calldata.
+    /// @param i The index of the element to decode.
+    /// @param selectorIsEventChainTip The selector of the event chain tip.
+    /// @return ok Whether the decoding was successful.
+    /// @return tip The decoded event chain tip.
+    function _tryDecodeEventChainTipElement(
+        bytes memory data,
+        uint256 offsetsStart,
+        uint256 dataEnd,
+        uint256 i,
+        bytes4 selectorIsEventChainTip
+    ) private pure returns (bool ok, bytes32 tip) {
+        uint256 elementRel = _readU256(data, offsetsStart + 32 * i);
+        // Element offsets are relative to `offsetsStart` (i.e., immediately after the length slot).
+        uint256 elementStart = offsetsStart + elementRel;
+        if (elementStart + 32 > dataEnd) revert TronInvalidCalldataLength();
+
+        uint256 elementLen = _readU256(data, elementStart);
+        if (elementLen < 4) return (false, bytes32(0));
+
+        uint256 elementDataStart = elementStart + 32;
+        uint256 elementDataEnd = elementDataStart + elementLen;
+        if (elementDataEnd > dataEnd) revert TronInvalidCalldataLength();
+
+        bytes4 innerSel;
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            // `bytes4` values are left-aligned on the stack; loading the first word preserves
+            // the selector in the high 4 bytes.
+            innerSel := mload(add(data, add(0x20, elementDataStart)))
+        }
+        if (innerSel != selectorIsEventChainTip) return (false, bytes32(0));
+        if (elementLen != 4 + 32) revert TronInvalidCalldataLength();
+
+        tip = bytes32(_readU256(data, elementDataStart + 4));
+        return (true, tip);
     }
 
     /// @notice Decode TRC-20 `transfer` / `transferFrom` calldata.

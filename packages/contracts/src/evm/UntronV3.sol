@@ -910,15 +910,19 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         depositProcessed[callData.txId] = true;
 
         // Enforce that the TRC-20 contract called is exactly Tron USDT.
-        address tronUsdt_ = tronUsdt;
-        if (callData.toTron != TronCalldataUtils.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
+        uint256 amountQ;
+        {
+            address tronUsdt_ = tronUsdt;
+            if (callData.toTron != TronCalldataUtils.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
 
-        // Sanity-check that the TRC-20 transfer goes into the expected receiver.
-        address predictedReceiver = predictReceiverAddress(CONTROLLER_ADDRESS, receiverSalt);
-        bytes21 expectedToTron = TronCalldataUtils.evmToTronAddress(predictedReceiver);
-        (, bytes21 toTron, uint256 amountQ) =
-            TronCalldataUtils.decodeTrc20FromCalldata(callData.data, callData.senderTron);
-        if (toTron != expectedToTron) revert InvalidReceiverForSalt();
+            // Sanity-check that the TRC-20 transfer goes into the expected receiver.
+            address predictedReceiver = predictReceiverAddress(CONTROLLER_ADDRESS, receiverSalt);
+            bytes21 expectedToTron = TronCalldataUtils.evmToTronAddress(predictedReceiver);
+            (, bytes21 toTron, uint256 decodedAmountQ) =
+                TronCalldataUtils.decodeTrc20FromCalldata(callData.data, callData.senderTron);
+            if (toTron != expectedToTron) revert InvalidReceiverForSalt();
+            amountQ = decodedAmountQ;
+        }
 
         // Enforce proof ordering against receiver pulls: do not recognize deposits that occurred at/before
         // the latest known `PulledFromReceiver` timestamp for this receiver salt.
@@ -1790,33 +1794,27 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint256 maxClaims,
         uint256 ratePpm
     ) internal view returns (uint256 end, uint256 totalUsdt, uint256 expectedOutTotal) {
-        bool needsSwap = targetToken != usdt;
-
         uint256 availableUsdt = usdtBalance();
-        uint256 queueLen = queue.length;
         end = head;
 
-        uint256 plannedClaims;
-        while (end < queueLen && plannedClaims < maxClaims) {
-            Claim storage cScan = queue[end];
-            uint256 amountUsdt = cScan.amountUsdt;
-
+        // solhint-disable-next-line gas-strict-inequalities
+        while (end < queue.length && end - head < maxClaims) {
+            uint256 amountUsdt = queue[end].amountUsdt;
             if (availableUsdt < amountUsdt) break;
 
             // Ensure any required bridge route exists before we swap for this batch.
-            if (needsSwap && cScan.targetChainId != block.chainid) {
-                if (address(bridgers[targetToken][cScan.targetChainId]) == address(0)) revert NoBridger();
-            }
-
             totalUsdt += amountUsdt;
-            if (needsSwap) {
+            if (targetToken != usdt) {
+                uint256 targetChainId = queue[end].targetChainId;
+                if (targetChainId != block.chainid) {
+                    if (address(bridgers[targetToken][targetChainId]) == address(0)) revert NoBridger();
+                }
                 expectedOutTotal += TokenUtils.mulDiv(amountUsdt, ratePpm, _RATE_DENOMINATOR);
             }
 
             unchecked {
                 availableUsdt -= amountUsdt;
                 ++end;
-                ++plannedClaims;
             }
         }
     }

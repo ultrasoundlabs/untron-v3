@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {TronLightClientHarness} from "./harness/TronLightClientHarness.sol";
 import {TronLightClient} from "../../../src/evm/TronLightClient.sol";
 import {IBlockRangeProver} from "../../../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
 
@@ -28,6 +29,24 @@ contract TronLightClientLayer1Test is Test {
         for (uint256 i = 0; i < length; i++) {
             out[i] = data[start + i];
         }
+    }
+
+    function _toBlockId(uint256 blockNumber, bytes32 blockHash) internal pure returns (bytes32) {
+        uint256 tail = uint256(blockHash) & ((uint256(1) << 192) - 1);
+        return bytes32((blockNumber << 192) | tail);
+    }
+
+    function _packMeta(bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(parentHash, txTrieRoot, timestamp, witnessIndex);
+    }
+
+    function _sign(uint256 pk, bytes32 digest) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function setUp() public {
@@ -140,5 +159,98 @@ contract TronLightClientLayer1Test is Test {
 
         vm.expectRevert(TronLightClient.InvalidWitnessSigner.selector);
         _client.proveBlocks(_startingBlockId, _metadata, badSigs);
+    }
+
+    function test_proveBlocks_revertsIfCreatorProducedWithinPrevious18Blocks() public {
+        _case_creatorProducedRecently();
+    }
+
+    function _case_creatorProducedRecently() internal {
+        uint256 pk0 = 0xA11CE;
+
+        (TronLightClientHarness c, bytes32 startingBlockId) = _deployHarnessForPk(pk0);
+        (bytes memory meta, bytes memory sigs) = _buildTwoBlocksSameCreatorProof(c, startingBlockId, pk0);
+
+        _expectWitnessProducedRecently(c, startingBlockId, meta, sigs, pk0);
+    }
+
+    function _deployHarnessForPk(uint256 pk0) internal returns (TronLightClientHarness c, bytes32 startingBlockId) {
+        bytes20[27] memory srs;
+        bytes20[27] memory witnessDelegatees;
+
+        srs[0] = bytes20(address(0x1111111111111111111111111111111111111111));
+        witnessDelegatees[0] = bytes20(vm.addr(pk0));
+
+        uint256 parentNumber = 100;
+        startingBlockId = bytes32((parentNumber << 192) | 1);
+
+        c = new TronLightClientHarness(
+            IBlockRangeProver(address(0)), startingBlockId, bytes32(0), uint32(0), srs, witnessDelegatees
+        );
+    }
+
+    function _buildTwoBlocksSameCreatorProof(TronLightClientHarness c, bytes32 startingBlockId, uint256 pk0)
+        internal
+        view
+        returns (bytes memory meta, bytes memory sigs)
+    {
+        uint256 parentNumber = 100;
+
+        TronLightClient.TronBlockMetadata memory b1 = TronLightClient.TronBlockMetadata({
+            parentHash: startingBlockId, txTrieRoot: bytes32(uint256(1)), timestamp: uint32(1), witnessAddressIndex: 0
+        });
+
+        uint256 n1 = parentNumber + 1;
+        bytes32 h1 = c.hashBlockPublic(b1, n1);
+        bytes32 id1 = _toBlockId(n1, h1);
+
+        TronLightClient.TronBlockMetadata memory b2 = TronLightClient.TronBlockMetadata({
+            parentHash: id1, txTrieRoot: bytes32(uint256(2)), timestamp: uint32(2), witnessAddressIndex: 0
+        });
+
+        uint256 n2 = parentNumber + 2;
+        bytes32 h2 = c.hashBlockPublic(b2, n2);
+
+        (meta, sigs) = _twoBlockMetaAndSigs(pk0, h1, h2, b1, b2);
+    }
+
+    function _twoBlockMetaAndSigs(
+        uint256 pk,
+        bytes32 h1,
+        bytes32 h2,
+        TronLightClient.TronBlockMetadata memory b1,
+        TronLightClient.TronBlockMetadata memory b2
+    ) internal pure returns (bytes memory meta, bytes memory sigs) {
+        meta = new bytes(138);
+        sigs = new bytes(130);
+
+        bytes memory m1 = _packMeta(b1.parentHash, b1.txTrieRoot, b1.timestamp, b1.witnessAddressIndex);
+        bytes memory m2 = _packMeta(b2.parentHash, b2.txTrieRoot, b2.timestamp, b2.witnessAddressIndex);
+        bytes memory s1 = _sign(pk, h1);
+        bytes memory s2 = _sign(pk, h2);
+
+        for (uint256 i = 0; i < 69; ++i) {
+            meta[i] = m1[i];
+            meta[69 + i] = m2[i];
+        }
+        for (uint256 i = 0; i < 65; ++i) {
+            sigs[i] = s1[i];
+            sigs[65 + i] = s2[i];
+        }
+    }
+
+    function _expectWitnessProducedRecently(
+        TronLightClientHarness c,
+        bytes32 startingBlockId,
+        bytes memory meta,
+        bytes memory sigs,
+        uint256 pk0
+    ) internal {
+        // keep this function *tiny* so we never hit stack-too-deep here
+        bytes20 signer = bytes20(vm.addr(pk0));
+        bytes memory err = abi.encodeWithSelector(TronLightClient.WitnessProducedRecently.selector, signer);
+
+        vm.expectRevert(err);
+        c.proveBlocks(startingBlockId, meta, sigs);
     }
 }
