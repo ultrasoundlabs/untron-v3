@@ -4,11 +4,25 @@ pragma solidity ^0.8.26;
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IBlockRangeProver} from "./blockRangeProvers/interfaces/IBlockRangeProver.sol";
 
+/// @title TronLightClient
+/// @notice Stores and verifies a sparse set of Tron block checkpoints on an EVM chain.
+/// @dev
+/// This contract supports two verification paths:
+/// 1) `proveBlocks`: verify a contiguous sequence of Tron blocks using per-block witness signatures.
+/// 2) `proveBlockRange`: verify an entire range using an external prover (e.g., ZK), anchored at `latestProvenBlock`.
+///
+/// Glossary / conventions used in this contract:
+/// - Tron `blockHash`: `sha256(BlockHeader_raw)` of the protobuf-encoded raw header.
+/// - Tron `blockId`: `uint64(blockNumber) || sha256(BlockHeader_raw)[8:]` (height in the top 8 bytes + 24-byte hash tail).
+/// - `srs`: SR owner accounts that appear in Tron `BlockHeader_raw.witnessAddress` (0x41 prefix + 20 bytes).
+/// - `witnessDelegatees`: the actual secp256k1 signing keys for each SR index (may be delegated from the owner).
+/// @author Ultrasound Labs
 contract TronLightClient {
     uint256 internal constant _TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
     uint256 internal constant _SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
     uint256 internal constant _TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
 
+    /// @notice Verifier used to validate succinct proofs for block ranges.
     IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
     /// @notice EVM addresses of the elected Super Representatives (witness accounts) for this epoch.
     /// These are the owner accounts that appear (with 0x41 prefix) in `BlockHeader_raw.witnessAddress`.
@@ -16,11 +30,20 @@ contract TronLightClient {
     /// @notice EVM addresses of the actual signing keys (may be delegated keys) for each SR index.
     /// A given SR may delegate its witness permission to a separate key; those delegatees live here.
     bytes20[27] public witnessDelegatees;
+    /// @notice Highest stored/proven Tron `blockId` by embedded block number.
+    /// @dev This is monotonic w.r.t. the embedded height (`uint64(blockNumber)` in the top 8 bytes).
     bytes32 public latestProvenBlock;
     mapping(uint256 blockNumber => bytes32 blockId) internal _blockIds;
     mapping(uint256 blockNumber => bytes32 txTrieRoot) internal _txTrieRoots;
     mapping(uint256 blockNumber => uint32 timestamp) internal _blockTimestamps;
 
+    /// @notice Creates a Tron light client anchored at an initial checkpoint.
+    /// @param blockRangeProver External verifier for `proveBlockRange`.
+    /// @param initialBlockHash Initial Tron `blockId` checkpoint (despite the name, this must include the height prefix).
+    /// @param initialTxTrieRoot Transaction trie root corresponding to `initialBlockHash`.
+    /// @param initialTimestamp Block timestamp in seconds (Tron raw header is milliseconds; this contract stores seconds).
+    /// @param _srs SR owner accounts for the epoch (used for `witnessAddress` in header encoding).
+    /// @param _witnessDelegatees SR signing keys for the epoch (used for signature recovery checks).
     constructor(
         IBlockRangeProver blockRangeProver,
         bytes32 initialBlockHash,
@@ -54,6 +77,22 @@ contract TronLightClient {
     error InvalidWitnessSigner();
     error UnanchoredBlockRange();
 
+    /* solhint-disable function-max-lines */
+    // TODO: figure out how to reduce line count in this function
+
+    /// @notice Relays and verifies a contiguous sequence of Tron blocks using per-block witness signatures.
+    /// @dev
+    /// The proof range must be anchored to already-stored history: either `startingBlock` is stored, or some
+    /// block within the provided range intersects an existing stored block number with matching `blockId`.
+    ///
+    /// `compressedTronBlockMetadata` is `N * 69` bytes, where each 69-byte chunk is:
+    /// `[parentBlockId(32) | txTrieRoot(32) | timestampSeconds(uint32 big-endian) | witnessIndex(uint8)]`.
+    ///
+    /// `compressedSignatures` is `N * 65` bytes, where each signature is `[r(32) | s(32) | v(1)]`.
+    /// Tron typically uses `v` as 0/1 (sometimes 27/28); this method normalizes to 27/28 before recovery.
+    /// @param startingBlock Parent/anchor Tron `blockId` for the first provided block.
+    /// @param compressedTronBlockMetadata Packed metadata for each block in the sequence.
+    /// @param compressedSignatures Packed witness signatures for each block in the sequence.
     function proveBlocks(
         bytes32 startingBlock,
         bytes calldata compressedTronBlockMetadata,
@@ -89,7 +128,7 @@ contract TronLightClient {
 
         TronBlockMetadata memory lastTronBlock;
 
-        for (uint256 i = 0; i < numBlocks; i++) {
+        for (uint256 i = 0; i < numBlocks; ++i) {
             TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
 
             if (tronBlock.parentHash != blockId) {
@@ -98,7 +137,7 @@ contract TronLightClient {
 
             unchecked {
                 // Child block number is parent + 1.
-                blockNumber++;
+                ++blockNumber;
             }
 
             bytes32 blockHash = _hashBlock(tronBlock, blockNumber);
@@ -108,6 +147,7 @@ contract TronLightClient {
             blockId = bytes32((uint256(blockNumber) << 192) | blockHashTail);
 
             // Copy the i-th packed signature (65 bytes) from calldata into memory for ECDSA.recover
+            // solhint-disable-next-line no-inline-assembly
             assembly {
                 calldatacopy(
                     add(signature, 32),
@@ -142,6 +182,15 @@ contract TronLightClient {
         _appendBlockId(blockId, lastTronBlock.txTrieRoot, lastTronBlock.timestamp);
     }
 
+    /* solhint-enable function-max-lines */
+
+    /// @notice Verifies a block range proof and appends the ending block as the new checkpoint.
+    /// @dev Reverts unless `startingBlock` matches `latestProvenBlock` to ensure a single advancing chain of checkpoints.
+    /// @param startingBlock Current checkpoint `blockId` that this proof range must start from.
+    /// @param endingBlock New checkpoint `blockId` proven by `zkProof`.
+    /// @param endingBlockTxTrieRoot Transaction trie root for `endingBlock`.
+    /// @param endingBlockTimestamp Block timestamp for `endingBlock` (seconds).
+    /// @param zkProof Succinct proof blob understood by `BLOCK_RANGE_PROVER`.
     function proveBlockRange(
         bytes32 startingBlock,
         bytes32 endingBlock,
@@ -156,24 +205,38 @@ contract TronLightClient {
         _appendBlockId(endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp);
     }
 
+    /// @notice Returns the stored Tron `blockId` for `blockNumber`.
+    /// @param blockNumber Tron block height to query.
+    /// @return blockId Stored Tron `blockId` at that height.
     function getBlockId(uint256 blockNumber) public view returns (bytes32) {
         bytes32 stored = _blockIds[blockNumber];
         if (stored == bytes32(0)) revert BlockNotRelayed();
         return stored;
     }
 
+    /// @notice Returns the stored transaction trie root for `blockNumber`.
+    /// @param blockNumber Tron block height to query.
+    /// @return txTrieRoot Stored transaction trie root at that height.
     function getTxTrieRoot(uint256 blockNumber) external view returns (bytes32) {
         bytes32 stored = _blockIds[blockNumber];
         if (stored == bytes32(0)) revert BlockNotRelayed();
         return _txTrieRoots[blockNumber];
     }
 
+    /// @notice Returns the stored block timestamp (seconds) for `blockNumber`.
+    /// @param blockNumber Tron block height to query.
+    /// @return timestamp Stored block timestamp in seconds.
     function getBlockTimestamp(uint256 blockNumber) external view returns (uint32) {
         bytes32 stored = _blockIds[blockNumber];
         if (stored == bytes32(0)) revert BlockNotRelayed();
         return _blockTimestamps[blockNumber];
     }
 
+    /// @notice Stores a checkpoint for `blockId` and updates `latestProvenBlock` if it is newer.
+    /// @dev Callers must ensure the provided checkpoint is consistent with the intended chain.
+    /// @param blockId Tron `blockId` to store (height embedded in the top 8 bytes).
+    /// @param txTrieRoot Transaction trie root for `blockId`.
+    /// @param timestamp Block timestamp in seconds.
     function _appendBlockId(bytes32 blockId, bytes32 txTrieRoot, uint32 timestamp) internal {
         uint256 blockNumber = _blockIdToNumber(blockId);
         _blockIds[blockNumber] = blockId;
@@ -196,6 +259,9 @@ contract TronLightClient {
     /// - field 10 (varint): version (currently always 32 on Tron mainnet)
     ///
     /// @return blockHash The SHA256 hash of the encoded block header (NOT blockId!!!)
+    /// @notice Computes the Tron `blockHash` (SHA256 of encoded `BlockHeader_raw`) for a metadata entry.
+    /// @param tronBlock Decoded metadata for the block being hashed.
+    /// @param blockNumber Tron block height of the block being hashed.
     function _hashBlock(TronBlockMetadata memory tronBlock, uint256 blockNumber)
         internal
         view
@@ -205,7 +271,15 @@ contract TronLightClient {
         return sha256(buf);
     }
 
+    /* solhint-disable function-max-lines */
+    // IMO it's quite tight and optimized already
+
     /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata`.
+    /// @notice Encodes a minimal Tron `BlockHeader_raw` protobuf message for signature verification.
+    /// @dev The encoding is intentionally minimal but must match Tron canonical protobuf encoding rules.
+    /// @param tronBlock Decoded metadata for the block being encoded.
+    /// @param blockNumber Tron block height of the block being encoded.
+    /// @return buf Protobuf-encoded `BlockHeader_raw` bytes to be hashed with SHA256.
     function _encodeTronBlockHeader(TronBlockMetadata memory tronBlock, uint256 blockNumber)
         internal
         view
@@ -230,6 +304,8 @@ contract TronLightClient {
         // Allocate a small buffer that is large enough for the encoded header.
         buf = new bytes(128);
 
+        // without assembly, this parsing logic would be incredibly complex and expensive
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             let base := add(buf, 32)
             let ptr := base
@@ -327,8 +403,13 @@ contract TronLightClient {
         }
     }
 
+    /* solhint-enable function-max-lines */
+
     // Conversion & helper (internal pure) functions
 
+    /// @notice Extracts the Tron block height encoded in a `blockId`.
+    /// @param blockId Tron `blockId` (`uint64(blockNumber) || sha256(header)[8:]`).
+    /// @return blockNumber Tron block height.
     function _blockIdToNumber(bytes32 blockId) internal pure returns (uint256 blockNumber) {
         // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
         return uint256(blockId) >> 192;
@@ -340,6 +421,10 @@ contract TronLightClient {
     /// [32..63] txTrieRoot (bytes32)
     /// [64..67] timestamp (uint32, big-endian)
     /// [68]     witnessAddressIndex (uint8)
+    /// @notice Decodes a single 69-byte metadata chunk from `data` at `index`.
+    /// @param data Tightly packed calldata blob of metadata.
+    /// @param index 0-based index of the block within `data`.
+    /// @return tronBlock Decoded metadata struct for the requested block.
     function _decodeTronBlockAt(bytes calldata data, uint256 index)
         internal
         pure
@@ -352,6 +437,7 @@ contract TronLightClient {
         uint32 ts;
         uint8 witnessIndex;
 
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             let base := add(data.offset, offset)
 

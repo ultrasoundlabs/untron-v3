@@ -6,4 +6,3 @@ cache/
 abi/
 spec/
 src/evm/UntronV3IndexedOwnable.sol
-src/evm/TronLightClient.sol
