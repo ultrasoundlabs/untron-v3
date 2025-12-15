@@ -73,6 +73,9 @@ importers:
       '@cyfrin/aderyn':
         specifier: ^0.6.5
         version: 0.6.5
+      '@untron/zktron':
+        specifier: workspace:*
+        version: link:../zktron
       rimraf:
         specifier: ^5
         version: 5.0.10
@@ -107,6 +110,8 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.2
+
+  packages/zktron: {}
 
 packages:
 
