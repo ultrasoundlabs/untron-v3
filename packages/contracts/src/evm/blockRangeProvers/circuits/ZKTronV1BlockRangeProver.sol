@@ -11,8 +11,7 @@ import {HonkVerifier} from "@untron/zktron/ZKTronV1Verifier.sol";
 contract ZKTronV1BlockRangeProver is IBlockRangeProver {
     /// @inheritdoc IBlockRangeProver
     function proveBlockRange(
-        bytes20[27] calldata srs,
-        bytes20[27] calldata witnessDelegatees,
+        bytes32 srDataHash,
         bytes32 startingBlock,
         bytes32 endingBlock,
         bytes32 endingBlockTxTrieRoot,

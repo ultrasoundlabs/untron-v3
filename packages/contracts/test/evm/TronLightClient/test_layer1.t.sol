@@ -99,7 +99,8 @@ contract TronLightClientLayer1Test is Test {
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(startingTimestampSec & 0xFFFFFFFF),
             _srs,
-            _witnessDelegatees
+            _witnessDelegatees,
+            bytes32(0) // TODO: fix
         );
     }
 
@@ -185,7 +186,13 @@ contract TronLightClientLayer1Test is Test {
         startingBlockId = bytes32((parentNumber << 192) | 1);
 
         c = new TronLightClientHarness(
-            IBlockRangeProver(address(0)), startingBlockId, bytes32(0), uint32(0), srs, witnessDelegatees
+            IBlockRangeProver(address(0)),
+            startingBlockId,
+            bytes32(0),
+            uint32(0),
+            srs,
+            witnessDelegatees,
+            bytes32(0) // TODO: fix
         );
     }
 

@@ -100,7 +100,8 @@ contract TronLightClientLayer0Test is Test {
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(startingTimestampSec & 0xFFFFFFFF),
             srs,
-            witnessDelegatees
+            witnessDelegatees,
+            bytes32(0) // TODO: fix
         );
     }
 

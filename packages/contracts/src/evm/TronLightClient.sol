@@ -27,10 +27,16 @@ contract TronLightClient {
     IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
     /// @notice EVM addresses of the elected Super Representatives (witness accounts) for this epoch.
     /// These are the owner accounts that appear (with 0x41 prefix) in `BlockHeader_raw.witnessAddress`.
+    /// It's not immutable because arrays cannot be immutable in Solidity for some reason.
     bytes20[27] public srs;
     /// @notice EVM addresses of the actual signing keys (may be delegated keys) for each SR index.
     /// A given SR may delegate its witness permission to a separate key; those delegatees live here.
+    /// It's not immutable because arrays cannot be immutable in Solidity for some reason.
     bytes20[27] public witnessDelegatees;
+    /// @notice ZK-friendly hash of public keys (not addresses!) of SRs and their delegatees.
+    /// @dev This hash is used as a public input to the block range prover, to save
+    ///      proving cycles compared to passing two arrays of Keccak-hashed arrays (as above).
+    bytes32 public immutable SR_DATA_HASH;
     /// @notice Highest stored/proven Tron `blockId` by embedded block number.
     /// @dev This is monotonic w.r.t. the embedded height (`uint64(blockNumber)` in the top 8 bytes).
     bytes32 public latestProvenBlock;
@@ -45,18 +51,21 @@ contract TronLightClient {
     /// @param initialTimestamp Block timestamp in seconds (Tron raw header is milliseconds; this contract stores seconds).
     /// @param _srs SR owner accounts for the epoch (used for `witnessAddress` in header encoding).
     /// @param _witnessDelegatees SR signing keys for the epoch (used for signature recovery checks).
+    /// @param srDataHash Hash of the SR data for the epoch.
     constructor(
         IBlockRangeProver blockRangeProver,
         bytes32 initialBlockHash,
         bytes32 initialTxTrieRoot,
         uint32 initialTimestamp,
         bytes20[27] memory _srs,
-        bytes20[27] memory _witnessDelegatees
+        bytes20[27] memory _witnessDelegatees,
+        bytes32 srDataHash
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
         _appendBlockId(initialBlockHash, initialTxTrieRoot, initialTimestamp);
         srs = _srs;
         witnessDelegatees = _witnessDelegatees;
+        SR_DATA_HASH = srDataHash;
     }
 
     struct TronBlockMetadata {
@@ -149,7 +158,7 @@ contract TronLightClient {
     ) external {
         if (startingBlock != latestProvenBlock) revert BlockTooOld();
         BLOCK_RANGE_PROVER.proveBlockRange(
-            srs, witnessDelegatees, startingBlock, endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp, zkProof
+            SR_DATA_HASH, startingBlock, endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp, zkProof
         );
         _appendBlockId(endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp);
     }
