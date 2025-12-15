@@ -34,10 +34,8 @@ optimizer_runs  = 2000
 bytecode_hash   = "none"
 revert_strings  = "strip"
 deny            = "warnings"
-via_ir          = true
 
 [profile.ci]
 optimizer_runs = 200
 deny           = "warnings"
-via_ir         = true
 gas_reports = ["*"]
