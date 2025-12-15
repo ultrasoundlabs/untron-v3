@@ -21,6 +21,7 @@ contract TronLightClient {
     uint256 internal constant _TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
     uint256 internal constant _SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
     uint256 internal constant _TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
+    uint256 internal constant _RECENT_BLOCK_CREATOR_WINDOW = 18; // sliding window size for block creator uniqueness
 
     /// @notice Verifier used to validate succinct proofs for block ranges.
     IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
@@ -67,6 +68,20 @@ contract TronLightClient {
         uint8 witnessAddressIndex;
     }
 
+    struct ProveBlocksCtx {
+        bytes32 blockId;
+        uint256 blockNumber;
+        bytes32 lastTxTrieRoot;
+
+        // ring buffer (last 18 creators)
+        bytes20[18] recentCreators;
+
+        bool intersectedExisting;
+        uint32 lastTimestamp;
+        uint8 recentCount;
+        uint8 recentPos;
+    }
+
     error NotEnoughBlocksOrSignatures();
     error InvalidParentBlockId(bytes32 yours, bytes32 real);
     error BlockTooOld();
@@ -75,10 +90,8 @@ contract TronLightClient {
     error InvalidCompressedTronBlockMetadataLength();
     error InvalidCompressedSignaturesLength();
     error InvalidWitnessSigner();
+    error WitnessProducedRecently(bytes20 signer);
     error UnanchoredBlockRange();
-
-    /* solhint-disable function-max-lines */
-    // TODO: figure out how to reduce line count in this function
 
     /// @notice Relays and verifies a contiguous sequence of Tron blocks using per-block witness signatures.
     /// @dev
@@ -109,80 +122,16 @@ contract TronLightClient {
             revert InvalidCompressedSignaturesLength();
         }
 
-        bytes32 blockId = startingBlock;
-        bytes memory signature = new bytes(_SIGNATURE_SIZE);
+        ProveBlocksCtx memory ctx;
+        ctx.blockId = startingBlock;
+        ctx.blockNumber = _blockIdToNumber(startingBlock);
+        ctx.intersectedExisting = _isStoredAnchor(ctx.blockNumber, startingBlock);
 
-        // Recover the parent block number from the starting blockId and
-        // increment it as we walk forward through the chain.
-        uint256 blockNumber = _blockIdToNumber(startingBlock);
-        bool intersectedExisting = false;
+        _proveBlocksLoop(ctx, compressedTronBlockMetadata, compressedSignatures, numBlocks);
 
-        // If the starting block is already stored, enforce consistency and treat it as an anchor for this proof range.
-        {
-            bytes32 startingSlot = _blockIds[blockNumber];
-            if (startingSlot != bytes32(0)) {
-                if (startingSlot != startingBlock) revert InvalidChain();
-                intersectedExisting = true;
-            }
-        }
-
-        TronBlockMetadata memory lastTronBlock;
-
-        for (uint256 i = 0; i < numBlocks; ++i) {
-            TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
-
-            if (tronBlock.parentHash != blockId) {
-                revert InvalidParentBlockId(tronBlock.parentHash, blockId);
-            }
-
-            unchecked {
-                // Child block number is parent + 1.
-                ++blockNumber;
-            }
-
-            bytes32 blockHash = _hashBlock(tronBlock, blockNumber);
-            // In Tron, blockId is uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
-            // So we store the block number in the upper 8 bytes and the hash tail in the lower 24 bytes.
-            uint256 blockHashTail = uint256(blockHash) & ((uint256(1) << 192) - 1);
-            blockId = bytes32((uint256(blockNumber) << 192) | blockHashTail);
-
-            // Copy the i-th packed signature (65 bytes) from calldata into memory for ECDSA.recover
-            // solhint-disable-next-line no-inline-assembly
-            assembly {
-                calldatacopy(
-                    add(signature, 32),
-                    add(compressedSignatures.offset, mul(i, _SIGNATURE_SIZE)),
-                    _SIGNATURE_SIZE
-                )
-            }
-
-            // Tron encodes signatures as [r(32) | s(32) | v(1)] where v is 0/1 (or sometimes 27/28).
-            // OpenZeppelin's ECDSA expects the Ethereum-style v value (27/28) when using the 65-byte
-            // signature overload, so normalize here before calling `ECDSA.recover`.
-            unchecked {
-                uint8 v = uint8(signature[_SIGNATURE_SIZE - 1]);
-                if (v < 27) {
-                    v += 27;
-                    signature[_SIGNATURE_SIZE - 1] = bytes1(v);
-                }
-            }
-
-            bytes20 signer = bytes20(ECDSA.recover(blockHash, signature));
-            if (signer != witnessDelegatees[tronBlock.witnessAddressIndex]) revert InvalidWitnessSigner();
-            bytes32 existingAtBlockNumber = _blockIds[blockNumber];
-            if (existingAtBlockNumber != bytes32(0)) {
-                if (existingAtBlockNumber != blockId) revert InvalidChain();
-                intersectedExisting = true;
-            }
-
-            lastTronBlock = tronBlock;
-        }
-
-        if (!intersectedExisting) revert UnanchoredBlockRange();
-        _appendBlockId(blockId, lastTronBlock.txTrieRoot, lastTronBlock.timestamp);
+        if (!ctx.intersectedExisting) revert UnanchoredBlockRange();
+        _appendBlockId(ctx.blockId, ctx.lastTxTrieRoot, ctx.lastTimestamp);
     }
-
-    /* solhint-enable function-max-lines */
 
     /// @notice Verifies a block range proof and appends the ending block as the new checkpoint.
     /// @dev Reverts unless `startingBlock` matches `latestProvenBlock` to ensure a single advancing chain of checkpoints.
@@ -269,6 +218,67 @@ contract TronLightClient {
     {
         bytes memory buf = _encodeTronBlockHeader(tronBlock, blockNumber);
         return sha256(buf);
+    }
+
+    /// @notice Checks if a block is already stored as an anchor
+    /// @param blockNumber The block number to check
+    /// @param startingBlock The expected block ID for this block number
+    /// @return True if the block is stored and matches the expected block ID, false otherwise
+    function _isStoredAnchor(uint256 blockNumber, bytes32 startingBlock) internal view returns (bool) {
+        bytes32 startingSlot = _blockIds[blockNumber];
+        if (startingSlot != bytes32(0)) {
+            if (startingSlot != startingBlock) revert InvalidChain();
+            return true;
+        }
+        return false;
+    }
+
+    /// @notice Checks if a block intersects with an existing block in storage
+    /// @param ctx The proof context to update if intersection is found
+    /// @param blockNumber The block number to check
+    /// @param blockId The block ID to verify against
+    function _checkIntersection(ProveBlocksCtx memory ctx, uint256 blockNumber, bytes32 blockId) internal view {
+        bytes32 existing = _blockIds[blockNumber];
+        if (existing != bytes32(0)) {
+            if (existing != blockId) revert InvalidChain();
+            ctx.intersectedExisting = true;
+        }
+    }
+
+    /// @notice Main loop for proving blocks in a range
+    /// @param ctx The proof context containing state during verification
+    /// @param compressedTronBlockMetadata Compressed block metadata for all blocks
+    /// @param compressedSignatures Compressed signatures for all blocks
+    /// @param numBlocks Number of blocks to prove
+    function _proveBlocksLoop(
+        ProveBlocksCtx memory ctx,
+        bytes calldata compressedTronBlockMetadata,
+        bytes calldata compressedSignatures,
+        uint256 numBlocks
+    ) internal view {
+        for (uint256 i = 0; i < numBlocks; ++i) {
+            TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
+
+            if (tronBlock.parentHash != ctx.blockId) {
+                revert InvalidParentBlockId(tronBlock.parentHash, ctx.blockId);
+            }
+
+            unchecked {
+                ++ctx.blockNumber;
+            }
+
+            bytes32 blockHash = _hashBlock(tronBlock, ctx.blockNumber);
+            ctx.blockId = _makeBlockId(ctx.blockNumber, blockHash);
+
+            bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i);
+            if (signer != witnessDelegatees[tronBlock.witnessAddressIndex]) revert InvalidWitnessSigner();
+
+            _enforceRecentUnique(ctx, signer);
+            _checkIntersection(ctx, ctx.blockNumber, ctx.blockId);
+
+            ctx.lastTxTrieRoot = tronBlock.txTrieRoot;
+            ctx.lastTimestamp = tronBlock.timestamp;
+        }
     }
 
     /* solhint-disable function-max-lines */
@@ -406,6 +416,65 @@ contract TronLightClient {
     /* solhint-enable function-max-lines */
 
     // Conversion & helper (internal pure) functions
+
+    /// @notice Creates a block ID by combining block number and block hash
+    /// @param blockNumber The block number
+    /// @param blockHash The block hash
+    /// @return A bytes32 value containing the block number and hash
+    function _makeBlockId(uint256 blockNumber, bytes32 blockHash) internal pure returns (bytes32) {
+        uint256 tail = uint256(blockHash) & ((uint256(1) << 192) - 1);
+        return bytes32((blockNumber << 192) | tail);
+    }
+
+    /// @notice Recovers the signer address from a block hash and signature
+    /// @param blockHash The hash of the block that was signed
+    /// @param sigs Array of signatures (concatenated r, s, v values)
+    /// @param i Index of the signature to recover
+    /// @return signer The address of the signer
+    function _recoverSigner(bytes32 blockHash, bytes calldata sigs, uint256 i) internal pure returns (bytes20 signer) {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        // signature layout: [r(32) | s(32) | v(1)]
+        // load r, s, and the first byte at offset+64 as v
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            let off := add(sigs.offset, mul(i, 65))
+            r := calldataload(off)
+            s := calldataload(add(off, 32))
+            v := byte(0, calldataload(add(off, 64)))
+        }
+
+        unchecked {
+            if (v < 27) v += 27;
+        }
+
+        // OZ ECDSA has recover(hash, v, r, s)
+        signer = bytes20(ECDSA.recover(blockHash, v, r, s));
+    }
+
+    /// @notice Enforces that a signer hasn't produced a block recently and tracks them
+    /// @param ctx The proof context containing recent creators information
+    /// @param signer The address of the block creator/witness
+    function _enforceRecentUnique(ProveBlocksCtx memory ctx, bytes20 signer) internal pure {
+        for (uint256 j = 0; j < uint256(ctx.recentCount); ++j) {
+            if (ctx.recentCreators[j] == signer) revert WitnessProducedRecently(signer);
+        }
+
+        if (ctx.recentCount < _RECENT_BLOCK_CREATOR_WINDOW) {
+            ctx.recentCreators[ctx.recentCount] = signer;
+            unchecked {
+                ++ctx.recentCount;
+            }
+        } else {
+            ctx.recentCreators[ctx.recentPos] = signer;
+            unchecked {
+                ++ctx.recentPos;
+                if (ctx.recentPos == _RECENT_BLOCK_CREATOR_WINDOW) ctx.recentPos = 0;
+            }
+        }
+    }
 
     /// @notice Extracts the Tron block height encoded in a `blockId`.
     /// @param blockId Tron `blockId` (`uint64(blockNumber) || sha256(header)[8:]`).
