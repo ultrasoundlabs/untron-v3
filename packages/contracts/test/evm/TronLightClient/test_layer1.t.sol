@@ -382,13 +382,11 @@ contract TronLightClientLayer1Test is Test {
         (meta, sigs) = _twoBlockMetaAndSigs(pk0, h1, h2, m1, m2);
     }
 
-    function _twoBlockMetaAndSigs(
-        uint256 pk,
-        bytes32 h1,
-        bytes32 h2,
-        bytes memory m1,
-        bytes memory m2
-    ) internal pure returns (bytes memory meta, bytes memory sigs) {
+    function _twoBlockMetaAndSigs(uint256 pk, bytes32 h1, bytes32 h2, bytes memory m1, bytes memory m2)
+        internal
+        pure
+        returns (bytes memory meta, bytes memory sigs)
+    {
         require(m1.length == 69 && m2.length == 69, "meta chunk must be 69 bytes");
 
         meta = new bytes(138);

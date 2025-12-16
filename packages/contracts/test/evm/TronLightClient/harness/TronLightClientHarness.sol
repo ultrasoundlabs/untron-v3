@@ -15,12 +15,22 @@ contract TronLightClientHarness is TronLightClient {
         bytes32 srDataHash_
     ) TronLightClient(p, initial, initialTxTrieRoot, initialTimestamp, srs_, witnessDelegatees_, srDataHash_) {}
 
-    function hashBlockPublic(bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex, uint256 n) external view returns (bytes32) {
+    function hashBlockPublic(bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex, uint256 n)
+        external
+        view
+        returns (bytes32)
+    {
         bytes memory scratch = new bytes(128);
         return _hashBlockScratch(parentHash, txTrieRoot, timestamp, witnessIndex, n, scratch);
     }
 
-    function encodeBlockHeaderPublic(bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex, uint256 n) external view returns (bytes memory) {
+    function encodeBlockHeaderPublic(
+        bytes32 parentHash,
+        bytes32 txTrieRoot,
+        uint32 timestamp,
+        uint8 witnessIndex,
+        uint256 n
+    ) external view returns (bytes memory) {
         bytes memory buf = new bytes(128);
 
         uint256 used = _encodeTronBlockHeaderInto(buf, parentHash, txTrieRoot, timestamp, witnessIndex, n);
@@ -34,7 +44,11 @@ contract TronLightClientHarness is TronLightClient {
         return buf;
     }
 
-    function decodeAt(bytes calldata data, uint256 idx) external pure returns (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) {
+    function decodeAt(bytes calldata data, uint256 idx)
+        external
+        pure
+        returns (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex)
+    {
         (parentHash, txTrieRoot, timestamp, witnessIndex) = _decodeTronBlockAtStack(data, idx);
     }
 }

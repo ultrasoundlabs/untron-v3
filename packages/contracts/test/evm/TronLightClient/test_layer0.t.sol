@@ -128,9 +128,11 @@ contract TronLightClientLayer0Test is Test {
         assertEq(len, _blockHashes.length, "blockNumbers/blockHashes length mismatch");
 
         for (uint256 i = 0; i < len; i++) {
-            (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) = _client.decodeAt(_metadata, i);
+            (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) =
+                _client.decodeAt(_metadata, i);
 
-            bytes32 computed = _client.hashBlockPublic(parentHash, txTrieRoot, timestamp, witnessIndex, _blockNumbers[i]);
+            bytes32 computed =
+                _client.hashBlockPublic(parentHash, txTrieRoot, timestamp, witnessIndex, _blockNumbers[i]);
             assertEq(computed, _blockHashes[i], "hashBlock mismatch");
         }
     }
@@ -143,9 +145,11 @@ contract TronLightClientLayer0Test is Test {
         assertEq(len, _rawHeaderBytes.length, "blockNumbers/rawHeaderBytes length mismatch");
 
         for (uint256 i = 0; i < len; i++) {
-            (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) = _client.decodeAt(_metadata, i);
+            (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) =
+                _client.decodeAt(_metadata, i);
 
-            bytes memory encoded = _client.encodeBlockHeaderPublic(parentHash, txTrieRoot, timestamp, witnessIndex, _blockNumbers[i]);
+            bytes memory encoded =
+                _client.encodeBlockHeaderPublic(parentHash, txTrieRoot, timestamp, witnessIndex, _blockNumbers[i]);
             // forge-std's assertEq on bytes performs a byte-for-byte comparison.
             assertEq(encoded, _rawHeaderBytes[i], "encoded header bytes mismatch");
         }
