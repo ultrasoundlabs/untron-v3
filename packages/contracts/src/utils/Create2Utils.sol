@@ -10,6 +10,10 @@ import {UntronReceiver} from "../tron/UntronReceiver.sol";
 ///      The only functional difference here is the use of an immutable CREATE2_PREFIX
 ///      to allow for chain-specific CREATE2 address calculation.
 contract Create2Utils {
+    /// @notice Address of the deployed UntronReceiver contract.
+    /// @dev Used to deploy minimal proxies of it.
+    address public immutable RECEIVER_IMPL;
+
     // TODO: make it deploy minimal proxies maybe?
     // Chain-specific byte prefix used in CREATE2 address calculation (0xff for EVM, 0x41 for Tron).
     bytes1 private immutable _CREATE2_PREFIX;
@@ -18,18 +22,24 @@ contract Create2Utils {
     /// @param create2Prefix The CREATE2_PREFIX of the deployment chain (0xff for EVM, 0x41 for Tron).
     constructor(bytes1 create2Prefix) {
         _CREATE2_PREFIX = create2Prefix;
+        RECEIVER_IMPL = address(new UntronReceiver()); // deploy from controller => controller becomes immutable
     }
 
     /// @notice Deploys the receiver contract using CREATE2 and the provided salt.
     /// @param salt The salt used for CREATE2 address calculation.
     /// @return receiver The address of the deployed receiver contract.
     function deployReceiver(bytes32 salt) public returns (address payable receiver) {
-        bytes memory bytecode = receiverBytecode();
+        address impl = RECEIVER_IMPL;
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            receiver := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
+            let ptr := mload(0x40)
+
+            mstore(ptr, 0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000)
+            mstore(add(ptr, 0x14), shl(0x60, impl))
+            mstore(add(ptr, 0x28), 0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000)
+
+            receiver := create2(0, ptr, 0x37, salt)
             if iszero(receiver) {
-                // Forward the revert reason if deployment failed.
                 returndatacopy(0, 0, returndatasize())
                 revert(0, returndatasize())
             }
@@ -40,8 +50,10 @@ contract Create2Utils {
     /// @return bytes The bytecode for the receiver contract.
     /// @dev The UntronReceiver constructor has no explicit parameters and uses msg.sender
     ///      as the controller, so no controller address needs to be embedded here.
-    function receiverBytecode() public pure returns (bytes memory) {
-        return type(UntronReceiver).creationCode;
+    function receiverBytecode() public view returns (bytes memory) {
+        return abi.encodePacked(
+            hex"3d602d80600a3d3981f3363d3d373d3d3d363d73", RECEIVER_IMPL, hex"5af43d82803e903d91602b57fd5bf3"
+        );
     }
 
     /// @dev Predicts the deterministic address for a receiver deployed via CREATE2.

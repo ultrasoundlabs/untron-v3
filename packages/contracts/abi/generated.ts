@@ -226,6 +226,13 @@ export const create2UtilsAbi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'RECEIVER_IMPL',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
     name: 'deployReceiver',
     outputs: [
@@ -255,7 +262,7 @@ export const create2UtilsAbi = [
     inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
-    stateMutability: 'pure',
+    stateMutability: 'view',
   },
 ] as const
 
@@ -5250,6 +5257,13 @@ export const untronControllerAbi = [
   { type: 'receive', stateMutability: 'payable' },
   {
     type: 'function',
+    inputs: [],
+    name: 'RECEIVER_IMPL',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'rebalancer', internalType: 'address', type: 'address' },
       { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
@@ -5377,7 +5391,7 @@ export const untronControllerAbi = [
     inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
-    stateMutability: 'pure',
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -5932,6 +5946,13 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [],
+    name: 'RECEIVER_IMPL',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'SWAP_EXECUTOR',
     outputs: [
       { name: '', internalType: 'contract SwapExecutor', type: 'address' },
@@ -6269,7 +6290,7 @@ export const untronV3Abi = [
     inputs: [],
     name: 'receiverBytecode',
     outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
-    stateMutability: 'pure',
+    stateMutability: 'view',
   },
   {
     type: 'function',
