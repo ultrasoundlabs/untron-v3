@@ -4306,7 +4306,6 @@ export const tronLightClientAbi = [
     name: 'InvalidWitnessDelegateeIndex',
   },
   { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
-  { type: 'error', inputs: [], name: 'NotEnoughBlocksOrSignatures' },
   { type: 'error', inputs: [], name: 'Sha256PrecompileFailed' },
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
   {
@@ -4366,34 +4365,20 @@ export const tronLightClientHarnessAbi = [
     ],
     name: 'decodeAt',
     outputs: [
-      {
-        name: '',
-        internalType: 'struct TronLightClient.TronBlockMetadata',
-        type: 'tuple',
-        components: [
-          { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
-          { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
-          { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
-          { name: 'witnessAddressIndex', internalType: 'uint8', type: 'uint8' },
-        ],
-      },
+      { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
+      { name: 'witnessIndex', internalType: 'uint8', type: 'uint8' },
     ],
     stateMutability: 'pure',
   },
   {
     type: 'function',
     inputs: [
-      {
-        name: 'b',
-        internalType: 'struct TronLightClient.TronBlockMetadata',
-        type: 'tuple',
-        components: [
-          { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
-          { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
-          { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
-          { name: 'witnessAddressIndex', internalType: 'uint8', type: 'uint8' },
-        ],
-      },
+      { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
+      { name: 'witnessIndex', internalType: 'uint8', type: 'uint8' },
       { name: 'n', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'encodeBlockHeaderPublic',
@@ -4424,17 +4409,10 @@ export const tronLightClientHarnessAbi = [
   {
     type: 'function',
     inputs: [
-      {
-        name: 'b',
-        internalType: 'struct TronLightClient.TronBlockMetadata',
-        type: 'tuple',
-        components: [
-          { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
-          { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
-          { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
-          { name: 'witnessAddressIndex', internalType: 'uint8', type: 'uint8' },
-        ],
-      },
+      { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'timestamp', internalType: 'uint32', type: 'uint32' },
+      { name: 'witnessIndex', internalType: 'uint8', type: 'uint8' },
       { name: 'n', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'hashBlockPublic',
@@ -4539,7 +4517,6 @@ export const tronLightClientHarnessAbi = [
     name: 'InvalidWitnessDelegateeIndex',
   },
   { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
-  { type: 'error', inputs: [], name: 'NotEnoughBlocksOrSignatures' },
   { type: 'error', inputs: [], name: 'Sha256PrecompileFailed' },
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
   {

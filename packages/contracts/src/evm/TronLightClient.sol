@@ -21,18 +21,10 @@ contract TronLightClient {
     // Types
     // ------------------------------------------------------------------------
 
-    struct TronBlockMetadata {
-        bytes32 parentHash;
-        bytes32 txTrieRoot;
-        // In Tron protocol, it's expressed in milliseconds, but block time is 3s and actual time is never
-        // more granular than .......000. So we can /1000 it and store efficiently in 32-bit ints (seconds).
-        uint32 timestamp;
-        uint8 witnessAddressIndex;
-    }
-
     struct ProveBlocksCtx {
         bytes32 blockId;
         uint256 blockNumber;
+
         bytes32 lastTxTrieRoot;
 
         // Ring buffer (last 18 creators) tracked by delegatee-group id
@@ -50,12 +42,8 @@ contract TronLightClient {
     // Constants
     // ------------------------------------------------------------------------
 
-    uint256 internal constant _TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
+    uint256 internal constant _TRON_BLOCK_METADATA_SIZE = 69;
     uint256 internal constant _SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
-
-    // secp256k1 half-order (used to enforce "low-s" signatures and prevent malleability).
-    // Matches OpenZeppelin's ECDSA upper-bound for `s`.
-    uint256 internal constant _SECP256K1N_HALF = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
     uint256 internal constant _TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
     uint256 internal constant _RECENT_BLOCK_CREATOR_WINDOW = 18; // sliding window size for block creator uniqueness
@@ -153,7 +141,6 @@ contract TronLightClient {
     // Errors
     // ------------------------------------------------------------------------
 
-    error NotEnoughBlocksOrSignatures();
     error InvalidParentBlockId(bytes32 yours, bytes32 real);
     error BlockTooOld();
     error InvalidChain();
@@ -310,7 +297,7 @@ contract TronLightClient {
     ///        Note: `i == 0` corresponds to `startingBlockNumber + 1`, so `intersectionBlockNumber = startingBlockNumber + 1 + intersectionOffset`.
     ///        Sentinel: if `startingBlock` is already stored (anchored), callers MUST pass `type(uint256).max`.
     ///        Otherwise, callers MUST pass an offset within the range that corresponds to an already-stored block with the exact same `blockId`,
-    ///        or the call will revert (either immediately at the claimed intersection slot, or at the end with `UnanchoredBlockRange()`).
+    ///        or the call will revert.
     function proveBlocks(
         bytes32 startingBlock,
         bytes calldata compressedTronBlockMetadata,
@@ -521,22 +508,6 @@ contract TronLightClient {
         return false;
     }
 
-    /// @notice Checks if a block intersects with an existing block in storage.
-    /// @param ctx The proof context to update if intersection is found.
-    /// @param blockNumber The block number to check.
-    /// @param blockId The block ID to verify against.
-    function _checkIntersection(ProveBlocksCtx memory ctx, uint256 blockNumber, bytes32 blockId) internal view {
-        bytes32 existing = _blockIds[blockNumber];
-
-        // Since the caller claims this is the intersection slot, fail immediately if it's not actually anchored.
-        if (existing == bytes32(0)) revert InvalidIntersectionClaim(blockNumber, blockId);
-
-        // If it's anchored, it must match exactly (otherwise the caller is trying to splice chains).
-        if (existing != blockId) revert InvalidChain();
-
-        ctx.intersectedExisting = true;
-    }
-
     /// @notice Conditionally checks for intersection at the caller-specified offset.
     /// @param ctx The proof context containing state during verification.
     /// @param i The index of the block being checked.
@@ -544,10 +515,17 @@ contract TronLightClient {
     function _maybeCheckIntersection(ProveBlocksCtx memory ctx, uint256 i, uint256 intersectionOffset) internal view {
         // If the starting block wasn't anchored, the caller must point us at the ONE block in this range
         // that should already exist in storage (same blockNumber + exact blockId). We do exactly one read.
-        // If the caller lies (empty slot or mismatched blockId), `_checkIntersection` reverts immediately.
-        if (!ctx.intersectedExisting && i == intersectionOffset) {
-            _checkIntersection(ctx, ctx.blockNumber, ctx.blockId);
-        }
+        if (ctx.intersectedExisting || i != intersectionOffset) return;
+
+        bytes32 existing = _blockIds[ctx.blockNumber];
+
+        // Since the caller claims this is the intersection slot, fail immediately if it's not actually anchored.
+        if (existing == bytes32(0)) revert InvalidIntersectionClaim(ctx.blockNumber, ctx.blockId);
+
+        // If it's anchored, it must match exactly (otherwise the caller is trying to splice chains).
+        if (existing != ctx.blockId) revert InvalidChain();
+
+        ctx.intersectedExisting = true;
     }
 
     /// @notice Main loop for proving blocks in a range.
@@ -568,53 +546,67 @@ contract TronLightClient {
         bytes memory scratch = new bytes(128);
 
         for (uint256 i = 0; i < numBlocks; ++i) {
-            TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
-
-            if (tronBlock.parentHash != ctx.blockId) {
-                revert InvalidParentBlockId(tronBlock.parentHash, ctx.blockId);
-            }
-
-            unchecked {
-                ++ctx.blockNumber;
-            }
-
-            bytes32 blockHash = _hashBlockScratch(tronBlock, ctx.blockNumber, scratch);
-            ctx.blockId = _makeBlockId(ctx.blockNumber, blockHash);
+            (bytes32 blockHash, uint8 witnessIndex) = _advanceAndHash(ctx, compressedTronBlockMetadata, i, scratch);
 
             bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
-            uint8 witnessIndex = tronBlock.witnessAddressIndex;
             if (signer != _witnessDelegateeAt(witnessIndex)) revert InvalidWitnessSigner();
 
             uint8 group = uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f);
             _enforceRecentUniqueGroup(ctx, group, signer);
 
             _maybeCheckIntersection(ctx, i, intersectionOffset);
-
-            ctx.lastTxTrieRoot = tronBlock.txTrieRoot;
-            ctx.lastTimestamp = tronBlock.timestamp;
         }
     }
 
-    /// @notice Computes the Tron `blockHash` (SHA256 of encoded `BlockHeader_raw`) for a metadata entry.
-    /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata` and return its SHA256 hash.
-    ///
-    /// The fields we encode are:
-    /// - field 1 (varint):  timestamp in milliseconds (Tron stores ms; we keep seconds in metadata)
-    /// - field 2 (bytes):   txTrieRoot (32 bytes)
-    /// - field 3 (bytes):   parentHash (32 bytes)
-    /// - field 7 (varint):  number
-    /// - field 9 (bytes):   witnessAddress (21 bytes: 0x41 prefix + 20-byte address from `srs`)
-    /// - field 10 (varint): version (currently always 32 on Tron mainnet)
-    /// @param tronBlock Decoded metadata for the block being hashed.
-    /// @param blockNumber Tron block height of the block being hashed.
-    /// @param scratch Scratch memory region to use for encoding.
-    /// @return blockHash The SHA256 hash of the encoded block header (NOT `blockId`).
-    function _hashBlockScratch(TronBlockMetadata memory tronBlock, uint256 blockNumber, bytes memory scratch)
-        internal
-        view
-        returns (bytes32 blockHash)
-    {
-        _encodeTronBlockHeaderInto(scratch, tronBlock, blockNumber);
+    /// @notice Decodes, validates, advances `ctx.blockNumber`, hashes the block, and updates `ctx`.
+    /// @param ctx The context to update.
+    /// @param compressedTronBlockMetadata The compressed Tron block metadata.
+    /// @param i The index of the block to decode.
+    /// @param scratch The scratch memory region to use for encoding.
+    /// @return blockHash The hash of the block.
+    /// @return witnessIndex The witness index of the block.
+    function _advanceAndHash(
+        ProveBlocksCtx memory ctx,
+        bytes calldata compressedTronBlockMetadata,
+        uint256 i,
+        bytes memory scratch
+    ) internal view returns (bytes32 blockHash, uint8 witnessIndex) {
+        (bytes32 parentHash, bytes32 txTrieRoot, uint32 ts, uint8 wi) =
+            _decodeTronBlockAtStack(compressedTronBlockMetadata, i);
+        witnessIndex = wi;
+
+        if (parentHash != ctx.blockId) revert InvalidParentBlockId(parentHash, ctx.blockId);
+
+        unchecked {
+            ++ctx.blockNumber;
+        }
+
+        blockHash = _hashBlockScratch(parentHash, txTrieRoot, ts, wi, ctx.blockNumber, scratch);
+        ctx.blockId = _makeBlockId(ctx.blockNumber, blockHash);
+
+        ctx.lastTxTrieRoot = txTrieRoot;
+        ctx.lastTimestamp = ts;
+    }
+
+    /// @notice Computes the Tron `blockHash` (SHA256 of encoded `BlockHeader_raw`) from raw stack values.
+    /// @param parentHash The parent hash of the block.
+    /// @param txTrieRoot The transaction trie root of the block.
+    /// @param timestampSec The timestamp of the block.
+    /// @param witnessIndex The witness address index of the block.
+    /// @param blockNumber The block number of the block.
+    /// @param scratch The scratch memory region to use for encoding.
+    /// @return blockHash The hash of the block.
+    function _hashBlockScratch(
+        bytes32 parentHash,
+        bytes32 txTrieRoot,
+        uint32 timestampSec,
+        uint8 witnessIndex,
+        uint256 blockNumber,
+        bytes memory scratch
+    ) internal view returns (bytes32 blockHash) {
+        uint256 used = _encodeTronBlockHeaderInto(
+            scratch, parentHash, txTrieRoot, timestampSec, witnessIndex, blockNumber
+        );
 
         // Call SHA256 precompile (0x02) directly on the scratch region.
         // Output is written to memory slot 0x00 to avoid moving the free memory pointer.
@@ -622,7 +614,7 @@ contract TronLightClient {
 
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            ok := staticcall(gas(), 0x02, add(scratch, 32), mload(scratch), 0x00, 32)
+            ok := staticcall(gas(), 0x02, add(scratch, 32), used, 0x00, 32)
             blockHash := mload(0x00)
         }
 
@@ -630,26 +622,31 @@ contract TronLightClient {
     }
 
     /* solhint-disable function-max-lines */
-    /// @notice Encodes a minimal Tron `BlockHeader_raw` protobuf message into an existing bytes buffer.
-    /// @dev Mutates `buf` length to the number of bytes written.
-    /// @param buf The buffer to write the encoded header into.
-    /// @param tronBlock The Tron block metadata to encode.
-    /// @param blockNumber The block number of the Tron block.
-    function _encodeTronBlockHeaderInto(bytes memory buf, TronBlockMetadata memory tronBlock, uint256 blockNumber)
-        internal
-        view
-    {
-        bytes32 parentHash = tronBlock.parentHash;
-        bytes32 txTrieRoot = tronBlock.txTrieRoot;
 
+    /// @notice Encodes a minimal Tron `BlockHeader_raw` protobuf message into an existing bytes buffer.
+    /// @param buf The buffer to write to.
+    /// @param parentHash The parent hash of the block.
+    /// @param txTrieRoot The transaction trie root of the block.
+    /// @param timestampSec The timestamp of the block in seconds.
+    /// @param witnessIndex The index of the witness address in the static SR set.
+    /// @param blockNumber The block number.
+    /// @return used The number of bytes written to the buffer.
+    function _encodeTronBlockHeaderInto(
+        bytes memory buf,
+        bytes32 parentHash,
+        bytes32 txTrieRoot,
+        uint32 timestampSec,
+        uint8 witnessIndex,
+        uint256 blockNumber
+    ) internal view returns (uint256 used) {
         // Tron raw header uses timestamp in milliseconds.
-        uint256 tsMillis = uint256(tronBlock.timestamp) * 1000;
+        uint256 tsMillis = uint256(timestampSec) * 1000;
 
         // Resolve the Tron witness account address (owner) from the static SR set and convert it into
         // a Tron-style witness address (0x41 prefix + 20-byte EVM address).
         // Note: `_srAt` resolves the owner accounts that appear in `BlockHeader_raw.witnessAddress`,
         // while `_witnessDelegateeAt` holds the actual signing keys (which may be delegated to that account).
-        bytes20 witness = _srAt(tronBlock.witnessAddressIndex);
+        bytes20 witness = _srAt(witnessIndex);
         // Treat the witness address as a 160-bit integer so we can explicitly
         // write its 20 bytes in big-endian order without relying on Solidity's
         // internal memory layout for bytes20.
@@ -740,9 +737,8 @@ contract TronLightClient {
             mstore8(ptr, _TRON_BLOCK_VERSION)
             ptr := add(ptr, 1)
 
-            // Set the actual length of the bytes buffer to the number of bytes written.
-            let used := sub(ptr, base)
-            mstore(buf, used)
+            // Return the number of bytes written (do not mutate `buf.length` here).
+            used := sub(ptr, base)
         }
     }
 
@@ -848,26 +844,24 @@ contract TronLightClient {
         return uint256(blockId) >> 192;
     }
 
-    /// @notice Decodes a single 69-byte metadata chunk from `data` at `index`.
+    /// @notice Decodes a single 69-byte metadata chunk from `data` at `index` into stack values.
     /// @dev Decode layout per block:
     /// [0..31]  parentHash (bytes32)
     /// [32..63] txTrieRoot (bytes32)
     /// [64..67] timestamp (uint32, big-endian)
-    /// [68]     witnessAddressIndex (uint8)
+    /// [68]     witnessIndex (uint8)
     /// @param data Tightly packed calldata blob of metadata.
     /// @param index 0-based index of the block within `data`.
-    /// @return tronBlock Decoded metadata struct for the requested block.
-    function _decodeTronBlockAt(bytes calldata data, uint256 index)
+    /// @return parentHash The parent hash of the block.
+    /// @return txTrieRoot The transaction trie root of the block.
+    /// @return ts The timestamp of the block.
+    /// @return witnessIndex The witness address index of the block.
+    function _decodeTronBlockAtStack(bytes calldata data, uint256 index)
         internal
         pure
-        returns (TronBlockMetadata memory tronBlock)
+        returns (bytes32 parentHash, bytes32 txTrieRoot, uint32 ts, uint8 witnessIndex)
     {
         uint256 offset = index * _TRON_BLOCK_METADATA_SIZE;
-
-        bytes32 parentHash;
-        bytes32 txTrieRoot;
-        uint32 ts;
-        uint8 witnessIndex;
 
         // solhint-disable-next-line no-inline-assembly
         assembly {
@@ -885,10 +879,5 @@ contract TronLightClient {
             // 5th byte (index 4 from the MSB side) -> witnessIndex.
             witnessIndex := byte(4, word)
         }
-
-        tronBlock.parentHash = parentHash;
-        tronBlock.txTrieRoot = txTrieRoot;
-        tronBlock.timestamp = ts;
-        tronBlock.witnessAddressIndex = witnessIndex;
     }
 }

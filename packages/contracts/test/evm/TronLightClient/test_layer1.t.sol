@@ -290,25 +290,18 @@ contract TronLightClientLayer1Test is Test {
         uint256 pk0,
         uint256 pk1
     ) internal view returns (bytes memory meta, bytes memory sigs, bytes32 endingBlockId) {
-        uint256 parentNumber = 100;
-
-        TronLightClient.TronBlockMetadata memory b1 = TronLightClient.TronBlockMetadata({
-            parentHash: startingBlockId, txTrieRoot: bytes32(uint256(1)), timestamp: uint32(1), witnessAddressIndex: 0
-        });
-
-        uint256 n1 = parentNumber + 1;
-        bytes32 h1 = c.hashBlockPublic(b1, n1);
+        uint256 n1 = 101;
+        bytes32 h1 = c.hashBlockPublic(startingBlockId, bytes32(uint256(1)), uint32(1), 0, n1);
         bytes32 id1 = _toBlockId(n1, h1);
 
-        TronLightClient.TronBlockMetadata memory b2 = TronLightClient.TronBlockMetadata({
-            parentHash: id1, txTrieRoot: bytes32(uint256(2)), timestamp: uint32(2), witnessAddressIndex: 1
-        });
-
-        uint256 n2 = parentNumber + 2;
-        bytes32 h2 = c.hashBlockPublic(b2, n2);
+        uint256 n2 = 102;
+        bytes32 h2 = c.hashBlockPublic(id1, bytes32(uint256(2)), uint32(2), 1, n2);
         endingBlockId = _toBlockId(n2, h2);
 
-        (meta, sigs) = _twoBlockMetaAndSigsDifferent(pk0, pk1, h1, h2, b1, b2);
+        bytes memory m1 = _packMeta(startingBlockId, bytes32(uint256(1)), uint32(1), 0);
+        bytes memory m2 = _packMeta(id1, bytes32(uint256(2)), uint32(2), 1);
+
+        (meta, sigs) = _twoBlockMetaAndSigsDifferent(pk0, pk1, h1, h2, m1, m2);
     }
 
     function _twoBlockMetaAndSigsDifferent(
@@ -316,14 +309,14 @@ contract TronLightClientLayer1Test is Test {
         uint256 pk2,
         bytes32 h1,
         bytes32 h2,
-        TronLightClient.TronBlockMetadata memory b1,
-        TronLightClient.TronBlockMetadata memory b2
+        bytes memory m1,
+        bytes memory m2
     ) internal pure returns (bytes memory meta, bytes memory sigs) {
+        require(m1.length == 69 && m2.length == 69, "meta chunk must be 69 bytes");
+
         meta = new bytes(138);
         sigs = new bytes(130);
 
-        bytes memory m1 = _packMeta(b1.parentHash, b1.txTrieRoot, b1.timestamp, b1.witnessAddressIndex);
-        bytes memory m2 = _packMeta(b2.parentHash, b2.txTrieRoot, b2.timestamp, b2.witnessAddressIndex);
         bytes memory s1 = _sign(pk1, h1);
         bytes memory s2 = _sign(pk2, h2);
 
@@ -376,38 +369,31 @@ contract TronLightClientLayer1Test is Test {
         view
         returns (bytes memory meta, bytes memory sigs)
     {
-        uint256 parentNumber = 100;
-
-        TronLightClient.TronBlockMetadata memory b1 = TronLightClient.TronBlockMetadata({
-            parentHash: startingBlockId, txTrieRoot: bytes32(uint256(1)), timestamp: uint32(1), witnessAddressIndex: 0
-        });
-
-        uint256 n1 = parentNumber + 1;
-        bytes32 h1 = c.hashBlockPublic(b1, n1);
+        uint256 n1 = 101;
+        bytes32 h1 = c.hashBlockPublic(startingBlockId, bytes32(uint256(1)), uint32(1), 0, n1);
         bytes32 id1 = _toBlockId(n1, h1);
 
-        TronLightClient.TronBlockMetadata memory b2 = TronLightClient.TronBlockMetadata({
-            parentHash: id1, txTrieRoot: bytes32(uint256(2)), timestamp: uint32(2), witnessAddressIndex: 0
-        });
+        uint256 n2 = 102;
+        bytes32 h2 = c.hashBlockPublic(id1, bytes32(uint256(2)), uint32(2), 0, n2);
 
-        uint256 n2 = parentNumber + 2;
-        bytes32 h2 = c.hashBlockPublic(b2, n2);
+        bytes memory m1 = _packMeta(startingBlockId, bytes32(uint256(1)), uint32(1), 0);
+        bytes memory m2 = _packMeta(id1, bytes32(uint256(2)), uint32(2), 0);
 
-        (meta, sigs) = _twoBlockMetaAndSigs(pk0, h1, h2, b1, b2);
+        (meta, sigs) = _twoBlockMetaAndSigs(pk0, h1, h2, m1, m2);
     }
 
     function _twoBlockMetaAndSigs(
         uint256 pk,
         bytes32 h1,
         bytes32 h2,
-        TronLightClient.TronBlockMetadata memory b1,
-        TronLightClient.TronBlockMetadata memory b2
+        bytes memory m1,
+        bytes memory m2
     ) internal pure returns (bytes memory meta, bytes memory sigs) {
+        require(m1.length == 69 && m2.length == 69, "meta chunk must be 69 bytes");
+
         meta = new bytes(138);
         sigs = new bytes(130);
 
-        bytes memory m1 = _packMeta(b1.parentHash, b1.txTrieRoot, b1.timestamp, b1.witnessAddressIndex);
-        bytes memory m2 = _packMeta(b2.parentHash, b2.txTrieRoot, b2.timestamp, b2.witnessAddressIndex);
         bytes memory s1 = _sign(pk, h1);
         bytes memory s2 = _sign(pk, h2);
 

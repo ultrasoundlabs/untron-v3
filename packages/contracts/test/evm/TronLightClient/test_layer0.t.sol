@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {TronLightClientHarness} from "./harness/TronLightClientHarness.sol";
-import {TronLightClient} from "../../../src/evm/TronLightClient.sol";
+
 import {IBlockRangeProver} from "../../../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
 
 contract TronLightClientLayer0Test is Test {
@@ -112,11 +112,11 @@ contract TronLightClientLayer0Test is Test {
         assertGt(len, 0, "fixture must contain at least one block");
 
         for (uint256 i = 0; i < len; i++) {
-            TronLightClient.TronBlockMetadata memory meta = _client.decodeAt(_metadata, i);
+            (,,, uint8 witnessIndex) = _client.decodeAt(_metadata, i);
 
             // Parent/txTrieRoot are not explicitly exposed in the JSON today, but we can at
             // least assert the witness index matches the fixture's witnessIndices.
-            assertEq(uint256(meta.witnessAddressIndex), uint256(_witnessIndices[i]), "witness index mismatch");
+            assertEq(uint256(witnessIndex), uint256(_witnessIndices[i]), "witness index mismatch");
         }
     }
 
@@ -128,9 +128,9 @@ contract TronLightClientLayer0Test is Test {
         assertEq(len, _blockHashes.length, "blockNumbers/blockHashes length mismatch");
 
         for (uint256 i = 0; i < len; i++) {
-            TronLightClient.TronBlockMetadata memory meta = _client.decodeAt(_metadata, i);
+            (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) = _client.decodeAt(_metadata, i);
 
-            bytes32 computed = _client.hashBlockPublic(meta, _blockNumbers[i]);
+            bytes32 computed = _client.hashBlockPublic(parentHash, txTrieRoot, timestamp, witnessIndex, _blockNumbers[i]);
             assertEq(computed, _blockHashes[i], "hashBlock mismatch");
         }
     }
@@ -143,9 +143,9 @@ contract TronLightClientLayer0Test is Test {
         assertEq(len, _rawHeaderBytes.length, "blockNumbers/rawHeaderBytes length mismatch");
 
         for (uint256 i = 0; i < len; i++) {
-            TronLightClient.TronBlockMetadata memory meta = _client.decodeAt(_metadata, i);
+            (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) = _client.decodeAt(_metadata, i);
 
-            bytes memory encoded = _client.encodeBlockHeaderPublic(meta, _blockNumbers[i]);
+            bytes memory encoded = _client.encodeBlockHeaderPublic(parentHash, txTrieRoot, timestamp, witnessIndex, _blockNumbers[i]);
             // forge-std's assertEq on bytes performs a byte-for-byte comparison.
             assertEq(encoded, _rawHeaderBytes[i], "encoded header bytes mismatch");
         }

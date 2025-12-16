@@ -15,18 +15,26 @@ contract TronLightClientHarness is TronLightClient {
         bytes32 srDataHash_
     ) TronLightClient(p, initial, initialTxTrieRoot, initialTimestamp, srs_, witnessDelegatees_, srDataHash_) {}
 
-    function hashBlockPublic(TronBlockMetadata memory b, uint256 n) external view returns (bytes32) {
+    function hashBlockPublic(bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex, uint256 n) external view returns (bytes32) {
         bytes memory scratch = new bytes(128);
-        return _hashBlockScratch(b, n, scratch);
+        return _hashBlockScratch(parentHash, txTrieRoot, timestamp, witnessIndex, n, scratch);
     }
 
-    function encodeBlockHeaderPublic(TronBlockMetadata memory b, uint256 n) external view returns (bytes memory) {
+    function encodeBlockHeaderPublic(bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex, uint256 n) external view returns (bytes memory) {
         bytes memory buf = new bytes(128);
-        _encodeTronBlockHeaderInto(buf, b, n);
+
+        uint256 used = _encodeTronBlockHeaderInto(buf, parentHash, txTrieRoot, timestamp, witnessIndex, n);
+
+        // Preserve the prior behavior: shrink `buf` to the number of bytes written.
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            mstore(buf, used)
+        }
+
         return buf;
     }
 
-    function decodeAt(bytes calldata data, uint256 idx) external pure returns (TronBlockMetadata memory) {
-        return _decodeTronBlockAt(data, idx);
+    function decodeAt(bytes calldata data, uint256 idx) external pure returns (bytes32 parentHash, bytes32 txTrieRoot, uint32 timestamp, uint8 witnessIndex) {
+        (parentHash, txTrieRoot, timestamp, witnessIndex) = _decodeTronBlockAtStack(data, idx);
     }
 }
