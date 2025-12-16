@@ -17,6 +17,39 @@ import {IBlockRangeProver} from "./blockRangeProvers/interfaces/IBlockRangeProve
 /// - `witnessDelegatees`: the actual secp256k1 signing keys for each SR index (may be delegated from the owner).
 /// @author Ultrasound Labs
 contract TronLightClient {
+    // ------------------------------------------------------------------------
+    // Types
+    // ------------------------------------------------------------------------
+
+    struct TronBlockMetadata {
+        bytes32 parentHash;
+        bytes32 txTrieRoot;
+        // In Tron protocol, it's expressed in milliseconds, but block time is 3s and actual time is never
+        // more granular than .......000. So we can /1000 it and store efficiently in 32-bit ints (seconds).
+        uint32 timestamp;
+        uint8 witnessAddressIndex;
+    }
+
+    struct ProveBlocksCtx {
+        bytes32 blockId;
+        uint256 blockNumber;
+        bytes32 lastTxTrieRoot;
+
+        // Ring buffer (last 18 creators) tracked by delegatee-group id
+        // (indices with the same delegatee key share the same group id).
+        uint8[18] recentGroups;
+        uint32 recentMask;
+
+        bool intersectedExisting;
+        uint32 lastTimestamp;
+        uint8 recentCount;
+        uint8 recentPos;
+    }
+
+    // ------------------------------------------------------------------------
+    // Constants
+    // ------------------------------------------------------------------------
+
     uint256 internal constant _TRON_BLOCK_METADATA_SIZE = 69; // bytes per packed TronBlockMetadata
     uint256 internal constant _SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
 
@@ -27,33 +60,118 @@ contract TronLightClient {
     uint256 internal constant _TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
     uint256 internal constant _RECENT_BLOCK_CREATOR_WINDOW = 18; // sliding window size for block creator uniqueness
 
+    // ------------------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------------------
+
     /// @notice Verifier used to validate succinct proofs for block ranges.
     IBlockRangeProver public immutable BLOCK_RANGE_PROVER;
-    /// @notice EVM addresses of the elected Super Representatives (witness accounts) for this epoch.
-    /// These are the owner accounts that appear (with 0x41 prefix) in `BlockHeader_raw.witnessAddress`.
-    /// It's not immutable because arrays cannot be immutable in Solidity for some reason.
-    bytes20[27] public srs;
-    /// @notice EVM addresses of the actual signing keys (may be delegated keys) for each SR index.
-    /// A given SR may delegate its witness permission to a separate key; those delegatees live here.
-    /// It's not immutable because arrays cannot be immutable in Solidity for some reason.
-    bytes20[27] public witnessDelegatees;
+
+    // ------------------------------------------------------------------------
+    // SR owners + witness delegatees as per-index immutables (fastest runtime reads)
+    // ------------------------------------------------------------------------
+
+    /// @notice SR owner accounts for the epoch (used for `witnessAddress` in header encoding).
+    /// @dev These are the owner accounts that appear (with 0x41 prefix) in `BlockHeader_raw.witnessAddress`.
+    bytes20 internal immutable _SR_0;
+    bytes20 internal immutable _SR_1;
+    bytes20 internal immutable _SR_2;
+    bytes20 internal immutable _SR_3;
+    bytes20 internal immutable _SR_4;
+    bytes20 internal immutable _SR_5;
+    bytes20 internal immutable _SR_6;
+    bytes20 internal immutable _SR_7;
+    bytes20 internal immutable _SR_8;
+    bytes20 internal immutable _SR_9;
+    bytes20 internal immutable _SR_10;
+    bytes20 internal immutable _SR_11;
+    bytes20 internal immutable _SR_12;
+    bytes20 internal immutable _SR_13;
+    bytes20 internal immutable _SR_14;
+    bytes20 internal immutable _SR_15;
+    bytes20 internal immutable _SR_16;
+    bytes20 internal immutable _SR_17;
+    bytes20 internal immutable _SR_18;
+    bytes20 internal immutable _SR_19;
+    bytes20 internal immutable _SR_20;
+    bytes20 internal immutable _SR_21;
+    bytes20 internal immutable _SR_22;
+    bytes20 internal immutable _SR_23;
+    bytes20 internal immutable _SR_24;
+    bytes20 internal immutable _SR_25;
+    bytes20 internal immutable _SR_26;
+
+    /// @notice SR signing keys for the epoch (used for signature recovery checks).
+    /// @dev A given SR may delegate its witness permission to a separate key; those delegatees live here.
+    bytes20 internal immutable _WITNESS_DELEGATEE_0;
+    bytes20 internal immutable _WITNESS_DELEGATEE_1;
+    bytes20 internal immutable _WITNESS_DELEGATEE_2;
+    bytes20 internal immutable _WITNESS_DELEGATEE_3;
+    bytes20 internal immutable _WITNESS_DELEGATEE_4;
+    bytes20 internal immutable _WITNESS_DELEGATEE_5;
+    bytes20 internal immutable _WITNESS_DELEGATEE_6;
+    bytes20 internal immutable _WITNESS_DELEGATEE_7;
+    bytes20 internal immutable _WITNESS_DELEGATEE_8;
+    bytes20 internal immutable _WITNESS_DELEGATEE_9;
+    bytes20 internal immutable _WITNESS_DELEGATEE_10;
+    bytes20 internal immutable _WITNESS_DELEGATEE_11;
+    bytes20 internal immutable _WITNESS_DELEGATEE_12;
+    bytes20 internal immutable _WITNESS_DELEGATEE_13;
+    bytes20 internal immutable _WITNESS_DELEGATEE_14;
+    bytes20 internal immutable _WITNESS_DELEGATEE_15;
+    bytes20 internal immutable _WITNESS_DELEGATEE_16;
+    bytes20 internal immutable _WITNESS_DELEGATEE_17;
+    bytes20 internal immutable _WITNESS_DELEGATEE_18;
+    bytes20 internal immutable _WITNESS_DELEGATEE_19;
+    bytes20 internal immutable _WITNESS_DELEGATEE_20;
+    bytes20 internal immutable _WITNESS_DELEGATEE_21;
+    bytes20 internal immutable _WITNESS_DELEGATEE_22;
+    bytes20 internal immutable _WITNESS_DELEGATEE_23;
+    bytes20 internal immutable _WITNESS_DELEGATEE_24;
+    bytes20 internal immutable _WITNESS_DELEGATEE_25;
+    bytes20 internal immutable _WITNESS_DELEGATEE_26;
 
     /// @notice Packed mapping witnessIndex -> delegateeGroup (5 bits per index, 27 indices total).
-    /// @dev Indices that share the same `witnessDelegatees[i]` share the same group id.
+    /// @dev Indices that share the same delegatee key share the same group id.
     ///      This lets us do "recently produced" checks by group without assuming delegatees are unique.
     uint256 internal immutable _DELEGATEE_GROUPS_PACKED;
 
     /// @notice ZK-friendly hash of public keys (not addresses!) of SRs and their delegatees.
-    /// @dev This hash is used as a public input to the block range prover, to save
-    ///      proving cycles compared to passing two arrays of Keccak-hashed arrays (as above).
+    /// @dev This hash is used as a public input to the block range prover, to save proving cycles compared to
+    ///      passing two arrays of Keccak-hashed arrays (as above).
     bytes32 public immutable SR_DATA_HASH;
+
     /// @notice Highest stored/proven Tron `blockId` by embedded block number.
     /// @dev This is monotonic w.r.t. the embedded height (`uint64(blockNumber)` in the top 8 bytes).
     bytes32 public latestProvenBlock;
+
     mapping(uint256 blockNumber => bytes32 blockId) internal _blockIds;
     mapping(uint256 blockNumber => bytes32 txTrieRoot) internal _txTrieRoots;
     mapping(uint256 blockNumber => uint32 timestamp) internal _blockTimestamps;
 
+    // ------------------------------------------------------------------------
+    // Errors
+    // ------------------------------------------------------------------------
+
+    error NotEnoughBlocksOrSignatures();
+    error InvalidParentBlockId(bytes32 yours, bytes32 real);
+    error BlockTooOld();
+    error InvalidChain();
+    error BlockNotRelayed();
+    error InvalidCompressedTronBlockMetadataLength();
+    error InvalidCompressedSignaturesLength();
+    error InvalidWitnessSigner();
+    error WitnessProducedRecently(bytes20 signer);
+    error UnanchoredBlockRange();
+    error InvalidSrIndex(uint256 index);
+    error InvalidWitnessDelegateeIndex(uint256 index);
+    error Sha256PrecompileFailed();
+
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
+
+    /* solhint-disable function-max-lines */
     /// @notice Creates a Tron light client anchored at an initial checkpoint.
     /// @param blockRangeProver External verifier for `proveBlockRange`.
     /// @param initialBlockHash Initial Tron `blockId` checkpoint (despite the name, this must include the height prefix).
@@ -108,46 +226,70 @@ contract TronLightClient {
         }
         _DELEGATEE_GROUPS_PACKED = packed;
 
-        srs = _srs;
-        witnessDelegatees = _witnessDelegatees;
+        _SR_0 = _srs[0];
+        _SR_1 = _srs[1];
+        _SR_2 = _srs[2];
+        _SR_3 = _srs[3];
+        _SR_4 = _srs[4];
+        _SR_5 = _srs[5];
+        _SR_6 = _srs[6];
+        _SR_7 = _srs[7];
+        _SR_8 = _srs[8];
+        _SR_9 = _srs[9];
+        _SR_10 = _srs[10];
+        _SR_11 = _srs[11];
+        _SR_12 = _srs[12];
+        _SR_13 = _srs[13];
+        _SR_14 = _srs[14];
+        _SR_15 = _srs[15];
+        _SR_16 = _srs[16];
+        _SR_17 = _srs[17];
+        _SR_18 = _srs[18];
+        _SR_19 = _srs[19];
+        _SR_20 = _srs[20];
+        _SR_21 = _srs[21];
+        _SR_22 = _srs[22];
+        _SR_23 = _srs[23];
+        _SR_24 = _srs[24];
+        _SR_25 = _srs[25];
+        _SR_26 = _srs[26];
+
+        _WITNESS_DELEGATEE_0 = _witnessDelegatees[0];
+        _WITNESS_DELEGATEE_1 = _witnessDelegatees[1];
+        _WITNESS_DELEGATEE_2 = _witnessDelegatees[2];
+        _WITNESS_DELEGATEE_3 = _witnessDelegatees[3];
+        _WITNESS_DELEGATEE_4 = _witnessDelegatees[4];
+        _WITNESS_DELEGATEE_5 = _witnessDelegatees[5];
+        _WITNESS_DELEGATEE_6 = _witnessDelegatees[6];
+        _WITNESS_DELEGATEE_7 = _witnessDelegatees[7];
+        _WITNESS_DELEGATEE_8 = _witnessDelegatees[8];
+        _WITNESS_DELEGATEE_9 = _witnessDelegatees[9];
+        _WITNESS_DELEGATEE_10 = _witnessDelegatees[10];
+        _WITNESS_DELEGATEE_11 = _witnessDelegatees[11];
+        _WITNESS_DELEGATEE_12 = _witnessDelegatees[12];
+        _WITNESS_DELEGATEE_13 = _witnessDelegatees[13];
+        _WITNESS_DELEGATEE_14 = _witnessDelegatees[14];
+        _WITNESS_DELEGATEE_15 = _witnessDelegatees[15];
+        _WITNESS_DELEGATEE_16 = _witnessDelegatees[16];
+        _WITNESS_DELEGATEE_17 = _witnessDelegatees[17];
+        _WITNESS_DELEGATEE_18 = _witnessDelegatees[18];
+        _WITNESS_DELEGATEE_19 = _witnessDelegatees[19];
+        _WITNESS_DELEGATEE_20 = _witnessDelegatees[20];
+        _WITNESS_DELEGATEE_21 = _witnessDelegatees[21];
+        _WITNESS_DELEGATEE_22 = _witnessDelegatees[22];
+        _WITNESS_DELEGATEE_23 = _witnessDelegatees[23];
+        _WITNESS_DELEGATEE_24 = _witnessDelegatees[24];
+        _WITNESS_DELEGATEE_25 = _witnessDelegatees[25];
+        _WITNESS_DELEGATEE_26 = _witnessDelegatees[26];
+
         SR_DATA_HASH = srDataHash;
     }
 
-    struct TronBlockMetadata {
-        bytes32 parentHash;
-        bytes32 txTrieRoot;
-        // In Tron protocol, it's expressed in milliseconds, but block time is 3s and actual time is never
-        // more granular than .......000. So we can /1000 it and store efficiently in 32-bit ints (seconds).
-        uint32 timestamp;
-        uint8 witnessAddressIndex;
-    }
+    /* solhint-enable function-max-lines */
 
-    struct ProveBlocksCtx {
-        bytes32 blockId;
-        uint256 blockNumber;
-        bytes32 lastTxTrieRoot;
-
-        // ring buffer (last 18 creators) tracked by delegatee-group id
-        // (indices with the same delegatee key share the same group id).
-        uint8[18] recentGroups;
-        uint32 recentMask;
-
-        bool intersectedExisting;
-        uint32 lastTimestamp;
-        uint8 recentCount;
-        uint8 recentPos;
-    }
-
-    error NotEnoughBlocksOrSignatures();
-    error InvalidParentBlockId(bytes32 yours, bytes32 real);
-    error BlockTooOld();
-    error InvalidChain();
-    error BlockNotRelayed();
-    error InvalidCompressedTronBlockMetadataLength();
-    error InvalidCompressedSignaturesLength();
-    error InvalidWitnessSigner();
-    error WitnessProducedRecently(bytes20 signer);
-    error UnanchoredBlockRange();
+    // ------------------------------------------------------------------------
+    // External functions
+    // ------------------------------------------------------------------------
 
     /// @notice Relays and verifies a contiguous sequence of Tron blocks using per-block witness signatures.
     /// @dev
@@ -210,19 +352,26 @@ contract TronLightClient {
         _appendBlockId(endingBlock, endingBlockTxTrieRoot, endingBlockTimestamp);
     }
 
-    /// @notice Returns the stored Tron `blockId` for `blockNumber`.
-    /// @param blockNumber Tron block height to query.
-    /// @return blockId Stored Tron `blockId` at that height.
-    function getBlockId(uint256 blockNumber) public view returns (bytes32) {
-        bytes32 stored = _blockIds[blockNumber];
-        if (stored == bytes32(0)) revert BlockNotRelayed();
-        return stored;
+    /// @notice Returns the SR owner account for `index`.
+    /// @dev This matches the prior auto-generated getter ABI of `bytes20[27] public srs`.
+    /// @param index SR index (0..26).
+    /// @return sr SR owner account (EVM address bytes).
+    function srs(uint256 index) external view returns (bytes20 sr) {
+        return _srAt(index);
+    }
+
+    /// @notice Returns the witness delegatee (signing key) for `index`.
+    /// @dev This matches the prior auto-generated getter ABI of `bytes20[27] public witnessDelegatees`.
+    /// @param index SR index (0..26).
+    /// @return delegatee Delegatee signing key (EVM address bytes).
+    function witnessDelegatees(uint256 index) external view returns (bytes20 delegatee) {
+        return _witnessDelegateeAt(index);
     }
 
     /// @notice Returns the stored transaction trie root for `blockNumber`.
     /// @param blockNumber Tron block height to query.
     /// @return txTrieRoot Stored transaction trie root at that height.
-    function getTxTrieRoot(uint256 blockNumber) external view returns (bytes32) {
+    function getTxTrieRoot(uint256 blockNumber) external view returns (bytes32 txTrieRoot) {
         bytes32 stored = _blockIds[blockNumber];
         if (stored == bytes32(0)) revert BlockNotRelayed();
         return _txTrieRoots[blockNumber];
@@ -231,11 +380,28 @@ contract TronLightClient {
     /// @notice Returns the stored block timestamp (seconds) for `blockNumber`.
     /// @param blockNumber Tron block height to query.
     /// @return timestamp Stored block timestamp in seconds.
-    function getBlockTimestamp(uint256 blockNumber) external view returns (uint32) {
+    function getBlockTimestamp(uint256 blockNumber) external view returns (uint32 timestamp) {
         bytes32 stored = _blockIds[blockNumber];
         if (stored == bytes32(0)) revert BlockNotRelayed();
         return _blockTimestamps[blockNumber];
     }
+
+    // ------------------------------------------------------------------------
+    // Public functions
+    // ------------------------------------------------------------------------
+
+    /// @notice Returns the stored Tron `blockId` for `blockNumber`.
+    /// @param blockNumber Tron block height to query.
+    /// @return blockId Stored Tron `blockId` at that height.
+    function getBlockId(uint256 blockNumber) public view returns (bytes32 blockId) {
+        bytes32 stored = _blockIds[blockNumber];
+        if (stored == bytes32(0)) revert BlockNotRelayed();
+        return stored;
+    }
+
+    // ------------------------------------------------------------------------
+    // Internal functions
+    // ------------------------------------------------------------------------
 
     /// @notice Stores a checkpoint for `blockId` and updates `latestProvenBlock` if it is newer.
     /// @dev Callers must ensure the provided checkpoint is consistent with the intended chain.
@@ -252,22 +418,159 @@ contract TronLightClient {
         }
     }
 
-    /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata`
-    /// and return its SHA256 hash.
+    /// @notice Returns the SR owner account at `index`.
+    /// @dev Implemented as an if-ladder so the optimizer can flatten it; avoids `SLOAD`.
+    /// @param index SR index (0..26).
+    /// @return sr SR owner account (EVM address bytes).
+    function _srAt(uint256 index) internal view returns (bytes20 sr) {
+        if (index == 0) return _SR_0;
+        if (index == 1) return _SR_1;
+        if (index == 2) return _SR_2;
+        if (index == 3) return _SR_3;
+        if (index == 4) return _SR_4;
+        if (index == 5) return _SR_5;
+        if (index == 6) return _SR_6;
+        if (index == 7) return _SR_7;
+        if (index == 8) return _SR_8;
+        if (index == 9) return _SR_9;
+        if (index == 10) return _SR_10;
+        if (index == 11) return _SR_11;
+        if (index == 12) return _SR_12;
+        if (index == 13) return _SR_13;
+        if (index == 14) return _SR_14;
+        if (index == 15) return _SR_15;
+        if (index == 16) return _SR_16;
+        if (index == 17) return _SR_17;
+        if (index == 18) return _SR_18;
+        if (index == 19) return _SR_19;
+        if (index == 20) return _SR_20;
+        if (index == 21) return _SR_21;
+        if (index == 22) return _SR_22;
+        if (index == 23) return _SR_23;
+        if (index == 24) return _SR_24;
+        if (index == 25) return _SR_25;
+        if (index == 26) return _SR_26;
+        revert InvalidSrIndex(index);
+    }
+
+    /// @notice Returns the witness delegatee (signing key) at `index`.
+    /// @dev Implemented as an if-ladder so the optimizer can flatten it; avoids `SLOAD`.
+    /// @param index SR index (0..26).
+    /// @return delegatee Delegatee signing key (EVM address bytes).
+    function _witnessDelegateeAt(uint256 index) internal view returns (bytes20 delegatee) {
+        if (index == 0) return _WITNESS_DELEGATEE_0;
+        if (index == 1) return _WITNESS_DELEGATEE_1;
+        if (index == 2) return _WITNESS_DELEGATEE_2;
+        if (index == 3) return _WITNESS_DELEGATEE_3;
+        if (index == 4) return _WITNESS_DELEGATEE_4;
+        if (index == 5) return _WITNESS_DELEGATEE_5;
+        if (index == 6) return _WITNESS_DELEGATEE_6;
+        if (index == 7) return _WITNESS_DELEGATEE_7;
+        if (index == 8) return _WITNESS_DELEGATEE_8;
+        if (index == 9) return _WITNESS_DELEGATEE_9;
+        if (index == 10) return _WITNESS_DELEGATEE_10;
+        if (index == 11) return _WITNESS_DELEGATEE_11;
+        if (index == 12) return _WITNESS_DELEGATEE_12;
+        if (index == 13) return _WITNESS_DELEGATEE_13;
+        if (index == 14) return _WITNESS_DELEGATEE_14;
+        if (index == 15) return _WITNESS_DELEGATEE_15;
+        if (index == 16) return _WITNESS_DELEGATEE_16;
+        if (index == 17) return _WITNESS_DELEGATEE_17;
+        if (index == 18) return _WITNESS_DELEGATEE_18;
+        if (index == 19) return _WITNESS_DELEGATEE_19;
+        if (index == 20) return _WITNESS_DELEGATEE_20;
+        if (index == 21) return _WITNESS_DELEGATEE_21;
+        if (index == 22) return _WITNESS_DELEGATEE_22;
+        if (index == 23) return _WITNESS_DELEGATEE_23;
+        if (index == 24) return _WITNESS_DELEGATEE_24;
+        if (index == 25) return _WITNESS_DELEGATEE_25;
+        if (index == 26) return _WITNESS_DELEGATEE_26;
+        revert InvalidWitnessDelegateeIndex(index);
+    }
+
+    /// @notice Checks if a block is already stored as an anchor.
+    /// @param blockNumber The block number to check.
+    /// @param startingBlock The expected block ID for this block number.
+    /// @return isAnchor True if the block is stored and matches the expected block ID.
+    function _isStoredAnchor(uint256 blockNumber, bytes32 startingBlock) internal view returns (bool isAnchor) {
+        bytes32 startingSlot = _blockIds[blockNumber];
+        if (startingSlot != bytes32(0)) {
+            if (startingSlot != startingBlock) revert InvalidChain();
+            return true;
+        }
+        return false;
+    }
+
+    /// @notice Checks if a block intersects with an existing block in storage.
+    /// @param ctx The proof context to update if intersection is found.
+    /// @param blockNumber The block number to check.
+    /// @param blockId The block ID to verify against.
+    function _checkIntersection(ProveBlocksCtx memory ctx, uint256 blockNumber, bytes32 blockId) internal view {
+        bytes32 existing = _blockIds[blockNumber];
+        if (existing != bytes32(0)) {
+            if (existing != blockId) revert InvalidChain();
+            ctx.intersectedExisting = true;
+        }
+    }
+
+    /// @notice Main loop for proving blocks in a range.
+    /// @param ctx The proof context containing state during verification.
+    /// @param compressedTronBlockMetadata Compressed block metadata for all blocks.
+    /// @param compressedSignatures Compressed signatures for all blocks.
+    /// @param numBlocks Number of blocks to prove.
+    function _proveBlocksLoop(
+        ProveBlocksCtx memory ctx,
+        bytes calldata compressedTronBlockMetadata,
+        bytes calldata compressedSignatures,
+        uint256 numBlocks
+    ) internal view {
+        // Scratch buffer reused across all blocks in the loop to avoid per-block `new bytes(128)` allocations
+        // and the associated repeated memory expansion.
+        bytes memory scratch = new bytes(128);
+
+        for (uint256 i = 0; i < numBlocks; ++i) {
+            TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
+
+            if (tronBlock.parentHash != ctx.blockId) {
+                revert InvalidParentBlockId(tronBlock.parentHash, ctx.blockId);
+            }
+
+            unchecked {
+                ++ctx.blockNumber;
+            }
+
+            bytes32 blockHash = _hashBlockScratch(tronBlock, ctx.blockNumber, scratch);
+            ctx.blockId = _makeBlockId(ctx.blockNumber, blockHash);
+
+            bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
+            uint8 witnessIndex = tronBlock.witnessAddressIndex;
+            if (signer != _witnessDelegateeAt(witnessIndex)) revert InvalidWitnessSigner();
+
+            uint8 group = uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f);
+            _enforceRecentUniqueGroup(ctx, group, signer);
+            if (!ctx.intersectedExisting) {
+                _checkIntersection(ctx, ctx.blockNumber, ctx.blockId);
+            }
+
+            ctx.lastTxTrieRoot = tronBlock.txTrieRoot;
+            ctx.lastTimestamp = tronBlock.timestamp;
+        }
+    }
+
+    /// @notice Computes the Tron `blockHash` (SHA256 of encoded `BlockHeader_raw`) for a metadata entry.
+    /// @dev Encode a minimal Tron `BlockHeader_raw` protobuf message from `TronBlockMetadata` and return its SHA256 hash.
     ///
     /// The fields we encode are:
     /// - field 1 (varint):  timestamp in milliseconds (Tron stores ms; we keep seconds in metadata)
     /// - field 2 (bytes):   txTrieRoot (32 bytes)
     /// - field 3 (bytes):   parentHash (32 bytes)
-    /// - field 7 (varint): number
+    /// - field 7 (varint):  number
     /// - field 9 (bytes):   witnessAddress (21 bytes: 0x41 prefix + 20-byte address from `srs`)
     /// - field 10 (varint): version (currently always 32 on Tron mainnet)
-    ///
-    /// @return blockHash The SHA256 hash of the encoded block header (NOT blockId!!!)
-    /// @notice Computes the Tron `blockHash` (SHA256 of encoded `BlockHeader_raw`) for a metadata entry.
     /// @param tronBlock Decoded metadata for the block being hashed.
     /// @param blockNumber Tron block height of the block being hashed.
     /// @param scratch Scratch memory region to use for encoding.
+    /// @return blockHash The SHA256 hash of the encoded block header (NOT `blockId`).
     function _hashBlockScratch(TronBlockMetadata memory tronBlock, uint256 blockNumber, bytes memory scratch)
         internal
         view
@@ -277,17 +580,19 @@ contract TronLightClient {
 
         // Call SHA256 precompile (0x02) directly on the scratch region.
         // Output is written to memory slot 0x00 to avoid moving the free memory pointer.
+        bool ok;
+
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            if iszero(staticcall(gas(), 0x02, add(scratch, 32), mload(scratch), 0x00, 32)) { revert(0, 0) }
+            ok := staticcall(gas(), 0x02, add(scratch, 32), mload(scratch), 0x00, 32)
             blockHash := mload(0x00)
         }
+
+        if (!ok) revert Sha256PrecompileFailed();
     }
 
     /* solhint-disable function-max-lines */
-    // IMO it's quite tight and optimized already
-
-    /// @notice Encode a minimal Tron `BlockHeader_raw` protobuf message into an existing bytes buffer.
+    /// @notice Encodes a minimal Tron `BlockHeader_raw` protobuf message into an existing bytes buffer.
     /// @dev Mutates `buf` length to the number of bytes written.
     /// @param buf The buffer to write the encoded header into.
     /// @param tronBlock The Tron block metadata to encode.
@@ -304,15 +609,15 @@ contract TronLightClient {
 
         // Resolve the Tron witness account address (owner) from the static SR set and convert it into
         // a Tron-style witness address (0x41 prefix + 20-byte EVM address).
-        // Note: `srs` encodes the owner accounts that appear in `BlockHeader_raw.witnessAddress`,
-        // while `witnessDelegatees` holds the actual signing keys (which may be delegated to that account).
-        bytes20 witness = srs[tronBlock.witnessAddressIndex];
+        // Note: `_srAt` resolves the owner accounts that appear in `BlockHeader_raw.witnessAddress`,
+        // while `_witnessDelegateeAt` holds the actual signing keys (which may be delegated to that account).
+        bytes20 witness = _srAt(tronBlock.witnessAddressIndex);
         // Treat the witness address as a 160-bit integer so we can explicitly
         // write its 20 bytes in big-endian order without relying on Solidity's
         // internal memory layout for bytes20.
         uint160 witness160 = uint160(witness);
 
-        // without assembly, this parsing logic would be incredibly complex and expensive
+        // Without assembly, this protobuf encoding would be much more complex and expensive.
         // solhint-disable-next-line no-inline-assembly
         assembly {
             let base := add(buf, 32)
@@ -405,81 +710,12 @@ contract TronLightClient {
 
     /* solhint-enable function-max-lines */
 
-    /// @notice Checks if a block is already stored as an anchor
-    /// @param blockNumber The block number to check
-    /// @param startingBlock The expected block ID for this block number
-    /// @return True if the block is stored and matches the expected block ID, false otherwise
-    function _isStoredAnchor(uint256 blockNumber, bytes32 startingBlock) internal view returns (bool) {
-        bytes32 startingSlot = _blockIds[blockNumber];
-        if (startingSlot != bytes32(0)) {
-            if (startingSlot != startingBlock) revert InvalidChain();
-            return true;
-        }
-        return false;
-    }
-
-    /// @notice Checks if a block intersects with an existing block in storage
-    /// @param ctx The proof context to update if intersection is found
-    /// @param blockNumber The block number to check
-    /// @param blockId The block ID to verify against
-    function _checkIntersection(ProveBlocksCtx memory ctx, uint256 blockNumber, bytes32 blockId) internal view {
-        bytes32 existing = _blockIds[blockNumber];
-        if (existing != bytes32(0)) {
-            if (existing != blockId) revert InvalidChain();
-            ctx.intersectedExisting = true;
-        }
-    }
-
-    /// @notice Main loop for proving blocks in a range
-    /// @param ctx The proof context containing state during verification
-    /// @param compressedTronBlockMetadata Compressed block metadata for all blocks
-    /// @param compressedSignatures Compressed signatures for all blocks
-    /// @param numBlocks Number of blocks to prove
-    function _proveBlocksLoop(
-        ProveBlocksCtx memory ctx,
-        bytes calldata compressedTronBlockMetadata,
-        bytes calldata compressedSignatures,
-        uint256 numBlocks
-    ) internal view {
-        // Scratch buffer reused across all blocks in the loop to avoid per-block `new bytes(128)` allocations
-        // and the associated repeated memory expansion.
-        bytes memory scratch = new bytes(128);
-
-        for (uint256 i = 0; i < numBlocks; ++i) {
-            TronBlockMetadata memory tronBlock = _decodeTronBlockAt(compressedTronBlockMetadata, i);
-
-            if (tronBlock.parentHash != ctx.blockId) {
-                revert InvalidParentBlockId(tronBlock.parentHash, ctx.blockId);
-            }
-
-            unchecked {
-                ++ctx.blockNumber;
-            }
-
-            bytes32 blockHash = _hashBlockScratch(tronBlock, ctx.blockNumber, scratch);
-            ctx.blockId = _makeBlockId(ctx.blockNumber, blockHash);
-
-            bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
-            uint8 witnessIndex = tronBlock.witnessAddressIndex;
-            if (signer != witnessDelegatees[witnessIndex]) revert InvalidWitnessSigner();
-
-            uint8 group = uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f);
-            _enforceRecentUniqueGroup(ctx, group, signer);
-            if (!ctx.intersectedExisting) {
-                _checkIntersection(ctx, ctx.blockNumber, ctx.blockId);
-            }
-
-            ctx.lastTxTrieRoot = tronBlock.txTrieRoot;
-            ctx.lastTimestamp = tronBlock.timestamp;
-        }
-    }
-
-    /// @notice Recovers the signer address from a block hash and signature
-    /// @param blockHash The hash of the block that was signed
-    /// @param sigs Array of signatures (concatenated r, s, v values)
-    /// @param i Index of the signature to recover
+    /// @notice Recovers the signer address from a block hash and signature.
+    /// @param blockHash The hash of the block that was signed.
+    /// @param sigs Array of signatures (concatenated r, s, v values).
+    /// @param i Index of the signature to recover.
     /// @param scratch Scratch memory region to use for ecrecover input (must have >= 128 bytes capacity).
-    /// @return signer The address of the signer
+    /// @return signer The recovered signer (20-byte EVM address).
     function _recoverSigner(bytes32 blockHash, bytes calldata sigs, uint256 i, bytes memory scratch)
         internal
         view
@@ -489,8 +725,8 @@ contract TronLightClient {
         bytes32 s;
         uint8 v;
 
-        // signature layout: [r(32) | s(32) | v(1)]
-        // load r, s, and the first byte at offset+64 as v
+        // Signature layout: [r(32) | s(32) | v(1)]
+        // Load r, s, and the first byte at offset+64 as v.
         // solhint-disable-next-line no-inline-assembly
         assembly {
             let off := add(sigs.offset, mul(i, 65))
@@ -498,11 +734,12 @@ contract TronLightClient {
             s := calldataload(add(off, 32))
             v := byte(0, calldataload(add(off, 64)))
         }
+
         unchecked {
             if (v < 27) v += 27;
         }
 
-        // Basic signature validity checks
+        // Basic signature validity checks.
         if (v != 27 && v != 28) revert InvalidWitnessSigner();
         if (uint256(r) == 0) revert InvalidWitnessSigner();
 
@@ -528,17 +765,6 @@ contract TronLightClient {
         if (!ok || recovered == address(0)) revert InvalidWitnessSigner();
 
         signer = bytes20(recovered);
-    }
-
-    // Conversion & helper (internal pure) functions
-
-    /// @notice Creates a block ID by combining block number and block hash
-    /// @param blockNumber The block number
-    /// @param blockHash The block hash
-    /// @return A bytes32 value containing the block number and hash
-    function _makeBlockId(uint256 blockNumber, bytes32 blockHash) internal pure returns (bytes32) {
-        uint256 tail = uint256(blockHash) & ((uint256(1) << 192) - 1);
-        return bytes32((blockNumber << 192) | tail);
     }
 
     /// @notice Enforces that a delegatee-group hasn't produced a block recently and tracks it.
@@ -570,6 +796,15 @@ contract TronLightClient {
         }
     }
 
+    /// @notice Creates a Tron `blockId` by combining block number and block hash.
+    /// @param blockNumber Tron block height.
+    /// @param blockHash Tron `blockHash` (`sha256(BlockHeader_raw)`).
+    /// @return blockId Tron `blockId` (`uint64(blockNumber) || sha256(header)[8:]`).
+    function _makeBlockId(uint256 blockNumber, bytes32 blockHash) internal pure returns (bytes32 blockId) {
+        uint256 tail = uint256(blockHash) & ((uint256(1) << 192) - 1);
+        return bytes32((blockNumber << 192) | tail);
+    }
+
     /// @notice Extracts the Tron block height encoded in a `blockId`.
     /// @param blockId Tron `blockId` (`uint64(blockNumber) || sha256(header)[8:]`).
     /// @return blockNumber Tron block height.
@@ -578,13 +813,12 @@ contract TronLightClient {
         return uint256(blockId) >> 192;
     }
 
-    /// @dev Decode the Tron block metadata at a given index from a tightly packed calldata blob.
-    /// Each block occupies TRON_BLOCK_METADATA_SIZE bytes, with layout:
+    /// @notice Decodes a single 69-byte metadata chunk from `data` at `index`.
+    /// @dev Decode layout per block:
     /// [0..31]  parentHash (bytes32)
     /// [32..63] txTrieRoot (bytes32)
     /// [64..67] timestamp (uint32, big-endian)
     /// [68]     witnessAddressIndex (uint8)
-    /// @notice Decodes a single 69-byte metadata chunk from `data` at `index`.
     /// @param data Tightly packed calldata blob of metadata.
     /// @param index 0-based index of the block within `data`.
     /// @return tronBlock Decoded metadata struct for the requested block.
@@ -623,3 +857,4 @@ contract TronLightClient {
         tronBlock.witnessAddressIndex = witnessIndex;
     }
 }
+
