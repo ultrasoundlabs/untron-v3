@@ -4242,6 +4242,7 @@ export const tronLightClientAbi = [
         type: 'bytes',
       },
       { name: 'compressedSignatures', internalType: 'bytes', type: 'bytes' },
+      { name: 'intersectionOffset', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'proveBlocks',
     outputs: [],
@@ -4269,6 +4270,22 @@ export const tronLightClientAbi = [
     type: 'error',
     inputs: [],
     name: 'InvalidCompressedTronBlockMetadataLength',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'blockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'blockId', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'InvalidIntersectionClaim',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'intersectionOffset', internalType: 'uint256', type: 'uint256' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'InvalidIntersectionOffset',
   },
   {
     type: 'error',
@@ -4458,6 +4475,7 @@ export const tronLightClientHarnessAbi = [
         type: 'bytes',
       },
       { name: 'compressedSignatures', internalType: 'bytes', type: 'bytes' },
+      { name: 'intersectionOffset', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'proveBlocks',
     outputs: [],
@@ -4485,6 +4503,22 @@ export const tronLightClientHarnessAbi = [
     type: 'error',
     inputs: [],
     name: 'InvalidCompressedTronBlockMetadataLength',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'blockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'blockId', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'InvalidIntersectionClaim',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'intersectionOffset', internalType: 'uint256', type: 'uint256' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'InvalidIntersectionOffset',
   },
   {
     type: 'error',

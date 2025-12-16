@@ -160,6 +160,8 @@ contract TronLightClient {
     error BlockNotRelayed();
     error InvalidCompressedTronBlockMetadataLength();
     error InvalidCompressedSignaturesLength();
+    error InvalidIntersectionOffset(uint256 intersectionOffset, uint256 numBlocks);
+    error InvalidIntersectionClaim(uint256 blockNumber, bytes32 blockId);
     error InvalidWitnessSigner();
     error WitnessProducedRecently(bytes20 signer);
     error UnanchoredBlockRange();
@@ -304,10 +306,16 @@ contract TronLightClient {
     /// @param startingBlock Parent/anchor Tron `blockId` for the first provided block.
     /// @param compressedTronBlockMetadata Packed metadata for each block in the sequence.
     /// @param compressedSignatures Packed witness signatures for each block in the sequence.
+    /// @param intersectionOffset 0-based index `i` (into the provided `N` blocks) at which to check for intersection with existing storage.
+    ///        Note: `i == 0` corresponds to `startingBlockNumber + 1`, so `intersectionBlockNumber = startingBlockNumber + 1 + intersectionOffset`.
+    ///        Sentinel: if `startingBlock` is already stored (anchored), callers MUST pass `type(uint256).max`.
+    ///        Otherwise, callers MUST pass an offset within the range that corresponds to an already-stored block with the exact same `blockId`,
+    ///        or the call will revert (either immediately at the claimed intersection slot, or at the end with `UnanchoredBlockRange()`).
     function proveBlocks(
         bytes32 startingBlock,
         bytes calldata compressedTronBlockMetadata,
-        bytes calldata compressedSignatures
+        bytes calldata compressedSignatures,
+        uint256 intersectionOffset
     ) external {
         uint256 tronBlocksLength = compressedTronBlockMetadata.length;
         if (tronBlocksLength == 0 || tronBlocksLength % _TRON_BLOCK_METADATA_SIZE != 0) {
@@ -325,7 +333,19 @@ contract TronLightClient {
         ctx.blockNumber = _blockIdToNumber(startingBlock);
         ctx.intersectedExisting = _isStoredAnchor(ctx.blockNumber, startingBlock);
 
-        _proveBlocksLoop(ctx, compressedTronBlockMetadata, compressedSignatures, numBlocks);
+        // Enforce a verifiable sentinel for anchored starts:
+        // - If `startingBlock` is anchored, intersection is unnecessary, and callers MUST pass `type(uint256).max`.
+        // - If `startingBlock` is unanchored, callers MUST provide an in-range offset where we will check exactly one storage slot.
+        if (ctx.intersectedExisting) {
+            if (intersectionOffset != type(uint256).max) {
+                revert InvalidIntersectionOffset(intersectionOffset, numBlocks);
+            }
+        } else {
+            // solhint-disable-next-line gas-strict-inequalities
+            if (intersectionOffset >= numBlocks) revert InvalidIntersectionOffset(intersectionOffset, numBlocks);
+        }
+
+        _proveBlocksLoop(ctx, compressedTronBlockMetadata, compressedSignatures, numBlocks, intersectionOffset);
 
         if (!ctx.intersectedExisting) revert UnanchoredBlockRange();
         _appendBlockId(ctx.blockId, ctx.lastTxTrieRoot, ctx.lastTimestamp);
@@ -507,9 +527,26 @@ contract TronLightClient {
     /// @param blockId The block ID to verify against.
     function _checkIntersection(ProveBlocksCtx memory ctx, uint256 blockNumber, bytes32 blockId) internal view {
         bytes32 existing = _blockIds[blockNumber];
-        if (existing != bytes32(0)) {
-            if (existing != blockId) revert InvalidChain();
-            ctx.intersectedExisting = true;
+
+        // Since the caller claims this is the intersection slot, fail immediately if it's not actually anchored.
+        if (existing == bytes32(0)) revert InvalidIntersectionClaim(blockNumber, blockId);
+
+        // If it's anchored, it must match exactly (otherwise the caller is trying to splice chains).
+        if (existing != blockId) revert InvalidChain();
+
+        ctx.intersectedExisting = true;
+    }
+
+    /// @notice Conditionally checks for intersection at the caller-specified offset.
+    /// @param ctx The proof context containing state during verification.
+    /// @param i The index of the block being checked.
+    /// @param intersectionOffset The offset of the intersection block.
+    function _maybeCheckIntersection(ProveBlocksCtx memory ctx, uint256 i, uint256 intersectionOffset) internal view {
+        // If the starting block wasn't anchored, the caller must point us at the ONE block in this range
+        // that should already exist in storage (same blockNumber + exact blockId). We do exactly one read.
+        // If the caller lies (empty slot or mismatched blockId), `_checkIntersection` reverts immediately.
+        if (!ctx.intersectedExisting && i == intersectionOffset) {
+            _checkIntersection(ctx, ctx.blockNumber, ctx.blockId);
         }
     }
 
@@ -518,11 +555,13 @@ contract TronLightClient {
     /// @param compressedTronBlockMetadata Compressed block metadata for all blocks.
     /// @param compressedSignatures Compressed signatures for all blocks.
     /// @param numBlocks Number of blocks to prove.
+    /// @param intersectionOffset The offset of the intersection block.
     function _proveBlocksLoop(
         ProveBlocksCtx memory ctx,
         bytes calldata compressedTronBlockMetadata,
         bytes calldata compressedSignatures,
-        uint256 numBlocks
+        uint256 numBlocks,
+        uint256 intersectionOffset
     ) internal view {
         // Scratch buffer reused across all blocks in the loop to avoid per-block `new bytes(128)` allocations
         // and the associated repeated memory expansion.
@@ -548,9 +587,8 @@ contract TronLightClient {
 
             uint8 group = uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f);
             _enforceRecentUniqueGroup(ctx, group, signer);
-            if (!ctx.intersectedExisting) {
-                _checkIntersection(ctx, ctx.blockNumber, ctx.blockId);
-            }
+
+            _maybeCheckIntersection(ctx, i, intersectionOffset);
 
             ctx.lastTxTrieRoot = tronBlock.txTrieRoot;
             ctx.lastTimestamp = tronBlock.timestamp;
@@ -735,16 +773,13 @@ contract TronLightClient {
             v := byte(0, calldataload(add(off, 64)))
         }
 
+        // Normalize v: allow 0/1 or 27/28.
         unchecked {
             if (v < 27) v += 27;
         }
 
-        // Basic signature validity checks.
+        // Keep a strict v range check to avoid wasting the precompile call on garbage values.
         if (v != 27 && v != 28) revert InvalidWitnessSigner();
-        if (uint256(r) == 0) revert InvalidWitnessSigner();
-
-        uint256 sNum = uint256(s);
-        if (sNum == 0 || sNum > _SECP256K1N_HALF) revert InvalidWitnessSigner();
 
         bool ok;
         address recovered;
@@ -857,4 +892,3 @@ contract TronLightClient {
         tronBlock.witnessAddressIndex = witnessIndex;
     }
 }
-
