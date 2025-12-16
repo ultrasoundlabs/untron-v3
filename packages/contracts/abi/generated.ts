@@ -4263,17 +4263,6 @@ export const tronLightClientAbi = [
   },
   { type: 'error', inputs: [], name: 'BlockNotRelayed' },
   { type: 'error', inputs: [], name: 'BlockTooOld' },
-  { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
-  {
-    type: 'error',
-    inputs: [{ name: 'length', internalType: 'uint256', type: 'uint256' }],
-    name: 'ECDSAInvalidSignatureLength',
-  },
-  {
-    type: 'error',
-    inputs: [{ name: 's', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'ECDSAInvalidSignatureS',
-  },
   { type: 'error', inputs: [], name: 'InvalidChain' },
   { type: 'error', inputs: [], name: 'InvalidCompressedSignaturesLength' },
   {
@@ -4479,17 +4468,6 @@ export const tronLightClientHarnessAbi = [
   },
   { type: 'error', inputs: [], name: 'BlockNotRelayed' },
   { type: 'error', inputs: [], name: 'BlockTooOld' },
-  { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
-  {
-    type: 'error',
-    inputs: [{ name: 'length', internalType: 'uint256', type: 'uint256' }],
-    name: 'ECDSAInvalidSignatureLength',
-  },
-  {
-    type: 'error',
-    inputs: [{ name: 's', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'ECDSAInvalidSignatureS',
-  },
   { type: 'error', inputs: [], name: 'InvalidChain' },
   { type: 'error', inputs: [], name: 'InvalidCompressedSignaturesLength' },
   {

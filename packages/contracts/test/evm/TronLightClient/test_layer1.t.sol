@@ -12,6 +12,7 @@ contract TronLightClientLayer1Test is Test {
     // Fixture data
     bytes32 internal _startingBlockId;
     bytes32 internal _startingBlockTxTrieRoot;
+    uint32 internal _startingBlockTimestamp;
     bytes32 internal _endingBlockId;
     bytes32 internal _endingBlockTxTrieRoot;
     bytes internal _metadata;
@@ -65,6 +66,9 @@ contract TronLightClientLayer1Test is Test {
         _startingBlockId = vm.parseJsonBytes32(json, ".startingBlockId");
         _startingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".startingBlockTxTrieRoot");
         uint256 startingTimestampSec = vm.parseJsonUint(json, ".startingBlockTimestamp");
+        // casting to 'uint32' is safe because startingTimestampSec is masked to 32 bits
+        // forge-lint: disable-next-line(unsafe-typecast)
+        _startingBlockTimestamp = uint32(startingTimestampSec & 0xFFFFFFFF);
         _endingBlockId = vm.parseJsonBytes32(json, ".endingBlockId");
         _endingBlockTxTrieRoot = vm.parseJsonBytes32(json, ".endingBlockTxTrieRoot");
 
@@ -95,9 +99,7 @@ contract TronLightClientLayer1Test is Test {
             IBlockRangeProver(address(0)),
             _startingBlockId,
             _startingBlockTxTrieRoot,
-            // casting to 'uint32' is safe because startingTimestampSec is masked to 32 bits
-            // forge-lint: disable-next-line(unsafe-typecast)
-            uint32(startingTimestampSec & 0xFFFFFFFF),
+            _startingBlockTimestamp,
             _srs,
             _witnessDelegatees,
             bytes32(0) // TODO: fix
@@ -160,6 +162,176 @@ contract TronLightClientLayer1Test is Test {
 
         vm.expectRevert(TronLightClient.InvalidWitnessSigner.selector);
         _client.proveBlocks(_startingBlockId, _metadata, badSigs);
+    }
+
+    // -------------------------------------------------------------------------
+    // Gas benchmarking
+    // -------------------------------------------------------------------------
+
+    function test_gasBenchmark_proveBlocks_fixture_fullRange() public {
+        // Exclude all setup/assert/log overhead from the reported test gas.
+        vm.pauseGasMetering();
+
+        uint256 gasUsed = _gasUsedProveBlocks(_client, _startingBlockId, _metadata, _sigs);
+        emit log_named_uint("gas/proveBlocks.fixture.fullRange", gasUsed);
+
+        assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch");
+    }
+
+    function test_gasBenchmark_proveBlocks_fixture_first10Blocks() public {
+        uint256 n = 10;
+        require(_blockNumbers.length >= n, "fixture too small");
+
+        // Exclude slicing/assert/log overhead from the reported test gas.
+        vm.pauseGasMetering();
+
+        bytes memory metaSlice = _sliceBytes(_metadata, 0, n * 69);
+        bytes memory sigsSlice = _sliceBytes(_sigs, 0, n * 65);
+
+        uint256 gasUsed = _gasUsedProveBlocks(_client, _startingBlockId, metaSlice, sigsSlice);
+        emit log_named_uint("gas/proveBlocks.fixture.first10", gasUsed);
+
+        assertEq(_client.latestProvenBlock(), _blockIds[n - 1], "latestProvenBlock mismatch");
+    }
+
+    function test_gasBenchmark_proveBlocks_backfill_secondHalf() public {
+        // Exclude the initial seeding call + slicing/assert/log overhead from the reported test gas.
+        vm.pauseGasMetering();
+
+        // Seed the ending anchor first (simulates a client that already has some history).
+        _client.proveBlocks(_startingBlockId, _metadata, _sigs);
+
+        // Now benchmark "backfilling" only the second half, starting from an unanchored block.
+        uint256 startIdx = _blockNumbers.length / 2;
+        require(startIdx > 0, "fixture must contain >1 block");
+
+        uint256 numSlice = _blockNumbers.length - startIdx;
+        bytes32 unanchoredStartingBlock = _blockIds[startIdx - 1];
+        bytes memory metaSlice = _sliceBytes(_metadata, startIdx * 69, numSlice * 69);
+        bytes memory sigsSlice = _sliceBytes(_sigs, startIdx * 65, numSlice * 65);
+
+        uint256 gasUsed = _gasUsedProveBlocks(_client, unanchoredStartingBlock, metaSlice, sigsSlice);
+        emit log_named_uint("gas/proveBlocks.backfill.secondHalf", gasUsed);
+
+        assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch after backfill");
+    }
+
+    function test_gasBenchmark_proveBlocks_synthetic_twoBlocks() public {
+        // Exclude deploy/proof-building/assert/log overhead from the reported test gas.
+        vm.pauseGasMetering();
+
+        uint256 pk0 = 0xA11CE;
+        uint256 pk1 = 0xB0B;
+
+        (TronLightClientHarness cHarness, bytes32 startingBlockId) = _deployHarnessForTwoPks(pk0, pk1);
+        (bytes memory meta, bytes memory sigs, bytes32 expectedEndingBlockId) =
+            _buildTwoBlocksDifferentCreatorsProof(cHarness, startingBlockId, pk0, pk1);
+
+        TronLightClient c = TronLightClient(address(cHarness));
+
+        uint256 gasUsed = _gasUsedProveBlocks(c, startingBlockId, meta, sigs);
+        emit log_named_uint("gas/proveBlocks.synthetic.twoBlocks", gasUsed);
+
+        assertEq(c.latestProvenBlock(), expectedEndingBlockId, "latestProvenBlock mismatch");
+    }
+
+    function _gasUsedProveBlocks(TronLightClient c, bytes32 startingBlockId, bytes memory meta, bytes memory sigs)
+        internal
+        returns (uint256 gasUsed)
+    {
+        // Only the proveBlocks call (plus this tiny wrapper) should be included in the test's reported gas.
+        vm.resumeGasMetering();
+
+        vm.record();
+        uint256 g0 = gasleft();
+        c.proveBlocks(startingBlockId, meta, sigs);
+        gasUsed = g0 - gasleft();
+        (bytes32[] memory reads, bytes32[] memory writes) = vm.accesses(address(c));
+        emit log_named_uint("gasUsed", gasUsed);
+        emit log_named_uint("storageReads", reads.length);
+        emit log_named_uint("storageWrites", writes.length);
+
+        vm.pauseGasMetering();
+    }
+
+    function _deployHarnessForTwoPks(uint256 pk0, uint256 pk1)
+        internal
+        returns (TronLightClientHarness c, bytes32 startingBlockId)
+    {
+        bytes20[27] memory srs;
+        bytes20[27] memory witnessDelegatees;
+
+        srs[0] = bytes20(address(0x1111111111111111111111111111111111111111));
+        srs[1] = bytes20(address(0x2222222222222222222222222222222222222222));
+
+        witnessDelegatees[0] = bytes20(vm.addr(pk0));
+        witnessDelegatees[1] = bytes20(vm.addr(pk1));
+
+        uint256 parentNumber = 100;
+        startingBlockId = bytes32((parentNumber << 192) | 1);
+
+        c = new TronLightClientHarness(
+            IBlockRangeProver(address(0)),
+            startingBlockId,
+            bytes32(0),
+            uint32(0),
+            srs,
+            witnessDelegatees,
+            bytes32(0) // TODO: fix
+        );
+    }
+
+    function _buildTwoBlocksDifferentCreatorsProof(
+        TronLightClientHarness c,
+        bytes32 startingBlockId,
+        uint256 pk0,
+        uint256 pk1
+    ) internal view returns (bytes memory meta, bytes memory sigs, bytes32 endingBlockId) {
+        uint256 parentNumber = 100;
+
+        TronLightClient.TronBlockMetadata memory b1 = TronLightClient.TronBlockMetadata({
+            parentHash: startingBlockId, txTrieRoot: bytes32(uint256(1)), timestamp: uint32(1), witnessAddressIndex: 0
+        });
+
+        uint256 n1 = parentNumber + 1;
+        bytes32 h1 = c.hashBlockPublic(b1, n1);
+        bytes32 id1 = _toBlockId(n1, h1);
+
+        TronLightClient.TronBlockMetadata memory b2 = TronLightClient.TronBlockMetadata({
+            parentHash: id1, txTrieRoot: bytes32(uint256(2)), timestamp: uint32(2), witnessAddressIndex: 1
+        });
+
+        uint256 n2 = parentNumber + 2;
+        bytes32 h2 = c.hashBlockPublic(b2, n2);
+        endingBlockId = _toBlockId(n2, h2);
+
+        (meta, sigs) = _twoBlockMetaAndSigsDifferent(pk0, pk1, h1, h2, b1, b2);
+    }
+
+    function _twoBlockMetaAndSigsDifferent(
+        uint256 pk1,
+        uint256 pk2,
+        bytes32 h1,
+        bytes32 h2,
+        TronLightClient.TronBlockMetadata memory b1,
+        TronLightClient.TronBlockMetadata memory b2
+    ) internal pure returns (bytes memory meta, bytes memory sigs) {
+        meta = new bytes(138);
+        sigs = new bytes(130);
+
+        bytes memory m1 = _packMeta(b1.parentHash, b1.txTrieRoot, b1.timestamp, b1.witnessAddressIndex);
+        bytes memory m2 = _packMeta(b2.parentHash, b2.txTrieRoot, b2.timestamp, b2.witnessAddressIndex);
+        bytes memory s1 = _sign(pk1, h1);
+        bytes memory s2 = _sign(pk2, h2);
+
+        for (uint256 i = 0; i < 69; ++i) {
+            meta[i] = m1[i];
+            meta[69 + i] = m2[i];
+        }
+        for (uint256 i = 0; i < 65; ++i) {
+            sigs[i] = s1[i];
+            sigs[65 + i] = s2[i];
+        }
     }
 
     function test_proveBlocks_revertsIfCreatorProducedWithinPrevious18Blocks() public {
