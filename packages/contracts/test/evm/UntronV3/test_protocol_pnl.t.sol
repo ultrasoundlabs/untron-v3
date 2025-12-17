@@ -3,72 +3,9 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {UntronV3} from "../../../src/evm/UntronV3.sol";
-import {TronTxReader} from "../../../src/evm/TronTxReader.sol";
+import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
-contract MockTronTxReader {
-    TronTxReader.TriggerSmartContract internal _nextCallData;
-
-    function setNextCallData(
-        bytes32 txId,
-        uint256 tronBlockNumber,
-        uint32 tronBlockTimestamp,
-        bytes21 senderTron,
-        bytes21 toTron,
-        bytes calldata data
-    ) external {
-        bytes memory data_ = data;
-        _nextCallData = TronTxReader.TriggerSmartContract({
-            txId: txId,
-            tronBlockNumber: tronBlockNumber,
-            tronBlockTimestamp: tronBlockTimestamp,
-            senderTron: senderTron,
-            toTron: toTron,
-            data: data_
-        });
-    }
-
-    function readTriggerSmartContract(uint256, bytes calldata, bytes32[] calldata, uint256)
-        external
-        view
-        returns (TronTxReader.TriggerSmartContract memory callData)
-    {
-        TronTxReader.TriggerSmartContract storage s = _nextCallData;
-        return TronTxReader.TriggerSmartContract({
-            txId: s.txId,
-            tronBlockNumber: s.tronBlockNumber,
-            tronBlockTimestamp: s.tronBlockTimestamp,
-            senderTron: s.senderTron,
-            toTron: s.toTron,
-            data: s.data
-        });
-    }
-}
-
-contract UntronV3Harness is UntronV3 {
-    constructor(address controllerAddress, bytes1 create2Prefix, address tronReader_)
-        UntronV3(controllerAddress, create2Prefix, tronReader_)
-    {}
-
-    function pushControllerEvent(bytes32 sig, bytes calldata data, uint64 blockNumber, uint64 blockTimestamp) external {
-        _controllerEvents.push(
-            ControllerEvent({sig: sig, data: data, blockNumber: blockNumber, blockTimestamp: blockTimestamp})
-        );
-    }
-
-    function claimQueueLength(address bridgeToken) external view returns (uint256) {
-        return claimsByTargetToken[bridgeToken].length;
-    }
-
-    // forge-lint: disable-next-line(mixed-case-variable)
-    function claimAt(address bridgeToken, uint256 idx) external view returns (uint256 amountUsdt, uint256 leaseId) {
-        Claim storage c = claimsByTargetToken[bridgeToken][idx];
-        return (c.amountUsdt, c.leaseId);
-    }
-
-    function exposedProcessReceiverPulled(bytes32 receiverSalt, uint256 usdtAmount, uint64 dumpTimestamp) external {
-        _processReceiverPulled(receiverSalt, usdtAmount, dumpTimestamp);
-    }
-}
+import {MockTronTxReader, UntronV3Harness} from "./UntronV3TestUtils.sol";
 
 contract UntronV3ProtocolPnlTest is Test {
     MockTronTxReader internal _reader;
@@ -99,7 +36,12 @@ contract UntronV3ProtocolPnlTest is Test {
             abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), predictedReceiver, uint256(100));
 
         _reader.setNextCallData(
-            keccak256("tx1"), 1, uint32(block.timestamp), _evmToTron(address(0x1111)), _evmToTron(address(0)), trc20Data
+            keccak256("tx1"),
+            1,
+            uint32(block.timestamp),
+            TronCalldataUtils.evmToTronAddress(address(0x1111)),
+            TronCalldataUtils.evmToTronAddress(address(0)),
+            trc20Data
         );
 
         (uint256 claimIndex, uint256 gotLeaseId, uint256 netOut) =
@@ -109,7 +51,7 @@ contract UntronV3ProtocolPnlTest is Test {
         assertEq(netOut, 99);
         assertEq(_untron.protocolPnl(), 1);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 1);
-        (uint256 claimAmount, uint256 claimLeaseId) = _untron.claimAt(_DUMMY_USDT, claimIndex);
+        (uint256 claimAmount, uint256 claimLeaseId,,) = _untron.claimsByTargetToken(_DUMMY_USDT, claimIndex);
         assertEq(claimAmount, 99);
         assertEq(claimLeaseId, leaseId);
     }
@@ -129,7 +71,12 @@ contract UntronV3ProtocolPnlTest is Test {
             abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), predictedReceiver, uint256(100));
 
         _reader.setNextCallData(
-            keccak256("tx2"), 2, uint32(block.timestamp), _evmToTron(address(0x2222)), _evmToTron(address(0)), trc20Data
+            keccak256("tx2"),
+            2,
+            uint32(block.timestamp),
+            TronCalldataUtils.evmToTronAddress(address(0x2222)),
+            TronCalldataUtils.evmToTronAddress(address(0)),
+            trc20Data
         );
 
         (,, uint256 netOut) = _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
@@ -161,8 +108,8 @@ contract UntronV3ProtocolPnlTest is Test {
             3,
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(pullTs),
-            _evmToTron(address(0x4444)),
-            _evmToTron(address(0)),
+            TronCalldataUtils.evmToTronAddress(address(0x4444)),
+            TronCalldataUtils.evmToTronAddress(address(0)),
             trc20Data
         );
 
@@ -174,8 +121,8 @@ contract UntronV3ProtocolPnlTest is Test {
             4,
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(pullTs + 1),
-            _evmToTron(address(0x5555)),
-            _evmToTron(address(0)),
+            TronCalldataUtils.evmToTronAddress(address(0x5555)),
+            TronCalldataUtils.evmToTronAddress(address(0)),
             trc20Data
         );
 
@@ -206,7 +153,7 @@ contract UntronV3ProtocolPnlTest is Test {
 
         assertEq(_untron.protocolPnl(), 1);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 1);
-        (uint256 claimAmount, uint256 claimLeaseId) = _untron.claimAt(_DUMMY_USDT, 0);
+        (uint256 claimAmount, uint256 claimLeaseId,,) = _untron.claimsByTargetToken(_DUMMY_USDT, 0);
         assertEq(claimAmount, 99);
         assertEq(claimLeaseId, leaseId);
     }
@@ -237,6 +184,6 @@ contract UntronV3ProtocolPnlTest is Test {
     }
 
     function _evmToTron(address a) internal pure returns (bytes21) {
-        return bytes21((uint168(0x41) << 160) | uint168(uint160(a)));
+        return TronCalldataUtils.evmToTronAddress(a);
     }
 }
