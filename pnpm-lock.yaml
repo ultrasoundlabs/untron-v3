@@ -73,9 +73,6 @@ importers:
       '@cyfrin/aderyn':
         specifier: ^0.6.5
         version: 0.6.5
-      '@untron/zktron':
-        specifier: workspace:*
-        version: link:../zktron
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
