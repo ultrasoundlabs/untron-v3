@@ -201,6 +201,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// @dev Tron controller event signature hash for `UsdtRebalanced(uint256,uint256,address)`.
     ///      Updates `protocolPnl` to account for rebalance drift.
     bytes32 internal constant _EVENT_SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
+    /// @dev Tron controller event signature hash for `ControllerUsdtTransfer(address,uint256)`.
+    ///      Used to account for controller executor USDT spends as negative protocol PnL.
+    bytes32 internal constant _EVENT_SIG_CONTROLLER_USDT_TRANSFER =
+        keccak256("ControllerUsdtTransfer(address,uint256)");
 
     /* solhint-enable gas-small-strings */
 
@@ -1056,7 +1060,14 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
                 // solhint-disable-next-line gas-strict-inequalities
                 int256 delta = outAmount >= inAmount ? _toInt(outAmount - inAmount) : -_toInt(inAmount - outAmount);
                 _applyPnlDelta(delta, PnlReason.REBALANCE);
+            } else if (sig == _EVENT_SIG_CONTROLLER_USDT_TRANSFER) {
+                // Controller indicates USDT was transferred out (executor spend); treat as negative protocol PnL.
+                (/*recipient*/, uint256 amount) = abi.decode(ev.data, (address, uint256));
+                _applyPnlDelta(-_toInt(amount), PnlReason.CONTROLLER_USDT_TRANSFER);
             }
+
+            // Emit an index event for every consumed controller event (including ignored/unknown signatures).
+            _emitControllerEventProcessed(idx, ev.blockNumber, ev.blockTimestamp, sig, ev.data);
 
             unchecked {
                 // Cursor and processed counters only increase; unchecked saves gas.

@@ -5308,17 +5308,6 @@ export const untronControllerAbi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'rebalancer', internalType: 'address', type: 'address' },
-      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
-      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'bridgeUsdt',
-    outputs: [],
-    stateMutability: 'payable',
-  },
-  {
-    type: 'function',
     inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
     name: 'deployReceiver',
     outputs: [
@@ -5429,6 +5418,17 @@ export const untronControllerAbi = [
     name: 'pulledUsdt',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'rebalancer', internalType: 'address', type: 'address' },
+      { name: 'inAmount', internalType: 'uint256', type: 'uint256' },
+      { name: 'outAmount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'rebalanceUsdt',
+    outputs: [],
+    stateMutability: 'payable',
   },
   {
     type: 'function',
@@ -6717,6 +6717,43 @@ export const untronV3Abi = [
     type: 'event',
     anonymous: false,
     inputs: [
+      {
+        name: 'eventIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockTimestamp',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'ControllerEventProcessed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
       { name: 'txId', internalType: 'bytes32', type: 'bytes32', indexed: true },
       {
         name: 'leaseId',
@@ -7304,6 +7341,43 @@ export const untronV3IndexAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
+      {
+        name: 'eventIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockTimestamp',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'ControllerEventProcessed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
       { name: 'txId', internalType: 'bytes32', type: 'bytes32', indexed: true },
       {
         name: 'leaseId',
@@ -7840,6 +7914,43 @@ export const untronV3IndexedOwnableAbi = [
       },
     ],
     name: 'ControllerEventChainTipUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'eventIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockTimestamp',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'ControllerEventProcessed',
   },
   {
     type: 'event',

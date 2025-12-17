@@ -13,7 +13,8 @@ contract UntronV3Index {
         FEE, // positive
         REBALANCE, // positive if rebalanced at <0 bps fee, negative otherwise
         WITHDRAWAL, // negative
-        RECEIVER_PULL_NO_LEASE // positive
+        RECEIVER_PULL_NO_LEASE, // positive
+        CONTROLLER_USDT_TRANSFER // negative
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -154,6 +155,21 @@ contract UntronV3Index {
     /// @param abiEncodedEventData The ABI-encoded controller event data.
     event ControllerEventChainTipUpdated(
         bytes32 previousTip,
+        uint256 indexed blockNumber,
+        uint256 blockTimestamp,
+        bytes32 indexed eventSignature,
+        bytes abiEncodedEventData
+    );
+
+    /// @notice Emitted when a queued controller-side event is processed on the EVM side.
+    /// @dev Emitted by `processControllerEvents` for each consumed queue item (including ignored/unknown signatures).
+    /// @param eventIndex The index in the controller-event processing queue that was consumed.
+    /// @param blockNumber The block number where the controller event occurred (as provided by the relayed event).
+    /// @param blockTimestamp The block timestamp where the controller event occurred (as provided by the relayed event).
+    /// @param eventSignature The controller event signature hash (topic0).
+    /// @param abiEncodedEventData The ABI-encoded controller event data.
+    event ControllerEventProcessed(
+        uint256 indexed eventIndex,
         uint256 indexed blockNumber,
         uint256 blockTimestamp,
         bytes32 indexed eventSignature,
@@ -356,6 +372,26 @@ contract UntronV3Index {
         emit ControllerEventChainTipUpdated(
             previousTip, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData
         );
+    }
+
+    /// @notice Emits {ControllerEventProcessed} and appends it to the event chain.
+    /// @param eventIndex The index in the controller-event processing queue that was consumed.
+    /// @param blockNumber The block number where the controller event occurred.
+    /// @param blockTimestamp The block timestamp where the controller event occurred.
+    /// @param eventSignature The controller event signature hash (topic0).
+    /// @param abiEncodedEventData The ABI-encoded controller event data.
+    function _emitControllerEventProcessed(
+        uint256 eventIndex,
+        uint256 blockNumber,
+        uint256 blockTimestamp,
+        bytes32 eventSignature,
+        bytes memory abiEncodedEventData
+    ) internal {
+        _appendEventChain(
+            ControllerEventProcessed.selector,
+            abi.encode(eventIndex, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData)
+        );
+        emit ControllerEventProcessed(eventIndex, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData);
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)

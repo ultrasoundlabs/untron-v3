@@ -52,7 +52,7 @@ contract UntronControllerIndex {
         uint256 usdtAmount
     );
     /// @notice Emitted when USDT is rebalanced via a particular rebalancer.
-    /// @dev    Only used in bridgeUsdt function.
+    /// @dev    Only used in rebalanceUsdt function.
     /// @param inAmount Amount of USDT bridged in.
     /// @param outAmount Amount of USDT expected out (as asserted by the rebalancer).
     /// @param rebalancer Rebalancer used.

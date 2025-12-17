@@ -37,12 +37,12 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     address public lp;
 
     /// @notice rebalancer => rebalancer-specific payload for bridging USDT
-    /// @dev    Only used in setPayload and bridgeUsdt functions.
+    /// @dev    Only used in setPayload and rebalanceUsdt functions.
     mapping(address => bytes) public payloadFor;
 
     /// @notice Tracks how much USDT was pulled (or swapped into) the controller and is available
     ///         for bridging or executor-controlled transfers.
-    /// @dev    Increases in pullFromReceivers; decreases in bridgeUsdt and transferUsdtFromController.
+    /// @dev    Increases in pullFromReceivers; decreases in rebalanceUsdt and transferUsdtFromController.
     uint256 public pulledUsdt;
 
     /// @notice Per-token exchange rate configured by the LP, scaled by RATE_SCALE.
@@ -68,7 +68,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @dev    Used by _onlyExecutor (and thus the onlyExecutor-protected external functions).
     error OnlyExecutor();
     /// @notice Error thrown when trying to bridge with an unset route/payload.
-    /// @dev    Only used in bridgeUsdt function.
+    /// @dev    Only used in rebalanceUsdt function.
     error RouteNotSet();
     /// @notice Error thrown when the amount to be swept from receiver does not match the expected value.
     /// @dev    Only used in pullFromReceivers function.
@@ -77,10 +77,10 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @dev    Only used in pullFromReceivers function.
     error LengthMismatch();
     /// @notice Error thrown when the expected out amount does not match rebalancer-computed out amount.
-    /// @dev    Only used in bridgeUsdt function.
+    /// @dev    Only used in rebalanceUsdt function.
     error OutAmountMismatch();
     /// @notice Error thrown when attempting to spend more than was pulled via receivers for a token.
-    /// @dev    Used in bridgeUsdt, transferUsdtFromController, lpWithdrawTokens, and pullFromReceivers functions.
+    /// @dev    Used in rebalanceUsdt, transferUsdtFromController, lpWithdrawTokens, and pullFromReceivers functions.
     error InsufficientPulledAmount();
 
     /// @notice Error thrown when a function restricted to the LP is called by another address.
@@ -342,7 +342,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     ///      (including TRX value attached to the call, if any).
     ///      Rebalancers are DELEGATECALLed in the controller's context
     ///      and are thus strongly encouraged to be stateless.
-    function bridgeUsdt(address rebalancer, uint256 inAmount, uint256 outAmount) external payable {
+    function rebalanceUsdt(address rebalancer, uint256 inAmount, uint256 outAmount) external payable {
         // Load payload for this rebalancer
         bytes memory payload = payloadFor[rebalancer];
         if (payload.length == 0) revert RouteNotSet();
