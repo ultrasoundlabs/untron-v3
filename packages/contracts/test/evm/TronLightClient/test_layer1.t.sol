@@ -50,6 +50,15 @@ contract TronLightClientLayer1Test is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    function _storeOnly(uint256 offset) internal pure returns (uint256 storeOffsets16) {
+        // TronLightClient interprets 0xFFFF as sentinel ("no more offsets"), so real offsets must be < 0xFFFF.
+        require(offset < type(uint16).max, "offset too large");
+
+        // Sentinel is 0xFFFF in each lane. Start with all lanes set to sentinel, then overwrite lane0.
+        storeOffsets16 = type(uint256).max;
+        storeOffsets16 = (storeOffsets16 & ~uint256(type(uint16).max)) | offset;
+    }
+
     function setUp() public {
         // Read JSON fixture
         string memory root = vm.projectRoot();
@@ -107,8 +116,11 @@ contract TronLightClientLayer1Test is Test {
     }
 
     function test_proveBlocks_happyPath_fixture() public {
-        // Call proveBlocks with the real Tron data
-        _client.proveBlocks(_startingBlockId, _metadata, _sigs, type(uint256).max);
+        // Call proveBlocks with the real Tron data.
+        // Persist only the last block in the batch (so latestProvenBlock advances and the ending anchor is stored).
+        uint256 numBlocks = _metadata.length / 69;
+        uint256 storeOffsets16 = _storeOnly(numBlocks - 1);
+        _client.proveBlocks(_startingBlockId, _metadata, _sigs, type(uint256).max, storeOffsets16);
 
         // latestProvenBlock should be the endingBlockId from the fixture
         assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch");
@@ -138,7 +150,9 @@ contract TronLightClientLayer1Test is Test {
 
     function test_proveBlocks_allowsUnanchoredStartIfIntersectsLater() public {
         // First prove the full fixture range so we store the ending block as an anchor.
-        _client.proveBlocks(_startingBlockId, _metadata, _sigs, type(uint256).max);
+        uint256 numBlocks = _metadata.length / 69;
+        uint256 storeOffsets16 = _storeOnly(numBlocks - 1);
+        _client.proveBlocks(_startingBlockId, _metadata, _sigs, type(uint256).max, storeOffsets16);
 
         // Now prove only the second half of the range, starting from a block that is not stored.
         // This succeeds because the proof intersects the already-stored ending anchor.
@@ -150,7 +164,9 @@ contract TronLightClientLayer1Test is Test {
         bytes memory metaSlice = _sliceBytes(_metadata, startIdx * 69, numSlice * 69);
         bytes memory sigsSlice = _sliceBytes(_sigs, startIdx * 65, numSlice * 65);
 
-        _client.proveBlocks(unanchoredStartingBlock, metaSlice, sigsSlice, numSlice - 1);
+        // Persist only the intersection/ending block for this slice.
+        uint256 storeOffsets16Slice = _storeOnly(numSlice - 1);
+        _client.proveBlocks(unanchoredStartingBlock, metaSlice, sigsSlice, numSlice - 1, storeOffsets16Slice);
 
         assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch after backfill");
     }
@@ -161,7 +177,7 @@ contract TronLightClientLayer1Test is Test {
         badSigs[0] = bytes1(uint8(badSigs[0]) ^ 0x01);
 
         vm.expectRevert(TronLightClient.InvalidWitnessSigner.selector);
-        _client.proveBlocks(_startingBlockId, _metadata, badSigs, type(uint256).max);
+        _client.proveBlocks(_startingBlockId, _metadata, badSigs, type(uint256).max, type(uint256).max);
     }
 
     // -------------------------------------------------------------------------
@@ -172,7 +188,10 @@ contract TronLightClientLayer1Test is Test {
         // Exclude all setup/assert/log overhead from the reported test gas.
         vm.pauseGasMetering();
 
-        uint256 gasUsed = _gasUsedProveBlocks(_client, _startingBlockId, _metadata, _sigs, type(uint256).max);
+        uint256 numBlocks = _metadata.length / 69;
+        uint256 storeOffsets16 = _storeOnly(numBlocks - 1);
+        uint256 gasUsed =
+            _gasUsedProveBlocks(_client, _startingBlockId, _metadata, _sigs, type(uint256).max, storeOffsets16);
         emit log_named_uint("gas/proveBlocks.fixture.fullRange", gasUsed);
 
         assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch");
@@ -188,7 +207,9 @@ contract TronLightClientLayer1Test is Test {
         bytes memory metaSlice = _sliceBytes(_metadata, 0, n * 69);
         bytes memory sigsSlice = _sliceBytes(_sigs, 0, n * 65);
 
-        uint256 gasUsed = _gasUsedProveBlocks(_client, _startingBlockId, metaSlice, sigsSlice, type(uint256).max);
+        uint256 storeOffsets16 = _storeOnly(n - 1);
+        uint256 gasUsed =
+            _gasUsedProveBlocks(_client, _startingBlockId, metaSlice, sigsSlice, type(uint256).max, storeOffsets16);
         emit log_named_uint("gas/proveBlocks.fixture.first10", gasUsed);
 
         assertEq(_client.latestProvenBlock(), _blockIds[n - 1], "latestProvenBlock mismatch");
@@ -199,7 +220,9 @@ contract TronLightClientLayer1Test is Test {
         vm.pauseGasMetering();
 
         // Seed the ending anchor first (simulates a client that already has some history).
-        _client.proveBlocks(_startingBlockId, _metadata, _sigs, type(uint256).max);
+        uint256 numBlocks = _metadata.length / 69;
+        uint256 storeOffsets16Seed = _storeOnly(numBlocks - 1);
+        _client.proveBlocks(_startingBlockId, _metadata, _sigs, type(uint256).max, storeOffsets16Seed);
 
         // Now benchmark "backfilling" only the second half, starting from an unanchored block.
         uint256 startIdx = _blockNumbers.length / 2;
@@ -210,7 +233,10 @@ contract TronLightClientLayer1Test is Test {
         bytes memory metaSlice = _sliceBytes(_metadata, startIdx * 69, numSlice * 69);
         bytes memory sigsSlice = _sliceBytes(_sigs, startIdx * 65, numSlice * 65);
 
-        uint256 gasUsed = _gasUsedProveBlocks(_client, unanchoredStartingBlock, metaSlice, sigsSlice, numSlice - 1);
+        uint256 storeOffsets16Slice = _storeOnly(numSlice - 1);
+        uint256 gasUsed = _gasUsedProveBlocks(
+            _client, unanchoredStartingBlock, metaSlice, sigsSlice, numSlice - 1, storeOffsets16Slice
+        );
         emit log_named_uint("gas/proveBlocks.backfill.secondHalf", gasUsed);
 
         assertEq(_client.latestProvenBlock(), _endingBlockId, "latestProvenBlock mismatch after backfill");
@@ -229,7 +255,8 @@ contract TronLightClientLayer1Test is Test {
 
         TronLightClient c = TronLightClient(address(cHarness));
 
-        uint256 gasUsed = _gasUsedProveBlocks(c, startingBlockId, meta, sigs, type(uint256).max);
+        uint256 storeOffsets16 = _storeOnly(1);
+        uint256 gasUsed = _gasUsedProveBlocks(c, startingBlockId, meta, sigs, type(uint256).max, storeOffsets16);
         emit log_named_uint("gas/proveBlocks.synthetic.twoBlocks", gasUsed);
 
         assertEq(c.latestProvenBlock(), expectedEndingBlockId, "latestProvenBlock mismatch");
@@ -240,14 +267,15 @@ contract TronLightClientLayer1Test is Test {
         bytes32 startingBlockId,
         bytes memory meta,
         bytes memory sigs,
-        uint256 intersectionOffset
+        uint256 intersectionOffset,
+        uint256 storeOffsets16
     ) internal returns (uint256 gasUsed) {
         // Only the proveBlocks call (plus this tiny wrapper) should be included in the test's reported gas.
         vm.resumeGasMetering();
 
         vm.record();
         uint256 g0 = gasleft();
-        c.proveBlocks(startingBlockId, meta, sigs, intersectionOffset);
+        c.proveBlocks(startingBlockId, meta, sigs, intersectionOffset, storeOffsets16);
         gasUsed = g0 - gasleft();
         (bytes32[] memory reads, bytes32[] memory writes) = vm.accesses(address(c));
         emit log_named_uint("gasUsed", gasUsed);
@@ -331,10 +359,10 @@ contract TronLightClientLayer1Test is Test {
     }
 
     function test_proveBlocks_revertsIfCreatorProducedWithinPrevious18Blocks() public {
-        _case_creatorProducedRecently();
+        _caseCreatorProducedRecently();
     }
 
-    function _case_creatorProducedRecently() internal {
+    function _caseCreatorProducedRecently() internal {
         uint256 pk0 = 0xA11CE;
 
         (TronLightClientHarness c, bytes32 startingBlockId) = _deployHarnessForPk(pk0);
@@ -417,6 +445,6 @@ contract TronLightClientLayer1Test is Test {
         bytes memory err = abi.encodeWithSelector(TronLightClient.WitnessProducedRecently.selector, signer);
 
         vm.expectRevert(err);
-        c.proveBlocks(startingBlockId, meta, sigs, type(uint256).max);
+        c.proveBlocks(startingBlockId, meta, sigs, type(uint256).max, type(uint256).max);
     }
 }

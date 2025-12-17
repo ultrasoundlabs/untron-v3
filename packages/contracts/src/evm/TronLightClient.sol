@@ -155,6 +155,9 @@ contract TronLightClient {
     error InvalidSrIndex(uint256 index);
     error InvalidWitnessDelegateeIndex(uint256 index);
     error Sha256PrecompileFailed();
+    error TooManyBlocks(uint256 numBlocks);
+    error InvalidStoreOffset(uint256 offset, uint256 numBlocks);
+    error StoreOffsetsNotStrictlyIncreasing(uint256 prev, uint256 next);
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -290,6 +293,10 @@ contract TronLightClient {
     ///
     /// `compressedSignatures` is `N * 65` bytes, where each signature is `[r(32) | s(32) | v(1)]`.
     /// Tron typically uses `v` as 0/1 (sometimes 27/28); this method normalizes to 27/28 before recovery.
+    ///
+    /// `storeOffsets16` is a packed list of up to 16 block offsets to persist as checkpoints, encoded as 16 lanes of `uint16`.
+    /// Each lane contains a 0-based offset `i` into the `N` blocks, or the sentinel `0xFFFF` to indicate no further offsets.
+    /// Offsets (before the sentinel) must be strictly increasing, and each must satisfy `offset < N`.
     /// @param startingBlock Parent/anchor Tron `blockId` for the first provided block.
     /// @param compressedTronBlockMetadata Packed metadata for each block in the sequence.
     /// @param compressedSignatures Packed witness signatures for each block in the sequence.
@@ -298,11 +305,13 @@ contract TronLightClient {
     ///        Sentinel: if `startingBlock` is already stored (anchored), callers MUST pass `type(uint256).max`.
     ///        Otherwise, callers MUST pass an offset within the range that corresponds to an already-stored block with the exact same `blockId`,
     ///        or the call will revert.
+    /// @param storeOffsets16 Packed `uint16` offsets (16 lanes) indicating which proven blocks to persist as checkpoints (sentinel `0xFFFF`).
     function proveBlocks(
         bytes32 startingBlock,
         bytes calldata compressedTronBlockMetadata,
         bytes calldata compressedSignatures,
-        uint256 intersectionOffset
+        uint256 intersectionOffset,
+        uint256 storeOffsets16
     ) external {
         uint256 tronBlocksLength = compressedTronBlockMetadata.length;
         if (tronBlocksLength == 0 || tronBlocksLength % _TRON_BLOCK_METADATA_SIZE != 0) {
@@ -310,6 +319,7 @@ contract TronLightClient {
         }
 
         uint256 numBlocks = tronBlocksLength / _TRON_BLOCK_METADATA_SIZE;
+        if (numBlocks > type(uint16).max) revert TooManyBlocks(numBlocks);
 
         if (compressedSignatures.length != numBlocks * _SIGNATURE_SIZE) {
             revert InvalidCompressedSignaturesLength();
@@ -332,10 +342,12 @@ contract TronLightClient {
             if (intersectionOffset >= numBlocks) revert InvalidIntersectionOffset(intersectionOffset, numBlocks);
         }
 
-        _proveBlocksLoop(ctx, compressedTronBlockMetadata, compressedSignatures, numBlocks, intersectionOffset);
+        _validateStoreOffsets16(storeOffsets16, numBlocks);
+        _proveBlocksLoop(
+            ctx, compressedTronBlockMetadata, compressedSignatures, numBlocks, intersectionOffset, storeOffsets16
+        );
 
         if (!ctx.intersectedExisting) revert UnanchoredBlockRange();
-        _appendBlockId(ctx.blockId, ctx.lastTxTrieRoot, ctx.lastTimestamp);
     }
 
     /// @notice Verifies a block range proof and appends the ending block as the new checkpoint.
@@ -409,6 +421,57 @@ contract TronLightClient {
     // ------------------------------------------------------------------------
     // Internal functions
     // ------------------------------------------------------------------------
+
+    /// @notice Main loop for proving blocks in a range.
+    /// @param ctx The proof context containing state during verification.
+    /// @param compressedTronBlockMetadata Compressed block metadata for all blocks.
+    /// @param compressedSignatures Compressed signatures for all blocks.
+    /// @param numBlocks Number of blocks to prove.
+    /// @param intersectionOffset The offset of the intersection block.
+    /// @param storeOffsets16 The offsets of the blocks to store.
+    function _proveBlocksLoop(
+        ProveBlocksCtx memory ctx,
+        bytes calldata compressedTronBlockMetadata,
+        bytes calldata compressedSignatures,
+        uint256 numBlocks,
+        uint256 intersectionOffset,
+        uint256 storeOffsets16
+    ) internal {
+        // Scratch buffer reused across all blocks in the loop to avoid per-block `new bytes(128)` allocations
+        // and the associated repeated memory expansion.
+        bytes memory scratch = new bytes(128);
+
+        // Consume the packed offsets by shifting 16 bits at a time (cheaper + reduces live locals).
+        // Sentinel `0xFFFF` means "store nothing further".
+        uint256 remainingStoreOffsets = storeOffsets16;
+        uint256 nextStoreOffset = remainingStoreOffsets & type(uint16).max;
+        remainingStoreOffsets >>= 16;
+
+        for (uint256 i = 0; i < numBlocks; ++i) {
+            {
+                (bytes32 blockHash, uint8 witnessIndex) = _advanceAndHash(ctx, compressedTronBlockMetadata, i, scratch);
+
+                bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
+                if (signer != _witnessDelegateeAt(witnessIndex)) revert InvalidWitnessSigner();
+
+                _enforceRecentUniqueGroup(
+                    ctx, uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f), signer
+                );
+            }
+
+            // IMPORTANT: If the range is unanchored, the caller's intersection claim must be verified against
+            // pre-existing storage. We MUST do this check before any optional store at this offset, otherwise
+            // a caller could self-create the intersection in the same transaction.
+            _maybeCheckIntersection(ctx, i, intersectionOffset);
+
+            if (i == nextStoreOffset) {
+                _appendBlockId(ctx.blockId, ctx.lastTxTrieRoot, ctx.lastTimestamp);
+
+                nextStoreOffset = remainingStoreOffsets & type(uint16).max;
+                remainingStoreOffsets >>= 16;
+            }
+        }
+    }
 
     /// @notice Stores a checkpoint for `blockId` and updates `latestProvenBlock` if it is newer.
     /// @dev Callers must ensure the provided checkpoint is consistent with the intended chain.
@@ -526,36 +589,6 @@ contract TronLightClient {
         if (existing != ctx.blockId) revert InvalidChain();
 
         ctx.intersectedExisting = true;
-    }
-
-    /// @notice Main loop for proving blocks in a range.
-    /// @param ctx The proof context containing state during verification.
-    /// @param compressedTronBlockMetadata Compressed block metadata for all blocks.
-    /// @param compressedSignatures Compressed signatures for all blocks.
-    /// @param numBlocks Number of blocks to prove.
-    /// @param intersectionOffset The offset of the intersection block.
-    function _proveBlocksLoop(
-        ProveBlocksCtx memory ctx,
-        bytes calldata compressedTronBlockMetadata,
-        bytes calldata compressedSignatures,
-        uint256 numBlocks,
-        uint256 intersectionOffset
-    ) internal view {
-        // Scratch buffer reused across all blocks in the loop to avoid per-block `new bytes(128)` allocations
-        // and the associated repeated memory expansion.
-        bytes memory scratch = new bytes(128);
-
-        for (uint256 i = 0; i < numBlocks; ++i) {
-            (bytes32 blockHash, uint8 witnessIndex) = _advanceAndHash(ctx, compressedTronBlockMetadata, i, scratch);
-
-            bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
-            if (signer != _witnessDelegateeAt(witnessIndex)) revert InvalidWitnessSigner();
-
-            uint8 group = uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f);
-            _enforceRecentUniqueGroup(ctx, group, signer);
-
-            _maybeCheckIntersection(ctx, i, intersectionOffset);
-        }
     }
 
     /// @notice Decodes, validates, advances `ctx.blockNumber`, hashes the block, and updates `ctx`.
@@ -796,6 +829,43 @@ contract TronLightClient {
         if (!ok || recovered == address(0)) revert InvalidWitnessSigner();
 
         signer = bytes20(recovered);
+    }
+
+    /// @notice Returns the `uint16` lane at `index` from the packed `storeOffsets16` word.
+    /// @dev `index` must be in [0..15].
+    /// @param storeOffsets16 The offsets of the blocks to store.
+    /// @param index The index of the offset to retrieve.
+    /// @return offset The offset of the block at the given index.
+    function _storeOffset16At(uint256 storeOffsets16, uint256 index) internal pure returns (uint256 offset) {
+        offset = (storeOffsets16 >> (index * 16)) & type(uint16).max;
+    }
+
+    /// @notice Validates the packed `storeOffsets16` encoding against `numBlocks`.
+    /// @dev Offsets must be strictly increasing until the sentinel `0xFFFF`. After the sentinel, all lanes must be `0xFFFF`.
+    /// @param storeOffsets16 The offsets of the blocks to store.
+    /// @param numBlocks Number of blocks to prove.
+    function _validateStoreOffsets16(uint256 storeOffsets16, uint256 numBlocks) internal pure {
+        uint256 prev = 0;
+        bool hasPrev = false;
+        bool ended = false;
+
+        for (uint256 i = 0; i < 16; ++i) {
+            uint256 off = _storeOffset16At(storeOffsets16, i);
+
+            if (off == type(uint16).max) {
+                ended = true;
+                continue;
+            }
+
+            if (ended) revert InvalidStoreOffset(off, numBlocks);
+            // solhint-disable-next-line gas-strict-inequalities
+            if (off >= numBlocks) revert InvalidStoreOffset(off, numBlocks);
+
+            // solhint-disable-next-line gas-strict-inequalities
+            if (hasPrev && off <= prev) revert StoreOffsetsNotStrictlyIncreasing(prev, off);
+            hasPrev = true;
+            prev = off;
+        }
     }
 
     /// @notice Enforces that a delegatee-group hasn't produced a block recently and tracks it.

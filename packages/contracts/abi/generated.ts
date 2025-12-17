@@ -4250,6 +4250,7 @@ export const tronLightClientAbi = [
       },
       { name: 'compressedSignatures', internalType: 'bytes', type: 'bytes' },
       { name: 'intersectionOffset', internalType: 'uint256', type: 'uint256' },
+      { name: 'storeOffsets16', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'proveBlocks',
     outputs: [],
@@ -4309,11 +4310,32 @@ export const tronLightClientAbi = [
   },
   {
     type: 'error',
+    inputs: [
+      { name: 'offset', internalType: 'uint256', type: 'uint256' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'InvalidStoreOffset',
+  },
+  {
+    type: 'error',
     inputs: [{ name: 'index', internalType: 'uint256', type: 'uint256' }],
     name: 'InvalidWitnessDelegateeIndex',
   },
   { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
   { type: 'error', inputs: [], name: 'Sha256PrecompileFailed' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'prev', internalType: 'uint256', type: 'uint256' },
+      { name: 'next', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'StoreOffsetsNotStrictlyIncreasing',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'numBlocks', internalType: 'uint256', type: 'uint256' }],
+    name: 'TooManyBlocks',
+  },
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
   {
     type: 'error',
@@ -4461,6 +4483,7 @@ export const tronLightClientHarnessAbi = [
       },
       { name: 'compressedSignatures', internalType: 'bytes', type: 'bytes' },
       { name: 'intersectionOffset', internalType: 'uint256', type: 'uint256' },
+      { name: 'storeOffsets16', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'proveBlocks',
     outputs: [],
@@ -4520,11 +4543,32 @@ export const tronLightClientHarnessAbi = [
   },
   {
     type: 'error',
+    inputs: [
+      { name: 'offset', internalType: 'uint256', type: 'uint256' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'InvalidStoreOffset',
+  },
+  {
+    type: 'error',
     inputs: [{ name: 'index', internalType: 'uint256', type: 'uint256' }],
     name: 'InvalidWitnessDelegateeIndex',
   },
   { type: 'error', inputs: [], name: 'InvalidWitnessSigner' },
   { type: 'error', inputs: [], name: 'Sha256PrecompileFailed' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'prev', internalType: 'uint256', type: 'uint256' },
+      { name: 'next', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'StoreOffsetsNotStrictlyIncreasing',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'numBlocks', internalType: 'uint256', type: 'uint256' }],
+    name: 'TooManyBlocks',
+  },
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
   {
     type: 'error',
