@@ -31,7 +31,11 @@ contract LegacyMeshRebalancer is IRebalancer {
     /// @param inAmount Amount to bridge.
     /// @param payload ABI-encoded (address oft, uint32 dstEid, bytes32 to).
     /// @return outAmount Expected amount of tokens to be rebalanced (after Legacy Mesh fee).
-    function rebalance(address token, uint256 inAmount, bytes calldata payload) external returns (uint256 outAmount) {
+    function rebalance(address token, uint256 inAmount, bytes calldata payload)
+        external
+        payable
+        returns (uint256 outAmount)
+    {
         (ILegacyMeshOFT oft, uint32 dstEid, bytes32 to) = abi.decode(payload, (ILegacyMeshOFT, uint32, bytes32));
 
         // Fetch the Legacy Mesh's fee in basis points
@@ -56,15 +60,12 @@ contract LegacyMeshRebalancer is IRebalancer {
             amountLD: inAmount,
             // Minimum amount to receive
             minAmountLD: minAmountLD,
-            // Extra options. When empty, Legacy Mesh uses defaults
-            extraOptions: "",
             // LZ-specific stuff we don't use in our implementation
+            extraOptions: "",
             composeMsg: "",
             oftCmd: ""
         });
         // Approve the token to be spent by the Legacy Mesh
-        // TODO: it's incredibly expensive to max approve for every bridge,
-        // need to figure out how to max approve in a secure way
         TokenUtils.approve(token, address(oft), inAmount);
 
         // Quote the fee for the bridge

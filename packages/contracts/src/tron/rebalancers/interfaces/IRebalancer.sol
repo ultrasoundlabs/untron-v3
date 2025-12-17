@@ -10,9 +10,14 @@ interface IRebalancer {
     /// @dev MUST revert on failure. The payload format is rebalancer-specific.
     ///      Implementations MUST return the amount that will be (or is expected to be)
     ///      received on the destination chain, so that the caller can enforce invariants.
+    ///      Implementations are expected to run via `DELEGATECALL` in the controller context,
+    ///      and may need `msg.value` (native token) to pay bridging fees.
     /// @param token Token address to bridge.
     /// @param inAmount Amount to bridge.
     /// @param payload Rebalancer-specific encoded parameters.
     /// @return outAmount Expected amount of tokens to be rebalanced.
-    function rebalance(address token, uint256 inAmount, bytes calldata payload) external returns (uint256 outAmount);
+    function rebalance(address token, uint256 inAmount, bytes calldata payload)
+        external
+        payable
+        returns (uint256 outAmount);
 }
