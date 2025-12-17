@@ -3088,6 +3088,23 @@ export const iMessagingContextAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// IMintableERC20
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const iMintableErc20Abi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'to', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'mint',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // IOAppCore
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3507,6 +3524,44 @@ export const legacyMeshRebalancerAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MockBridger
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mockBridgerAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
+    ],
+    name: 'bridge',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'idx', internalType: 'uint256', type: 'uint256' }],
+    name: 'callAt',
+    outputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'callCount',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MockRebalancer
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3525,6 +3580,30 @@ export const mockRebalancerAbi = [
   },
   { type: 'error', inputs: [], name: 'EthReceiveFailed' },
   { type: 'error', inputs: [], name: 'RebalanceReverted' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MockSwapRouter
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mockSwapRouterAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'mintToCaller',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'noop',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3563,6 +3642,57 @@ export const mockTronLightClientAbi = [
       { name: 'root', internalType: 'bytes32', type: 'bytes32' },
     ],
     name: 'setTxTrieRoot',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MockTronTxReader
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mockTronTxReaderAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'bytes', type: 'bytes' },
+      { name: '', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'readTriggerSmartContract',
+    outputs: [
+      {
+        name: 'callData',
+        internalType: 'struct TronTxReader.TriggerSmartContract',
+        type: 'tuple',
+        components: [
+          { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'senderTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'tronBlockTimestamp', internalType: 'uint32', type: 'uint32' },
+      { name: 'senderTron', internalType: 'bytes21', type: 'bytes21' },
+      { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+      { name: 'data', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'setNextCallData',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -3959,6 +4089,71 @@ export const pausableAbi = [
 
 export const reentrancyGuardAbi = [
   { type: 'error', inputs: [], name: 'Reentrancy' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReentrantBridger
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const reentrantBridgerAbi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: 'untron', internalType: 'contract UntronV3', type: 'address' },
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'expectedClaimIdx', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'EXPECTED_CLAIM_IDX',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'TARGET_TOKEN',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'UNTRON',
+    outputs: [{ name: '', internalType: 'contract UntronV3', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'address', type: 'address' },
+    ],
+    name: 'bridge',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'didCheckDeletion',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'didReenter',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  { type: 'error', inputs: [], name: 'ClaimNotDeleted' },
+  { type: 'error', inputs: [], name: 'ReenterSucceeded' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -6953,6 +7148,1319 @@ export const untronV3Abi = [
     name: 'protocolPnl',
     outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'realtorLeaseRateLimit',
+    outputs: [
+      {
+        name: 'mode',
+        internalType: 'enum UntronV3.LeaseRateLimitMode',
+        type: 'uint8',
+      },
+      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'realtorMinFeePpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'receiverBytecode',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'events',
+        internalType: 'struct UntronV3.ControllerEvent[]',
+        type: 'tuple[]',
+        components: [
+          { name: 'sig', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+          { name: 'blockNumber', internalType: 'uint64', type: 'uint64' },
+          { name: 'blockTimestamp', internalType: 'uint64', type: 'uint64' },
+        ],
+      },
+    ],
+    name: 'relayControllerEventChain',
+    outputs: [{ name: 'tipNew', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'renounceOwnership',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'token', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'rescueTokens',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'bridger', internalType: 'address', type: 'address' },
+    ],
+    name: 'setBridger',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'deprecated', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setChainDeprecated',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'maxUpdates', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setLesseePayoutConfigRateLimit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
+    ],
+    name: 'setPayoutConfig',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'config',
+        internalType: 'struct UntronV3.PayoutConfig',
+        type: 'tuple',
+        components: [
+          { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+          { name: 'targetToken', internalType: 'address', type: 'address' },
+          { name: 'beneficiary', internalType: 'address', type: 'address' },
+        ],
+      },
+      { name: 'deadline', internalType: 'uint256', type: 'uint256' },
+      { name: 'signature', internalType: 'bytes', type: 'bytes' },
+    ],
+    name: 'setPayoutConfigWithSig',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'floorPpm', internalType: 'uint256', type: 'uint256' }],
+    name: 'setProtocolFloorPpm',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setProtocolLeaseRateLimit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'allowed', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setRealtor',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      {
+        name: 'mode',
+        internalType: 'enum UntronV3.LeaseRateLimitMode',
+        type: 'uint8',
+      },
+      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setRealtorLeaseRateLimit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'minFeePpm', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setRealtorMinFeePpm',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'ratePpm', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'setSwapRate',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'reader', internalType: 'address', type: 'address' }],
+    name: 'setTronReader',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'usdt_', internalType: 'address', type: 'address' }],
+    name: 'setUsdt',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'swapRatePpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'newOwner', internalType: 'address', type: 'address' }],
+    name: 'transferOwnership',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'tronReader',
+    outputs: [
+      { name: '', internalType: 'contract TronTxReader', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'tronUsdt',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'unpause',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'usdt',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'usdtBalance',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'amount', internalType: 'uint256', type: 'uint256' }],
+    name: 'withdraw',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'amount', internalType: 'int256', type: 'int256' }],
+    name: 'withdrawProtocolProfit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'bridger',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'BridgerSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'deprecated',
+        internalType: 'bool',
+        type: 'bool',
+        indexed: false,
+      },
+    ],
+    name: 'ChainDeprecatedSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'claimIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'amountUsdt',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ClaimCreated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'claimIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'amountUsdt',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ClaimFilled',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'previousTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'blockNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockTimestamp',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'ControllerEventChainTipUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'eventIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'blockTimestamp',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'ControllerEventProcessed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'txId', internalType: 'bytes32', type: 'bytes32', indexed: true },
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'rawAmount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'netOut',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'DepositPreEntitled',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'receiverSalt',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'lessee',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'startTime',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'nukeableAfter',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+      {
+        name: 'leaseFeePpm',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+      {
+        name: 'flatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'LeaseCreated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'nonce',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LeaseNonceUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxUpdates',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'windowSeconds',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LesseePayoutConfigRateLimitSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LpDeposited',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'LpWithdrawn',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'oldOwner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'newOwner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'OwnershipTransferred',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'account',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'Paused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'leaseId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'PayoutConfigUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'floorPpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxLeases',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'windowSeconds',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolLeaseRateLimitSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'pnl', internalType: 'int256', type: 'int256', indexed: false },
+      { name: 'delta', internalType: 'int256', type: 'int256', indexed: false },
+      {
+        name: 'reason',
+        internalType: 'enum UntronV3Index.PnlReason',
+        type: 'uint8',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolPnlUpdated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      { name: 'mode', internalType: 'uint8', type: 'uint8', indexed: false },
+      {
+        name: 'maxLeases',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'windowSeconds',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorLeaseRateLimitSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'minFeePpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMinFeeSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'RealtorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'ratePpm',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'SwapRateSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'token',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'TokensRescued',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'reader',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'TronReaderSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'tronUsdt',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'TronUsdtSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'account',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+    ],
+    name: 'Unpaused',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'usdt', internalType: 'address', type: 'address', indexed: true },
+    ],
+    name: 'UsdtSet',
+  },
+  { type: 'error', inputs: [], name: 'AlreadyInitialized' },
+  { type: 'error', inputs: [], name: 'AmountTooLargeForInt' },
+  { type: 'error', inputs: [], name: 'CannotRescueUSDT' },
+  { type: 'error', inputs: [], name: 'ChainDeprecated' },
+  { type: 'error', inputs: [], name: 'DepositAlreadyProcessed' },
+  { type: 'error', inputs: [], name: 'DepositNotAfterLastReceiverPull' },
+  { type: 'error', inputs: [], name: 'EnforcedPause' },
+  { type: 'error', inputs: [], name: 'EventRelayNoProgress' },
+  { type: 'error', inputs: [], name: 'EventTipMismatch' },
+  { type: 'error', inputs: [], name: 'ExpectedPause' },
+  { type: 'error', inputs: [], name: 'InsufficientProtocolProfit' },
+  { type: 'error', inputs: [], name: 'InsufficientUsdtBalance' },
+  { type: 'error', inputs: [], name: 'InvalidLeaseId' },
+  { type: 'error', inputs: [], name: 'InvalidLeaseTimeframe' },
+  { type: 'error', inputs: [], name: 'InvalidReceiverForSalt' },
+  { type: 'error', inputs: [], name: 'InvalidSignature' },
+  { type: 'error', inputs: [], name: 'InvalidTargetToken' },
+  { type: 'error', inputs: [], name: 'LeaseFeeTooLow' },
+  { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
+  { type: 'error', inputs: [], name: 'LeaseRateLimitConfigInvalid' },
+  { type: 'error', inputs: [], name: 'LeaseRateLimitExceeded' },
+  { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
+  { type: 'error', inputs: [], name: 'NoActiveLease' },
+  { type: 'error', inputs: [], name: 'NoBridger' },
+  { type: 'error', inputs: [], name: 'NoEventChainTipInMulticall' },
+  { type: 'error', inputs: [], name: 'NotATrc20Transfer' },
+  { type: 'error', inputs: [], name: 'NotEventChainTip' },
+  { type: 'error', inputs: [], name: 'NotLessee' },
+  { type: 'error', inputs: [], name: 'NotRealtor' },
+  { type: 'error', inputs: [], name: 'NotTronUsdt' },
+  { type: 'error', inputs: [], name: 'PayoutConfigRateLimitConfigInvalid' },
+  { type: 'error', inputs: [], name: 'PayoutConfigRateLimitExceeded' },
+  { type: 'error', inputs: [], name: 'RateNotSet' },
+  { type: 'error', inputs: [], name: 'Reentrancy' },
+  { type: 'error', inputs: [], name: 'SignatureExpired' },
+  { type: 'error', inputs: [], name: 'TronInvalidCalldataLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidCalldataLength' },
+  { type: 'error', inputs: [], name: 'TronInvalidTrc20DataLength' },
+  { type: 'error', inputs: [], name: 'Unauthorized' },
+  { type: 'error', inputs: [], name: 'WithdrawExceedsPrincipal' },
+  { type: 'error', inputs: [], name: 'ZeroAmount' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UntronV3Harness
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const untronV3HarnessAbi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: 'controllerAddress', internalType: 'address', type: 'address' },
+      { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'tronReader_', internalType: 'address', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'CONTROLLER_ADDRESS',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'RECEIVER_IMPL',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'SWAP_EXECUTOR',
+    outputs: [
+      { name: '', internalType: 'contract SwapExecutor', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'bridgers',
+    outputs: [{ name: '', internalType: 'contract IBridger', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'targetToken', internalType: 'address', type: 'address' }],
+    name: 'claimQueueLength',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'claimsByTargetToken',
+    outputs: [
+      { name: 'amountUsdt', internalType: 'uint256', type: 'uint256' },
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'idx', internalType: 'uint256', type: 'uint256' }],
+    name: 'controllerEventAt',
+    outputs: [
+      { name: 'sig', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'data', internalType: 'bytes', type: 'bytes' },
+      { name: 'blockNumber', internalType: 'uint64', type: 'uint64' },
+      { name: 'blockTimestamp', internalType: 'uint64', type: 'uint64' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'controllerEventsLength',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'lessee', internalType: 'address', type: 'address' },
+      { name: 'nukeableAfter', internalType: 'uint64', type: 'uint64' },
+      { name: 'leaseFeePpm', internalType: 'uint32', type: 'uint32' },
+      { name: 'flatFee', internalType: 'uint64', type: 'uint64' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
+    ],
+    name: 'createLease',
+    outputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'deployReceiver',
+    outputs: [
+      { name: 'receiver', internalType: 'address payable', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'amount', internalType: 'uint256', type: 'uint256' }],
+    name: 'deposit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'depositProcessed',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'effectiveLeaseRateLimit',
+    outputs: [
+      { name: 'enabled', internalType: 'bool', type: 'bool' },
+      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'eip712Domain',
+    outputs: [
+      { name: 'fields', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'name', internalType: 'string', type: 'string' },
+      { name: 'version', internalType: 'string', type: 'string' },
+      { name: 'chainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'verifyingContract', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'extensions', internalType: 'uint256[]', type: 'uint256[]' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'amountUsdt', internalType: 'uint256', type: 'uint256' },
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+      { name: 'beneficiary', internalType: 'address', type: 'address' },
+    ],
+    name: 'enqueueClaim',
+    outputs: [{ name: 'claimIndex', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'eventChainTip',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'a', internalType: 'address', type: 'address' }],
+    name: 'evmToTron',
+    outputs: [{ name: 'tron', internalType: 'bytes21', type: 'bytes21' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'data', internalType: 'bytes', type: 'bytes' }],
+    name: 'exposedDecodeEventChainTip',
+    outputs: [{ name: 'tip', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'usdtAmount', internalType: 'uint256', type: 'uint256' },
+      { name: 'dumpTimestamp', internalType: 'uint64', type: 'uint64' },
+    ],
+    name: 'exposedProcessReceiverPulled',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'maxClaims', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'calls',
+        internalType: 'struct Call[]',
+        type: 'tuple[]',
+        components: [
+          { name: 'to', internalType: 'address', type: 'address' },
+          { name: 'value', internalType: 'uint256', type: 'uint256' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+    ],
+    name: 'fill',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'isChainDeprecated',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'isRealtor',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'lastControllerEventTip',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'lastReceiverPullTimestamp',
+    outputs: [{ name: '', internalType: 'uint64', type: 'uint64' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'leaseIdsByReceiver',
+    outputs: [{ name: 'ids', internalType: 'uint256[]', type: 'uint256[]' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'leaseNonces',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'leases',
+    outputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'lessee', internalType: 'address', type: 'address' },
+      { name: 'startTime', internalType: 'uint64', type: 'uint64' },
+      { name: 'nukeableAfter', internalType: 'uint64', type: 'uint64' },
+      { name: 'leaseFeePpm', internalType: 'uint32', type: 'uint32' },
+      { name: 'flatFee', internalType: 'uint64', type: 'uint64' },
+      { name: 'recognizedRaw', internalType: 'uint256', type: 'uint256' },
+      { name: 'backedRaw', internalType: 'uint256', type: 'uint256' },
+      { name: 'unbackedRaw', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'payout',
+        internalType: 'struct UntronV3.PayoutConfig',
+        type: 'tuple',
+        components: [
+          { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+          { name: 'targetToken', internalType: 'address', type: 'address' },
+          { name: 'beneficiary', internalType: 'address', type: 'address' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'lesseePayoutConfigRateLimit',
+    outputs: [
+      { name: 'maxUpdates', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'lpPrincipal',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'nextControllerEventIndex',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'nextIndexByTargetToken',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'nextLeaseId',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'owner',
+    outputs: [{ name: 'result', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pause',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'paused',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'preEntitle',
+    outputs: [
+      { name: 'claimIndex', internalType: 'uint256', type: 'uint256' },
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      { name: 'netOut', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'maxEvents', internalType: 'uint256', type: 'uint256' }],
+    name: 'processControllerEvents',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'protocolFloorPpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'protocolLeaseRateLimit',
+    outputs: [
+      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
+      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'protocolPnl',
+    outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'sig', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'data', internalType: 'bytes', type: 'bytes' },
+      { name: 'blockNumber', internalType: 'uint64', type: 'uint64' },
+      { name: 'blockTimestamp', internalType: 'uint64', type: 'uint64' },
+    ],
+    name: 'pushControllerEvent',
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',

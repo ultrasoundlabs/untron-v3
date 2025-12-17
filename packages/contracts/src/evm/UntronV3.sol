@@ -1840,11 +1840,10 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     function _decodeEventChainTip(bytes memory data) internal pure returns (bytes32 tipNew) {
         // Extract the 4-byte selector from the Tron call data.
         if (data.length < 4) revert TronInvalidCalldataLength();
-        bytes4 sel;
-        // solhint-disable-next-line no-inline-assembly
-        assembly ("memory-safe") {
-            sel := shr(224, mload(add(data, 0x20)))
-        }
+        // Casting to `bytes4` takes the first 4 bytes (the function selector).
+        // This matches Solidity's `bytes4` left-aligned representation, avoiding selector alignment bugs.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        bytes4 sel = bytes4(data);
 
         if (sel == _SELECTOR_IS_EVENT_CHAIN_TIP) {
             return TronCalldataUtils.decodeIsEventChainTip(data);
