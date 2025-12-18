@@ -52,7 +52,7 @@ function parseCli(argv: string[]) {
   const fullHost =
     getFlag(argv, "--full-host") ?? getFlag(argv, "--node") ?? "https://api.trongrid.io";
   const apiKey = getFlag(argv, "--api-key");
-  const feeLimit = parseIntFlag("--fee-limit", getFlag(argv, "--fee-limit")) ?? 1_000_000_000; // SUN
+  const feeLimit = parseIntFlag("--fee-limit", getFlag(argv, "--fee-limit")) ?? 10_000_000; // SUN
   const callValue = parseIntFlag("--call-value", getFlag(argv, "--call-value")) ?? 0; // SUN
 
   if (!contractName) usageAndExit("Missing ContractName positional argument.");
@@ -89,14 +89,14 @@ function ensureHexLike(label: string, x: string) {
   if (s.length === 0 || s.length % 2 !== 0) throw new Error(`${label} must be even-length hex.`);
   if (!/^[0-9a-fA-F]+$/.test(s)) throw new Error(`${label} is not valid hex.`);
 }
-
 function ensureArtifact(x: unknown): Artifact {
   if (!x || typeof x !== "object") throw new Error("Artifact JSON is not an object.");
   const a = x as any;
   if (!Array.isArray(a.abi)) throw new Error('Artifact missing "abi" array.');
-  if (typeof a.bytecode !== "string") throw new Error('Artifact missing "bytecode" string.');
-  ensureHexLike("bytecode", a.bytecode);
-  return { abi: a.abi as any[], bytecode: a.bytecode as string };
+  if (typeof a.bytecode !== "object" || typeof a.bytecode.object !== "string")
+    throw new Error('Artifact missing "bytecode.object" string.');
+  ensureHexLike("bytecode.object", a.bytecode.object);
+  return { abi: a.abi as any[], bytecode: a.bytecode.object as string };
 }
 
 function findConstructorAbi(abi: any[]): { inputs: readonly AbiInput[]; ctorAbi?: any } {
@@ -114,6 +114,12 @@ function parseBool(s: string): boolean {
   if (v === "true" || v === "1" || v === "yes" || v === "y") return true;
   if (v === "false" || v === "0" || v === "no" || v === "n") return false;
   throw new Error(`Invalid bool: "${s}" (use true/false)`);
+}
+
+function parseProceedConfirmation(s: string): boolean {
+  const v = s.trim().toLowerCase();
+  if (v === "y" || v === "yes" || v === "deploy" || v === "funded") return true;
+  return false;
 }
 
 function parseValueBySolType(solType: string, raw: string): any {
@@ -311,24 +317,57 @@ const program = Effect.gen(function* () {
   console.log(`Deployer: ${ownerAddress}`);
   console.log("Estimating deployment energy...");
 
+  // Prefer triggerconstantcontract for deploy estimation:
+  // POST wallet/triggerconstantcontract with data=<bytecode + ctor-args> (no 0x).
+  const data = strip0x(creationInput);
   const estimate = yield* Effect.tryPromise({
     try: () =>
-      tronWeb.transactionBuilder.deployConstantContract({
-        ownerAddress,
-        input: creationInput,
-        callValue,
-      }),
+      (tronWeb as any).fullNode.request(
+        "wallet/triggerconstantcontract",
+        {
+          owner_address: ownerAddress, // base58 when visible=true
+          data,
+          call_value: callValue,
+          visible: true,
+        },
+        "post"
+      ),
     catch: (e) => new Error(`Energy estimation failed: ${String(e)}`),
   });
 
-  const energyRequired = (estimate as any)?.energy_required;
-  if (typeof energyRequired !== "number") {
-    throw new Error(`Energy estimation returned unexpected payload: ${JSON.stringify(estimate)}`);
+  const energyUsed = (estimate as any)?.energy_used;
+  const energyPenalty = (estimate as any)?.energy_penalty;
+  if (typeof energyUsed !== "number") {
+    throw new Error(
+      `Energy estimation returned unexpected payload (missing energy_used): ${JSON.stringify(
+        estimate
+      )}`
+    );
   }
 
-  console.log(`Estimated energy required: ${energyRequired}`);
+  const energyRequired =
+    typeof energyPenalty === "number" ? energyUsed + energyPenalty : energyUsed;
+
+  console.log(`Estimated energy_used: ${energyUsed}`);
+  if (typeof energyPenalty === "number") console.log(`Estimated energy_penalty: ${energyPenalty}`);
+  console.log(`Estimated total energy: ${energyRequired}`);
   console.log(`feeLimit (SUN): ${feeLimit}  (~${feeLimit / 1_000_000} TRX max burn)`);
   console.log(`callValue (SUN): ${callValue}  (~${callValue / 1_000_000} TRX sent to constructor)`);
+
+  const proceed = yield* Effect.scoped(
+    Effect.gen(function* () {
+      const rl = yield* makeReadline;
+      const ans = yield* question(
+        rl,
+        `\nReady to deploy from ${ownerAddress}? Ensure this wallet has enough resources, then type "yes" to continue: `
+      );
+      return parseProceedConfirmation(ans);
+    })
+  );
+  if (!proceed) {
+    console.log("Aborted before deployment.");
+    return;
+  }
 
   // --- Call #2: Deploy ---
   console.log("\nDeploying contract...");
