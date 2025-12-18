@@ -52,7 +52,7 @@ contract USDT0Bridger is IBridger, Ownable {
         // TODO: make this deployer-specified
 
         eidByChainId[1] = 30101; // Ethereum
-        // eidByChainId[42161] = 30110; // Arbitrum One
+        eidByChainId[42161] = 30110; // Arbitrum One
         eidByChainId[137] = 30109; // Polygon PoS
         eidByChainId[10] = 30111; // Optimism
         eidByChainId[80094] = 30362; // Berachain

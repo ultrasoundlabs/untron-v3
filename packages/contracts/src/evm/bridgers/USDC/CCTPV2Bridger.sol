@@ -119,7 +119,7 @@ contract CCTPV2Bridger is IBridger, Ownable {
         if (chainId == 1) return 0; // Ethereum -> domain 0
         if (chainId == 43114) return 1; // Avalanche -> domain 1
         if (chainId == 10) return 2; // OP Mainnet -> domain 2
-        // if (chainId == 42161) return 3;     // Arbitrum One -> domain 3
+        if (chainId == 42161) return 3; // Arbitrum One -> domain 3
         if (chainId == 8453) return 6; // Base -> domain 6
         if (chainId == 137) return 7; // Polygon PoS -> domain 7
         if (chainId == 130) return 10; // Unichain -> domain 10
