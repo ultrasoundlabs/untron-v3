@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 
@@ -80,4 +80,3 @@ contract UntronControllerAccessControlTest is Test {
         _controller.transferUsdtFromController(address(0xCAFE), 1);
     }
 }
-

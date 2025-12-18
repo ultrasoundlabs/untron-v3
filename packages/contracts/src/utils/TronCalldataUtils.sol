@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 /// @title TronCalldataUtils
 /// @notice Gas-optimized pure helpers for parsing a small set of recognized Tron/EVM ABI calldata patterns.

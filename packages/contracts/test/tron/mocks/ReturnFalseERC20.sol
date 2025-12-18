@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {MockERC20} from "./MockERC20.sol";
 
@@ -16,4 +16,3 @@ contract ReturnFalseERC20 is MockERC20 {
         return false;
     }
 }
-

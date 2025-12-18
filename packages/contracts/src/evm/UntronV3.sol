@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {UntronV3IndexedOwnable} from "./UntronV3IndexedOwnable.sol";
 import {TronTxReader} from "./TronTxReader.sol";

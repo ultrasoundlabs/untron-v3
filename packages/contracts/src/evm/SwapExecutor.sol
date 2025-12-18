@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 /// @title EventChainGenesis
 /// @notice Genesis values for event chain-based indexes in Untron V3 protocol

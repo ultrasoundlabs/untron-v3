@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {Call} from "../../../src/evm/SwapExecutor.sol";
 import {UntronV3Index} from "../../../src/evm/UntronV3Index.sol";
@@ -92,4 +92,3 @@ contract UntronV3EventChainTipTest is UntronV3TestBase {
         assertEq(_untron.owner(), newOwner);
     }
 }
-

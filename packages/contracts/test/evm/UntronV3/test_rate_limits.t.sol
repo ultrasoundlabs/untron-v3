@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {UntronV3} from "../../../src/evm/UntronV3.sol";
 
@@ -140,4 +140,3 @@ contract UntronV3RateLimitTest is UntronV3TestBase {
         }
     }
 }
-

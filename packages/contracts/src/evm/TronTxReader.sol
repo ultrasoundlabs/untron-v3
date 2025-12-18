@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {TronLightClient} from "./TronLightClient.sol";
 import {TronSha256MerkleVerifier} from "../utils/TronSha256MerkleVerifier.sol";

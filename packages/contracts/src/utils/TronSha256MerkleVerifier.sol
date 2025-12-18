@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 /// @title TronSha256MerkleVerifier
 /// @notice Library for verifying Merkle proofs for SHA256 Merkle trees used in Tron blockchain.

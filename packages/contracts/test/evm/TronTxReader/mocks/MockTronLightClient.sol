@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 /// @title MockTronLightClient
 /// @notice Minimal light client mock for tests that need to set/get
@@ -28,4 +28,3 @@ contract MockTronLightClient {
         return ts;
     }
 }
-
