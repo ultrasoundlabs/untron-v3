@@ -52,7 +52,7 @@ function parseCli(argv: string[]) {
   const fullHost =
     getFlag(argv, "--full-host") ?? getFlag(argv, "--node") ?? "https://api.trongrid.io";
   const apiKey = getFlag(argv, "--api-key");
-  const feeLimit = parseIntFlag("--fee-limit", getFlag(argv, "--fee-limit")) ?? 10_000_000; // SUN
+  const feeLimit = parseIntFlag("--fee-limit", getFlag(argv, "--fee-limit")) ?? 100_000_000; // SUN
   const callValue = parseIntFlag("--call-value", getFlag(argv, "--call-value")) ?? 0; // SUN
 
   if (!contractName) usageAndExit("Missing ContractName positional argument.");

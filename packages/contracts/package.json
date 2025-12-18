@@ -30,7 +30,9 @@
     "typecheck": "tsc -p tsconfig.build.json",
     "verify": "pnpm run fmt:sol && pnpm run test:ci && pnpm run build:prod && pnpm run codegen && pnpm run typecheck",
     "export": "pnpm run clean && pnpm run build && pnpm run codegen && pnpm run typecheck",
-    "tron:deploy": "tsx ./tron/deploy.ts"
+    "tron:deploy": "tsx ./tron/deploy.ts",
+    "tron:execute": "tsx ./tron/execute.ts",
+    "tron:gentlcdata": "tsx ./tron/gentlcdata.ts"
   },
   "exports": {
     ".": {
@@ -41,12 +43,15 @@
   },
   "devDependencies": {
     "@cyfrin/aderyn": "^0.6.5",
+    "@untron/tron-protocol": "workspace:*",
     "dotenv": "^17.2.3",
     "effect": "^3.19.12",
+    "long": "^5.3.2",
     "rimraf": "^5",
     "solhint": "^6.0.1",
     "tronweb": "^6.1.1",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "zod": "^4.1.12"
   }
 }
