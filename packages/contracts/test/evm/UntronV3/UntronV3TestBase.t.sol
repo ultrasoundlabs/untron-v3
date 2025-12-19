@@ -18,7 +18,8 @@ abstract contract UntronV3TestBase is Test {
 
     function setUp() public virtual {
         _reader = new MockTronTxReader();
-        _untron = new UntronV3Harness(_CONTROLLER, 0xff, address(_reader));
+        _untron = new UntronV3Harness(_CONTROLLER, 0xff);
+        _untron.setTronReader(address(_reader));
 
         _usdt = new MockERC20("USDT", "USDT", 6);
         _tokenX = new MockERC20("TokenX", "TKX", 18);

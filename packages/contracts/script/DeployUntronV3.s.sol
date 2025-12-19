@@ -14,7 +14,8 @@ contract DeployUntronV3Script is Script {
         address tronReader = vm.envAddress("TRON_READER");
 
         vm.startBroadcast(deployerPk);
-        bridger = new UntronV3(controllerAddress, bytes1(0x41), tronReader);
+        bridger = new UntronV3(controllerAddress, bytes1(0x41));
+        bridger.setTronReader(tronReader);
         vm.stopBroadcast();
 
         console2.log("UntronV3 deployed at:", address(bridger));

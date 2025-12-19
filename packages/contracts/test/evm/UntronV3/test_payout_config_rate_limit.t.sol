@@ -5,9 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {UntronV3} from "../../../src/evm/UntronV3.sol";
 
 contract UntronV3PayoutConfigHarness is UntronV3 {
-    constructor(address controllerAddress, bytes1 create2Prefix, address tronReader_)
-        UntronV3(controllerAddress, create2Prefix, tronReader_)
-    {}
+    constructor(address controllerAddress, bytes1 create2Prefix) UntronV3(controllerAddress, create2Prefix) {}
 }
 
 contract UntronV3PayoutConfigRateLimitTest is Test {
@@ -17,7 +15,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
     address internal constant _CONTROLLER = address(0xCAFE);
 
     function setUp() public {
-        _untron = new UntronV3PayoutConfigHarness(_CONTROLLER, 0xff, address(0));
+        _untron = new UntronV3PayoutConfigHarness(_CONTROLLER, 0xff);
         _untron.setUsdt(_DUMMY_USDT);
         _untron.setRealtor(address(this), true);
     }

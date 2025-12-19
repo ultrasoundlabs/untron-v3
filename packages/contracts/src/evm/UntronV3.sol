@@ -429,17 +429,13 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// - Initializes ownership (events emitted via `UntronV3Index`).
     /// @param controllerAddress Address of the UntronController on Tron (source chain), in EVM 20‑byte form.
     /// @param create2Prefix Chain-specific byte prefix used for CREATE2 address computation (0x41 for Tron).
-    /// @param tronReader_ Address of the initial external Tron tx reader contract (can be updated by owner).
-    constructor(address controllerAddress, bytes1 create2Prefix, address tronReader_) Create2Utils(create2Prefix) {
+    constructor(address controllerAddress, bytes1 create2Prefix) Create2Utils(create2Prefix) {
         // Deploy an isolated executor for swaps. Only this UntronV3 instance can call `execute(...)`.
         // NOTE: This is intentionally deployed via `new` (not CREATE2), so its address is derived from nonce.
         SWAP_EXECUTOR = new SwapExecutor(); // its address is gonna be keccak256(rlp([address(this), 1]))
 
         // Set the Tron controller address used for deterministic receiver derivation and event-chain relay checks.
         CONTROLLER_ADDRESS = controllerAddress;
-
-        // Set initial Tron reader (bound to a Tron light client) used to verify and decode Tron transactions.
-        tronReader = TronTxReader(tronReader_);
 
         // Initialize owner and emit OwnershipTransferred via UntronV3Index.
         _initializeOwner(msg.sender);
