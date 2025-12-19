@@ -2,6 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {IBlockRangeProver} from "./blockRangeProvers/interfaces/IBlockRangeProver.sol";
+import {TronLightClientIndex} from "./TronLightClientIndex.sol";
 
 /// @title TronLightClient
 /// @notice Stores and verifies a sparse set of Tron block checkpoints on an EVM chain.
@@ -16,7 +17,7 @@ import {IBlockRangeProver} from "./blockRangeProvers/interfaces/IBlockRangeProve
 /// - `srs`: SR owner accounts that appear in Tron `BlockHeader_raw.witnessAddress` (0x41 prefix + 20 bytes).
 /// - `witnessDelegatees`: the actual secp256k1 signing keys for each SR index (may be delegated from the owner).
 /// @author Ultrasound Labs
-contract TronLightClient {
+contract TronLightClient is TronLightClientIndex {
     // ------------------------------------------------------------------------
     // Types
     // ------------------------------------------------------------------------
@@ -182,7 +183,6 @@ contract TronLightClient {
         bytes32 srDataHash
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
-        _appendBlockId(initialBlockHash, initialTxTrieRoot, initialTimestamp);
 
         // Build a packed mapping witnessIndex -> delegateeGroup.
         // If multiple witness indices share the same delegatee key, they share a group id.
@@ -275,6 +275,19 @@ contract TronLightClient {
         _WITNESS_DELEGATEE_26 = _witnessDelegatees[26];
 
         SR_DATA_HASH = srDataHash;
+
+        _emitTronLightClientConfigured(
+            address(blockRangeProver),
+            srDataHash,
+            initialBlockHash,
+            packed,
+            initialTxTrieRoot,
+            initialTimestamp,
+            _srs,
+            _witnessDelegatees
+        );
+
+        _appendBlockId(initialBlockHash, initialTxTrieRoot, initialTimestamp);
     }
 
     /* solhint-enable function-max-lines */
@@ -483,8 +496,13 @@ contract TronLightClient {
         _blockIds[blockNumber] = blockId;
         _txTrieRoots[blockNumber] = txTrieRoot;
         _blockTimestamps[blockNumber] = timestamp;
-        if (_blockIdToNumber(latestProvenBlock) < blockNumber) {
+
+        _emitTronBlockStored(blockNumber, blockId, txTrieRoot, timestamp);
+
+        bytes32 previousLatest = latestProvenBlock;
+        if (_blockIdToNumber(previousLatest) < blockNumber) {
             latestProvenBlock = blockId;
+            _emitLatestProvenBlockUpdated(previousLatest, blockId, blockNumber);
         }
     }
 

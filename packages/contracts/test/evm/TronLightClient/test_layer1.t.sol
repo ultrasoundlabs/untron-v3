@@ -4,7 +4,9 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 import {TronLightClientHarness} from "./harness/TronLightClientHarness.sol";
 import {TronLightClient} from "../../../src/evm/TronLightClient.sol";
+import {TronLightClientIndex} from "../../../src/evm/TronLightClientIndex.sol";
 import {IBlockRangeProver} from "../../../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
+import {EventChainGenesis} from "../../../src/utils/EventChainGenesis.sol";
 
 contract TronLightClientLayer1Test is Test {
     TronLightClient internal _client;
@@ -57,6 +59,43 @@ contract TronLightClientLayer1Test is Test {
         // Sentinel is 0xFFFF in each lane. Start with all lanes set to sentinel, then overwrite lane0.
         storeOffsets16 = type(uint256).max;
         storeOffsets16 = (storeOffsets16 & ~uint256(type(uint16).max)) | offset;
+    }
+
+    function _blockIdToNumber(bytes32 blockId) internal pure returns (uint256) {
+        return uint256(blockId) >> 192;
+    }
+
+    function _computeDelegateeGroupsPacked(bytes20[27] memory witnessDelegatees)
+        internal
+        pure
+        returns (uint256 packed)
+    {
+        uint8[27] memory groups;
+        uint8 nextGroup = 0;
+
+        for (uint256 i = 0; i < 27; ++i) {
+            uint8 g = type(uint8).max;
+
+            for (uint256 j = 0; j < i; ++j) {
+                if (witnessDelegatees[i] == witnessDelegatees[j]) {
+                    g = groups[j];
+                    break;
+                }
+            }
+
+            if (g == type(uint8).max) {
+                g = nextGroup;
+                unchecked {
+                    ++nextGroup;
+                }
+            }
+
+            groups[i] = g;
+        }
+
+        for (uint256 i = 0; i < 27; ++i) {
+            packed |= uint256(groups[i]) << (i * 5);
+        }
     }
 
     function setUp() public {
@@ -113,6 +152,60 @@ contract TronLightClientLayer1Test is Test {
             _witnessDelegatees,
             bytes32(0) // TODO: fix
         );
+    }
+
+    function test_eventChainTip_constructor_matchesExpected() public view {
+        uint256 deployBlockNumber = block.number;
+        uint256 deployBlockTimestamp = block.timestamp;
+
+        bytes20[27] memory srs = _srs;
+        bytes20[27] memory witnessDelegatees = _witnessDelegatees;
+        uint256 delegateeGroupsPacked = _computeDelegateeGroupsPacked(witnessDelegatees);
+
+        bytes32 tip1 = sha256(
+            abi.encodePacked(
+                EventChainGenesis.TronLightClientIndex,
+                deployBlockNumber,
+                deployBlockTimestamp,
+                TronLightClientIndex.TronLightClientConfigured.selector,
+                abi.encode(
+                    address(0),
+                    bytes32(0),
+                    _startingBlockId,
+                    delegateeGroupsPacked,
+                    _startingBlockTxTrieRoot,
+                    _startingBlockTimestamp,
+                    srs,
+                    witnessDelegatees
+                )
+            )
+        );
+
+        uint256 startingBlockNumber = _blockIdToNumber(_startingBlockId);
+        bytes32 tip2 = sha256(
+            abi.encodePacked(
+                tip1,
+                deployBlockNumber,
+                deployBlockTimestamp,
+                TronLightClientIndex.TronBlockStored.selector,
+                abi.encode(startingBlockNumber, _startingBlockId, _startingBlockTxTrieRoot, _startingBlockTimestamp)
+            )
+        );
+
+        bytes32 expectedTip = tip2;
+        if (startingBlockNumber > 0) {
+            expectedTip = sha256(
+                abi.encodePacked(
+                    tip2,
+                    deployBlockNumber,
+                    deployBlockTimestamp,
+                    TronLightClientIndex.LatestProvenBlockUpdated.selector,
+                    abi.encode(bytes32(0), _startingBlockId, startingBlockNumber)
+                )
+            );
+        }
+
+        assertEq(_client.eventChainTip(), expectedTip, "constructor eventChainTip mismatch");
     }
 
     function test_proveBlocks_happyPath_fixture() public {

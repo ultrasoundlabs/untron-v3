@@ -6,7 +6,7 @@ pragma solidity ^0.8.27;
 /// @dev Kept in a standalone library to avoid copying the constants across contracts.
 /// @author Ultrasound Labs
 library EventChainGenesis {
-    // if i get it right this thing above should get optimized away by the compiler
+    // if i get it right this thing below should get optimized away by the compiler
     // but solhint still complains
 
     // solhint-disable-next-line gas-small-strings
@@ -24,6 +24,9 @@ library EventChainGenesis {
         sha256(abi.encodePacked("UntronControllerIndex\n", THE_DECLARATION));
     // forge-lint: disable-next-line(screaming-snake-case-const)
     bytes32 internal constant UntronV3Index = sha256(abi.encodePacked("UntronV3Index\n", THE_DECLARATION));
+    // forge-lint: disable-next-line(screaming-snake-case-const)
+    bytes32 internal constant TronLightClientIndex =
+        sha256(abi.encodePacked("TronLightClientIndex\n", THE_DECLARATION));
 
     /* solhint-enable const-name-snakecase */
 }
