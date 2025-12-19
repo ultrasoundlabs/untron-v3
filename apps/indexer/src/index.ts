@@ -1,7 +1,7 @@
 import { ponder } from "ponder:registry";
 
 import { untronV3Event, untronV3State } from "ponder:schema";
-import { UntronV3Abi } from "../abis/UntronV3Abi";
+import { UntronV3Abi } from "../abis/evm/UntronV3Abi";
 import {
   encodeAbiParameters,
   encodePacked,

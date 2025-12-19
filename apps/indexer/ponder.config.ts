@@ -1,12 +1,20 @@
 import { createConfig } from "ponder";
 
-import { UntronV3Abi } from "./abis/UntronV3Abi";
+import { UntronV3Abi } from "./abis/evm/UntronV3Abi";
+import { TronLightClientAbi } from "./abis/evm/TronLightClientAbi";
+import { TronTxReaderAbi } from "./abis/evm/TronTxReaderAbi";
+
+import { UntronControllerAbi } from "./abis/tron/UntronControllerAbi";
 
 export default createConfig({
   chains: {
     mainnet: {
       id: parseInt(process.env.UNTRON_V3_CHAIN_ID!),
       rpc: process.env.UNTRON_V3_CHAIN_RPC_URL!,
+    },
+    tron: {
+      id: 728126428, // tron doesn't use chain ID but eth_chainId returns 728126428
+      rpc: process.env.TRON_JSON_RPC_URL!,
     },
   },
   contracts: {
@@ -15,6 +23,24 @@ export default createConfig({
       abi: UntronV3Abi,
       address: process.env.UNTRON_V3_ADDRESS! as `0x${string}`,
       startBlock: parseInt(process.env.UNTRON_V3_DEPLOYMENT_BLOCK!),
+    },
+    TronLightClient: {
+      chain: "mainnet",
+      abi: TronLightClientAbi,
+      address: process.env.TRON_LIGHT_CLIENT_ADDRESS! as `0x${string}`,
+      startBlock: parseInt(process.env.TRON_LIGHT_CLIENT_DEPLOYMENT_BLOCK!),
+    },
+    TronTxReader: {
+      chain: "mainnet",
+      abi: TronTxReaderAbi,
+      address: process.env.TRON_TX_READER_ADDRESS! as `0x${string}`,
+      startBlock: parseInt(process.env.TRON_TX_READER_DEPLOYMENT_BLOCK!),
+    },
+    UntronController: {
+      chain: "tron",
+      abi: UntronControllerAbi,
+      address: process.env.UNTRON_CONTROLLER_ADDRESS! as `0x${string}`,
+      startBlock: parseInt(process.env.UNTRON_CONTROLLER_DEPLOYMENT_BLOCK!),
     },
   },
 });

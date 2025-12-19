@@ -1,0 +1,62 @@
+export const TronTxReaderAbi = [
+  {
+    type: "constructor",
+    inputs: [{ name: "tronLightClient_", type: "address", internalType: "address" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "TRON_LIGHT_CLIENT",
+    inputs: [],
+    outputs: [{ name: "", type: "address", internalType: "contract TronLightClient" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "readTriggerSmartContract",
+    inputs: [
+      { name: "tronBlockNumber", type: "uint256", internalType: "uint256" },
+      { name: "encodedTx", type: "bytes", internalType: "bytes" },
+      { name: "proof", type: "bytes32[]", internalType: "bytes32[]" },
+      { name: "index", type: "uint256", internalType: "uint256" },
+    ],
+    outputs: [
+      {
+        name: "callData",
+        type: "tuple",
+        internalType: "struct TronTxReader.TriggerSmartContract",
+        components: [
+          { name: "txId", type: "bytes32", internalType: "bytes32" },
+          { name: "tronBlockNumber", type: "uint256", internalType: "uint256" },
+          { name: "tronBlockTimestamp", type: "uint32", internalType: "uint32" },
+          { name: "senderTron", type: "bytes21", internalType: "bytes21" },
+          { name: "toTron", type: "bytes21", internalType: "bytes21" },
+          { name: "data", type: "bytes", internalType: "bytes" },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "verifyTxInclusion",
+    inputs: [
+      { name: "tronBlockNumber", type: "uint256", internalType: "uint256" },
+      { name: "encodedTx", type: "bytes", internalType: "bytes" },
+      { name: "proof", type: "bytes32[]", internalType: "bytes32[]" },
+      { name: "index", type: "uint256", internalType: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "view",
+  },
+  { type: "error", name: "InvalidTxMerkleProof", inputs: [] },
+  { type: "error", name: "NoTronLightClient", inputs: [] },
+  { type: "error", name: "NotTriggerSmartContract", inputs: [] },
+  { type: "error", name: "ProtoInvalidWireType", inputs: [] },
+  { type: "error", name: "ProtoTruncated", inputs: [] },
+  { type: "error", name: "TronInvalidContractLength", inputs: [] },
+  { type: "error", name: "TronInvalidContractPrefix", inputs: [] },
+  { type: "error", name: "TronInvalidOwnerLength", inputs: [] },
+  { type: "error", name: "TronInvalidOwnerPrefix", inputs: [] },
+  { type: "error", name: "TronTxNotSuccessful", inputs: [] },
+] as const;
