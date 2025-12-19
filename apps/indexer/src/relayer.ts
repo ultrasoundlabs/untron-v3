@@ -1,10 +1,53 @@
 import type { Context as PonderContext, EventNames, IndexingFunctionArgs } from "ponder:registry";
 
-import { eventChainState, relayJob, relayerStatus, trc20Transfer } from "ponder:schema";
+import {
+  eventChainState,
+  relayJob,
+  relayJobKindEnum,
+  relayJobStatusEnum,
+  relayerStatus,
+  trc20Transfer,
+} from "ponder:schema";
 
 type BlockEventName = Extract<EventNames, `${string}:block`>;
 type ContractName = keyof PonderContext["contracts"];
 type PonderRegistry = (typeof import("ponder:registry"))["ponder"];
+type RelayJobKind = (typeof relayJobKindEnum.enumValues)[number];
+type RelayJobStatus = (typeof relayJobStatusEnum.enumValues)[number];
+
+async function enqueueRelayJob({
+  context,
+  id,
+  chainId,
+  createdAtBlockNumber,
+  createdAtBlockTimestamp,
+  kind,
+  status = "pending",
+  payloadJson,
+}: {
+  context: PonderContext;
+  id: string;
+  chainId: number;
+  createdAtBlockNumber: bigint;
+  createdAtBlockTimestamp: bigint;
+  kind: RelayJobKind;
+  status?: RelayJobStatus;
+  payloadJson: Record<string, unknown>;
+}) {
+  await context.db
+    .insert(relayJob)
+    .values({
+      id,
+      chainId,
+      createdAtBlockNumber,
+      createdAtBlockTimestamp,
+      kind,
+      status,
+      attempts: 0,
+      payloadJson,
+    })
+    .onConflictDoNothing();
+}
 
 async function getHeadBlockNumber(context: PonderContext): Promise<bigint | null> {
   const hex = (await context.client.request({
@@ -98,6 +141,7 @@ export function registerRelayer({
 }) {
   const onBlock = <TEventName extends BlockEventName>(
     blockEventName: TEventName,
+    heartbeatKind: RelayJobKind,
     requiredContracts: readonly ContractName[]
   ) => {
     ponder.on(blockEventName, async ({ event, context }: IndexingFunctionArgs<TEventName>) => {
@@ -128,25 +172,20 @@ export function registerRelayer({
       });
       if (!isSynced) return;
 
-      const id = `${context.chain.id}:tick:${blockNumber.toString()}`;
-      await context.db
-        .insert(relayJob)
-        .values({
-          id,
-          chainId: context.chain.id,
-          createdAtBlockNumber: blockNumber,
-          createdAtBlockTimestamp: blockTimestamp,
-          kind: "tick",
-          status: "pending",
-          attempts: 0,
-          payloadJson: { chainName: context.chain.name, blockNumber: blockNumber.toString() },
-        })
-        .onConflictDoNothing();
+      await enqueueRelayJob({
+        context,
+        id: `${context.chain.id}:${heartbeatKind}:${blockNumber.toString()}`,
+        chainId: context.chain.id,
+        createdAtBlockNumber: blockNumber,
+        createdAtBlockTimestamp: blockTimestamp,
+        kind: heartbeatKind,
+        payloadJson: { chainName: context.chain.name, blockNumber: blockNumber.toString() },
+      });
     });
   };
 
-  onBlock("mainnet:block", ["UntronV3", "TronLightClient", "TronTxReader"]);
-  onBlock("tron:block", ["UntronController"]);
+  onBlock("mainnet:block", "mainnet_heartbeat", ["UntronV3", "TronLightClient", "TronTxReader"]);
+  onBlock("tron:block", "tron_heartbeat", ["UntronController"]);
 
   ponder.on(
     "TRC20:Transfer",
@@ -193,28 +232,23 @@ export function registerRelayer({
       });
       if (!isSynced) return;
 
-      const id = `${chainId}:trc20_transfer:${transactionHash.toLowerCase()}:${logIndex}`;
-      await context.db
-        .insert(relayJob)
-        .values({
-          id,
-          chainId,
-          createdAtBlockNumber: blockNumber,
-          createdAtBlockTimestamp: blockTimestamp,
-          kind: "trc20_transfer",
-          status: "pending",
-          attempts: 0,
-          payloadJson: {
-            tokenAddress,
-            from,
-            to,
-            value: value.toString(),
-            transactionHash,
-            logIndex,
-            blockNumber: blockNumber.toString(),
-          },
-        })
-        .onConflictDoNothing();
+      await enqueueRelayJob({
+        context,
+        id: `${chainId}:trc20_transfer:${transactionHash.toLowerCase()}:${logIndex}`,
+        chainId,
+        createdAtBlockNumber: blockNumber,
+        createdAtBlockTimestamp: blockTimestamp,
+        kind: "trc20_transfer",
+        payloadJson: {
+          tokenAddress,
+          from,
+          to,
+          value: value.toString(),
+          transactionHash,
+          logIndex,
+          blockNumber: blockNumber.toString(),
+        },
+      });
     }
   );
 }

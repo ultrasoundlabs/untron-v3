@@ -1,4 +1,4 @@
-import { eq, index, onchainTable, onchainView } from "ponder";
+import { eq, index, onchainEnum, onchainTable, onchainView } from "ponder";
 
 export const eventChainState = onchainTable("event_chain_state", (t) => ({
   id: t.text().primaryKey(), // `${chainId}:${contractName}:${contractAddress}`
@@ -74,6 +74,18 @@ export const relayerStatus = onchainTable("relayer_status", (t) => ({
   headBlockTimestamp: t.bigint().notNull(),
 }));
 
+export const relayJobKindEnum = onchainEnum("relay_job_kind", [
+  "mainnet_heartbeat",
+  "tron_heartbeat",
+  "trc20_transfer",
+] as const);
+
+export const relayJobStatusEnum = onchainEnum("relay_job_status", [
+  "pending",
+  "sent",
+  "failed",
+] as const);
+
 export const relayJob = onchainTable(
   "relay_job",
   (t) => ({
@@ -81,8 +93,8 @@ export const relayJob = onchainTable(
     chainId: t.integer().notNull(),
     createdAtBlockNumber: t.bigint().notNull(),
     createdAtBlockTimestamp: t.bigint().notNull(),
-    kind: t.text().notNull(),
-    status: t.text().notNull(), // "pending" | "sent" | "failed"
+    kind: relayJobKindEnum("kind").notNull(),
+    status: relayJobStatusEnum("status").notNull(),
     attempts: t.integer().notNull(),
     payloadJson: t.jsonb().notNull(),
   }),
