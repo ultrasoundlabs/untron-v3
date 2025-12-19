@@ -7206,7 +7206,6 @@ export const untronV3Abi = [
     inputs: [
       { name: 'controllerAddress', internalType: 'address', type: 'address' },
       { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
-      { name: 'tronReader_', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -8434,7 +8433,6 @@ export const untronV3HarnessAbi = [
     inputs: [
       { name: 'controllerAddress', internalType: 'address', type: 'address' },
       { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
-      { name: 'tronReader_', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
   },

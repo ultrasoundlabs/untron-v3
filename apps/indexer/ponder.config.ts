@@ -1,10 +1,23 @@
 import { createConfig } from "ponder";
 
+import { createBase58check } from "@scure/base";
+import { sha256 } from "@noble/hashes/sha2.js";
+
 import { UntronV3Abi } from "./abis/evm/UntronV3Abi";
 import { TronLightClientAbi } from "./abis/evm/TronLightClientAbi";
 import { TronTxReaderAbi } from "./abis/evm/TronTxReaderAbi";
 
 import { UntronControllerAbi } from "./abis/tron/UntronControllerAbi";
+
+const b58c = createBase58check(sha256);
+
+export function tronToEVMAddress(str: string): string {
+  const decoded = b58c.decode(str).slice(1);
+  const hex = Array.from(decoded)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `0x${hex}`;
+}
 
 export default createConfig({
   chains: {
@@ -39,7 +52,7 @@ export default createConfig({
     UntronController: {
       chain: "tron",
       abi: UntronControllerAbi,
-      address: process.env.UNTRON_CONTROLLER_ADDRESS! as `0x${string}`,
+      address: tronToEVMAddress(process.env.UNTRON_CONTROLLER_ADDRESS!) as `0x${string}`,
       startBlock: parseInt(process.env.UNTRON_CONTROLLER_DEPLOYMENT_BLOCK!),
     },
   },

@@ -1,21 +1,24 @@
-import { index, onchainTable } from "ponder";
+import { eq, index, onchainTable, onchainView } from "ponder";
 
-export const untronV3State = onchainTable("untron_v3_state", (t) => ({
-  id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+export const eventChainState = onchainTable("event_chain_state", (t) => ({
+  id: t.text().primaryKey(), // `${chainId}:${contractName}:${contractAddress}`
   chainId: t.integer().notNull(),
+  contractName: t.text().notNull(),
   contractAddress: t.hex().notNull(),
   eventChainTip: t.hex().notNull(),
   lastEventBlockNumber: t.bigint().notNull(),
   sequence: t.bigint().notNull(),
 }));
 
-export const untronV3Event = onchainTable(
-  "untron_v3_event",
+export const eventChainEvent = onchainTable(
+  "event_chain_event",
   (t) => ({
-    tip: t.hex().primaryKey(),
+    id: t.text().primaryKey(), // `${chainId}:${contractName}:${contractAddress}:${tip}`
+    tip: t.hex().notNull(),
     previousTip: t.hex().notNull(),
     sequence: t.bigint().notNull(),
     chainId: t.integer().notNull(),
+    contractName: t.text().notNull(),
     contractAddress: t.hex().notNull(),
     blockNumber: t.bigint().notNull(),
     blockTimestamp: t.bigint().notNull(),
@@ -28,8 +31,38 @@ export const untronV3Event = onchainTable(
     argsJson: t.text(),
   }),
   (table) => ({
-    sequenceIdx: index().on(table.sequence),
-    blockNumberIdx: index().on(table.blockNumber),
+    contractAddressSequenceIdx: index().on(
+      table.contractName,
+      table.contractAddress,
+      table.sequence
+    ),
+    contractBlockNumberIdx: index().on(
+      table.contractName,
+      table.contractAddress,
+      table.blockNumber
+    ),
+    contractTipIdx: index().on(table.contractName, table.contractAddress, table.tip),
     transactionHashIdx: index().on(table.transactionHash),
   })
+);
+
+export const untronV3State = onchainView("untron_v3_state").as((qb) =>
+  qb.select().from(eventChainState).where(eq(eventChainState.contractName, "UntronV3"))
+);
+export const untronV3Event = onchainView("untron_v3_event").as((qb) =>
+  qb.select().from(eventChainEvent).where(eq(eventChainEvent.contractName, "UntronV3"))
+);
+
+export const tronLightClientState = onchainView("tron_light_client_state").as((qb) =>
+  qb.select().from(eventChainState).where(eq(eventChainState.contractName, "TronLightClient"))
+);
+export const tronLightClientEvent = onchainView("tron_light_client_event").as((qb) =>
+  qb.select().from(eventChainEvent).where(eq(eventChainEvent.contractName, "TronLightClient"))
+);
+
+export const untronControllerState = onchainView("untron_controller_state").as((qb) =>
+  qb.select().from(eventChainState).where(eq(eventChainState.contractName, "UntronController"))
+);
+export const untronControllerEvent = onchainView("untron_controller_event").as((qb) =>
+  qb.select().from(eventChainEvent).where(eq(eventChainEvent.contractName, "UntronController"))
 );
