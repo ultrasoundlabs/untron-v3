@@ -6,6 +6,7 @@ import { TronLightClientAbi } from "../abis/evm/TronLightClientAbi";
 import { UntronControllerAbi } from "../abis/tron/UntronControllerAbi";
 
 import { registerEventChainIndexer } from "./eventChainIndexer";
+import { registerRelayer } from "./relayer";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -43,3 +44,5 @@ registerEventChainIndexer({
   stateTable: eventChainState,
   eventTable: eventChainEvent,
 });
+
+registerRelayer({ ponder });

@@ -66,3 +66,40 @@ export const untronControllerState = onchainView("untron_controller_state").as((
 export const untronControllerEvent = onchainView("untron_controller_event").as((qb) =>
   qb.select().from(eventChainEvent).where(eq(eventChainEvent.contractName, "UntronController"))
 );
+
+export const relayerStatus = onchainTable("relayer_status", (t) => ({
+  chainId: t.integer().primaryKey(),
+  isLive: t.boolean().notNull(),
+  headBlockNumber: t.bigint().notNull(),
+  headBlockTimestamp: t.bigint().notNull(),
+}));
+
+export const relayJob = onchainTable(
+  "relay_job",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${kind}:${dedupeKey}`
+    chainId: t.integer().notNull(),
+    createdAtBlockNumber: t.bigint().notNull(),
+    createdAtBlockTimestamp: t.bigint().notNull(),
+    kind: t.text().notNull(),
+    status: t.text().notNull(), // "pending" | "sent" | "failed"
+    attempts: t.integer().notNull(),
+    payloadJson: t.jsonb().notNull(),
+  }),
+  (table) => ({
+    chainStatusIdx: index().on(table.chainId, table.status),
+  })
+);
+
+export const trc20Transfer = onchainTable("trc20_transfer", (t) => ({
+  id: t.text().primaryKey(), // `${chainId}:${transactionHash}:${logIndex}`
+  chainId: t.integer().notNull(),
+  tokenAddress: t.hex().notNull(),
+  from: t.hex().notNull(),
+  to: t.hex().notNull(),
+  value: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  transactionHash: t.hex().notNull(),
+  logIndex: t.integer().notNull(),
+}));

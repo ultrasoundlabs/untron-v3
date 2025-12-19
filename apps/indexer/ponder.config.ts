@@ -2,6 +2,9 @@ import { createConfig } from "ponder";
 
 import { createBase58check } from "@scure/base";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+
+import { ERC20Abi } from "./abis/ERC20Abi";
 
 import { UntronV3Abi } from "./abis/evm/UntronV3Abi";
 import { TronLightClientAbi } from "./abis/evm/TronLightClientAbi";
@@ -19,6 +22,48 @@ export function tronToEVMAddress(str: string): string {
   return `0x${hex}`;
 }
 
+export function receiverSaltToEvmAddress(receiverSalt: string): string {
+  // Helper to convert a hex string (without 0x) to a Uint8Array
+  const hexToBytes = (hex: string): Uint8Array => {
+    const normalized = hex.length % 2 === 0 ? hex : "0" + hex;
+    const bytes = new Uint8Array(normalized.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(normalized.substr(i * 2, 2), 16);
+    }
+    return bytes;
+  };
+
+  // Deployer address (converted to bytes, without the 0x prefix)
+  const deployer = tronToEVMAddress(process.env.UNTRON_CONTROLLER_DEPLOYER_ADDRESS!);
+  const deployerBytes = hexToBytes(deployer.slice(2));
+
+  // Salt (must be 32‑byte, left‑padded with zeros)
+  const saltHex = receiverSalt.startsWith("0x") ? receiverSalt.slice(2) : receiverSalt;
+  const saltPadded = saltHex.padStart(64, "0");
+  const saltBytes = hexToBytes(saltPadded);
+
+  // Init code hash – using an empty init code as a placeholder
+  const initCodeHash = keccak_256(new Uint8Array());
+
+  // Build the CREATE2 pre‑image: 0xff ++ deployer ++ salt ++ init_code_hash
+  const data = new Uint8Array(1 + deployerBytes.length + saltBytes.length + initCodeHash.length);
+  let offset = 0;
+  data[offset++] = 0xff;
+  data.set(deployerBytes, offset);
+  offset += deployerBytes.length;
+  data.set(saltBytes, offset);
+  offset += saltBytes.length;
+  data.set(initCodeHash, offset);
+
+  // Compute the address: keccak256(data)[12:]
+  const hash = keccak_256(data);
+  const address = `0x${Array.from(hash.slice(-20))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")}`;
+
+  return address;
+}
+
 export default createConfig({
   chains: {
     mainnet: {
@@ -29,6 +74,10 @@ export default createConfig({
       id: 728126428, // tron doesn't use chain ID but eth_chainId returns 728126428
       rpc: process.env.TRON_JSON_RPC_URL!,
     },
+  },
+  blocks: {
+    mainnet: { chain: "mainnet", startBlock: "latest", interval: 1 },
+    tron: { chain: "tron", startBlock: "latest", interval: 1 },
   },
   contracts: {
     UntronV3: {
@@ -54,6 +103,23 @@ export default createConfig({
       abi: UntronControllerAbi,
       address: tronToEVMAddress(process.env.UNTRON_CONTROLLER_ADDRESS!) as `0x${string}`,
       startBlock: parseInt(process.env.UNTRON_CONTROLLER_DEPLOYMENT_BLOCK!),
+    },
+    TRC20: {
+      chain: "tron",
+      abi: ERC20Abi, // TRC-20 is just how ERC-20 is called in Tron
+      address: process.env
+        .TRACKED_TRC20_TOKEN_ADDRESSES!.split(",")
+        .map(tronToEVMAddress) as `0x${string}`[],
+      // rationale: we don't care about transfers that happened before the V3 protocol was deployed
+      startBlock: parseInt(process.env.UNTRON_CONTROLLER_DEPLOYMENT_BLOCK!),
+      filter: {
+        event: "Transfer",
+        args: {
+          to: process.env
+            .PREKNOWN_RECEIVER_SALTS!.split(",")
+            .map(receiverSaltToEvmAddress) as `0x${string}`[],
+        },
+      },
     },
   },
 });
