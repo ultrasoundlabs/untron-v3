@@ -82,6 +82,7 @@ export const relayJobKindEnum = onchainEnum("relay_job_kind", [
 
 export const relayJobStatusEnum = onchainEnum("relay_job_status", [
   "pending",
+  "processing",
   "sent",
   "failed",
 ] as const);
@@ -96,10 +97,23 @@ export const relayJob = onchainTable(
     kind: relayJobKindEnum("kind").notNull(),
     status: relayJobStatusEnum("status").notNull(),
     attempts: t.integer().notNull(),
+    lockedAtBlockNumber: t.bigint(),
+    lockedAtBlockTimestamp: t.bigint(),
+    lockedBy: t.text(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    lastError: t.text(),
+    nextRetryBlockNumber: t.bigint(),
     payloadJson: t.jsonb().notNull(),
   }),
   (table) => ({
     chainStatusIdx: index().on(table.chainId, table.status),
+    chainKindStatusCreatedAtIdx: index().on(
+      table.chainId,
+      table.kind,
+      table.status,
+      table.createdAtBlockNumber
+    ),
   })
 );
 
