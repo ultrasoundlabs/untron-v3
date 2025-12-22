@@ -153,12 +153,18 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
   indexName,
   abi,
   onchainTipValidation = "blockTag",
+  afterEvent,
 }: {
   ponder: PonderRegistry;
   contractName: ContractName;
   indexName: string;
   abi: TAbi;
   onchainTipValidation?: "blockTag" | "head" | "disabled";
+  afterEvent?: (args: {
+    eventName: AbiEventName<TAbi>;
+    event: PonderLogEvent;
+    context: PonderContext;
+  }) => Effect.Effect<void, unknown, any>;
 }) {
   const chainedEvents = getAbiEventNames(abi);
   const genesisTip = computeEventChainGenesis(indexName);
@@ -307,6 +313,10 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
             );
           }
         }
+      }
+
+      if (afterEvent) {
+        yield* afterEvent(args);
       }
     });
 

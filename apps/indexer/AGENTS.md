@@ -433,7 +433,7 @@ If you start the app with `ponder start`:
 1. Ponder indexes events for the configured contracts.
 2. For each event on `UntronV3` / `TronLightClient` / `UntronController`:
    - `apps/indexer/src/eventChainIndexer.ts` stores it into `event_chain_event` and updates `event_chain_state`.
-   - `apps/indexer/src/untronV3DerivedIndexer.ts` maintains UntronV3-derived state tables like `untron_v3_lease_payout_config` and `untron_v3_claim_queue`.
+   - For `UntronV3` events, `apps/indexer/src/index.ts` wires `apps/indexer/src/untronV3DerivedIndexer.ts` in as an `afterEvent` hook to maintain UntronV3-derived state tables like `untron_v3_lease_payout_config` and `untron_v3_claim_queue`.
 3. For each new Tron block:
    - `apps/indexer/src/relayer/register.ts` updates `relayer_status`.
    - If relayer enabled and indexer synced, it enqueues a `tron_heartbeat` job.

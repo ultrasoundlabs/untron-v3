@@ -6,13 +6,15 @@ import { UntronControllerAbi } from "../abis/tron/UntronControllerAbi";
 
 import { registerEventChainIndexer } from "./eventChainIndexer";
 import { registerRelayer } from "./relayer";
-import { registerUntronV3DerivedIndexer } from "./untronV3DerivedIndexer";
+import { handleUntronV3DerivedEvent } from "./untronV3DerivedIndexer";
 
 registerEventChainIndexer({
   ponder,
   contractName: "UntronV3",
   indexName: "UntronV3Index",
   abi: UntronV3Abi,
+  afterEvent: ({ eventName, event, context }) =>
+    handleUntronV3DerivedEvent({ eventName, event, context }),
 });
 
 registerEventChainIndexer({
@@ -29,7 +31,5 @@ registerEventChainIndexer({
   abi: UntronControllerAbi,
   onchainTipValidation: "head",
 });
-
-registerUntronV3DerivedIndexer({ ponder });
 
 registerRelayer({ ponder });
