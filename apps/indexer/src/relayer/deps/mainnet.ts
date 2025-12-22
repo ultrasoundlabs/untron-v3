@@ -11,6 +11,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { http, type Address, type Hash, type Hex } from "viem";
 
 import { AppConfig } from "../../effect/config";
+import { tryPromise } from "../../effect/tryPromise";
 
 import { PublicClients } from "./publicClients";
 import type {
@@ -43,12 +44,6 @@ const parseMainnetOwnerPrivateKey = (value: Redacted.Redacted<string>): Hex => {
   }
   return raw as Hex;
 };
-
-const tryPromise = <A>(evaluate: () => PromiseLike<A>) =>
-  Effect.tryPromise({
-    try: () => evaluate(),
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-  });
 
 export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
   MainnetRelayer,

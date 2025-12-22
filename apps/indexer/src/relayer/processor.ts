@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import type { Context as PonderContext } from "ponder:registry";
 
-import { handleMainnetHeartbeat } from "./jobs/mainnetHeartbeat";
-import { handleTronHeartbeat } from "./jobs/tronHeartbeat";
+import { handleMainnetHeartbeat } from "./jobs/heartbeat/mainnetHeartbeat";
+import { handleTronHeartbeat } from "./jobs/heartbeat/tronHeartbeat";
 import { handleTrc20Transfer } from "./jobs/trc20Transfer";
 import type { RelayJobHandlerContext } from "./jobs/types";
 import type { RelayJobKind, RelayJobRow } from "./types";

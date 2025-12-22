@@ -11,6 +11,7 @@ import {
   type Hex,
 } from "viem";
 
+import { tryPromise } from "./effect/tryPromise";
 import { IndexerRuntime } from "./effect/runtime";
 import { computeNextEventChainTip } from "./eventChain/tip";
 
@@ -36,12 +37,6 @@ const EVENT_CHAIN_TIP_ABI = [
     outputs: [{ type: "bytes32" }],
   },
 ] as const satisfies Abi;
-
-const tryPromise = <A>(evaluate: () => PromiseLike<A>) =>
-  Effect.tryPromise({
-    try: () => evaluate(),
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-  });
 
 function computeEventChainGenesis(indexName: string): Hex {
   return sha256(encodePacked(["string", "string"], [`${indexName}\n`, EVENT_CHAIN_DECLARATION]));

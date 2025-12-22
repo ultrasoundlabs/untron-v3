@@ -67,6 +67,64 @@ export const untronControllerEvent = onchainView("untron_controller_event").as((
   qb.select().from(eventChainEvent).where(eq(eventChainEvent.contractName, "UntronController"))
 );
 
+export const untronV3LeasePayoutConfig = onchainTable(
+  "untron_v3_lease_payout_config",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${leaseId}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    leaseId: t.bigint().notNull(),
+    targetChainId: t.bigint().notNull(),
+    targetToken: t.hex().notNull(),
+    beneficiary: t.hex().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractLeaseIdx: index().on(table.chainId, table.contractAddress, table.leaseId),
+  })
+);
+
+export const untronV3SwapRate = onchainTable(
+  "untron_v3_swap_rate",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${targetToken}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    targetToken: t.hex().notNull(),
+    ratePpm: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractTokenIdx: index().on(table.chainId, table.contractAddress, table.targetToken),
+  })
+);
+
+export const untronV3ClaimQueue = onchainTable(
+  "untron_v3_claim_queue",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${targetToken}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    targetToken: t.hex().notNull(),
+    maxClaimIndex: t.bigint().notNull(),
+    queueLength: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractTokenIdx: index().on(table.chainId, table.contractAddress, table.targetToken),
+    contractQueueLengthIdx: index().on(table.chainId, table.contractAddress, table.queueLength),
+  })
+);
+
 export const relayerStatus = onchainTable("relayer_status", (t) => ({
   chainId: t.integer().primaryKey(),
   isLive: t.boolean().notNull(),

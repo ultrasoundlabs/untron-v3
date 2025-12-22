@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { isAddress, type Address } from "viem";
 
 import { TronRelayer } from "../deps/tron";
+import { getKnownTronReceiver } from "../receivers";
 import type { RelayJobRow } from "../types";
 import type { RelayJobHandlerContext } from "./types";
 
@@ -31,15 +32,7 @@ export const handleTrc20Transfer = ({
     const tokenAddress = expectAddress(payload.tokenAddress, "payload.tokenAddress");
     const receiverAddress = expectAddress(payload.to, "payload.to");
 
-    const receiverMap = yield* TronRelayer.getReceiverMap();
-    const receiver = receiverMap.get(receiverAddress.toLowerCase());
-    if (!receiver) {
-      return yield* Effect.fail(
-        new Error(
-          `Unknown receiver address (not in PREKNOWN_RECEIVER_SALTS mapping): ${receiverAddress}`
-        )
-      );
-    }
+    const receiver = yield* getKnownTronReceiver(receiverAddress);
 
     const balance = yield* TronRelayer.getErc20BalanceOf({
       tokenAddress,

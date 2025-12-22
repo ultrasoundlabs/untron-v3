@@ -27,6 +27,7 @@ Whenever you start a task inside apps/indexer, you must read this file and follo
 
 - `apps/indexer/src/index.ts` is the Ponder entrypoint. It registers:
   - The event-chain indexer for 3 contracts (`UntronV3`, `TronLightClient`, `UntronController`).
+  - The UntronV3 derived indexer (tracks payout config + claim-queue state for relayer decisions).
   - The relayer handlers.
 
 ## Ponder exposes an HTTP API (independent of Effect)
@@ -297,13 +298,18 @@ There are two important guards:
 
 ## Job handlers (what relaying actually does today)
 
-- `apps/indexer/src/relayer/jobs/mainnetHeartbeat.ts`: currently a no-op placeholder.
-- `apps/indexer/src/relayer/jobs/tronHeartbeat.ts`:
+- `apps/indexer/src/relayer/jobs/heartbeat/mainnetHeartbeat.ts`:
   - If `dryRun`, do nothing.
-  - Get receiver map (salt → receiver address) from `TronRelayer`.
-  - Get controller’s USDT token address.
-  - For each receiver, read its USDT balance and collect salts with nonzero balance.
-  - Call `TronRelayer.sendTronControllerPullFromReceivers` with those salts.
+  - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers` (each wrapped in `Effect.exit` so later handlers still run if one fails).
+  - Current handler (`sweep_tron_receivers_if_pending_claims`):
+    - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/sweepTronReceiversIfPendingClaims.ts`.
+    - Reads `untron_v3_claim_queue` rows (max observed claim index + 1 per `targetToken`).
+    - Compares that `queueLength` to onchain `UntronV3.nextIndexByTargetToken(targetToken)` at the job head block.
+    - If any queue has pending claims (`queueLength > nextIndex`), runs the same Tron sweep logic as `tron_heartbeat`.
+- `apps/indexer/src/relayer/jobs/heartbeat/tronHeartbeat.ts`:
+  - If `dryRun`, do nothing.
+  - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers`.
+  - Current handler (`sweep_tron_receivers`): sweeps nonzero USDT balances from known receivers into the controller.
 - `apps/indexer/src/relayer/jobs/trc20Transfer.ts`:
   - If `dryRun`, do nothing.
   - Parse and validate payload fields from `job.payloadJson` (no guessing types).
@@ -416,7 +422,7 @@ Public methods are small wrappers:
   - Polls for inclusion by scanning EntryPoint `UserOperationEvent` logs
   - Tries bundlers sequentially and aggregates errors
 
-Nothing currently calls it because `mainnet_heartbeat` is a no-op, but the service is wired into the runtime already.
+Nothing currently calls it; the service is wired into the runtime for future mainnet relaying, but mainnet heartbeat only triggers Tron sweeping when UntronV3 has pending claims.
 
 ---
 
@@ -427,6 +433,7 @@ If you start the app with `ponder start`:
 1. Ponder indexes events for the configured contracts.
 2. For each event on `UntronV3` / `TronLightClient` / `UntronController`:
    - `apps/indexer/src/eventChainIndexer.ts` stores it into `event_chain_event` and updates `event_chain_state`.
+   - `apps/indexer/src/untronV3DerivedIndexer.ts` maintains UntronV3-derived state tables like `untron_v3_lease_payout_config` and `untron_v3_claim_queue`.
 3. For each new Tron block:
    - `apps/indexer/src/relayer/register.ts` updates `relayer_status`.
    - If relayer enabled and indexer synced, it enqueues a `tron_heartbeat` job.

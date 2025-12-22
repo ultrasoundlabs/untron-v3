@@ -1,21 +1,13 @@
 import { Effect } from "effect";
 import type { Address } from "viem";
 
-import { TronRelayer } from "../deps/tron";
-import type { RelayJobRow } from "../types";
-import type { RelayJobHandlerContext } from "./types";
+import { TronRelayer } from "../../../deps/tron";
+import type { RelayJobHandlerContext } from "../../types";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
 
-export const handleTronHeartbeat = ({
-  ctx,
-}: {
-  job: RelayJobRow & { kind: "tron_heartbeat" };
-  ctx: RelayJobHandlerContext;
-}) =>
+export const tronSweepFromReceivers = (ctx: RelayJobHandlerContext) =>
   Effect.gen(function* () {
-    if (ctx.dryRun) return;
-
     const receiverMap = yield* TronRelayer.getReceiverMap();
     if (receiverMap.size === 0) return;
 
