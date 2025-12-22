@@ -1,6 +1,9 @@
-import type { RelayJobHandler } from "./types";
+import { Effect } from "effect";
 
-export const handleMainnetHeartbeat: RelayJobHandler<"mainnet_heartbeat"> = async ({ ctx }) => {
-  if (ctx.dryRun) return;
-  throw new Error('Relay job kind "mainnet_heartbeat" not implemented');
-};
+import type { RelayJobRow } from "../types";
+import type { RelayJobHandlerContext } from "./types";
+
+export const handleMainnetHeartbeat = (_args: {
+  job: RelayJobRow & { kind: "mainnet_heartbeat" };
+  ctx: RelayJobHandlerContext;
+}) => Effect.void;

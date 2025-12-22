@@ -1,6 +1,6 @@
+import { Effect } from "effect";
 import type { Context as PonderContext } from "ponder:registry";
 
-import type { RelayerDeps } from "./deps";
 import { handleMainnetHeartbeat } from "./jobs/mainnetHeartbeat";
 import { handleTronHeartbeat } from "./jobs/tronHeartbeat";
 import { handleTrc20Transfer } from "./jobs/trc20Transfer";
@@ -8,47 +8,31 @@ import type { RelayJobHandlerContext } from "./jobs/types";
 import type { RelayJobKind, RelayJobRow } from "./types";
 import { claimRelayJobs, markRelayJobFailed, markRelayJobSent } from "./queue";
 
-export async function handleRelayJob({
-  job,
-  ctx,
-}: {
-  job: RelayJobRow;
-  ctx: RelayJobHandlerContext;
-}) {
-  switch (job.kind) {
+export const handleRelayJob = (args: { job: RelayJobRow; ctx: RelayJobHandlerContext }) => {
+  switch (args.job.kind) {
     case "mainnet_heartbeat":
-      await handleMainnetHeartbeat({
-        job: job as RelayJobRow & { kind: "mainnet_heartbeat" },
-        ctx,
+      return handleMainnetHeartbeat({
+        job: args.job as RelayJobRow & { kind: "mainnet_heartbeat" },
+        ctx: args.ctx,
       });
-      return;
     case "tron_heartbeat":
-      await handleTronHeartbeat({ job: job as RelayJobRow & { kind: "tron_heartbeat" }, ctx });
-      return;
+      return handleTronHeartbeat({
+        job: args.job as RelayJobRow & { kind: "tron_heartbeat" },
+        ctx: args.ctx,
+      });
     case "trc20_transfer":
-      await handleTrc20Transfer({ job: job as RelayJobRow & { kind: "trc20_transfer" }, ctx });
-      return;
+      return handleTrc20Transfer({
+        job: args.job as RelayJobRow & { kind: "trc20_transfer" },
+        ctx: args.ctx,
+      });
     default: {
-      const exhaustive: never = job.kind;
+      const exhaustive: never = args.job.kind;
       return exhaustive;
     }
   }
-}
+};
 
-export async function processRelayJobs({
-  context,
-  chainId,
-  kind,
-  headBlockNumber,
-  headBlockTimestamp,
-  minConfirmations,
-  workerId,
-  limit,
-  dryRun,
-  maxAttempts,
-  retryDelayBlocks,
-  deps,
-}: {
+export const processRelayJobs = (args: {
   context: PonderContext;
   chainId: number;
   kind: RelayJobKind;
@@ -60,43 +44,49 @@ export async function processRelayJobs({
   dryRun: boolean;
   maxAttempts: number;
   retryDelayBlocks: bigint;
-  deps: RelayerDeps;
-}) {
-  const jobs = await claimRelayJobs({
-    context,
-    chainId,
-    kind,
-    headBlockNumber,
-    headBlockTimestamp,
-    minConfirmations,
-    limit,
-    workerId,
+}) =>
+  Effect.gen(function* () {
+    const jobs = yield* claimRelayJobs({
+      context: args.context,
+      chainId: args.chainId,
+      kind: args.kind,
+      headBlockNumber: args.headBlockNumber,
+      headBlockTimestamp: args.headBlockTimestamp,
+      minConfirmations: args.minConfirmations,
+      limit: args.limit,
+      workerId: args.workerId,
+    });
+
+    const ctx: RelayJobHandlerContext = {
+      ponderContext: args.context,
+      headBlockNumber: args.headBlockNumber,
+      headBlockTimestamp: args.headBlockTimestamp,
+      dryRun: args.dryRun,
+    };
+
+    yield* Effect.forEach(jobs, (job) =>
+      handleRelayJob({ job, ctx }).pipe(
+        Effect.andThen(
+          markRelayJobSent({
+            context: args.context,
+            id: job.id,
+            headBlockNumber: args.headBlockNumber,
+            headBlockTimestamp: args.headBlockTimestamp,
+          })
+        ),
+        Effect.catchAll((error) => {
+          const errorMessage =
+            error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+          return markRelayJobFailed({
+            context: args.context,
+            id: job.id,
+            headBlockNumber: args.headBlockNumber,
+            headBlockTimestamp: args.headBlockTimestamp,
+            errorMessage,
+            maxAttempts: args.maxAttempts,
+            retryDelayBlocks: args.retryDelayBlocks,
+          });
+        })
+      )
+    );
   });
-
-  const ctx: RelayJobHandlerContext = {
-    ponderContext: context,
-    deps,
-    headBlockNumber,
-    headBlockTimestamp,
-    dryRun,
-  };
-
-  for (const job of jobs) {
-    try {
-      await handleRelayJob({ job, ctx });
-      await markRelayJobSent({ context, id: job.id, headBlockNumber, headBlockTimestamp });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      await markRelayJobFailed({
-        context,
-        id: job.id,
-        headBlockNumber,
-        headBlockTimestamp,
-        errorMessage,
-        maxAttempts,
-        retryDelayBlocks,
-      });
-    }
-  }
-}

@@ -1,22 +1,41 @@
+import { ConfigError, Effect, Layer, Option } from "effect";
+
 import { createTronClients } from "@untron/tron-protocol";
 
+import { AppConfig } from "../../effect/config";
 import type { TronGrpcClients } from "./types";
 
-export function createTronGrpcClientsGetter() {
-  let tronGrpcClients: TronGrpcClients | null = null;
+const requireSome = <A>(value: Option.Option<A>, message: string): Effect.Effect<A, Error> =>
+  Option.match(value, {
+    onNone: () => Effect.fail(new Error(message)),
+    onSome: (a) => Effect.succeed(a),
+  });
 
-  const getTronGrpcClients = (): TronGrpcClients => {
-    if (tronGrpcClients) return tronGrpcClients;
+export class TronGrpc extends Effect.Tag("TronGrpc")<
+  TronGrpc,
+  {
+    readonly get: () => Effect.Effect<TronGrpcClients, ConfigError.ConfigError | Error>;
+  }
+>() {
+  static readonly Live = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const appConfig = yield* AppConfig;
 
-    const host = process.env.TRON_GRPC_HOST;
-    if (!host) throw new Error("Missing env var TRON_GRPC_HOST");
+      const cachedClients = yield* Effect.cached(
+        Effect.gen(function* () {
+          const config = yield* appConfig.tronNetwork();
+          const host = yield* requireSome(config.grpcHost, "Missing env var TRON_GRPC_HOST");
 
-    const apiKey = process.env.TRON_API_KEY;
-    const insecure = process.env.TRON_GRPC_INSECURE === "true";
+          return createTronClients(host, Option.getOrUndefined(config.apiKey), {
+            insecure: config.grpcInsecure,
+          });
+        })
+      );
 
-    tronGrpcClients = createTronClients(host, apiKey, { insecure });
-    return tronGrpcClients;
-  };
-
-  return { getTronGrpcClients };
+      return {
+        get: () => cachedClients,
+      };
+    })
+  );
 }

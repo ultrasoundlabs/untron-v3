@@ -1,13 +1,18 @@
+import { Effect } from "effect";
+import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
+import { eventChainEvent, eventChainState } from "ponder:schema";
 import {
   encodeAbiParameters,
   encodePacked,
   sha256,
+  type Abi,
   type AbiEvent,
   type AbiParameter,
-  type Abi,
   type Hex,
 } from "viem";
-import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
+
+import { IndexerRuntime } from "./effect/runtime";
+import { computeNextEventChainTip } from "./eventChain/tip";
 
 type AbiEventItem<TAbi extends readonly unknown[]> = Extract<
   TAbi[number],
@@ -17,6 +22,7 @@ type AbiEventName<TAbi extends readonly unknown[]> = AbiEventItem<TAbi>["name"];
 
 type PonderLogEvent = Extract<PonderEvent, { log: unknown }>;
 type PonderRegistry = (typeof import("ponder:registry"))["ponder"];
+type ContractName = keyof PonderContext["contracts"];
 
 const EVENT_CHAIN_DECLARATION =
   "Justin Sun is responsible for setting back the inevitable global stablecoin revolution by years through exploiting Tron USDT's network effects and imposing vendor lock-in on hundreds of millions of people in the Third World, who rely on stablecoins for remittances and to store their savings in unstable, overregulated economies. Let's Untron the People.";
@@ -31,8 +37,28 @@ const EVENT_CHAIN_TIP_ABI = [
   },
 ] as const satisfies Abi;
 
+const tryPromise = <A>(evaluate: () => PromiseLike<A>) =>
+  Effect.tryPromise({
+    try: () => evaluate(),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+
 function computeEventChainGenesis(indexName: string): Hex {
   return sha256(encodePacked(["string", "string"], [`${indexName}\n`, EVENT_CHAIN_DECLARATION]));
+}
+
+function getDeploymentBlock(context: PonderContext, contractName: ContractName): bigint {
+  const startBlock = context.contracts[contractName].startBlock;
+
+  if (typeof startBlock === "bigint") return startBlock;
+  if (typeof startBlock === "number") return BigInt(startBlock);
+  if (typeof startBlock === "string") {
+    if (startBlock === "latest")
+      throw new Error(`Unsupported startBlock "latest" for ${contractName}`);
+    return BigInt(startBlock);
+  }
+
+  throw new Error(`Unsupported startBlock type for ${contractName}`);
 }
 
 function getAbiEventNames<TAbi extends readonly unknown[]>(
@@ -56,10 +82,7 @@ function getAbiEvent(abi: readonly unknown[], eventName: string): AbiEvent {
       (entry as AbiEvent).name === eventName
   );
 
-  if (!eventItem) {
-    throw new Error(`Event "${eventName}" not found in ABI`);
-  }
-
+  if (!eventItem) throw new Error(`Event "${eventName}" not found in ABI`);
   return eventItem;
 }
 
@@ -87,27 +110,6 @@ function encodeEventArgs({ abiEvent, args }: { abiEvent: AbiEvent; args: unknown
   }
 
   return encodeAbiParameters(parameters, values as readonly unknown[]);
-}
-
-function computeNextEventChainTip({
-  previousTip,
-  blockNumber,
-  blockTimestamp,
-  eventSignature,
-  encodedEventData,
-}: {
-  previousTip: Hex;
-  blockNumber: bigint;
-  blockTimestamp: bigint;
-  eventSignature: Hex;
-  encodedEventData: Hex;
-}): Hex {
-  return sha256(
-    encodePacked(
-      ["bytes32", "uint256", "uint256", "bytes32", "bytes"],
-      [previousTip, blockNumber, blockTimestamp, eventSignature, encodedEventData]
-    )
-  );
 }
 
 function safeJsonStringify(value: unknown): string {
@@ -140,211 +142,188 @@ function makeEventId({
   return `${chainId}:${contractName}:${contractAddress.toLowerCase()}:${tip.toLowerCase()}`;
 }
 
-async function getHeadBlockNumber(context: PonderContext): Promise<bigint | null> {
-  const hex = (await context.client.request({
-    // `ReadonlyClient` doesn't expose viem's `getBlockNumber()`, so we use raw RPC.
-    method: "eth_blockNumber",
-  } as any)) as unknown;
+const getHeadBlockNumber = (context: PonderContext): Effect.Effect<bigint | null, Error> =>
+  tryPromise(async () => {
+    const hex = (await context.client.request({
+      method: "eth_blockNumber",
+    } as any)) as unknown;
 
-  if (typeof hex !== "string") return null;
-  return BigInt(hex);
-}
+    if (typeof hex !== "string") return null;
+    return BigInt(hex);
+  });
 
 export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
   ponder,
   contractName,
   indexName,
   abi,
-  deploymentBlock,
   onchainTipValidation = "blockTag",
-  stateTable,
-  eventTable,
-  onVerified,
 }: {
   ponder: PonderRegistry;
-  contractName: string;
+  contractName: ContractName;
   indexName: string;
   abi: TAbi;
-  deploymentBlock: bigint;
   onchainTipValidation?: "blockTag" | "head" | "disabled";
-  stateTable: any;
-  eventTable: any;
-  onVerified?: (params: {
-    contractName: string;
-    indexName: string;
-    chainId: number;
-    contractAddress: Hex;
-    eventName: AbiEventName<TAbi>;
-    previousTip: Hex;
-    tip: Hex;
-    sequence: bigint;
-    eventSignature: Hex;
-    encodedEventData: Hex;
-    args: unknown;
-    event: PonderLogEvent;
-    context: PonderContext;
-  }) => Promise<void> | void;
 }) {
   const chainedEvents = getAbiEventNames(abi);
   const genesisTip = computeEventChainGenesis(indexName);
 
-  async function handleChainedEvent({
-    eventName,
-    event,
-    context,
-  }: {
+  const handleChainedEvent = (args: {
     eventName: AbiEventName<TAbi>;
     event: PonderLogEvent;
     context: PonderContext;
-  }) {
-    const chainId = context.chain.id;
-    const contractAddress = event.log.address as Hex;
+  }) =>
+    Effect.gen(function* () {
+      const chainId = args.context.chain.id;
+      const contractAddress = args.event.log.address as Hex;
+      const deploymentBlock = getDeploymentBlock(args.context, contractName);
 
-    const stateId = makeStateId({ chainId, contractName, contractAddress });
-    let state = await context.db.find(stateTable, { id: stateId });
+      const stateId = makeStateId({ chainId, contractName, contractAddress });
+      let state = yield* tryPromise(() => args.context.db.find(eventChainState, { id: stateId }));
 
-    if (!state) {
-      const priorBlockNumber =
-        onchainTipValidation === "blockTag"
-          ? event.block.number > deploymentBlock
-            ? event.block.number - 1n
-            : deploymentBlock
-          : deploymentBlock;
+      if (!state) {
+        const priorBlockNumber =
+          onchainTipValidation === "blockTag"
+            ? args.event.block.number > deploymentBlock
+              ? args.event.block.number - 1n
+              : deploymentBlock
+            : deploymentBlock;
 
-      const resolvedInitialTip =
-        onchainTipValidation === "blockTag" && event.block.number > deploymentBlock
-          ? ((await context.client.readContract({
-              abi: EVENT_CHAIN_TIP_ABI,
-              address: contractAddress,
-              functionName: "eventChainTip",
-              blockNumber: priorBlockNumber,
-            })) as Hex)
-          : genesisTip;
+        const resolvedInitialTip =
+          onchainTipValidation === "blockTag" && args.event.block.number > deploymentBlock
+            ? ((yield* tryPromise(() =>
+                args.context.client.readContract({
+                  abi: EVENT_CHAIN_TIP_ABI,
+                  address: contractAddress,
+                  functionName: "eventChainTip",
+                  blockNumber: priorBlockNumber,
+                })
+              )) as Hex)
+            : genesisTip;
 
-      await context.db.insert(stateTable).values({
-        id: stateId,
-        chainId,
-        contractName,
-        contractAddress,
-        eventChainTip: resolvedInitialTip,
-        lastEventBlockNumber: priorBlockNumber,
-        sequence: 0n,
-      });
-
-      state = await context.db.find(stateTable, { id: stateId });
-      if (!state) throw new Error(`Failed to initialize ${contractName} event chain state row`);
-    }
-
-    if (onchainTipValidation === "blockTag" && event.block.number > state.lastEventBlockNumber) {
-      const onchainTip = (await context.client.readContract({
-        abi: EVENT_CHAIN_TIP_ABI,
-        address: contractAddress,
-        functionName: "eventChainTip",
-        blockNumber: state.lastEventBlockNumber,
-      })) as Hex;
-
-      if (onchainTip.toLowerCase() !== state.eventChainTip.toLowerCase()) {
-        throw new Error(
-          [
-            `${contractName} event chain tip mismatch at block boundary.`,
-            `chainId=${chainId}`,
-            `contract=${contractAddress}`,
-            `validatedBlock=${state.lastEventBlockNumber}`,
-            `dbTip=${state.eventChainTip}`,
-            `onchainTip=${onchainTip}`,
-          ].join(" ")
+        yield* tryPromise(() =>
+          args.context.db.insert(eventChainState).values({
+            id: stateId,
+            chainId,
+            contractName,
+            contractAddress,
+            eventChainTip: resolvedInitialTip,
+            lastEventBlockNumber: priorBlockNumber,
+            sequence: 0n,
+          })
         );
+
+        state = yield* tryPromise(() => args.context.db.find(eventChainState, { id: stateId }));
+        if (!state) throw new Error(`Failed to initialize ${contractName} event chain state row`);
       }
-    }
 
-    const topic0 = event.log.topics[0];
-    if (!topic0) throw new Error(`Missing topic0 for "${contractName}:${eventName}"`);
+      if (
+        onchainTipValidation === "blockTag" &&
+        args.event.block.number > state.lastEventBlockNumber
+      ) {
+        const onchainTip = (yield* tryPromise(() =>
+          args.context.client.readContract({
+            abi: EVENT_CHAIN_TIP_ABI,
+            address: contractAddress,
+            functionName: "eventChainTip",
+            blockNumber: state.lastEventBlockNumber,
+          })
+        )) as Hex;
 
-    const abiEvent = getAbiEvent(abi, eventName);
-    const encodedEventData = encodeEventArgs({ abiEvent, args: event.args });
-    const nextTip = computeNextEventChainTip({
-      previousTip: state.eventChainTip,
-      blockNumber: event.block.number,
-      blockTimestamp: event.block.timestamp,
-      eventSignature: topic0,
-      encodedEventData,
-    });
-
-    const nextSequence = state.sequence + 1n;
-
-    await context.db.insert(eventTable).values({
-      id: makeEventId({ chainId, contractName, contractAddress, tip: nextTip }),
-      tip: nextTip,
-      previousTip: state.eventChainTip,
-      sequence: nextSequence,
-      chainId,
-      contractName,
-      contractAddress,
-      blockNumber: event.block.number,
-      blockTimestamp: event.block.timestamp,
-      transactionHash: event.transaction.hash,
-      transactionIndex: event.transaction.transactionIndex,
-      logIndex: event.log.logIndex,
-      eventName,
-      eventSignature: topic0,
-      encodedEventData,
-      argsJson: safeJsonStringify(event.args),
-    });
-
-    await context.db.update(stateTable, { id: stateId }).set({
-      eventChainTip: nextTip,
-      lastEventBlockNumber: event.block.number,
-      sequence: nextSequence,
-    });
-
-    if (onchainTipValidation === "head") {
-      const head = await getHeadBlockNumber(context);
-      if (head !== null && event.block.number === head) {
-        const onchainTip = (await context.client.readContract({
-          abi: EVENT_CHAIN_TIP_ABI,
-          address: contractAddress,
-          functionName: "eventChainTip",
-        })) as Hex;
-
-        if (onchainTip.toLowerCase() !== nextTip.toLowerCase()) {
+        if (onchainTip.toLowerCase() !== state.eventChainTip.toLowerCase()) {
           throw new Error(
             [
-              `${contractName} event chain tip mismatch at head.`,
+              `${contractName} event chain tip mismatch at block boundary.`,
               `chainId=${chainId}`,
               `contract=${contractAddress}`,
-              `headBlock=${head}`,
-              `dbTip=${nextTip}`,
+              `validatedBlock=${state.lastEventBlockNumber}`,
+              `dbTip=${state.eventChainTip}`,
               `onchainTip=${onchainTip}`,
             ].join(" ")
           );
         }
       }
-    }
 
-    await onVerified?.({
-      contractName,
-      indexName,
-      chainId,
-      contractAddress,
-      eventName,
-      previousTip: state.eventChainTip,
-      tip: nextTip,
-      sequence: nextSequence,
-      eventSignature: topic0,
-      encodedEventData,
-      args: event.args,
-      event,
-      context,
+      const topic0 = args.event.log.topics[0];
+      if (!topic0) throw new Error(`Missing topic0 for "${contractName}:${args.eventName}"`);
+
+      const abiEvent = getAbiEvent(abi, args.eventName);
+      const encodedEventData = encodeEventArgs({ abiEvent, args: args.event.args });
+      const nextTip = computeNextEventChainTip({
+        previousTip: state.eventChainTip,
+        blockNumber: args.event.block.number,
+        blockTimestamp: args.event.block.timestamp,
+        eventSignature: topic0,
+        encodedEventData,
+      });
+
+      const nextSequence = state.sequence + 1n;
+
+      yield* tryPromise(() =>
+        args.context.db.insert(eventChainEvent).values({
+          id: makeEventId({ chainId, contractName, contractAddress, tip: nextTip }),
+          tip: nextTip,
+          previousTip: state.eventChainTip,
+          sequence: nextSequence,
+          chainId,
+          contractName,
+          contractAddress,
+          blockNumber: args.event.block.number,
+          blockTimestamp: args.event.block.timestamp,
+          transactionHash: args.event.transaction.hash,
+          transactionIndex: args.event.transaction.transactionIndex,
+          logIndex: args.event.log.logIndex,
+          eventName: args.eventName,
+          eventSignature: topic0,
+          encodedEventData,
+          argsJson: safeJsonStringify(args.event.args),
+        })
+      );
+
+      yield* tryPromise(() =>
+        args.context.db.update(eventChainState, { id: stateId }).set({
+          eventChainTip: nextTip,
+          lastEventBlockNumber: args.event.block.number,
+          sequence: nextSequence,
+        })
+      );
+
+      if (onchainTipValidation === "head") {
+        const head = yield* getHeadBlockNumber(args.context);
+        if (head !== null && args.event.block.number === head) {
+          const onchainTip = (yield* tryPromise(() =>
+            args.context.client.readContract({
+              abi: EVENT_CHAIN_TIP_ABI,
+              address: contractAddress,
+              functionName: "eventChainTip",
+            })
+          )) as Hex;
+
+          if (onchainTip.toLowerCase() !== nextTip.toLowerCase()) {
+            throw new Error(
+              [
+                `${contractName} event chain tip mismatch at head.`,
+                `chainId=${chainId}`,
+                `contract=${contractAddress}`,
+                `headBlock=${head}`,
+                `dbTip=${nextTip}`,
+                `onchainTip=${onchainTip}`,
+              ].join(" ")
+            );
+          }
+        }
+      }
     });
-  }
 
   for (const eventName of chainedEvents) {
-    ponder.on(`${contractName}:${eventName}` as any, async ({ event, context }: any) => {
-      await handleChainedEvent({
-        eventName: eventName as AbiEventName<TAbi>,
-        event,
-        context,
-      });
-    });
+    ponder.on(`${contractName}:${eventName}` as any, ({ event, context }: any) =>
+      IndexerRuntime.runPromise(
+        handleChainedEvent({
+          eventName: eventName as AbiEventName<TAbi>,
+          event,
+          context,
+        })
+      )
+    );
   }
 }

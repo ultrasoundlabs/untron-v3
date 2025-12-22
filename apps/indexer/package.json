@@ -16,6 +16,7 @@
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
     "@untron/tron-protocol": "workspace:*",
+    "effect": "^3.19.12",
     "hono": "^4.5.0",
     "permissionless": "^0.3.2",
     "ponder": "^0.15.17",

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Context as PonderContext } from "ponder:registry";
 import { sql } from "ponder";
 
@@ -8,22 +9,13 @@ import type { RelayJobKind, RelayJobRow, RelayJobStatus } from "./types";
 function getRows(result: unknown): unknown[] {
   if (Array.isArray(result)) return result;
   if (result && typeof result === "object" && "rows" in result) {
-    const rows = (result as any).rows;
+    const rows = (result as { readonly rows?: unknown }).rows;
     if (Array.isArray(rows)) return rows;
   }
   return [];
 }
 
-export async function enqueueRelayJob({
-  context,
-  id,
-  chainId,
-  createdAtBlockNumber,
-  createdAtBlockTimestamp,
-  kind,
-  status = "pending",
-  payloadJson,
-}: {
+export const enqueueRelayJob = (args: {
   context: PonderContext;
   id: string;
   chainId: number;
@@ -32,34 +24,28 @@ export async function enqueueRelayJob({
   kind: RelayJobKind;
   status?: RelayJobStatus;
   payloadJson: Record<string, unknown>;
-}) {
-  await context.db
-    .insert(relayJob)
-    .values({
-      id,
-      chainId,
-      createdAtBlockNumber,
-      createdAtBlockTimestamp,
-      kind,
-      status,
-      attempts: 0,
-      updatedAtBlockNumber: createdAtBlockNumber,
-      updatedAtBlockTimestamp: createdAtBlockTimestamp,
-      payloadJson,
-    })
-    .onConflictDoNothing();
-}
+}) =>
+  Effect.tryPromise({
+    try: () =>
+      args.context.db
+        .insert(relayJob)
+        .values({
+          id: args.id,
+          chainId: args.chainId,
+          createdAtBlockNumber: args.createdAtBlockNumber,
+          createdAtBlockTimestamp: args.createdAtBlockTimestamp,
+          kind: args.kind,
+          status: args.status ?? "pending",
+          attempts: 0,
+          updatedAtBlockNumber: args.createdAtBlockNumber,
+          updatedAtBlockTimestamp: args.createdAtBlockTimestamp,
+          payloadJson: args.payloadJson,
+        })
+        .onConflictDoNothing(),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
 
-export async function claimRelayJobs({
-  context,
-  chainId,
-  kind,
-  headBlockNumber,
-  headBlockTimestamp,
-  minConfirmations,
-  limit,
-  workerId,
-}: {
+export const claimRelayJobs = (args: {
   context: PonderContext;
   chainId: number;
   kind: RelayJobKind;
@@ -68,65 +54,61 @@ export async function claimRelayJobs({
   minConfirmations: bigint;
   limit: number;
   workerId: string;
-}): Promise<RelayJobRow[]> {
-  const eligibleBlock =
-    headBlockNumber > minConfirmations ? headBlockNumber - minConfirmations : 0n;
+}): Effect.Effect<RelayJobRow[], Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const eligibleBlock =
+        args.headBlockNumber > args.minConfirmations
+          ? args.headBlockNumber - args.minConfirmations
+          : 0n;
 
-  const result = await context.db.sql.execute(sql`
-    WITH candidates AS (
-      SELECT ${relayJob.id} AS id
-      FROM ${relayJob}
-      WHERE ${relayJob.chainId} = ${chainId}
-        AND ${relayJob.kind} = ${kind}
-        AND ${relayJob.status} = 'pending'
-        AND ${relayJob.createdAtBlockNumber} <= ${eligibleBlock}
-        AND (${relayJob.nextRetryBlockNumber} IS NULL OR ${relayJob.nextRetryBlockNumber} <= ${headBlockNumber})
-      ORDER BY ${relayJob.createdAtBlockNumber} ASC, ${relayJob.id} ASC
-      LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE ${relayJob}
-    SET ${relayJob.status} = 'processing',
-        ${relayJob.lockedAtBlockNumber} = ${headBlockNumber},
-        ${relayJob.lockedAtBlockTimestamp} = ${headBlockTimestamp},
-        ${relayJob.lockedBy} = ${workerId},
-        ${relayJob.updatedAtBlockNumber} = ${headBlockNumber},
-        ${relayJob.updatedAtBlockTimestamp} = ${headBlockTimestamp},
-        ${relayJob.lastError} = NULL
-    WHERE ${relayJob.id} IN (SELECT id FROM candidates)
-    RETURNING *;
-  `);
+      const result = await args.context.db.sql.execute(sql`
+        WITH candidates AS (
+          SELECT ${relayJob.id} AS id
+          FROM ${relayJob}
+          WHERE ${relayJob.chainId} = ${args.chainId}
+            AND ${relayJob.kind} = ${args.kind}
+            AND ${relayJob.status} = 'pending'
+            AND ${relayJob.createdAtBlockNumber} <= ${eligibleBlock}
+            AND (${relayJob.nextRetryBlockNumber} IS NULL OR ${relayJob.nextRetryBlockNumber} <= ${args.headBlockNumber})
+          ORDER BY ${relayJob.createdAtBlockNumber} ASC, ${relayJob.id} ASC
+          LIMIT ${args.limit}
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE ${relayJob}
+        SET ${relayJob.status} = 'processing',
+            ${relayJob.lockedAtBlockNumber} = ${args.headBlockNumber},
+            ${relayJob.lockedAtBlockTimestamp} = ${args.headBlockTimestamp},
+            ${relayJob.lockedBy} = ${args.workerId},
+            ${relayJob.updatedAtBlockNumber} = ${args.headBlockNumber},
+            ${relayJob.updatedAtBlockTimestamp} = ${args.headBlockTimestamp},
+            ${relayJob.lastError} = NULL
+        WHERE ${relayJob.id} IN (SELECT id FROM candidates)
+        RETURNING *;
+      `);
 
-  return getRows(result) as RelayJobRow[];
-}
+      return getRows(result) as RelayJobRow[];
+    },
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
 
-export async function markRelayJobSent({
-  context,
-  id,
-  headBlockNumber,
-  headBlockTimestamp,
-}: {
+export const markRelayJobSent = (args: {
   context: PonderContext;
   id: string;
   headBlockNumber: bigint;
   headBlockTimestamp: bigint;
-}) {
-  await context.db.update(relayJob, { id }).set({
-    status: "sent",
-    updatedAtBlockNumber: headBlockNumber,
-    updatedAtBlockTimestamp: headBlockTimestamp,
+}) =>
+  Effect.tryPromise({
+    try: () =>
+      args.context.db.update(relayJob, { id: args.id }).set({
+        status: "sent",
+        updatedAtBlockNumber: args.headBlockNumber,
+        updatedAtBlockTimestamp: args.headBlockTimestamp,
+      }),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
   });
-}
 
-export async function markRelayJobFailed({
-  context,
-  id,
-  headBlockNumber,
-  headBlockTimestamp,
-  errorMessage,
-  maxAttempts,
-  retryDelayBlocks,
-}: {
+export const markRelayJobFailed = (args: {
   context: PonderContext;
   id: string;
   headBlockNumber: bigint;
@@ -134,18 +116,21 @@ export async function markRelayJobFailed({
   errorMessage: string;
   maxAttempts: number;
   retryDelayBlocks: bigint;
-}) {
-  await context.db.update(relayJob, { id }).set((row: RelayJobRow) => {
-    const nextAttempts = (row.attempts ?? 0) + 1;
-    const isTerminal = nextAttempts >= maxAttempts;
+}) =>
+  Effect.tryPromise({
+    try: () =>
+      args.context.db.update(relayJob, { id: args.id }).set((row: RelayJobRow) => {
+        const nextAttempts = (row.attempts ?? 0) + 1;
+        const isTerminal = nextAttempts >= args.maxAttempts;
 
-    return {
-      attempts: nextAttempts,
-      status: isTerminal ? ("failed" as const) : ("pending" as const),
-      lastError: errorMessage,
-      updatedAtBlockNumber: headBlockNumber,
-      updatedAtBlockTimestamp: headBlockTimestamp,
-      nextRetryBlockNumber: isTerminal ? null : headBlockNumber + retryDelayBlocks,
-    };
+        return {
+          attempts: nextAttempts,
+          status: isTerminal ? ("failed" as const) : ("pending" as const),
+          lastError: args.errorMessage,
+          updatedAtBlockNumber: args.headBlockNumber,
+          updatedAtBlockTimestamp: args.headBlockTimestamp,
+          nextRetryBlockNumber: isTerminal ? null : args.headBlockNumber + args.retryDelayBlocks,
+        };
+      }),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
   });
-}
