@@ -20,11 +20,11 @@ function usageAndExit(message?: string): never {
   console.error(
     [
       "Usage:",
-      "  npx tsx execute-tron.ts ContractName FunctionNameOrSignature --private-key <64-hex-no-0x> [--full-host https://api.trongrid.io] [--api-key ...] [--fee-limit 100000000] [--call-value 0] [--contract <T...|41...>]",
+      "  npx tsx execute.ts ContractName FunctionNameOrSignature --private-key <64-hex-no-0x> [--full-host https://api.trongrid.io] [--api-key ...] [--fee-limit 100000000] [--call-value 0] [--contract <T...|41...>]",
       "",
       "Examples:",
-      "  npx tsx execute-tron.ts MyContract transfer --private-key deadbeef... --contract T... --fee-limit 150000000",
-      "  npx tsx execute-tron.ts MyContract 'setStruct((address,uint256,address))' --private-key deadbeef... --full-host https://api.shasta.trongrid.io",
+      "  npx tsx execute.ts MyContract transfer --private-key deadbeef... --contract T... --fee-limit 150000000",
+      "  npx tsx execute.ts MyContract 'setStruct((address,uint256,address))' --private-key deadbeef... --full-host https://api.shasta.trongrid.io",
     ].join("\n")
   );
   process.exit(1);

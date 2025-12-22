@@ -12,10 +12,12 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
     "@untron/tron-protocol": "workspace:*",
     "hono": "^4.5.0",
+    "permissionless": "^0.3.2",
     "ponder": "^0.15.17",
     "viem": "^2.21.3"
   },
