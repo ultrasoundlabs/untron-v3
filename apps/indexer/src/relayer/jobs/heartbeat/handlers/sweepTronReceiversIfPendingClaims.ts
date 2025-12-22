@@ -39,7 +39,6 @@ export const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =
           abi: UntronV3Abi,
           functionName: "nextIndexByTargetToken",
           args: [queue.targetToken],
-          blockNumber: ctx.headBlockNumber,
         })
       )) as bigint;
 
