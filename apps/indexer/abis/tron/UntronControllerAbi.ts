@@ -108,8 +108,6 @@ export const UntronControllerAbi = [
     inputs: [
       { name: "token", type: "address", internalType: "address" },
       { name: "receiverSalts", type: "bytes32[]", internalType: "bytes32[]" },
-      { name: "amounts", type: "uint256[]", internalType: "uint256[]" },
-      { name: "exchangeRate", type: "uint256", internalType: "uint256" },
     ],
     outputs: [],
     stateMutability: "nonpayable",
@@ -127,7 +125,6 @@ export const UntronControllerAbi = [
     inputs: [
       { name: "rebalancer", type: "address", internalType: "address" },
       { name: "inAmount", type: "uint256", internalType: "uint256" },
-      { name: "outAmount", type: "uint256", internalType: "uint256" },
     ],
     outputs: [],
     stateMutability: "payable",
@@ -296,10 +293,8 @@ export const UntronControllerAbi = [
     anonymous: false,
   },
   { type: "error", name: "ExchangeRateMismatch", inputs: [] },
-  { type: "error", name: "IncorrectSweepAmount", inputs: [] },
   { type: "error", name: "InsufficientLpLiquidity", inputs: [] },
   { type: "error", name: "InsufficientPulledAmount", inputs: [] },
-  { type: "error", name: "LengthMismatch", inputs: [] },
   { type: "error", name: "OnlyExecutor", inputs: [] },
   { type: "error", name: "OnlyLp", inputs: [] },
   { type: "error", name: "OnlyOwner", inputs: [] },

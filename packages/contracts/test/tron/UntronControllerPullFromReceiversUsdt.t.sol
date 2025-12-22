@@ -32,7 +32,7 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         uint256 expectedSweep = initial - 1;
 
         vm.recordLogs();
-        _controller.pullFromReceivers(address(_usdt), _asArray(salt), _asArray(expectedSweep), 123);
+        _controller.pullFromReceivers(address(_usdt), _asArray(salt));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertGt(predictedReceiver.code.length, 0, "receiver should be deployed");
@@ -55,7 +55,7 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         bytes32 tipBefore = _controller.eventChainTip();
 
         vm.recordLogs();
-        _controller.pullFromReceivers(address(_usdt), _asArray(salt), _asArray(uint256(0)), 0);
+        _controller.pullFromReceivers(address(_usdt), _asArray(salt));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(predictedReceiver.code.length, 0, "receiver should remain undeployed");
@@ -67,28 +67,31 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         assertEq(controllerLogs.length, 0, "no controller events expected");
     }
 
-    function test_pullUsdt_incorrectSweepAmount_revertsAndDoesNotDeploy() public {
-        bytes32 salt = keccak256("receiver-mismatch");
+    function test_pullUsdt_sweepAmountDerivedFromState() public {
+        bytes32 salt = keccak256("receiver-derived-sweep");
         address predictedReceiver = _controller.predictReceiverAddress(salt);
 
-        _usdt.mint(predictedReceiver, 100);
+        _usdt.mint(predictedReceiver, 100); // sweep 99
 
-        vm.expectRevert(UntronController.IncorrectSweepAmount.selector);
-        _controller.pullFromReceivers(address(_usdt), _asArray(salt), _asArray(uint256(98)), 0);
+        _controller.pullFromReceivers(address(_usdt), _asArray(salt));
 
-        assertEq(predictedReceiver.code.length, 0, "receiver should remain undeployed");
-        assertEq(_usdt.balanceOf(address(_controller)), 0, "controller should not receive USDT");
-        assertEq(_controller.pulledUsdt(), 0, "pulledUsdt should remain unchanged");
-        assertEq(_usdt.balanceOf(predictedReceiver), 100, "receiver balance should remain");
+        assertGt(predictedReceiver.code.length, 0, "receiver should be deployed");
+        assertEq(_usdt.balanceOf(address(_controller)), 99, "controller should receive balance-1");
+        assertEq(_usdt.balanceOf(predictedReceiver), 1, "receiver should keep 1 unit dust");
+        assertEq(_controller.pulledUsdt(), 99, "pulledUsdt should increase by swept amount");
     }
 
-    function test_pullUsdt_lengthMismatch_reverts() public {
-        bytes32[] memory salts = new bytes32[](1);
-        salts[0] = keccak256("a");
-        uint256[] memory amounts = new uint256[](0);
+    function test_pullUsdt_emptySalts_noEvents_noAccounting() public {
+        bytes32 tipBefore = _controller.eventChainTip();
 
-        vm.expectRevert(UntronController.LengthMismatch.selector);
-        _controller.pullFromReceivers(address(_usdt), salts, amounts, 0);
+        bytes32[] memory salts = new bytes32[](0);
+        vm.recordLogs();
+        _controller.pullFromReceivers(address(_usdt), salts);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(_controller.pulledUsdt(), 0, "pulledUsdt should remain unchanged");
+        assertEq(_controller.eventChainTip(), tipBefore, "tip should not change");
+        assertEq(_controllerLogs(logs).length, 0, "no controller events expected");
     }
 
     function test_pullUsdt_multipleReceivers_aggregatesAndLeavesDust() public {
@@ -108,13 +111,8 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         salts[1] = s2;
         salts[2] = s3;
 
-        uint256[] memory amounts = new uint256[](3);
-        amounts[0] = 10;
-        amounts[1] = 0;
-        amounts[2] = 20;
-
         vm.recordLogs();
-        _controller.pullFromReceivers(address(_usdt), salts, amounts, 0);
+        _controller.pullFromReceivers(address(_usdt), salts);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_usdt.balanceOf(address(_controller)), 30, "controller USDT balance should equal total sweep");
@@ -136,39 +134,6 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         _assertPulledFromReceiverLog(controllerLogs[1], s1, address(_usdt), 10, 1e18, 10);
         _assertReceiverDeployedLog(controllerLogs[2], r3, s3);
         _assertPulledFromReceiverLog(controllerLogs[3], s3, address(_usdt), 20, 1e18, 20);
-    }
-
-    function test_pullUsdt_batchMismatch_revertsAll_orNothing() public {
-        bytes32 s1 = keccak256("r1");
-        bytes32 s2 = keccak256("r2");
-        bytes32 s3 = keccak256("r3");
-
-        address r1 = _controller.predictReceiverAddress(s1);
-        address r2 = _controller.predictReceiverAddress(s2);
-        address r3 = _controller.predictReceiverAddress(s3);
-
-        _usdt.mint(r1, 11); // sweep 10
-        _usdt.mint(r3, 21); // sweep 20
-
-        bytes32[] memory salts = new bytes32[](3);
-        salts[0] = s1;
-        salts[1] = s2;
-        salts[2] = s3;
-
-        uint256[] memory amounts = new uint256[](3);
-        amounts[0] = 10;
-        amounts[1] = 0;
-        amounts[2] = 19; // mismatch: should be 20
-
-        vm.expectRevert(UntronController.IncorrectSweepAmount.selector);
-        _controller.pullFromReceivers(address(_usdt), salts, amounts, 0);
-
-        assertEq(_usdt.balanceOf(address(_controller)), 0, "controller should not receive USDT");
-        assertEq(_controller.pulledUsdt(), 0, "pulledUsdt should remain unchanged");
-
-        assertEq(r1.code.length, 0, "r1 should not be deployed");
-        assertEq(r2.code.length, 0, "r2 should not be deployed");
-        assertEq(r3.code.length, 0, "r3 should not be deployed");
     }
 
     function _controllerLogs(Vm.Log[] memory logs) internal view returns (Vm.Log[] memory filtered) {
@@ -217,10 +182,5 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
     function _asArray(bytes32 salt) internal pure returns (bytes32[] memory arr) {
         arr = new bytes32[](1);
         arr[0] = salt;
-    }
-
-    function _asArray(uint256 amount) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
-        arr[0] = amount;
     }
 }

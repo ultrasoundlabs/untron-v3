@@ -70,12 +70,6 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @notice Error thrown when trying to bridge with an unset route/payload.
     /// @dev    Only used in rebalanceUsdt function.
     error RouteNotSet();
-    /// @notice Error thrown when the amount to be swept from receiver does not match the expected value.
-    /// @dev    Only used in pullFromReceivers function.
-    error IncorrectSweepAmount();
-    /// @notice Error thrown when provided lengths of receiverSalts and amounts arrays do not match.
-    /// @dev    Only used in pullFromReceivers function.
-    error LengthMismatch();
     /// @notice Error thrown when the expected out amount does not match rebalancer-computed out amount.
     /// @dev    Only used in rebalanceUsdt function.
     error OutAmountMismatch();
@@ -223,31 +217,15 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
                       PERMISSIONLESS FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /* solhint-disable function-max-lines */
-    // the function is actually not that large, it's just very explicitly documented
-    // due to counterintuitiveness of Tron light client's proving mechanism
-
     /// @notice Pulls tokens from multiple receiver contracts and swaps them into accounting token.
     /// @param token Token address.
     /// @param receiverSalts Array of salts used for deterministic receiver
     ///                      deployment (CREATE2).
-    /// @param amounts Expected token amounts to be swept from each receiver.
-    ///                amounts[i] must equal the actual sweep amount,
-    ///                which is `balance - 1` if `balance > 0`, otherwise `0`.
-    /// @param exchangeRate Scaled exchange rate: USDT (smallest units) per RATE_SCALE token units.
-    ///                     Must match LP-configured rate when `token != usdt`. Ignored for USDT pulls.
     /// @dev Callable by anyone.
     ///      In this function, the controller only requests tokens to be sent into *its own balance*.
     ///      Sweeps all but one base unit from each non-zero-balance receiver,
     ///      in order to keep its balance slot non-zero for TRC-20 gas optimization.
-    function pullFromReceivers(
-        address token,
-        bytes32[] calldata receiverSalts,
-        uint256[] calldata amounts,
-        uint256 exchangeRate
-    ) external {
-        if (receiverSalts.length != amounts.length) revert LengthMismatch();
-
+    function pullFromReceivers(address token, bytes32[] calldata receiverSalts) external {
         bool isUsdt = token == usdt;
         uint256 rateUsed;
 
@@ -255,7 +233,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             rateUsed = _RATE_SCALE;
         } else {
             uint256 configuredRate = lpExchangeRateFor[token];
-            if (configuredRate == 0 || configuredRate != exchangeRate) revert ExchangeRateMismatch();
+            if (configuredRate == 0) revert ExchangeRateMismatch();
             rateUsed = configuredRate;
         }
 
@@ -264,13 +242,6 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         for (uint256 i = 0; i < receiverSalts.length; ++i) {
             bytes32 receiverSalt = receiverSalts[i];
             uint256 sweepAmount = _computeSweepAmount(token, receiverSalt);
-
-            // Verify the expected amount of tokens to be swept matches the actual amount.
-            // — why is this explicit in the calldata?
-            // in Tron light client, we can only prove success flag + tx calldata,
-            // so we have to pass things we need to prove there explicitly in calldata
-            // and revert if it's not equivalent to what's happening in the blockchain state.
-            if (amounts[i] != sweepAmount) revert IncorrectSweepAmount();
 
             if (sweepAmount != 0) {
                 _pullFromReceiver(receiverSalt, token, sweepAmount);
@@ -298,9 +269,6 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             } else {
                 // Non‑USDT tokens are immediately swapped into USDT against the LP at the
                 // LP-configured exchange rate, provided there is enough USDT liquidity.
-
-                // Compute LP's free USDT liquidity as controller's USDT balance minus
-                // already-accounted pulledUsdt.
                 uint256 lpFreeUsdt = _maxWithdrawableUsdt();
                 if (totalUsdt > lpFreeUsdt) revert InsufficientLpLiquidity();
 
@@ -309,8 +277,6 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             }
         }
     }
-
-    /* solhint-enable function-max-lines */
 
     /// @notice Computes the amount of tokens to sweep from the given token to the receiver.
     /// @param token The token to sweep.
@@ -337,12 +303,11 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @notice Bridges specified amount of USDT via the provided rebalancer using stored payload.
     /// @param rebalancer Rebalancer address.
     /// @param inAmount Amount of tokens to bridge.
-    /// @param outAmount Expected output amount returned by the rebalancer implementation.
     /// @dev Callable by anyone; uses tokens already held by the controller
     ///      (including TRX value attached to the call, if any).
     ///      Rebalancers are DELEGATECALLed in the controller's context
     ///      and are thus strongly encouraged to be stateless.
-    function rebalanceUsdt(address rebalancer, uint256 inAmount, uint256 outAmount) external payable {
+    function rebalanceUsdt(address rebalancer, uint256 inAmount) external payable {
         // Load payload for this rebalancer
         bytes memory payload = payloadFor[rebalancer];
         if (payload.length == 0) revert RouteNotSet();
@@ -354,9 +319,6 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
         // the underlying rebalancer will be able to use it to pay for the bridge call.
 
         // Execute the rebalancer via DELEGATECALL.
-        // The rebalancer implementation returns the expected out amount, which we
-        // compare against the caller-provided value to enforce invariants at
-        // the controller layer.
         bytes memory data = abi.encodeWithSelector(IRebalancer.rebalance.selector, usdt, inAmount, payload);
 
         // In UntronController, rebalancers are specified by the owner (admin), thus are trusted.
@@ -378,16 +340,9 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
             }
         }
 
-        // Verify the expected amount of tokens to be received from the bridge
-        // matches the actual amount asserted by the bridge used.
-        // — why is this explicit in the calldata?
-        // in Tron light client, we can only prove success flag + tx calldata,
-        // so we have to pass things we need to prove there explicitly in calldata
-        // and revert if it's not equivalent to what's happening in the blockchain state.
         uint256 rebalancerOutAmount = abi.decode(ret, (uint256));
-        if (rebalancerOutAmount != outAmount) revert OutAmountMismatch();
 
-        _emitUsdtRebalanced(inAmount, outAmount, rebalancer);
+        _emitUsdtRebalanced(inAmount, rebalancerOutAmount, rebalancer);
     }
 
     /// @notice Accepts native token for bridging fees.

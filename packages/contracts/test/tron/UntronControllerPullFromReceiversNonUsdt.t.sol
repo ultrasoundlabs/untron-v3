@@ -34,24 +34,11 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
         _tokenX.mint(receiver, 100); // sweep 99
 
         vm.expectRevert(UntronController.ExchangeRateMismatch.selector);
-        _controller.pullFromReceivers(address(_tokenX), _asArray(salt), _asArray(uint256(99)), 1e18);
+        _controller.pullFromReceivers(address(_tokenX), _asArray(salt));
 
         assertEq(receiver.code.length, 0, "receiver should remain undeployed");
         assertEq(_tokenX.balanceOf(address(_controller)), 0, "controller should not receive token");
         assertEq(_controller.pulledUsdt(), 0, "pulledUsdt should remain unchanged");
-    }
-
-    function test_exchangeRateMismatch_revertsWhenCalldataDiffers() public {
-        uint256 configuredRate = 2e18;
-        vm.prank(_LP);
-        _controller.setLpExchangeRate(address(_tokenX), configuredRate);
-
-        bytes32 salt = keccak256("tokenX-mismatch");
-        address receiver = _controller.predictReceiverAddress(salt);
-        _tokenX.mint(receiver, 100); // sweep 99
-
-        vm.expectRevert(UntronController.ExchangeRateMismatch.selector);
-        _controller.pullFromReceivers(address(_tokenX), _asArray(salt), _asArray(uint256(99)), 1e18);
     }
 
     function test_insufficientLpLiquidity_reverts() public {
@@ -74,7 +61,7 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
         _tokenX.mint(receiver, sweepAmount + 1);
 
         vm.expectRevert(UntronController.InsufficientLpLiquidity.selector);
-        _controller.pullFromReceivers(address(_tokenX), _asArray(salt), _asArray(sweepAmount), 1e18);
+        _controller.pullFromReceivers(address(_tokenX), _asArray(salt));
 
         assertEq(receiver.code.length, 0, "receiver deployment should revert");
         assertEq(_tokenX.balanceOf(address(_controller)), 0, "controller should not receive token");
@@ -97,7 +84,7 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
         uint256 pulledBefore = _controller.pulledUsdt();
 
         vm.recordLogs();
-        _controller.pullFromReceivers(address(_tokenX), _asArray(salt), _asArray(uint256(10)), rate);
+        _controller.pullFromReceivers(address(_tokenX), _asArray(salt));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_tokenX.balanceOf(address(_controller)), 10, "controller should receive swept token");
@@ -161,7 +148,7 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
         address r1 = _controller.predictReceiverAddress(s1);
         _tokenX.mint(r1, 101); // sweep 100
 
-        _controller.pullFromReceivers(address(_tokenX), _asArray(s1), _asArray(uint256(100)), 1e18);
+        _controller.pullFromReceivers(address(_tokenX), _asArray(s1));
 
         assertEq(_controller.pulledUsdt(), 200, "pulledUsdt should increase by 100");
         assertEq(_usdt.balanceOf(address(_controller)), 200, "USDT balance should remain");
@@ -172,7 +159,7 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
         _tokenX.mint(r2, 2); // sweep 1
 
         vm.expectRevert(UntronController.InsufficientLpLiquidity.selector);
-        _controller.pullFromReceivers(address(_tokenX), _asArray(s2), _asArray(uint256(1)), 1e18);
+        _controller.pullFromReceivers(address(_tokenX), _asArray(s2));
     }
 
     function _setupSuccessfulNonUsdtPull() internal {
@@ -186,14 +173,14 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
         address receiver = _controller.predictReceiverAddress(salt);
         _tokenX.mint(receiver, 11); // sweep 10
 
-        _controller.pullFromReceivers(address(_tokenX), _asArray(salt), _asArray(uint256(10)), rate);
+        _controller.pullFromReceivers(address(_tokenX), _asArray(salt));
     }
 
     function _doUsdtPull(uint256 sweepAmount) internal {
         bytes32 salt = keccak256(abi.encodePacked("usdt-pull", sweepAmount));
         address receiver = _controller.predictReceiverAddress(salt);
         _usdt.mint(receiver, sweepAmount + 1);
-        _controller.pullFromReceivers(address(_usdt), _asArray(salt), _asArray(sweepAmount), 0);
+        _controller.pullFromReceivers(address(_usdt), _asArray(salt));
     }
 
     function _lpDepositUsdt(uint256 amount) internal {
@@ -218,10 +205,5 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
     function _asArray(bytes32 salt) internal pure returns (bytes32[] memory arr) {
         arr = new bytes32[](1);
         arr[0] = salt;
-    }
-
-    function _asArray(uint256 amount) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
-        arr[0] = amount;
     }
 }

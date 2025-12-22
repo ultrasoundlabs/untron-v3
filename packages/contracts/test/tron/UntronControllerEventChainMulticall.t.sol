@@ -31,7 +31,7 @@ contract UntronControllerEventChainMulticallTest is Test {
 
         // No-op pullFromReceivers (all sweep=0) should not emit or update the tip.
         bytes32 salt = keccak256("zero");
-        controller.pullFromReceivers(address(usdt), _asArray(salt), _asArray(uint256(0)), 0);
+        controller.pullFromReceivers(address(usdt), _asArray(salt));
         assertEq(controller.eventChainTip(), tipAfterSetup, "tip should not change on no-op pull");
 
         // No-op LP withdraw (amount=0) should not emit or update the tip.
@@ -147,10 +147,5 @@ contract UntronControllerEventChainMulticallTest is Test {
     function _asArray(bytes32 salt) internal pure returns (bytes32[] memory arr) {
         arr = new bytes32[](1);
         arr[0] = salt;
-    }
-
-    function _asArray(uint256 amount) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
-        arr[0] = amount;
     }
 }

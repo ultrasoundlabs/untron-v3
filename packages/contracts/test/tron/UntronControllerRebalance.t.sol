@@ -2,6 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {UntronController} from "../../src/tron/UntronController.sol";
 
@@ -9,6 +10,8 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockRebalancer} from "./mocks/MockRebalancer.sol";
 
 contract UntronControllerRebalanceTest is Test {
+    bytes32 private constant _SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
+
     UntronController internal _controller;
     MockERC20 internal _usdt;
     MockRebalancer internal _rebalancer;
@@ -25,7 +28,7 @@ contract UntronControllerRebalanceTest is Test {
 
     function test_rebalance_routeNotSet_reverts() public {
         vm.expectRevert(UntronController.RouteNotSet.selector);
-        _controller.rebalanceUsdt(address(_rebalancer), 0, 0);
+        _controller.rebalanceUsdt(address(_rebalancer), 0);
     }
 
     function test_rebalance_cannotSpendMoreThanPulledUsdt() public {
@@ -35,23 +38,23 @@ contract UntronControllerRebalanceTest is Test {
         );
 
         vm.expectRevert(UntronController.InsufficientPulledAmount.selector);
-        _controller.rebalanceUsdt(address(_rebalancer), 11, 0);
+        _controller.rebalanceUsdt(address(_rebalancer), 11);
     }
 
-    function test_rebalance_outAmountMismatch_revertsWithoutChangingAccounting() public {
+    function test_rebalance_emitsReturnedOutAmount() public {
         _doUsdtPull(100);
         _setRebalancerPayload(
             _config({outAmount: 123, sink: address(0), spendTokenInAmount: false, ethToSink: 0, shouldRevert: false})
         );
 
-        uint256 pulledBefore = _controller.pulledUsdt();
-        uint256 usdtBefore = _usdt.balanceOf(address(_controller));
+        vm.recordLogs();
+        _controller.rebalanceUsdt(address(_rebalancer), 10);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        vm.expectRevert(UntronController.OutAmountMismatch.selector);
-        _controller.rebalanceUsdt(address(_rebalancer), 10, 124);
-
-        assertEq(_controller.pulledUsdt(), pulledBefore, "pulledUsdt should not change on revert");
-        assertEq(_usdt.balanceOf(address(_controller)), usdtBefore, "USDT balance should not change on revert");
+        Vm.Log memory log = _findSingleControllerLog(logs, _SIG_USDT_REBALANCED);
+        (uint256 inAmount, uint256 outAmount) = abi.decode(log.data, (uint256, uint256));
+        assertEq(inAmount, 10, "event inAmount mismatch");
+        assertEq(outAmount, 123, "event outAmount mismatch");
     }
 
     function test_rebalance_rebalancerRevert_bubbles() public {
@@ -63,7 +66,7 @@ contract UntronControllerRebalanceTest is Test {
         uint256 pulledBefore = _controller.pulledUsdt();
 
         vm.expectRevert(MockRebalancer.RebalanceReverted.selector);
-        _controller.rebalanceUsdt(address(_rebalancer), 10, 0);
+        _controller.rebalanceUsdt(address(_rebalancer), 10);
 
         assertEq(_controller.pulledUsdt(), pulledBefore, "pulledUsdt should not change on revert");
     }
@@ -80,7 +83,7 @@ contract UntronControllerRebalanceTest is Test {
         uint256 controllerEthBefore = address(_controller).balance;
         uint256 sinkEthBefore = _SINK.balance;
 
-        _controller.rebalanceUsdt{value: 1 ether}(address(_rebalancer), 50, 777);
+        _controller.rebalanceUsdt{value: 1 ether}(address(_rebalancer), 50);
 
         assertEq(_controller.pulledUsdt(), 50, "pulledUsdt should decrement by inAmount");
         assertEq(_usdt.balanceOf(_SINK), 50, "sink should receive USDT");
@@ -99,7 +102,7 @@ contract UntronControllerRebalanceTest is Test {
 
         uint256 usdtBefore = _usdt.balanceOf(address(_controller));
 
-        _controller.rebalanceUsdt(address(_rebalancer), 40, 999);
+        _controller.rebalanceUsdt(address(_rebalancer), 40);
 
         assertEq(_controller.pulledUsdt(), 60, "pulledUsdt should decrement even if rebalancer does nothing");
         assertEq(_usdt.balanceOf(address(_controller)), usdtBefore, "USDT balance should not change");
@@ -109,7 +112,7 @@ contract UntronControllerRebalanceTest is Test {
         bytes32 salt = keccak256(abi.encodePacked("usdt-pull", sweepAmount));
         address receiver = _controller.predictReceiverAddress(salt);
         _usdt.mint(receiver, sweepAmount + 1);
-        _controller.pullFromReceivers(address(_usdt), _asArray(salt), _asArray(sweepAmount), 0);
+        _controller.pullFromReceivers(address(_usdt), _asArray(salt));
     }
 
     function _setRebalancerPayload(MockRebalancer.Config memory config) internal {
@@ -135,8 +138,15 @@ contract UntronControllerRebalanceTest is Test {
         arr[0] = salt;
     }
 
-    function _asArray(uint256 amount) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
-        arr[0] = amount;
+    function _findSingleControllerLog(Vm.Log[] memory logs, bytes32 sig) internal returns (Vm.Log memory found) {
+        bool hasFound = false;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(_controller)) continue;
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != sig) continue;
+            if (hasFound) fail("found multiple logs for signature");
+            found = logs[i];
+            hasFound = true;
+        }
+        if (!hasFound) fail("log not found");
     }
 }

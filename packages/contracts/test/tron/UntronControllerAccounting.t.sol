@@ -76,16 +76,11 @@ contract UntronControllerAccountingTest is Test {
         bytes32 salt = keccak256(abi.encodePacked("usdt-pull", sweepAmount));
         address receiver = _controller.predictReceiverAddress(salt);
         _usdt.mint(receiver, sweepAmount + 1);
-        _controller.pullFromReceivers(address(_usdt), _asArray(salt), _asArray(sweepAmount), 0);
+        _controller.pullFromReceivers(address(_usdt), _asArray(salt));
     }
 
     function _asArray(bytes32 salt) internal pure returns (bytes32[] memory arr) {
         arr = new bytes32[](1);
         arr[0] = salt;
-    }
-
-    function _asArray(uint256 amount) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
-        arr[0] = amount;
     }
 }

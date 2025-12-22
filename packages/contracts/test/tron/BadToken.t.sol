@@ -35,7 +35,7 @@ contract BadTokenTest is Test {
         bad.mint(predictedReceiver, 100); // expected sweep = 99
 
         vm.expectRevert(SafeTransferLib.TransferFailed.selector);
-        controller.pullFromReceivers(address(bad), _asArray(salt), _asArray(uint256(99)), 0);
+        controller.pullFromReceivers(address(bad), _asArray(salt));
 
         assertEq(predictedReceiver.code.length, 0, "receiver deployment should revert");
         assertEq(bad.balanceOf(address(controller)), 0, "controller should not receive tokens");
@@ -45,11 +45,6 @@ contract BadTokenTest is Test {
 
     function _asArray(bytes32 value) internal pure returns (bytes32[] memory arr) {
         arr = new bytes32[](1);
-        arr[0] = value;
-    }
-
-    function _asArray(uint256 value) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
         arr[0] = value;
     }
 }
