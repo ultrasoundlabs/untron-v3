@@ -38,7 +38,7 @@ export const UntronControllerAbi = [
     name: "isEventChainTip",
     inputs: [{ name: "eventChainTip_", type: "bytes32", internalType: "bytes32" }],
     outputs: [{ name: "", type: "bool", internalType: "bool" }],
-    stateMutability: "view",
+    stateMutability: "nonpayable",
   },
   {
     type: "function",
@@ -214,6 +214,15 @@ export const UntronControllerAbi = [
     type: "event",
     name: "ExecutorChanged",
     inputs: [{ name: "newExecutor", type: "address", indexed: true, internalType: "address" }],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "IsEventChainTipCalled",
+    inputs: [
+      { name: "caller", type: "address", indexed: true, internalType: "address" },
+      { name: "eventChainTip", type: "bytes32", indexed: false, internalType: "bytes32" },
+    ],
     anonymous: false,
   },
   {

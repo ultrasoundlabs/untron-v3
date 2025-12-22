@@ -80,6 +80,12 @@ contract UntronControllerIndex {
     /// @param token Token withdrawn.
     /// @param amount Amount withdrawn.
     event LpTokensWithdrawn(address indexed token, uint256 amount);
+    /// @notice Emitted when {isEventChainTip} is called onchain.
+    /// @dev    This is the only event in this index that is NOT indexed via the hash chain (`eventChainTip`).
+    ///         All other events are appended via {_appendEventChain}.
+    /// @param caller Caller address.
+    /// @param eventChainTip The event chain tip provided in calldata.
+    event IsEventChainTipCalled(address indexed caller, bytes32 indexed eventChainTip);
 
     /*//////////////////////////////////////////////////////////////
                 TRON-SPECIFIC CALLDATA GETTER
@@ -92,10 +98,11 @@ contract UntronControllerIndex {
     ///      only successful transactions in the block. So we can expose the event chain tip
     ///      to the light client by allowing users to send transactions
     ///      where the event chain tip is in transaction's calldata.
-    function isEventChainTip(bytes32 eventChainTip_) external view returns (bool) {
+    function isEventChainTip(bytes32 eventChainTip_) external returns (bool) {
         // i don't think this one needs a custom error
         // solhint-disable-next-line gas-custom-errors
         require(eventChainTip == eventChainTip_, "no");
+        emit IsEventChainTipCalled(msg.sender, eventChainTip_);
         return true;
     }
 

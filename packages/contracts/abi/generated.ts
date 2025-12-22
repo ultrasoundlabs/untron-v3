@@ -1,36 +1,4 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// BaseZKHonkVerifier
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const baseZkHonkVerifierAbi = [
-  {
-    type: 'function',
-    inputs: [
-      { name: 'proof', internalType: 'bytes', type: 'bytes' },
-      { name: 'publicInputs', internalType: 'bytes32[]', type: 'bytes32[]' },
-    ],
-    name: 'verify',
-    outputs: [{ name: 'verified', internalType: 'bool', type: 'bool' }],
-    stateMutability: 'view',
-  },
-  { type: 'error', inputs: [], name: 'ConsistencyCheckFailed' },
-  { type: 'error', inputs: [], name: 'GeminiChallengeInSubgroup' },
-  { type: 'error', inputs: [], name: 'ProofLengthWrong' },
-  {
-    type: 'error',
-    inputs: [
-      { name: 'logN', internalType: 'uint256', type: 'uint256' },
-      { name: 'actualLength', internalType: 'uint256', type: 'uint256' },
-      { name: 'expectedLength', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'ProofLengthWrongWithLogN',
-  },
-  { type: 'error', inputs: [], name: 'PublicInputsLengthWrong' },
-  { type: 'error', inputs: [], name: 'ShpleminiFailed' },
-  { type: 'error', inputs: [], name: 'SumcheckFailed' },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // CCTPV2Bridger
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -267,51 +235,6 @@ export const create2UtilsAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// DeployCCTPV2BridgerScript
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const deployCctpv2BridgerScriptAbi = [
-  {
-    type: 'function',
-    inputs: [],
-    name: 'IS_SCRIPT',
-    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'run',
-    outputs: [
-      {
-        name: 'bridger',
-        internalType: 'contract CCTPV2Bridger',
-        type: 'address',
-      },
-    ],
-    stateMutability: 'nonpayable',
-  },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// ECDSA
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const ecdsaAbi = [
-  { type: 'error', inputs: [], name: 'ECDSAInvalidSignature' },
-  {
-    type: 'error',
-    inputs: [{ name: 'length', internalType: 'uint256', type: 'uint256' }],
-    name: 'ECDSAInvalidSignatureLength',
-  },
-  {
-    type: 'error',
-    inputs: [{ name: 's', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'ECDSAInvalidSignatureS',
-  },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // EIP712
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -492,38 +415,6 @@ export const erc20Abi = [
     inputs: [{ name: 'spender', internalType: 'address', type: 'address' }],
     name: 'ERC20InvalidSpender',
   },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// HonkVerifier
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const honkVerifierAbi = [
-  {
-    type: 'function',
-    inputs: [
-      { name: 'proof', internalType: 'bytes', type: 'bytes' },
-      { name: 'publicInputs', internalType: 'bytes32[]', type: 'bytes32[]' },
-    ],
-    name: 'verify',
-    outputs: [{ name: 'verified', internalType: 'bool', type: 'bool' }],
-    stateMutability: 'view',
-  },
-  { type: 'error', inputs: [], name: 'ConsistencyCheckFailed' },
-  { type: 'error', inputs: [], name: 'GeminiChallengeInSubgroup' },
-  { type: 'error', inputs: [], name: 'ProofLengthWrong' },
-  {
-    type: 'error',
-    inputs: [
-      { name: 'logN', internalType: 'uint256', type: 'uint256' },
-      { name: 'actualLength', internalType: 'uint256', type: 'uint256' },
-      { name: 'expectedLength', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'ProofLengthWrongWithLogN',
-  },
-  { type: 'error', inputs: [], name: 'PublicInputsLengthWrong' },
-  { type: 'error', inputs: [], name: 'ShpleminiFailed' },
-  { type: 'error', inputs: [], name: 'SumcheckFailed' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3511,23 +3402,6 @@ export const iTokenMessengerV2Abi = [
     ],
     name: 'depositForBurn',
     outputs: [],
-    stateMutability: 'nonpayable',
-  },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// IVerifier
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const iVerifierAbi = [
-  {
-    type: 'function',
-    inputs: [
-      { name: '_proof', internalType: 'bytes', type: 'bytes' },
-      { name: '_publicInputs', internalType: 'bytes32[]', type: 'bytes32[]' },
-    ],
-    name: 'verify',
-    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'nonpayable',
   },
 ] as const
@@ -6566,7 +6440,7 @@ export const untronControllerAbi = [
     ],
     name: 'isEventChainTip',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
-    stateMutability: 'view',
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -6760,6 +6634,25 @@ export const untronControllerAbi = [
       },
     ],
     name: 'ExecutorChanged',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'caller',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'eventChainTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+    ],
+    name: 'IsEventChainTipCalled',
   },
   {
     type: 'event',
@@ -6963,7 +6856,7 @@ export const untronControllerIndexAbi = [
     ],
     name: 'isEventChainTip',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
-    stateMutability: 'view',
+    stateMutability: 'nonpayable',
   },
   {
     type: 'event',
@@ -6996,6 +6889,25 @@ export const untronControllerIndexAbi = [
       },
     ],
     name: 'ExecutorChanged',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'caller',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'eventChainTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+    ],
+    name: 'IsEventChainTipCalled',
   },
   {
     type: 'event',
@@ -10866,238 +10778,4 @@ export const untronV3IndexedOwnableAbi = [
   { type: 'error', inputs: [], name: 'AlreadyInitialized' },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
   { type: 'error', inputs: [], name: 'Unauthorized' },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// ZKTranscriptLib
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const zkTranscriptLibAbi = [
-  {
-    type: 'function',
-    inputs: [
-      {
-        name: 'proof',
-        internalType: 'struct Honk.ZKProof',
-        type: 'tuple',
-        components: [
-          {
-            name: 'pairingPointObject',
-            internalType: 'Fr[16]',
-            type: 'uint256[16]',
-          },
-          {
-            name: 'w1',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'w2',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'w3',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'w4',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'lookupReadCounts',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'lookupReadTags',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'lookupInverses',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'zPerm',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'libraCommitments',
-            internalType: 'struct Honk.G1Point[3]',
-            type: 'tuple[3]',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          { name: 'libraSum', internalType: 'Fr', type: 'uint256' },
-          {
-            name: 'sumcheckUnivariates',
-            internalType: 'Fr[9][28]',
-            type: 'uint256[9][28]',
-          },
-          {
-            name: 'sumcheckEvaluations',
-            internalType: 'Fr[41]',
-            type: 'uint256[41]',
-          },
-          { name: 'libraEvaluation', internalType: 'Fr', type: 'uint256' },
-          {
-            name: 'geminiMaskingPoly',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          { name: 'geminiMaskingEval', internalType: 'Fr', type: 'uint256' },
-          {
-            name: 'geminiFoldComms',
-            internalType: 'struct Honk.G1Point[27]',
-            type: 'tuple[27]',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'geminiAEvaluations',
-            internalType: 'Fr[28]',
-            type: 'uint256[28]',
-          },
-          { name: 'libraPolyEvals', internalType: 'Fr[4]', type: 'uint256[4]' },
-          {
-            name: 'shplonkQ',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-          {
-            name: 'kzgQuotient',
-            internalType: 'struct Honk.G1Point',
-            type: 'tuple',
-            components: [
-              { name: 'x', internalType: 'uint256', type: 'uint256' },
-              { name: 'y', internalType: 'uint256', type: 'uint256' },
-            ],
-          },
-        ],
-      },
-      { name: 'publicInputs', internalType: 'bytes32[]', type: 'bytes32[]' },
-      { name: 'vkHash', internalType: 'uint256', type: 'uint256' },
-      { name: 'publicInputsSize', internalType: 'uint256', type: 'uint256' },
-      { name: 'logN', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'generateTranscript',
-    outputs: [
-      {
-        name: 't',
-        internalType: 'struct ZKTranscript',
-        type: 'tuple',
-        components: [
-          {
-            name: 'relationParameters',
-            internalType: 'struct Honk.RelationParameters',
-            type: 'tuple',
-            components: [
-              { name: 'eta', internalType: 'Fr', type: 'uint256' },
-              { name: 'etaTwo', internalType: 'Fr', type: 'uint256' },
-              { name: 'etaThree', internalType: 'Fr', type: 'uint256' },
-              { name: 'beta', internalType: 'Fr', type: 'uint256' },
-              { name: 'gamma', internalType: 'Fr', type: 'uint256' },
-              {
-                name: 'publicInputsDelta',
-                internalType: 'Fr',
-                type: 'uint256',
-              },
-            ],
-          },
-          { name: 'alphas', internalType: 'Fr[27]', type: 'uint256[27]' },
-          {
-            name: 'gateChallenges',
-            internalType: 'Fr[28]',
-            type: 'uint256[28]',
-          },
-          { name: 'libraChallenge', internalType: 'Fr', type: 'uint256' },
-          {
-            name: 'sumCheckUChallenges',
-            internalType: 'Fr[28]',
-            type: 'uint256[28]',
-          },
-          { name: 'rho', internalType: 'Fr', type: 'uint256' },
-          { name: 'geminiR', internalType: 'Fr', type: 'uint256' },
-          { name: 'shplonkNu', internalType: 'Fr', type: 'uint256' },
-          { name: 'shplonkZ', internalType: 'Fr', type: 'uint256' },
-          { name: 'publicInputsDelta', internalType: 'Fr', type: 'uint256' },
-        ],
-      },
-    ],
-    stateMutability: 'pure',
-  },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// ZKTronV1BlockRangeProver
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const zkTronV1BlockRangeProverAbi = [
-  {
-    type: 'function',
-    inputs: [
-      { name: 'srDataHash', internalType: 'bytes32', type: 'bytes32' },
-      { name: 'startingBlock', internalType: 'bytes32', type: 'bytes32' },
-      { name: 'endingBlock', internalType: 'bytes32', type: 'bytes32' },
-      {
-        name: 'endingBlockTxTrieRoot',
-        internalType: 'bytes32',
-        type: 'bytes32',
-      },
-      { name: 'endingBlockTimestamp', internalType: 'uint32', type: 'uint32' },
-      { name: 'zkProof', internalType: 'bytes', type: 'bytes' },
-    ],
-    name: 'proveBlockRange',
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
 ] as const
