@@ -15,6 +15,7 @@ export type RelayerRuntimeConfig = Readonly<{
   mainnetConfirmations: bigint;
   tronConfirmations: bigint;
   claimLimit: number;
+  fillMaxClaimsPerQueue: number;
   maxAttempts: number;
   retryDelayBlocks: bigint;
 }>;
@@ -122,6 +123,10 @@ export class AppConfig extends Effect.Tag("AppConfig")<
           );
 
           const claimLimit = yield* requiredNumberWithDefault("RELAYER_CLAIM_LIMIT", 10);
+          const fillMaxClaimsPerQueue = yield* requiredNumberWithDefault(
+            "RELAYER_FILL_MAX_CLAIMS_PER_QUEUE",
+            500
+          );
           const maxAttempts = yield* requiredNumberWithDefault("RELAYER_MAX_ATTEMPTS", 5);
           const retryDelayBlocks = yield* requiredBigint("RELAYER_RETRY_DELAY_BLOCKS").pipe(
             Config.withDefault(5n)
@@ -135,6 +140,7 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             mainnetConfirmations,
             tronConfirmations,
             claimLimit,
+            fillMaxClaimsPerQueue,
             maxAttempts,
             retryDelayBlocks,
           } satisfies RelayerRuntimeConfig;

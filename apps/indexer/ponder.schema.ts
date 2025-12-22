@@ -125,6 +125,58 @@ export const untronV3ClaimQueue = onchainTable(
   })
 );
 
+export const untronV3Claim = onchainTable(
+  "untron_v3_claim",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${targetToken}:${claimIndex}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    targetToken: t.hex().notNull(),
+    claimIndex: t.bigint().notNull(),
+    leaseId: t.bigint().notNull(),
+    amountUsdt: t.bigint().notNull(),
+    targetChainId: t.bigint().notNull(),
+    beneficiary: t.hex().notNull(),
+    createdAtBlockNumber: t.bigint().notNull(),
+    createdAtBlockTimestamp: t.bigint().notNull(),
+    createdAtTransactionHash: t.hex().notNull(),
+    createdAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractTokenClaimIdx: index().on(
+      table.chainId,
+      table.contractAddress,
+      table.targetToken,
+      table.claimIndex
+    ),
+    contractLeaseIdx: index().on(table.chainId, table.contractAddress, table.leaseId),
+  })
+);
+
+export const untronV3BridgerRoute = onchainTable(
+  "untron_v3_bridger_route",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${targetToken}:${targetChainId}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    targetToken: t.hex().notNull(),
+    targetChainId: t.bigint().notNull(),
+    bridger: t.hex().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractTokenChainIdx: index().on(
+      table.chainId,
+      table.contractAddress,
+      table.targetToken,
+      table.targetChainId
+    ),
+  })
+);
+
 export const relayerStatus = onchainTable("relayer_status", (t) => ({
   chainId: t.integer().primaryKey(),
   isLive: t.boolean().notNull(),

@@ -27,7 +27,7 @@ Whenever you start a task inside apps/indexer, you must read this file and follo
 
 - `apps/indexer/src/index.ts` is the Ponder entrypoint. It registers:
   - The event-chain indexer for 3 contracts (`UntronV3`, `TronLightClient`, `UntronController`).
-  - The UntronV3 derived indexer (tracks payout config + claim-queue state for relayer decisions).
+  - The UntronV3 derived indexer (tracks payout config, swap rates, bridger routes, and claim queue/claim rows for relayer decisions).
   - The relayer handlers.
 
 ## Ponder exposes an HTTP API (independent of Effect)
@@ -301,10 +301,20 @@ There are two important guards:
 - `apps/indexer/src/relayer/jobs/heartbeat/mainnetHeartbeat.ts`:
   - If `dryRun`, do nothing.
   - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers` (each wrapped in `Effect.exit` so later handlers still run if one fails).
-  - Current handler (`sweep_tron_receivers_if_pending_claims`):
+  - Current handlers:
+    - `fill_claims_from_untron_balance`:
+      - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/fillClaimsFromUntronBalance.ts`.
+      - Uses `apps/indexer/src/relayer/claimFiller/buildMainnetFillCalls.ts` to:
+        - Read derived queue state (`untron_v3_claim_queue`) and per-claim rows (`untron_v3_claim`) from the DB.
+        - Read onchain `UntronV3.nextIndexByTargetToken(targetToken)` to determine the pending head per queue.
+        - Build a single EIP-4337 UserOperation (via `MainnetRelayer`) that batches:
+          - any required pre-calls (e.g. swap executor prefunding), then
+          - `UntronV3.fill(targetToken, maxClaims, calls)` for each planned queue.
+      - Swap support is designed to be pluggable via the `SwapPlanner` service (`apps/indexer/src/relayer/claimFiller/swapPlanner.ts`); if no providers are configured, non-USDT queues are skipped.
+    - `sweep_tron_receivers_if_pending_claims`:
     - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/sweepTronReceiversIfPendingClaims.ts`.
     - Reads `untron_v3_claim_queue` rows (max observed claim index + 1 per `targetToken`).
-    - Compares that `queueLength` to onchain `UntronV3.nextIndexByTargetToken(targetToken)` at the job head block.
+    - Compares that `queueLength` to onchain `UntronV3.nextIndexByTargetToken(targetToken)` at latest state.
     - If any queue has pending claims (`queueLength > nextIndex`), runs the same Tron sweep logic as `tron_heartbeat`.
 - `apps/indexer/src/relayer/jobs/heartbeat/tronHeartbeat.ts`:
   - If `dryRun`, do nothing.
@@ -413,7 +423,7 @@ Public methods are small wrappers:
 - `sendTronControllerPullFromReceivers` (`apps/indexer/src/relayer/deps/tron.ts`)
 - `sendTronControllerRebalanceUsdt` (`apps/indexer/src/relayer/deps/tron.ts`)
 
-## MainnetRelayer: account abstraction (prepared, not actively used)
+## MainnetRelayer: account abstraction (EIP-4337)
 
 - `apps/indexer/src/relayer/deps/mainnet.ts`
 - Wraps `permissionless` to send EIP-4337 UserOperations via bundlers:
@@ -422,7 +432,7 @@ Public methods are small wrappers:
   - Polls for inclusion by scanning EntryPoint `UserOperationEvent` logs
   - Tries bundlers sequentially and aggregates errors
 
-Nothing currently calls it; the service is wired into the runtime for future mainnet relaying, but mainnet heartbeat only triggers Tron sweeping when UntronV3 has pending claims.
+Used by mainnet heartbeat claim-filling (`fill_claims_from_untron_balance`) to batch `UntronV3.fill(...)` calls into a single UserOperation.
 
 ---
 
@@ -433,7 +443,12 @@ If you start the app with `ponder start`:
 1. Ponder indexes events for the configured contracts.
 2. For each event on `UntronV3` / `TronLightClient` / `UntronController`:
    - `apps/indexer/src/eventChainIndexer.ts` stores it into `event_chain_event` and updates `event_chain_state`.
-   - For `UntronV3` events, `apps/indexer/src/index.ts` wires `apps/indexer/src/untronV3DerivedIndexer.ts` in as an `afterEvent` hook to maintain UntronV3-derived state tables like `untron_v3_lease_payout_config` and `untron_v3_claim_queue`.
+   - For `UntronV3` events, `apps/indexer/src/index.ts` wires `apps/indexer/src/untronV3DerivedIndexer.ts` in as an `afterEvent` hook to maintain UntronV3-derived state tables like:
+     - `untron_v3_lease_payout_config`
+     - `untron_v3_swap_rate`
+     - `untron_v3_bridger_route`
+     - `untron_v3_claim_queue`
+     - `untron_v3_claim`
 3. For each new Tron block:
    - `apps/indexer/src/relayer/register.ts` updates `relayer_status`.
    - If relayer enabled and indexer synced, it enqueues a `tron_heartbeat` job.
