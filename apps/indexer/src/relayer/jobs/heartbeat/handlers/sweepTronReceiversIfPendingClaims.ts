@@ -5,7 +5,7 @@ import { untronV3ClaimQueue } from "ponder:schema";
 import { UntronV3Abi } from "../../../../../abis/evm/UntronV3Abi";
 import { tryPromise } from "../../../../effect/tryPromise";
 import { getRows } from "../../../sqlRows";
-import { tronSweepFromReceivers } from "./tronSweep";
+import { tronSweepTrxFromReceivers } from "./trxSweep";
 import type { RelayJobHandlerContext } from "../../types";
 
 export const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =>
@@ -50,5 +50,5 @@ export const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =
 
     if (!hasPendingClaims) return;
 
-    yield* tronSweepFromReceivers(ctx);
+    yield* tronSweepTrxFromReceivers(ctx);
   });

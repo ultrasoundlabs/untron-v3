@@ -13,6 +13,8 @@ import {
 } from "viem";
 
 import type { BytesMessage, Return, TransactionExtention } from "@untron/tron-protocol/api";
+import { AccountBalanceRequest } from "@untron/tron-protocol/core/contract/balance_contract";
+import type { AccountBalanceResponse } from "@untron/tron-protocol/core/contract/balance_contract";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
 import type { SmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
 import {
@@ -87,8 +89,15 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
       ConfigError.ConfigError | Error
     >;
     readonly getControllerUsdt: () => Effect.Effect<Address, ConfigError.ConfigError | Error>;
+    readonly getControllerPulledUsdt: () => Effect.Effect<bigint, ConfigError.ConfigError | Error>;
+    readonly getControllerLpExchangeRateFor: (args: {
+      tokenAddress: Address;
+    }) => Effect.Effect<bigint, ConfigError.ConfigError | Error>;
     readonly getErc20BalanceOf: (args: {
       tokenAddress: Address;
+      account: Address;
+    }) => Effect.Effect<bigint, ConfigError.ConfigError | Error>;
+    readonly getTrxBalanceOf: (args: {
       account: Address;
     }) => Effect.Effect<bigint, ConfigError.ConfigError | Error>;
     readonly sendTronControllerPullFromReceivers: (args: {
@@ -785,6 +794,29 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           )
         );
 
+      const getControllerPulledUsdt = () =>
+        controllerAddressBytes21().pipe(
+          Effect.flatMap((controllerBytes21) =>
+            tronReadContract<bigint>({
+              addressBytes21: controllerBytes21,
+              abi: UntronControllerAbi,
+              functionName: "pulledUsdt",
+            })
+          )
+        );
+
+      const getControllerLpExchangeRateFor = ({ tokenAddress }: { tokenAddress: Address }) =>
+        controllerAddressBytes21().pipe(
+          Effect.flatMap((controllerBytes21) =>
+            tronReadContract<bigint>({
+              addressBytes21: controllerBytes21,
+              abi: UntronControllerAbi,
+              functionName: "lpExchangeRateFor",
+              args: [tokenAddress],
+            })
+          )
+        );
+
       const getErc20BalanceOf = ({
         tokenAddress,
         account,
@@ -797,6 +829,27 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           abi: ERC20Abi,
           functionName: "balanceOf",
           args: [account],
+        });
+
+      const getTrxBalanceOf = ({ account }: { account: Address }) =>
+        Effect.gen(function* () {
+          const { wallet } = yield* tronGrpc.get();
+
+          const request = AccountBalanceRequest.fromPartial({
+            accountIdentifier: {
+              address: tronEvmAddressToBytes21(account),
+            },
+          });
+
+          const res = yield* grpcUnary(
+            wallet.getAccountBalance.bind(wallet) as unknown as UnaryCall<
+              AccountBalanceRequest,
+              AccountBalanceResponse
+            >,
+            request
+          );
+
+          return BigInt(res.balance.toString());
         });
 
       const sendTronControllerPullFromReceivers = ({
@@ -849,7 +902,10 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
         getControllerEvmAddress: controllerEvmAddress,
         getReceiverMap: () => getReceiverMapCached,
         getControllerUsdt,
+        getControllerPulledUsdt,
+        getControllerLpExchangeRateFor,
         getErc20BalanceOf,
+        getTrxBalanceOf,
         sendTronControllerPullFromReceivers,
         sendTronControllerRebalanceUsdt,
       };
