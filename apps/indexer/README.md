@@ -8,7 +8,6 @@ Written in TypeScript using Ponder framework.
 pnpm install
 cp .env.example .env.local
 nano .env.local # configure whatever you need to configure
-pnpm run build
 pnpm run start
 ```
 

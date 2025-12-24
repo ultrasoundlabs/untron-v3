@@ -10,6 +10,18 @@ Whenever you start a task inside apps/indexer, you must read this file and follo
 - Ponder is still the outer framework (it runs the node process, calls handlers, owns the DB + API server).
 - Effect is used inside handlers to structure the code: dependency injection, config parsing, caching, and typed error handling.
 
+## Useful commands (what’s actually wired in `package.json`)
+
+- `pnpm dev` → `ponder dev` (hot reloading)
+- `pnpm start` → `ponder start` (indexer + API)
+- `ponder serve` (not in `package.json` scripts) → production HTTP API without running the indexer
+- `pnpm lint` → ESLint
+- `pnpm typecheck` → `tsc`
+- `pnpm codegen` → `ponder codegen` (generates `ponder-env.d.ts`)
+- `pnpm db` → `ponder db …` (management commands like `list`, `prune`, `create-views`)
+
+Ponder manages the database for you. If you don’t point `DATABASE_URL` at an external Postgres, it will use its default local DB and store state under `apps/indexer/.ponder/`.
+
 ---
 
 # 1) Ponder lifecycle: what runs when
@@ -19,8 +31,9 @@ Whenever you start a task inside apps/indexer, you must read this file and follo
 - `apps/indexer/ponder.config.ts` is executed at startup and defines:
   - Chains (mainnet, tron) and their RPC endpoints.
   - Block triggers (`mainnet:block`, `tron:block`) at interval 1.
-  - Contracts and what events to index (names like `UntronV3`, `UntronController`, etc).
+  - Contracts and what events to index (names like `UntronV3`, `TronLightClient`, `UntronController`, etc).
   - A Tron-specific filter for `TRC20:Transfer` that only watches transfers to a computed set of receiver addresses (derived from `PREKNOWN_RECEIVER_SALTS` and controller `CREATE2` parameters).
+    - Note: if `UNTRON_RECEIVER_INIT_CODE_HASH` is not set, `ponder.config.ts` will make a JSON-RPC call at startup to read `UntronController.receiverBytecode()` and hash it.
 - `apps/indexer/ponder.schema.ts` defines the database schema (tables/views) Ponder will keep updated.
 
 ## Ponder loads the app code that registers handlers
@@ -135,6 +148,14 @@ Key design choice: most relayer config is optional until you actually run relaye
 
 Secrets are wrapped in `Redacted` so you don’t accidentally log them.
 
+## Relayer safety toggles (defaults matter)
+
+These defaults are intentionally conservative:
+
+- `RELAYER_ENABLED` defaults to `false` (no jobs enqueued, no tx sent).
+- `RELAYER_DRY_RUN` defaults to `true` (jobs may enqueue/process, but handlers return early before sending txs).
+- `RELAYER_EMBEDDED_EXECUTOR_ENABLED` defaults to `false` (jobs enqueue into `relay_job`, but won’t be claimed/processed by this same process).
+
 ---
 
 # 5) The Event-Chain Indexer: what it stores and why
@@ -229,7 +250,7 @@ That shape makes it straightforward to split into indexer vs relayer processes i
 
 - `mainnet:block` → enqueue `mainnet_heartbeat` job
 - `tron:block` → enqueue `tron_heartbeat` job (+ optionally process TRC20 transfer jobs)
-- `TRC20:Transfer` → store transfer row + enqueue `trc20_transfer` job (only if live and synced)
+- `TRC20:Transfer` → store transfer row + enqueue `trc20_transfer` job (only if relayer is enabled, live-ish, and synced)
 
 All of this is executed as Effect programs via `IndexerRuntime.runPromise(...)`.
 
@@ -312,14 +333,18 @@ There are two important guards:
           - `UntronV3.fill(targetToken, maxClaims, calls)` for each planned queue.
       - Swap support is designed to be pluggable via the `SwapPlanner` service (`apps/indexer/src/relayer/claimFiller/swapPlanner.ts`); if no providers are configured, non-USDT queues are skipped.
     - `sweep_tron_receivers_if_pending_claims`:
-    - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/sweepTronReceiversIfPendingClaims.ts`.
-    - Reads `untron_v3_claim_queue` rows (max observed claim index + 1 per `targetToken`).
-    - Compares that `queueLength` to onchain `UntronV3.nextIndexByTargetToken(targetToken)` at latest state.
-    - If any queue has pending claims (`queueLength > nextIndex`), runs the same Tron sweep logic as `tron_heartbeat`.
+      - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/sweepTronReceiversIfPendingClaims.ts`.
+      - Reads `untron_v3_claim_queue` rows (max observed claim index + 1 per `targetToken`).
+      - Compares that `queueLength` to onchain `UntronV3.nextIndexByTargetToken(targetToken)` at latest state.
+      - If any queue has pending claims (`queueLength > nextIndex`), sweeps Tron **USDT** from known receivers into the controller (`apps/indexer/src/relayer/jobs/heartbeat/handlers/usdtSweep.ts`).
+        - Rationale: sweeping USDT is significantly more expensive than sweeping TRX, so it’s only done when there’s evidence it’s needed (pending claims).
 - `apps/indexer/src/relayer/jobs/heartbeat/tronHeartbeat.ts`:
   - If `dryRun`, do nothing.
   - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers`.
-  - Current handler (`sweep_tron_receivers`): sweeps nonzero USDT balances from known receivers into the controller.
+  - Current handlers:
+    - `sweep_tron_receivers_trx`: sweeps TRX (native token; modeled as `0x000…000`) from known receivers into the controller.
+      - It uses the controller’s USDT position to budget how many receivers to sweep in a single tx (see `apps/indexer/src/relayer/jobs/heartbeat/handlers/trxSweep.ts`).
+    - `rebalance_pulled_usdt`: if configured, calls `UntronController.rebalanceUsdt` for `pulledUsdt - 1` when `pulledUsdt` is above a threshold (`apps/indexer/src/relayer/jobs/heartbeat/handlers/rebalancePulledUsdt.ts`).
 - `apps/indexer/src/relayer/jobs/trc20Transfer.ts`:
   - If `dryRun`, do nothing.
   - Parse and validate payload fields from `job.payloadJson` (no guessing types).

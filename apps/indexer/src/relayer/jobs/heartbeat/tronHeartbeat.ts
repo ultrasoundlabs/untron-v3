@@ -4,6 +4,7 @@ import type { RelayJobRow } from "../../types";
 import type { RelayJobHandlerContext } from "../types";
 
 import type { HeartbeatHandler } from "./types";
+import { rebalancePulledUsdtIfOverThreshold } from "./handlers/rebalancePulledUsdt";
 import { tronSweepTrxFromReceivers } from "./handlers/trxSweep";
 import { runHeartbeatHandlers } from "./runHeartbeatHandlers";
 
@@ -18,6 +19,7 @@ export const handleTronHeartbeat = ({
 
     const handlers: ReadonlyArray<HeartbeatHandler> = [
       { name: "sweep_tron_receivers_trx", effect: tronSweepTrxFromReceivers(ctx) },
+      { name: "rebalance_pulled_usdt", effect: rebalancePulledUsdtIfOverThreshold() },
     ];
 
     yield* runHeartbeatHandlers({ jobName: "tron heartbeat", handlers });

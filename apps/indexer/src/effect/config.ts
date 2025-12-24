@@ -34,6 +34,8 @@ export type TronNetworkConfig = Readonly<{
   feeLimit: number;
   pollTimes: number;
   pollIntervalMs: number;
+  rebalanceRebalancerAddress: Option.Option<Address>;
+  rebalancePulledUsdtThreshold: Option.Option<bigint>;
 }>;
 
 export type MainnetRelayerConfig = Readonly<{
@@ -69,6 +71,17 @@ const optionalNonEmptyTrimmedString = (name: string) => Config.option(nonEmptyTr
 const optionalAddress = (name: string) =>
   Config.option(nonEmptyTrimmedString(name)).pipe(
     Config.map((opt) => Option.map(opt, (value) => addressFromString(value, name)))
+  );
+
+const optionalTronBase58OrEvmAddress = (name: string) =>
+  Config.option(nonEmptyTrimmedString(name)).pipe(
+    Config.map((opt) =>
+      Option.map(opt, (value) => {
+        const trimmed = value.trim();
+        if (trimmed.startsWith("T")) return tronBase58ToEvmAddress(trimmed);
+        return addressFromString(trimmed, name);
+      })
+    )
   );
 
 const optionalRedactedString = (name: string) =>
@@ -199,6 +212,17 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             3_000
           );
 
+          const rebalanceRebalancerAddress = yield* optionalTronBase58OrEvmAddress(
+            "RELAYER_TRON_REBALANCER_ADDRESS"
+          );
+          const rebalancePulledUsdtThreshold = yield* Config.option(
+            nonEmptyTrimmedString("RELAYER_TRON_REBALANCE_PULLED_USDT_THRESHOLD").pipe(
+              Config.mapAttempt((value) =>
+                bigintFromString(value, "RELAYER_TRON_REBALANCE_PULLED_USDT_THRESHOLD")
+              )
+            )
+          );
+
           return {
             grpcHost,
             apiKey,
@@ -213,6 +237,8 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             feeLimit,
             pollTimes,
             pollIntervalMs,
+            rebalanceRebalancerAddress,
+            rebalancePulledUsdtThreshold,
           } satisfies TronNetworkConfig;
         })
       );
