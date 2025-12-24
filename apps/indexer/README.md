@@ -17,6 +17,8 @@ Currently the indexer also implements relayer-role logic needed for operation of
 
 ## Architecture
 
+For introduction into the codebase, read [AGENTS.md](./AGENTS.md). It's written for AI agents but good for humans too.
+
 - Ponder entrypoint: `apps/indexer/src/index.ts` registers the event-chain indexer + relayer handlers.
 - Effect runtime: `apps/indexer/src/effect/runtime.ts` builds a `ManagedRuntime` used to run all Effect programs from Ponder callbacks.
 - Env config: `apps/indexer/src/effect/config.ts` centralizes env parsing/validation with `ConfigProvider.fromEnv()`.
@@ -25,3 +27,7 @@ Currently the indexer also implements relayer-role logic needed for operation of
   - `apps/indexer/src/relayer/queue.ts`: job queue primitives (claim/lock/retry).
   - `apps/indexer/src/relayer/processor.ts`: job dispatcher + per-job error handling.
   - `apps/indexer/src/relayer/deps/*`: Effect services for Tron + mainnet interactions.
+
+### Logging
+
+The indexer uses Effect logging (logfmt). Control verbosity with `LOG_LEVEL` (e.g. `Info`, `Debug`, `Trace`).

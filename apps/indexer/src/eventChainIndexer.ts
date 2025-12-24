@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
 import { eventChainEvent, eventChainState } from "ponder:schema";
 import {
@@ -346,7 +346,22 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
           eventName: eventName as AbiEventName<TAbi>,
           event,
           context,
-        })
+        }).pipe(
+          Effect.tapErrorCause(
+            (cause): Effect.Effect<void, never, never> =>
+              Effect.logError("[event_chain] handler failed").pipe(
+                Effect.annotateLogs({
+                  chainId: context.chain.id,
+                  contractName,
+                  eventName,
+                  blockNumber: String(event.block.number),
+                  transactionHash: event.transaction.hash,
+                  logIndex: String(event.log.logIndex),
+                  cause: Cause.pretty(cause),
+                })
+              )
+          )
+        )
       )
     );
   }

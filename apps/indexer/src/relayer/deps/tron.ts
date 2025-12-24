@@ -463,8 +463,9 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             pollIntervalMs: config.pollIntervalMs,
           });
 
+          yield* Effect.logInfo("[tron] tx confirmed").pipe(Effect.annotateLogs({ txid: txidHex }));
           return txidHex;
-        });
+        }).pipe(Effect.withLogSpan("tron.tx"));
 
       type PlannedIndexedEvent = {
         eventSignature: Hex;
@@ -732,6 +733,10 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             );
           }
 
+          yield* Effect.logDebug("[tron] send controller multicall").pipe(
+            Effect.annotateLogs({ callCount: calls.length })
+          );
+
           const controllerBytes21 = yield* controllerAddressBytes21();
 
           for (let attempt = 0; attempt < 3; attempt++) {
@@ -786,7 +791,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
               "Failed to send Tron multicall with in-tx eventChainTip checkpoint (tip kept changing or prediction mismatch)"
             )
           );
-        });
+        }).pipe(Effect.withLogSpan("tron.controllerMulticall"));
 
       const getControllerUsdt = () =>
         controllerAddressBytes21().pipe(
@@ -890,7 +895,14 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
 
           const txid = yield* sendTronControllerMulticall({ calls: [call] });
           return { txid };
-        });
+        }).pipe(
+          Effect.annotateLogs({
+            tronOperation: "pullFromReceivers",
+            tokenAddress,
+            receiverCount: receiverSalts.length,
+          }),
+          Effect.withLogSpan("tron.pullFromReceivers")
+        );
 
       const sendTronControllerIsEventChainTip = () =>
         Effect.gen(function* () {
@@ -961,7 +973,10 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           return yield* Effect.fail(
             new Error("Failed to send Tron isEventChainTip (tip kept changing)")
           );
-        });
+        }).pipe(
+          Effect.annotateLogs({ tronOperation: "isEventChainTip" }),
+          Effect.withLogSpan("tron.isEventChainTip")
+        );
 
       const sendTronControllerRebalanceUsdt = ({
         rebalancer,
@@ -982,7 +997,14 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
 
           const txid = yield* sendTronControllerMulticall({ calls: [call] });
           return { txid };
-        });
+        }).pipe(
+          Effect.annotateLogs({
+            tronOperation: "rebalanceUsdt",
+            rebalancer,
+            inAmount: inAmount.toString(),
+          }),
+          Effect.withLogSpan("tron.rebalanceUsdt")
+        );
 
       return {
         getRelayerAddress: () => relayerAddressCached,

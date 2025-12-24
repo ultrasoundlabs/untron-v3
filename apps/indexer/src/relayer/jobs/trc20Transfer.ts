@@ -116,6 +116,15 @@ export const handleTrc20Transfer = ({
     const tronBlockNumber = expectBigint(payload.blockNumber, "payload.blockNumber");
     const transactionHash = expectHex(payload.transactionHash, "payload.transactionHash");
 
+    yield* Effect.logDebug("[trc20_transfer] handle").pipe(
+      Effect.annotateLogs({
+        tokenAddress,
+        receiverAddress,
+        tronBlockNumber: tronBlockNumber.toString(),
+        transactionHash,
+      })
+    );
+
     const receiver = yield* getKnownTronReceiver(receiverAddress);
 
     const sweepReceiver = () =>

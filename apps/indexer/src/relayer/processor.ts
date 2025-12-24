@@ -63,6 +63,19 @@ export const processRelayJobs = (args: {
       workerId: args.workerId,
     });
 
+    if (jobs.length > 0) {
+      yield* Effect.logInfo("[relayer] claimed jobs").pipe(
+        Effect.annotateLogs({
+          chainId: args.chainId,
+          kind: args.kind,
+          count: jobs.length,
+          headBlockNumber: args.headBlockNumber.toString(),
+          minConfirmations: args.minConfirmations.toString(),
+          workerId: args.workerId,
+        })
+      );
+    }
+
     const ctx: RelayJobHandlerContext = {
       ponderContext: args.context,
       headBlockNumber: args.headBlockNumber,
@@ -72,6 +85,16 @@ export const processRelayJobs = (args: {
 
     yield* Effect.forEach(jobs, (job) =>
       handleRelayJob({ job, ctx }).pipe(
+        Effect.withLogSpan("relayer.job"),
+        Effect.annotateLogs({
+          jobId: job.id,
+          jobKind: job.kind,
+          chainId: args.chainId,
+          headBlockNumber: args.headBlockNumber.toString(),
+          attempts: job.attempts ?? 0,
+          dryRun: args.dryRun,
+        }),
+        Effect.tap(Effect.logInfo("[relayer] job started"), { onlyEffect: true }),
         Effect.andThen(
           markRelayJobSent({
             context: args.context,
@@ -80,19 +103,19 @@ export const processRelayJobs = (args: {
             headBlockTimestamp: args.headBlockTimestamp,
           })
         ),
+        Effect.tap(Effect.logInfo("[relayer] job sent"), { onlyEffect: true }),
         Effect.catchAll((error) => {
           const errorMessage =
             error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-          return Effect.sync(() => {
-            // Ponder doesn't surface these failures by default; log so operators can see why jobs retry.
-            console.warn("[relayer] job failed", {
+          return Effect.logWarning("[relayer] job failed").pipe(
+            Effect.annotateLogs({
               id: job.id,
               chainId: args.chainId,
               kind: job.kind,
               headBlockNumber: args.headBlockNumber.toString(),
               error: errorMessage,
-            });
-          }).pipe(
+              attempts: job.attempts ?? 0,
+            }),
             Effect.andThen(
               markRelayJobFailed({
                 context: args.context,

@@ -228,6 +228,15 @@ export const handleRelayControllerEventChain = ({
     const transactionHash = expectHex(payload.transactionHash, "payload.transactionHash");
     const eventChainTip = expectHex(payload.eventChainTip, "payload.eventChainTip");
 
+    yield* Effect.logDebug("[relay_controller_event_chain] handle").pipe(
+      Effect.annotateLogs({
+        controllerAddress,
+        tronBlockNumber: tronBlockNumber.toString(),
+        transactionHash,
+        eventChainTip,
+      })
+    );
+
     const publicClients = yield* PublicClients;
     const tronGrpc = yield* TronGrpc;
 
@@ -248,7 +257,12 @@ export const handleRelayControllerEventChain = ({
       })
     )) as Hex;
 
-    if (lastControllerEventTip.toLowerCase() === eventChainTip.toLowerCase()) return;
+    if (lastControllerEventTip.toLowerCase() === eventChainTip.toLowerCase()) {
+      yield* Effect.logDebug("[relay_controller_event_chain] already relayed").pipe(
+        Effect.annotateLogs({ lastControllerEventTip })
+      );
+      return;
+    }
 
     const { wallet, callOpts } = yield* tronGrpc.get();
 

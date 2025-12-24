@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { Context as PonderContext, IndexingFunctionArgs } from "ponder:registry";
 
 import { relayerStatus, trc20Transfer } from "ponder:schema";
@@ -137,7 +137,19 @@ export function registerRelayer({
               retryDelayBlocks: runtime.retryDelayBlocks,
             });
           }
-        })
+        }).pipe(
+          Effect.tapErrorCause(
+            (cause): Effect.Effect<void, never, never> =>
+              Effect.logError("[relayer] block handler failed").pipe(
+                Effect.annotateLogs({
+                  blockEventName,
+                  chainId: context.chain.id,
+                  blockNumber: String(event.block.number),
+                  cause: Cause.pretty(cause),
+                })
+              )
+          )
+        )
       )
     );
   };
@@ -204,7 +216,20 @@ export function registerRelayer({
             blockNumber: blockNumber.toString(),
           },
         });
-      })
+      }).pipe(
+        Effect.tapErrorCause(
+          (cause): Effect.Effect<void, never, never> =>
+            Effect.logError("[relayer] TRC20:Transfer handler failed").pipe(
+              Effect.annotateLogs({
+                chainId: context.chain.id,
+                blockNumber: String(event.block.number),
+                transactionHash: event.transaction.hash,
+                logIndex: String(event.log.logIndex),
+                cause: Cause.pretty(cause),
+              })
+            )
+        )
+      )
     )
   );
 }

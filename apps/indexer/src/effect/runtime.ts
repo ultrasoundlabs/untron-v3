@@ -1,4 +1,4 @@
-import { ConfigProvider, Layer, ManagedRuntime } from "effect";
+import { Config, ConfigProvider, Effect, Layer, LogLevel, Logger, ManagedRuntime } from "effect";
 
 import { AppConfig } from "./config";
 import { MainnetRelayer } from "../relayer/deps/mainnet";
@@ -7,8 +7,17 @@ import { TronRelayer } from "../relayer/deps/tron";
 import { TronGrpc } from "../relayer/deps/tronGrpc";
 import { SwapPlanner } from "../relayer/claimFiller/swapPlanner";
 
+const MinimumLogLevel = Layer.unwrapEffect(
+  Effect.gen(function* () {
+    const level = yield* Config.logLevel("LOG_LEVEL").pipe(Config.withDefault(LogLevel.Info));
+    return Logger.minimumLogLevel(level);
+  })
+);
+
 const BaseLayer = Layer.mergeAll(
   Layer.setConfigProvider(ConfigProvider.fromEnv()),
+  Logger.logFmt,
+  MinimumLogLevel,
   AppConfig.Live,
   PublicClients.Live
 );

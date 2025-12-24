@@ -122,6 +122,15 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
           const resolvedTimeoutBlocks = args.timeoutBlocks ?? config.bundlerTimeoutBlocks;
           const resolvedPollIntervalMs = args.pollIntervalMs ?? config.bundlerPollIntervalMs;
 
+          yield* Effect.logInfo("[mainnet] send UserOperation").pipe(
+            Effect.annotateLogs({
+              callCount: args.calls.length,
+              bundlerCount: resolvedBundlerUrls.length,
+              timeoutBlocks: resolvedTimeoutBlocks.toString(),
+              pollIntervalMs: resolvedPollIntervalMs,
+            })
+          );
+
           const normalizedCalls = args.calls.map((call) => ({
             to: call.to,
             value: call.value ?? 0n,
@@ -160,12 +169,23 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
                 const log = logs[0];
                 if (!log) continue;
 
-                return {
+                const result = {
                   bundlerUrl: attempt.bundlerUrl,
                   userOpHash: attempt.userOpHash,
                   transactionHash: log.transactionHash,
                   blockNumber: log.blockNumber,
                 } satisfies SendMainnetUserOperationResult;
+
+                yield* Effect.logInfo("[mainnet] UserOperation included").pipe(
+                  Effect.annotateLogs({
+                    bundlerUrl: result.bundlerUrl,
+                    userOpHash: result.userOpHash,
+                    transactionHash: result.transactionHash,
+                    blockNumber: result.blockNumber.toString(),
+                  })
+                );
+
+                return result;
               }
 
               nextFromBlock = toBlock + 1n;
@@ -192,6 +212,10 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
                   account,
                   calls: normalizedCalls,
                 })
+              );
+
+              yield* Effect.logInfo("[mainnet] UserOperation sent").pipe(
+                Effect.annotateLogs({ bundlerUrl, userOpHash })
               );
 
               sent.push({ bundlerUrl, userOpHash });
@@ -232,7 +256,7 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
               `UserOperation not included after trying ${resolvedBundlerUrls.length} bundler(s). Sent: ${sentHashes}.${errorsJoined}`
             )
           );
-        });
+        }).pipe(Effect.withLogSpan("mainnet.userOperation"));
 
       return {
         getAddress,
