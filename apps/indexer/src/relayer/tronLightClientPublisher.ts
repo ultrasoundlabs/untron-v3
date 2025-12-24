@@ -17,6 +17,36 @@ import {
 
 const UINT256_MAX = (1n << 256n) - 1n;
 
+const MAX_TRON_BLOCKS_PER_PROVE_CALL = 20_000n;
+const TRON_BLOCK_FETCH_CONCURRENCY = 10;
+
+function coerceBigint(value: unknown, label: string): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      // fall through
+    }
+  }
+  throw new Error(`Invalid ${label} (expected bigint-compatible value)`);
+}
+
+function coerceInt(value: unknown, label: string): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.length > 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  throw new Error(`Invalid ${label} (expected integer)`);
+}
+
+function coerceHex(value: unknown, label: string): Hex {
+  if (typeof value !== "string" || !value.startsWith("0x")) throw new Error(`Invalid ${label}`);
+  return value.toLowerCase() as Hex;
+}
+
 type TronSrsCache = {
   witnessIndexByTronOwnerHex: ReadonlyMap<string, number>;
 };
@@ -66,17 +96,38 @@ async function lookupMainnetChainIdForTronLightClient(args: {
     LIMIT 1;
   `);
 
-  const rows = getRows(result) as Array<{ chainId: number }>;
-  const chainId = rows[0]?.chainId;
-  if (typeof chainId !== "number")
-    throw new Error("Failed to resolve mainnet chainId for TronLightClient");
-  return chainId;
+  const rows = getRows(result) as Array<Record<string, unknown>>;
+  const chainIdRaw = rows[0]?.chainId;
+  if (chainIdRaw != null) {
+    try {
+      return coerceInt(chainIdRaw, "event_chain_state.chain_id");
+    } catch {
+      // fall through to env fallback
+    }
+  }
+
+  const env = process.env.UNTRON_V3_CHAIN_ID;
+  if (env) {
+    const parsed = Number.parseInt(env, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  throw new Error("Failed to resolve mainnet chainId for TronLightClient");
 }
 
 type TronLightClientCheckpointRow = {
   tronBlockNumber: bigint;
   tronBlockId: Hex;
 };
+
+function normalizeCheckpointRow(row: Record<string, unknown>): TronLightClientCheckpointRow {
+  const tronBlockNumber = coerceBigint(
+    row.tronBlockNumber,
+    "tron_light_client_checkpoint.tron_block_number"
+  );
+  const tronBlockId = coerceHex(row.tronBlockId, "tron_light_client_checkpoint.tron_block_id");
+  return { tronBlockNumber, tronBlockId };
+}
 
 async function getNearestTronLightClientCheckpoints(args: {
   context: PonderContext;
@@ -111,9 +162,12 @@ async function getNearestTronLightClientCheckpoints(args: {
     LIMIT 1;
   `);
 
-  const prevRows = getRows(prevResult) as Array<TronLightClientCheckpointRow>;
-  const nextRows = getRows(nextResult) as Array<TronLightClientCheckpointRow>;
-  return { prev: prevRows[0] ?? null, next: nextRows[0] ?? null };
+  const prevRows = getRows(prevResult) as Array<Record<string, unknown>>;
+  const nextRows = getRows(nextResult) as Array<Record<string, unknown>>;
+  return {
+    prev: prevRows[0] ? normalizeCheckpointRow(prevRows[0]) : null,
+    next: nextRows[0] ? normalizeCheckpointRow(nextRows[0]) : null,
+  };
 }
 
 export type BuildTronLightClientProveBlocksCallArgs = {
@@ -182,11 +236,29 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
     const rangeStart = preferForward ? nearest.prev!.tronBlockNumber + 1n : args.tronBlockNumber;
     const rangeEnd = preferForward ? args.tronBlockNumber : nearest.next!.tronBlockNumber;
 
-    const blockNumbers: bigint[] = [];
-    for (let n = rangeStart; n <= rangeEnd; n++) blockNumbers.push(n);
+    const cappedRangeEnd =
+      preferForward && rangeEnd - rangeStart + 1n > MAX_TRON_BLOCKS_PER_PROVE_CALL
+        ? rangeStart + (MAX_TRON_BLOCKS_PER_PROVE_CALL - 1n)
+        : rangeEnd;
 
-    const blocks = yield* Effect.forEach(blockNumbers, (blockNumber) =>
-      args.fetchTronBlockByNum(blockNumber)
+    const blockNumbers: bigint[] = [];
+    for (let n = rangeStart; n <= cappedRangeEnd; n++) blockNumbers.push(n);
+
+    yield* Effect.logInfo("[tron_light_client] proveBlocks plan").pipe(
+      Effect.annotateLogs({
+        tronBlockNumber: args.tronBlockNumber.toString(),
+        rangeStart: rangeStart.toString(),
+        rangeEnd: cappedRangeEnd.toString(),
+        count: blockNumbers.length,
+        direction: preferForward ? "forward" : "backfill",
+        capped: preferForward && cappedRangeEnd !== rangeEnd,
+      })
+    );
+
+    const blocks = yield* Effect.forEach(
+      blockNumbers,
+      (blockNumber) => args.fetchTronBlockByNum(blockNumber),
+      { concurrency: TRON_BLOCK_FETCH_CONCURRENCY }
     );
 
     const witnessIndexByTronOwnerHex = (yield* Effect.tryPromise({

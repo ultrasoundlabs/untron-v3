@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
-import { eventChainState } from "ponder:schema";
+import { eventChainState, tronIsEventChainTipSent } from "ponder:schema";
 
 import { tryPromise } from "../../../../effect/tryPromise";
 import { TronRelayer } from "../../../deps/tron";
@@ -40,8 +40,37 @@ export const ensureIsEventChainTipCalled = (ctx: RelayJobHandlerContext) =>
       return;
     }
 
+    const lastSent = yield* tryPromise(() =>
+      ctx.ponderContext.db.find(tronIsEventChainTipSent, {
+        id: `${chainId}:${controllerAddress}`,
+      })
+    );
+    if (lastSent && lastSent.eventChainTip.toLowerCase() === state.eventChainTip.toLowerCase()) {
+      return;
+    }
+
     const onchainTip = yield* TronRelayer.getControllerEventChainTip();
     if (onchainTip.toLowerCase() !== state.eventChainTip.toLowerCase()) return;
 
-    yield* TronRelayer.sendTronControllerIsEventChainTip();
+    const { txid } = yield* TronRelayer.sendTronControllerIsEventChainTip();
+
+    yield* tryPromise(() =>
+      ctx.ponderContext.db
+        .insert(tronIsEventChainTipSent)
+        .values({
+          id: `${chainId}:${controllerAddress}`,
+          chainId,
+          contractAddress: controllerAddress,
+          eventChainTip: onchainTip,
+          txid: `0x${txid}` as `0x${string}`,
+          confirmedAtBlockNumber: ctx.headBlockNumber,
+          confirmedAtBlockTimestamp: ctx.headBlockTimestamp,
+        })
+        .onConflictDoUpdate({
+          eventChainTip: onchainTip,
+          txid: `0x${txid}` as `0x${string}`,
+          confirmedAtBlockNumber: ctx.headBlockNumber,
+          confirmedAtBlockTimestamp: ctx.headBlockTimestamp,
+        })
+    );
   });

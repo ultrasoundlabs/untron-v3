@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { Context as PonderContext } from "ponder:registry";
 
 import { handleMainnetHeartbeat } from "./jobs/heartbeat/mainnetHeartbeat";
@@ -84,17 +84,8 @@ export const processRelayJobs = (args: {
     };
 
     yield* Effect.forEach(jobs, (job) =>
-      handleRelayJob({ job, ctx }).pipe(
-        Effect.withLogSpan("relayer.job"),
-        Effect.annotateLogs({
-          jobId: job.id,
-          jobKind: job.kind,
-          chainId: args.chainId,
-          headBlockNumber: args.headBlockNumber.toString(),
-          attempts: job.attempts ?? 0,
-          dryRun: args.dryRun,
-        }),
-        Effect.tap(Effect.logInfo("[relayer] job started"), { onlyEffect: true }),
+      Effect.logInfo("[relayer] job started").pipe(
+        Effect.andThen(handleRelayJob({ job, ctx })),
         Effect.andThen(
           markRelayJobSent({
             context: args.context,
@@ -103,10 +94,11 @@ export const processRelayJobs = (args: {
             headBlockTimestamp: args.headBlockTimestamp,
           })
         ),
-        Effect.tap(Effect.logInfo("[relayer] job sent"), { onlyEffect: true }),
-        Effect.catchAll((error) => {
+        Effect.andThen(Effect.logInfo("[relayer] job sent")),
+        Effect.catchAllCause((cause) => {
+          const squashed = Cause.squash(cause);
           const errorMessage =
-            error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            squashed instanceof Error ? `${squashed.name}: ${squashed.message}` : String(squashed);
           return Effect.logWarning("[relayer] job failed").pipe(
             Effect.annotateLogs({
               id: job.id,
@@ -115,6 +107,7 @@ export const processRelayJobs = (args: {
               headBlockNumber: args.headBlockNumber.toString(),
               error: errorMessage,
               attempts: job.attempts ?? 0,
+              cause: Cause.pretty(cause),
             }),
             Effect.andThen(
               markRelayJobFailed({
@@ -128,6 +121,15 @@ export const processRelayJobs = (args: {
               })
             )
           );
+        }),
+        Effect.withLogSpan("relayer.job"),
+        Effect.annotateLogs({
+          jobId: job.id,
+          jobKind: job.kind,
+          chainId: args.chainId,
+          headBlockNumber: args.headBlockNumber.toString(),
+          attempts: job.attempts ?? 0,
+          dryRun: args.dryRun,
         })
       )
     );

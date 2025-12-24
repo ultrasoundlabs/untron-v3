@@ -20,6 +20,8 @@ import { PublicClients } from "../deps/publicClients";
 import { TronGrpc } from "../deps/tronGrpc";
 import { computeTronTxMerkleProof } from "../tronProofs";
 import { buildTronLightClientProveBlocksCallToCheckpointBlock } from "../tronLightClientPublisher";
+import { tronLightClientProveBlocksSent } from "ponder:schema";
+import { resolveContractAddress } from "../resolveContractAddress";
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -70,11 +72,18 @@ async function fetchTronBlockByNum(args: {
   wallet: any;
   metadata: unknown;
   blockNumber: bigint;
+  timeoutMs?: number;
 }): Promise<BlockExtention> {
   const req = NumberMessage.fromPartial({ num: args.blockNumber.toString() });
   return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timeout in getBlockByNum2(${args.blockNumber.toString()})`));
+    }, args.timeoutMs ?? 15_000);
+
     args.wallet.getBlockByNum2(req, args.metadata, (err: unknown, res: BlockExtention | null) =>
-      err || !res ? reject(err ?? new Error("Empty response from getBlockByNum2")) : resolve(res)
+      err || !res
+        ? (clearTimeout(timeout), reject(err ?? new Error("Empty response from getBlockByNum2")))
+        : (clearTimeout(timeout), resolve(res))
     );
   });
 }
@@ -242,13 +251,18 @@ export const handleRelayControllerEventChain = ({
 
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = (
-      ctx.ponderContext.contracts.TronLightClient.address as `0x${string}`
-    ).toLowerCase() as Address;
-    const untronV3Address = (
-      ctx.ponderContext.contracts.UntronV3.address as `0x${string}`
-    ).toLowerCase() as Address;
+    const tronLightClientAddress = resolveContractAddress({
+      ponderContracts: ctx.ponderContext.contracts,
+      contractName: "TronLightClient",
+      envVar: "TRON_LIGHT_CLIENT_ADDRESS",
+    });
+    const untronV3Address = resolveContractAddress({
+      ponderContracts: ctx.ponderContext.contracts,
+      contractName: "UntronV3",
+      envVar: "UNTRON_V3_ADDRESS",
+    });
 
+    yield* Effect.logInfo("[relay_controller_event_chain] load lastControllerEventTip");
     const lastControllerEventTip = (yield* tryPromise(() =>
       mainnetClient.readContract({
         address: untronV3Address,
@@ -266,8 +280,16 @@ export const handleRelayControllerEventChain = ({
 
     const { wallet, callOpts } = yield* tronGrpc.get();
 
+    yield* Effect.logInfo("[relay_controller_event_chain] fetch tron block").pipe(
+      Effect.annotateLogs({ tronBlockNumber: tronBlockNumber.toString() })
+    );
     const block = yield* tryPromise(() =>
-      fetchTronBlockByNum({ wallet, metadata: callOpts.metadata, blockNumber: tronBlockNumber })
+      fetchTronBlockByNum({
+        wallet,
+        metadata: callOpts.metadata,
+        blockNumber: tronBlockNumber,
+        timeoutMs: 15_000,
+      })
     );
     const tx = findTransactionInBlock({ block, txid: transactionHash });
 
@@ -303,6 +325,9 @@ export const handleRelayControllerEventChain = ({
 
     const proof = computeTronTxMerkleProof({ block, txidHex: transactionHash });
 
+    yield* Effect.logInfo("[relay_controller_event_chain] check tron block published").pipe(
+      Effect.annotateLogs({ tronBlockNumber: tronBlockNumber.toString() })
+    );
     const tronBlockPublished = yield* tryPromise(() =>
       mainnetClient.readContract({
         address: tronLightClientAddress,
@@ -318,6 +343,48 @@ export const handleRelayControllerEventChain = ({
     const plannedCalls: Array<{ to: Address; data: Hex }> = [];
 
     if (!tronBlockPublished) {
+      yield* Effect.logInfo("[relay_controller_event_chain] plan proveBlocks").pipe(
+        Effect.annotateLogs({ tronBlockNumber: tronBlockNumber.toString() })
+      );
+      const PROVE_BLOCKS_COOLDOWN_BLOCKS = 5n;
+      const proveId = `${job.chainId}:${tronLightClientAddress.toLowerCase()}:${tronBlockNumber.toString()}`;
+
+      const lastAttempt = yield* tryPromise(() =>
+        ctx.ponderContext.db.find(tronLightClientProveBlocksSent, { id: proveId })
+      );
+
+      if (
+        lastAttempt &&
+        lastAttempt.lastAttemptAtBlockNumber >= ctx.headBlockNumber - PROVE_BLOCKS_COOLDOWN_BLOCKS
+      ) {
+        return yield* Effect.fail(
+          new Error(
+            `TronLightClient proveBlocks recently attempted for tronBlock=${tronBlockNumber.toString()}, waiting`
+          )
+        );
+      }
+
+      yield* tryPromise(() =>
+        ctx.ponderContext.db
+          .insert(tronLightClientProveBlocksSent)
+          .values({
+            id: proveId,
+            chainId: job.chainId,
+            tronLightClientAddress: tronLightClientAddress.toLowerCase() as `0x${string}`,
+            tronBlockNumber,
+            lastAttemptAtBlockNumber: ctx.headBlockNumber,
+            lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
+            lockedBy: job.id,
+            includedTransactionHash: null,
+            includedAtBlockNumber: null,
+          })
+          .onConflictDoUpdate({
+            lastAttemptAtBlockNumber: ctx.headBlockNumber,
+            lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
+            lockedBy: job.id,
+          })
+      );
+
       const proveCall = yield* buildTronLightClientProveBlocksCallToCheckpointBlock({
         context: ctx.ponderContext,
         mainnetClient,
@@ -325,13 +392,46 @@ export const handleRelayControllerEventChain = ({
         tronBlockNumber,
         fetchTronBlockByNum: (blockNumber) =>
           tryPromise(() =>
-            fetchTronBlockByNum({ wallet, metadata: callOpts.metadata, blockNumber })
+            fetchTronBlockByNum({
+              wallet,
+              metadata: callOpts.metadata,
+              blockNumber,
+              timeoutMs: 15_000,
+            })
           ),
       });
 
-      if (proveCall) plannedCalls.push(proveCall);
+      if (!proveCall) {
+        return yield* Effect.fail(
+          new Error("Tron block not yet published in TronLightClient; no proveBlocks call planned.")
+        );
+      }
+
+      plannedCalls.push(proveCall);
+
+      yield* Effect.logInfo("[relay_controller_event_chain] send proveBlocks UserOperation");
+      const included = yield* MainnetRelayer.sendUserOperation({ calls: plannedCalls });
+
+      yield* tryPromise(() =>
+        ctx.ponderContext.db.update(tronLightClientProveBlocksSent, { id: proveId }).set({
+          includedTransactionHash: included.transactionHash,
+          includedAtBlockNumber: included.blockNumber,
+          lockedBy: null,
+          lastAttemptAtBlockNumber: ctx.headBlockNumber,
+          lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
+        })
+      );
+
+      return yield* Effect.fail(
+        new Error(
+          "Tron block not yet published in TronLightClient; proveBlocks submitted (possibly chunked), retry later."
+        )
+      );
     }
 
+    yield* Effect.logInfo("[relay_controller_event_chain] load controller events").pipe(
+      Effect.annotateLogs({ startTip: lastControllerEventTip, endTip: eventChainTip })
+    );
     const controllerEvents = yield* tryPromise(() =>
       loadControllerEventsToRelay({
         context: ctx.ponderContext,
@@ -380,6 +480,9 @@ export const handleRelayControllerEventChain = ({
 
     plannedCalls.push({ to: untronV3Address, data: relayCall });
 
+    yield* Effect.logInfo("[relay_controller_event_chain] send UserOperation").pipe(
+      Effect.annotateLogs({ callCount: plannedCalls.length })
+    );
     yield* MainnetRelayer.sendUserOperation({
       calls: plannedCalls,
     });

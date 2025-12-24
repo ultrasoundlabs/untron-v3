@@ -221,7 +221,7 @@ export const UntronControllerAbi = [
     name: "IsEventChainTipCalled",
     inputs: [
       { name: "caller", type: "address", indexed: true, internalType: "address" },
-      { name: "eventChainTip", type: "bytes32", indexed: false, internalType: "bytes32" },
+      { name: "eventChainTip", type: "bytes32", indexed: true, internalType: "bytes32" },
     ],
     anonymous: false,
   },

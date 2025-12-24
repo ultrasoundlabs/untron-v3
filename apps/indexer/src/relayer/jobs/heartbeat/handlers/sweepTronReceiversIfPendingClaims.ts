@@ -49,5 +49,5 @@ export const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =
 
     if (!hasPendingClaims) return;
 
-    yield* tronSweepUsdtFromReceivers();
+    yield* tronSweepUsdtFromReceivers(ctx);
   });

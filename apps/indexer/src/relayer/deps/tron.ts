@@ -272,6 +272,12 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
         return maybeCode === 5;
       };
 
+      const isGrpcUnimplementedError = (error: unknown): boolean => {
+        if (!error || typeof error !== "object") return false;
+        const maybeCode = (error as { readonly code?: unknown }).code;
+        return maybeCode === 12;
+      };
+
       const isTronContractDeployed = (
         addressBytes21: Buffer
       ): Effect.Effect<boolean, ConfigError.ConfigError | Error> =>
@@ -318,31 +324,29 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
 
       const getTransactionInfoById = (txidHex: string) =>
         Effect.gen(function* () {
-          const { wallet, solidity } = yield* tronGrpc.get();
+          const { wallet } = yield* tronGrpc.get();
           const req: BytesMessage = { value: Buffer.from(txidHex, "hex") };
 
-          const fetch = (call: UnaryCall<BytesMessage, TransactionInfo>) =>
-            grpcUnary(call, req).pipe(
-              Effect.catchAll((error) =>
-                isGrpcNotFoundError(error) ? Effect.succeed(null) : Effect.fail(error)
-              )
-            );
-
-          const fromWallet = yield* fetch(
+          const fromWallet = yield* grpcUnary(
             wallet.getTransactionInfoById.bind(wallet) as unknown as UnaryCall<
               BytesMessage,
               TransactionInfo
-            >
+            >,
+            req
+          ).pipe(
+            Effect.catchAll((error) =>
+              isGrpcNotFoundError(error)
+                ? Effect.succeed(null)
+                : isGrpcUnimplementedError(error)
+                  ? Effect.fail(
+                      new Error(
+                        "Tron gRPC endpoint does not implement Wallet/GetTransactionInfoById (check TRON_GRPC_HOST)"
+                      )
+                    )
+                  : Effect.fail(error)
+            )
           );
           if (fromWallet && fromWallet.id?.length) return fromWallet;
-
-          const fromSolidity = yield* fetch(
-            solidity.getTransactionInfoById.bind(solidity) as unknown as UnaryCall<
-              BytesMessage,
-              TransactionInfo
-            >
-          );
-          if (fromSolidity && fromSolidity.id?.length) return fromSolidity;
           return null;
         });
 

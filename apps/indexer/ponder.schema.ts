@@ -123,6 +123,85 @@ export const untronControllerLatestIsEventChainTipCalled = onchainView(
     .limit(1)
 );
 
+// Relayer-side backstop for deduping `isEventChainTip` calls when Tron log indexing is missing/laggy.
+// Stores the last confirmed `isEventChainTip` tx per controller contract.
+export const tronIsEventChainTipSent = onchainTable(
+  "tron_is_event_chain_tip_sent",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    eventChainTip: t.hex().notNull(),
+    txid: t.hex().notNull(),
+    confirmedAtBlockNumber: t.bigint().notNull(),
+    confirmedAtBlockTimestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+// Backstop for deduping `pullFromReceivers(token, salts)` calls.
+// Stores the last confirmed receiverSalt set per (controller, token).
+export const tronPullFromReceiversSent = onchainTable(
+  "tron_pull_from_receivers_sent",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${tokenAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    tokenAddress: t.hex().notNull(),
+    receiverSaltsHash: t.hex().notNull(), // bytes32 hash of sorted salts
+    txid: t.hex().notNull(),
+    confirmedAtBlockNumber: t.bigint().notNull(),
+    confirmedAtBlockTimestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    contractTokenIdx: index().on(table.chainId, table.contractAddress, table.tokenAddress),
+  })
+);
+
+// Backstop for deduping `rebalanceUsdt(rebalancer, amount)` calls.
+// Stores the last confirmed rebalance decision per controller.
+export const tronRebalanceUsdtSent = onchainTable(
+  "tron_rebalance_usdt_sent",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    pulledUsdt: t.bigint().notNull(),
+    inAmount: t.bigint().notNull(),
+    txid: t.hex().notNull(),
+    confirmedAtBlockNumber: t.bigint().notNull(),
+    confirmedAtBlockTimestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+// Best-effort dedupe for proving TronLightClient blocks on mainnet. Keyed by the target Tron block.
+export const tronLightClientProveBlocksSent = onchainTable(
+  "tron_light_client_prove_blocks_sent",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${tronLightClientAddress}:${tronBlockNumber}`
+    chainId: t.integer().notNull(),
+    tronLightClientAddress: t.hex().notNull(),
+    tronBlockNumber: t.bigint().notNull(),
+    lastAttemptAtBlockNumber: t.bigint().notNull(),
+    lastAttemptAtBlockTimestamp: t.bigint().notNull(),
+    lockedBy: t.text(),
+    includedTransactionHash: t.hex(),
+    includedAtBlockNumber: t.bigint(),
+  }),
+  (table) => ({
+    contractBlockIdx: index().on(
+      table.chainId,
+      table.tronLightClientAddress,
+      table.tronBlockNumber
+    ),
+  })
+);
+
 export const tronLightClientCheckpoint = onchainTable(
   "tron_light_client_checkpoint",
   (t) => ({

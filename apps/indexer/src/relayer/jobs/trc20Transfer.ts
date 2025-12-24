@@ -14,8 +14,10 @@ import { computeTronTxIdFromEncodedTx, computeTronTxMerkleProof } from "../tronP
 
 import { TronRelayer } from "../deps/tron";
 import { getKnownTronReceiver } from "../receivers";
+import { resolveContractAddress } from "../resolveContractAddress";
 import type { RelayJobRow } from "../types";
 import type { RelayJobHandlerContext } from "./types";
+import { tronLightClientProveBlocksSent } from "ponder:schema";
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -57,11 +59,18 @@ async function fetchTronBlockByNum(args: {
   wallet: any;
   metadata: unknown;
   blockNumber: bigint;
+  timeoutMs?: number;
 }): Promise<BlockExtention> {
   const req = NumberMessage.fromPartial({ num: args.blockNumber.toString() });
   return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timeout in getBlockByNum2(${args.blockNumber.toString()})`));
+    }, args.timeoutMs ?? 15_000);
+
     args.wallet.getBlockByNum2(req, args.metadata, (err: unknown, res: BlockExtention | null) =>
-      err || !res ? reject(err ?? new Error("Empty response from getBlockByNum2")) : resolve(res)
+      err || !res
+        ? (clearTimeout(timeout), reject(err ?? new Error("Empty response from getBlockByNum2")))
+        : (clearTimeout(timeout), resolve(res))
     );
   });
 }
@@ -157,12 +166,16 @@ export const handleTrc20Transfer = ({
     const tronGrpc = yield* TronGrpc;
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = (
-      ctx.ponderContext.contracts.TronLightClient.address as `0x${string}`
-    ).toLowerCase() as Address;
-    const untronV3Address = (
-      ctx.ponderContext.contracts.UntronV3.address as `0x${string}`
-    ).toLowerCase() as Address;
+    const tronLightClientAddress = resolveContractAddress({
+      ponderContracts: ctx.ponderContext.contracts,
+      contractName: "TronLightClient",
+      envVar: "TRON_LIGHT_CLIENT_ADDRESS",
+    });
+    const untronV3Address = resolveContractAddress({
+      ponderContracts: ctx.ponderContext.contracts,
+      contractName: "UntronV3",
+      envVar: "UNTRON_V3_ADDRESS",
+    });
 
     const tronUsdt = yield* tryPromise(() => loadTronUsdt({ mainnetClient, untronV3Address }));
     if (tokenAddress.toLowerCase() !== tronUsdt) {
@@ -174,7 +187,12 @@ export const handleTrc20Transfer = ({
       const { wallet, callOpts } = yield* tronGrpc.get();
 
       const block = yield* tryPromise(() =>
-        fetchTronBlockByNum({ wallet, metadata: callOpts.metadata, blockNumber: tronBlockNumber })
+        fetchTronBlockByNum({
+          wallet,
+          metadata: callOpts.metadata,
+          blockNumber: tronBlockNumber,
+          timeoutMs: 15_000,
+        })
       );
 
       const headerRaw = block.blockHeader?.rawData;
@@ -219,18 +237,82 @@ export const handleTrc20Transfer = ({
       );
 
       if (!tronBlockPublished) {
-        const proveCall = yield* buildTronLightClientProveBlocksCallToCheckpointBlock({
-          context: ctx.ponderContext,
-          mainnetClient,
-          tronLightClientAddress,
-          tronBlockNumber,
-          fetchTronBlockByNum: (blockNumber) =>
-            tryPromise(() =>
-              fetchTronBlockByNum({ wallet, metadata: callOpts.metadata, blockNumber })
-            ),
-        });
+        const PROVE_BLOCKS_COOLDOWN_BLOCKS = 5n;
+        const proveId = `${job.chainId}:${tronLightClientAddress.toLowerCase()}:${tronBlockNumber.toString()}`;
 
-        if (proveCall) yield* MainnetRelayer.sendUserOperation({ calls: [proveCall] });
+        const lastAttempt = yield* tryPromise(() =>
+          ctx.ponderContext.db.find(tronLightClientProveBlocksSent, { id: proveId })
+        );
+
+        if (
+          lastAttempt &&
+          lastAttempt.lastAttemptAtBlockNumber >= ctx.headBlockNumber - PROVE_BLOCKS_COOLDOWN_BLOCKS
+        ) {
+          // Another job recently attempted to prove this block; avoid spamming userOps.
+        } else {
+          yield* tryPromise(() =>
+            ctx.ponderContext.db
+              .insert(tronLightClientProveBlocksSent)
+              .values({
+                id: proveId,
+                chainId: job.chainId,
+                tronLightClientAddress: tronLightClientAddress.toLowerCase() as `0x${string}`,
+                tronBlockNumber,
+                lastAttemptAtBlockNumber: ctx.headBlockNumber,
+                lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
+                lockedBy: job.id,
+                includedTransactionHash: null,
+                includedAtBlockNumber: null,
+              })
+              .onConflictDoUpdate({
+                lastAttemptAtBlockNumber: ctx.headBlockNumber,
+                lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
+                lockedBy: job.id,
+              })
+          );
+
+          const proveCall = yield* buildTronLightClientProveBlocksCallToCheckpointBlock({
+            context: ctx.ponderContext,
+            mainnetClient,
+            tronLightClientAddress,
+            tronBlockNumber,
+            fetchTronBlockByNum: (blockNumber) =>
+              tryPromise(() =>
+                fetchTronBlockByNum({
+                  wallet,
+                  metadata: callOpts.metadata,
+                  blockNumber,
+                  timeoutMs: 15_000,
+                })
+              ),
+          });
+
+          if (!proveCall) {
+            return yield* Effect.fail(
+              new Error(
+                "Tron block not yet published in TronLightClient; no proveBlocks call planned."
+              )
+            );
+          }
+
+          const included = yield* MainnetRelayer.sendUserOperation({ calls: [proveCall] });
+
+          yield* tryPromise(() =>
+            ctx.ponderContext.db.update(tronLightClientProveBlocksSent, { id: proveId }).set({
+              includedTransactionHash: included.transactionHash,
+              includedAtBlockNumber: included.blockNumber,
+              lockedBy: null,
+              lastAttemptAtBlockNumber: ctx.headBlockNumber,
+              lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
+            })
+          );
+
+          return yield* Effect.fail(
+            new Error(
+              "Tron block not yet published in TronLightClient; proveBlocks submitted (possibly chunked), retry later."
+            )
+          );
+        }
       }
 
       const args = [

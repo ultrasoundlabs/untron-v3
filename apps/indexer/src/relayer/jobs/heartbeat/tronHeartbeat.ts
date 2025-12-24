@@ -20,7 +20,7 @@ export const handleTronHeartbeat = ({
 
     const handlers: ReadonlyArray<HeartbeatHandler> = [
       { name: "sweep_tron_receivers_trx", effect: tronSweepTrxFromReceivers(ctx) },
-      { name: "rebalance_pulled_usdt", effect: rebalancePulledUsdtIfOverThreshold() },
+      { name: "rebalance_pulled_usdt", effect: rebalancePulledUsdtIfOverThreshold(ctx) },
       { name: "ensure_is_event_chain_tip_called", effect: ensureIsEventChainTipCalled(ctx) },
     ];
 
