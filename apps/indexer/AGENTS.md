@@ -349,8 +349,15 @@ There are two important guards:
   - If `dryRun`, do nothing.
   - Parse and validate payload fields from `job.payloadJson` (no guessing types).
   - Map the receiver address back to a known receiver salt.
-  - Read actual token balance on the receiver.
-  - Sweep `balance - 1` (leaving 1 unit) via `sendTronControllerPullFromReceivers`.
+  - For Tron USDT (as defined by `UntronV3.tronUsdt()` on mainnet):
+    - Prove the Tron tx (inclusion proof against `TronLightClient`), ensure the block is published, and call `UntronV3.preEntitle(...)` via `MainnetRelayer`.
+  - For all other tokens:
+    - Read actual token balance on the receiver and sweep `balance - 1` (leaving 1 unit) via `sendTronControllerPullFromReceivers`.
+- `apps/indexer/src/relayer/jobs/relayControllerEventChain.ts`:
+  - If `dryRun`, do nothing.
+  - For each indexed `IsEventChainTipCalled` on Tron, prove the calling transaction (direct call or multicall including `isEventChainTip`).
+  - Ensure the Tron block is published in `TronLightClient` (using DB checkpoints + `proveBlocks` when needed).
+  - Call `UntronV3.relayControllerEventChain(...)` via `MainnetRelayer` to enqueue controller events on mainnet.
 
 Handlers are intentionally small: chain-specific mechanics live in services in `relayer/deps/*`.
 
@@ -485,7 +492,7 @@ If you start the app with `ponder start`:
 4. For each filtered TRC20 transfer into a receiver:
    - `apps/indexer/src/relayer/register.ts` stores a `trc20_transfer` row,
    - Enqueues a `trc20_transfer` job (only if it looks live + synced),
-   - Which later triggers a targeted sweep.
+   - Which later either pre-entitles the deposit on mainnet (Tron USDT only) or triggers a targeted sweep (all other tokens).
 
 Effect’s role in all of this is to make each step:
 

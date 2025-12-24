@@ -2,6 +2,7 @@ import { sha256 as sha256Noble } from "@noble/hashes/sha2.js";
 import type { BlockExtention } from "@untron/tron-protocol/api";
 import { Transaction } from "@untron/tron-protocol/tron";
 import type { Hex } from "viem";
+import { Transaction_raw } from "@untron/tron-protocol/tron";
 
 function toHex0x(bytes: Uint8Array | Buffer): Hex {
   return `0x${Buffer.from(bytes).toString("hex")}` as Hex;
@@ -131,6 +132,16 @@ export type TronTxMerkleProof = {
   proof: readonly Hex[];
   index: bigint;
 };
+
+export function computeTronTxIdFromEncodedTx(encodedTx: Hex): Hex {
+  const bytes = Buffer.from(encodedTx.slice(2), "hex");
+  const tx = Transaction.decode(bytes);
+  if (!tx.rawData) throw new Error("Tron tx missing rawData");
+
+  const rawBytes = Buffer.from(Transaction_raw.encode(tx.rawData).finish());
+  const txId = sha256(rawBytes);
+  return toHex0x(txId);
+}
 
 export function computeTronTxMerkleProof(args: {
   block: BlockExtention;
