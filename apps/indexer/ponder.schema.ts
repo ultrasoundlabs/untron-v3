@@ -123,6 +123,31 @@ export const untronControllerLatestIsEventChainTipCalled = onchainView(
     .limit(1)
 );
 
+export const tronLightClientCheckpoint = onchainTable(
+  "tron_light_client_checkpoint",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${tronBlockNumber}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    tronBlockNumber: t.bigint().notNull(),
+    tronBlockId: t.hex().notNull(),
+    tronTxTrieRoot: t.hex().notNull(),
+    tronBlockTimestamp: t.bigint().notNull(),
+    storedAtBlockNumber: t.bigint().notNull(),
+    storedAtBlockTimestamp: t.bigint().notNull(),
+    storedAtTransactionHash: t.hex().notNull(),
+    storedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractTronBlockIdx: index().on(table.chainId, table.contractAddress, table.tronBlockNumber),
+    contractStoredAtBlockIdx: index().on(
+      table.chainId,
+      table.contractAddress,
+      table.storedAtBlockNumber
+    ),
+  })
+);
+
 export const untronV3LeasePayoutConfig = onchainTable(
   "untron_v3_lease_payout_config",
   (t) => ({
@@ -244,6 +269,7 @@ export const relayJobKindEnum = onchainEnum("relay_job_kind", [
   "mainnet_heartbeat",
   "tron_heartbeat",
   "trc20_transfer",
+  "relay_controller_event_chain",
 ] as const);
 
 export const relayJobStatusEnum = onchainEnum("relay_job_status", [

@@ -7,6 +7,7 @@ import { UntronControllerAbi } from "../abis/tron/UntronControllerAbi";
 
 import { registerEventChainIndexer } from "./eventChainIndexer";
 import { registerRelayer } from "./relayer";
+import { handleTronLightClientDerivedEvent } from "./tronLightClientDerivedIndexer";
 import { handleUntronControllerIsEventChainTipCalled } from "./untronControllerIsEventChainTipCalled";
 import { handleUntronV3DerivedEvent } from "./untronV3DerivedIndexer";
 
@@ -24,6 +25,14 @@ registerEventChainIndexer({
   contractName: "TronLightClient",
   indexName: "TronLightClientIndex",
   abi: TronLightClientAbi,
+  afterEvent: ({ eventName, event, context }) =>
+    eventName === "TronBlockStored"
+      ? handleTronLightClientDerivedEvent({
+          eventName,
+          event,
+          context,
+        })
+      : Effect.void,
 });
 
 registerEventChainIndexer({

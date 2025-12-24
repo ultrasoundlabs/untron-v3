@@ -3,6 +3,7 @@ import type { Context as PonderContext } from "ponder:registry";
 
 import { handleMainnetHeartbeat } from "./jobs/heartbeat/mainnetHeartbeat";
 import { handleTronHeartbeat } from "./jobs/heartbeat/tronHeartbeat";
+import { handleRelayControllerEventChain } from "./jobs/relayControllerEventChain";
 import { handleTrc20Transfer } from "./jobs/trc20Transfer";
 import type { RelayJobHandlerContext } from "./jobs/types";
 import type { RelayJobKind, RelayJobRow } from "./types";
@@ -23,6 +24,11 @@ export const handleRelayJob = (args: { job: RelayJobRow; ctx: RelayJobHandlerCon
     case "trc20_transfer":
       return handleTrc20Transfer({
         job: args.job as RelayJobRow & { kind: "trc20_transfer" },
+        ctx: args.ctx,
+      });
+    case "relay_controller_event_chain":
+      return handleRelayControllerEventChain({
+        job: args.job as RelayJobRow & { kind: "relay_controller_event_chain" },
         ctx: args.ctx,
       });
     default: {

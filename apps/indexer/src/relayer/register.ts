@@ -125,6 +125,20 @@ export function registerRelayer({
               maxAttempts: runtime.maxAttempts,
               retryDelayBlocks: runtime.retryDelayBlocks,
             });
+
+            yield* processRelayJobs({
+              context: context as PonderContext,
+              chainId: context.chain.id,
+              kind: "relay_controller_event_chain",
+              headBlockNumber: blockNumber,
+              headBlockTimestamp: blockTimestamp,
+              minConfirmations: runtime.tronConfirmations,
+              workerId: runtime.workerId,
+              limit: runtime.claimLimit,
+              dryRun: resolvedDryRun,
+              maxAttempts: runtime.maxAttempts,
+              retryDelayBlocks: runtime.retryDelayBlocks,
+            });
           }
         })
       )

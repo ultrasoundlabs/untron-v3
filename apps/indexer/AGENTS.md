@@ -474,12 +474,14 @@ If you start the app with `ponder start`:
      - `untron_v3_bridger_route`
      - `untron_v3_claim_queue`
      - `untron_v3_claim`
+   - For `TronLightClient` events, `apps/indexer/src/index.ts` wires `apps/indexer/src/tronLightClientDerivedIndexer.ts` in as an `afterEvent` hook to maintain:
+     - `tron_light_client_checkpoint` (sparse checkpoint set used by controller event-chain relaying)
 3. For each new Tron block:
    - `apps/indexer/src/relayer/register.ts` updates `relayer_status`.
    - If relayer enabled and indexer synced, it enqueues a `tron_heartbeat` job.
    - If embedded executor enabled, it claims and runs jobs:
      - `tron_heartbeat` (possibly sweeping multiple receivers),
-     - then `trc20_transfer` jobs.
+     - then `trc20_transfer` and `relay_controller_event_chain` jobs.
 4. For each filtered TRC20 transfer into a receiver:
    - `apps/indexer/src/relayer/register.ts` stores a `trc20_transfer` row,
    - Enqueues a `trc20_transfer` job (only if it looks live + synced),
