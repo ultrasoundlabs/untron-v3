@@ -1,14 +1,21 @@
-import { eq, index, onchainEnum, onchainTable, onchainView } from "ponder";
+import { desc, eq, index, onchainEnum, onchainTable, onchainView } from "ponder";
 
-export const eventChainState = onchainTable("event_chain_state", (t) => ({
-  id: t.text().primaryKey(), // `${chainId}:${contractName}:${contractAddress}`
-  chainId: t.integer().notNull(),
-  contractName: t.text().notNull(),
-  contractAddress: t.hex().notNull(),
-  eventChainTip: t.hex().notNull(),
-  lastEventBlockNumber: t.bigint().notNull(),
-  sequence: t.bigint().notNull(),
-}));
+export const eventChainState = onchainTable(
+  "event_chain_state",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractName}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractName: t.text().notNull(),
+    contractAddress: t.hex().notNull(),
+    eventChainTip: t.hex().notNull(),
+    lastEventBlockNumber: t.bigint().notNull(),
+    sequence: t.bigint().notNull(),
+  }),
+  (table) => ({
+    contractAddressIdx: index().on(table.chainId, table.contractName, table.contractAddress),
+    contractLastBlockIdx: index().on(table.chainId, table.contractName, table.lastEventBlockNumber),
+  })
+);
 
 export const eventChainEvent = onchainTable(
   "event_chain_event",
@@ -35,6 +42,12 @@ export const eventChainEvent = onchainTable(
       table.contractName,
       table.contractAddress,
       table.sequence
+    ),
+    contractEventNameBlockIdx: index().on(
+      table.contractName,
+      table.contractAddress,
+      table.eventName,
+      table.blockNumber
     ),
     contractBlockNumberIdx: index().on(
       table.contractName,
@@ -65,6 +78,49 @@ export const untronControllerState = onchainView("untron_controller_state").as((
 );
 export const untronControllerEvent = onchainView("untron_controller_event").as((qb) =>
   qb.select().from(eventChainEvent).where(eq(eventChainEvent.contractName, "UntronController"))
+);
+
+export const untronControllerLatestEventChainTip = onchainView(
+  "untron_controller_latest_event_chain_tip"
+).as((qb) =>
+  qb
+    .select()
+    .from(eventChainState)
+    .where(eq(eventChainState.contractName, "UntronController"))
+    .orderBy(desc(eventChainState.lastEventBlockNumber))
+    .limit(1)
+);
+
+export const untronControllerIsEventChainTipCalled = onchainTable(
+  "untron_controller_is_event_chain_tip_called",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${transactionHash}:${logIndex}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    caller: t.hex().notNull(),
+    eventChainTip: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    blockTimestamp: t.bigint().notNull(),
+    transactionHash: t.hex().notNull(),
+    logIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractBlockIdx: index().on(table.chainId, table.contractAddress, table.blockNumber),
+    contractTxLogIdx: index().on(table.chainId, table.contractAddress, table.transactionHash),
+  })
+);
+
+export const untronControllerLatestIsEventChainTipCalled = onchainView(
+  "untron_controller_latest_is_event_chain_tip_called"
+).as((qb) =>
+  qb
+    .select()
+    .from(untronControllerIsEventChainTipCalled)
+    .orderBy(
+      desc(untronControllerIsEventChainTipCalled.blockNumber),
+      desc(untronControllerIsEventChainTipCalled.logIndex)
+    )
+    .limit(1)
 );
 
 export const untronV3LeasePayoutConfig = onchainTable(

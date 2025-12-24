@@ -89,6 +89,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
       ConfigError.ConfigError | Error
     >;
     readonly getControllerUsdt: () => Effect.Effect<Address, ConfigError.ConfigError | Error>;
+    readonly getControllerEventChainTip: () => Effect.Effect<Hex, ConfigError.ConfigError | Error>;
     readonly getControllerPulledUsdt: () => Effect.Effect<bigint, ConfigError.ConfigError | Error>;
     readonly getControllerLpExchangeRateFor: (args: {
       tokenAddress: Address;
@@ -104,6 +105,10 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
       tokenAddress: Address;
       receiverSalts: readonly Hex[];
     }) => Effect.Effect<SendTronTransactionResult, ConfigError.ConfigError | Error>;
+    readonly sendTronControllerIsEventChainTip: () => Effect.Effect<
+      SendTronTransactionResult,
+      ConfigError.ConfigError | Error
+    >;
     readonly sendTronControllerRebalanceUsdt: (args: {
       rebalancer: Address;
       inAmount: bigint;
@@ -794,6 +799,17 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           )
         );
 
+      const getControllerEventChainTip = () =>
+        controllerAddressBytes21().pipe(
+          Effect.flatMap((controllerBytes21) =>
+            tronReadContract<Hex>({
+              addressBytes21: controllerBytes21,
+              abi: UntronControllerAbi,
+              functionName: "eventChainTip",
+            })
+          )
+        );
+
       const getControllerPulledUsdt = () =>
         controllerAddressBytes21().pipe(
           Effect.flatMap((controllerBytes21) =>
@@ -876,6 +892,77 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           return { txid };
         });
 
+      const sendTronControllerIsEventChainTip = () =>
+        Effect.gen(function* () {
+          const { wallet } = yield* tronGrpc.get();
+          const config = yield* tronConfigCached;
+
+          if (config.callValue !== 0) {
+            return yield* Effect.fail(
+              new Error("TRON_CALL_VALUE must be 0 when calling UntronController.isEventChainTip")
+            );
+          }
+
+          const controllerBytes21 = yield* controllerAddressBytes21();
+          const ownerAddressBytes21 = yield* relayerAddressBytes21Cached;
+
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const tip = yield* tronReadContract<Hex>({
+              addressBytes21: controllerBytes21,
+              abi: UntronControllerAbi,
+              functionName: "eventChainTip",
+            });
+
+            const data = encodeFunctionData({
+              abi: UntronControllerAbi,
+              functionName: "isEventChainTip",
+              args: [tip],
+            });
+
+            const request = TriggerSmartContract.fromPartial({
+              ownerAddress: ownerAddressBytes21,
+              contractAddress: controllerBytes21,
+              callValue: config.callValue,
+              data: Buffer.from(data.slice(2), "hex"),
+            });
+
+            const txExt = yield* grpcUnary(
+              wallet.triggerContract.bind(wallet) as unknown as UnaryCall<
+                TriggerSmartContract,
+                TransactionExtention
+              >,
+              request
+            );
+
+            if (!txExt.result?.result) {
+              const msg = txExt.result?.message?.length
+                ? txExt.result.message.toString("utf8")
+                : "unknown";
+              return yield* Effect.fail(new Error(`Tron triggerContract failed: ${msg}`));
+            }
+
+            const tx = txExt.transaction;
+            if (!tx?.rawData) {
+              return yield* Effect.fail(
+                new Error(`Tron triggerContract returned no transaction: ${JSON.stringify(txExt)}`)
+              );
+            }
+
+            try {
+              const txid = yield* broadcastTronTx(tx);
+              return { txid };
+            } catch (error) {
+              const err = error instanceof Error ? error : new Error(String(error));
+              const errorMessage = `${err.name}: ${err.message}`.toLowerCase();
+              if (!errorMessage.includes("no")) return yield* Effect.fail(err);
+            }
+          }
+
+          return yield* Effect.fail(
+            new Error("Failed to send Tron isEventChainTip (tip kept changing)")
+          );
+        });
+
       const sendTronControllerRebalanceUsdt = ({
         rebalancer,
         inAmount,
@@ -902,11 +989,13 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
         getControllerEvmAddress: controllerEvmAddress,
         getReceiverMap: () => getReceiverMapCached,
         getControllerUsdt,
+        getControllerEventChainTip,
         getControllerPulledUsdt,
         getControllerLpExchangeRateFor,
         getErc20BalanceOf,
         getTrxBalanceOf,
         sendTronControllerPullFromReceivers,
+        sendTronControllerIsEventChainTip,
         sendTronControllerRebalanceUsdt,
       };
     })

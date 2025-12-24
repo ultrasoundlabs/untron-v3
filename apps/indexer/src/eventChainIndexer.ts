@@ -153,6 +153,7 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
   indexName,
   abi,
   onchainTipValidation = "blockTag",
+  skipTipUpdateEvents,
   afterEvent,
 }: {
   ponder: PonderRegistry;
@@ -160,6 +161,7 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
   indexName: string;
   abi: TAbi;
   onchainTipValidation?: "blockTag" | "head" | "disabled";
+  skipTipUpdateEvents?: readonly AbiEventName<TAbi>[];
   afterEvent?: (args: {
     eventName: AbiEventName<TAbi>;
     event: PonderLogEvent;
@@ -168,6 +170,7 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
 }) {
   const chainedEvents = getAbiEventNames(abi);
   const genesisTip = computeEventChainGenesis(indexName);
+  const skipTipUpdateEventSet = new Set<string>(skipTipUpdateEvents ?? []);
 
   const handleChainedEvent = (args: {
     eventName: AbiEventName<TAbi>;
@@ -243,6 +246,22 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
             ].join(" ")
           );
         }
+      }
+
+      if (skipTipUpdateEventSet.has(args.eventName)) {
+        if (args.event.block.number > state.lastEventBlockNumber) {
+          yield* tryPromise(() =>
+            args.context.db.update(eventChainState, { id: stateId }).set({
+              lastEventBlockNumber: args.event.block.number,
+            })
+          );
+        }
+
+        if (afterEvent) {
+          yield* afterEvent(args);
+        }
+
+        return;
       }
 
       const topic0 = args.event.log.topics[0];
