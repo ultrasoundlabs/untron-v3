@@ -7,7 +7,6 @@ import { encodeFunctionData, type Address, type Hex } from "viem";
 import type { BlockExtention } from "@untron/tron-protocol/api";
 
 import { TronLightClientAbi } from "../../abis/evm/TronLightClientAbi";
-import { eventChainState, tronLightClientCheckpoint } from "ponder:schema";
 
 import { getRows } from "./sqlRows";
 import {
@@ -60,10 +59,10 @@ async function lookupMainnetChainIdForTronLightClient(args: {
   tronLightClientAddress: Address;
 }): Promise<number> {
   const result = await args.context.db.sql.execute(sql`
-    SELECT ${eventChainState.chainId} AS "chainId"
-    FROM ${eventChainState}
-    WHERE ${eventChainState.contractName} = 'TronLightClient'
-      AND ${eventChainState.contractAddress} = ${args.tronLightClientAddress}
+    SELECT chain_id AS "chainId"
+    FROM "event_chain_state"
+    WHERE contract_name = 'TronLightClient'
+      AND contract_address = ${args.tronLightClientAddress}
     LIMIT 1;
   `);
 
@@ -90,25 +89,25 @@ async function getNearestTronLightClientCheckpoints(args: {
 }> {
   const prevResult = await args.context.db.sql.execute(sql`
     SELECT
-      ${tronLightClientCheckpoint.tronBlockNumber} AS "tronBlockNumber",
-      ${tronLightClientCheckpoint.tronBlockId} AS "tronBlockId"
-    FROM ${tronLightClientCheckpoint}
-    WHERE ${tronLightClientCheckpoint.chainId} = ${args.mainnetChainId}
-      AND ${tronLightClientCheckpoint.contractAddress} = ${args.tronLightClientAddress}
-      AND ${tronLightClientCheckpoint.tronBlockNumber} <= ${args.tronBlockNumber}
-    ORDER BY ${tronLightClientCheckpoint.tronBlockNumber} DESC
+      tron_block_number AS "tronBlockNumber",
+      tron_block_id AS "tronBlockId"
+    FROM "tron_light_client_checkpoint"
+    WHERE chain_id = ${args.mainnetChainId}
+      AND contract_address = ${args.tronLightClientAddress}
+      AND tron_block_number <= ${args.tronBlockNumber}
+    ORDER BY tron_block_number DESC
     LIMIT 1;
   `);
 
   const nextResult = await args.context.db.sql.execute(sql`
     SELECT
-      ${tronLightClientCheckpoint.tronBlockNumber} AS "tronBlockNumber",
-      ${tronLightClientCheckpoint.tronBlockId} AS "tronBlockId"
-    FROM ${tronLightClientCheckpoint}
-    WHERE ${tronLightClientCheckpoint.chainId} = ${args.mainnetChainId}
-      AND ${tronLightClientCheckpoint.contractAddress} = ${args.tronLightClientAddress}
-      AND ${tronLightClientCheckpoint.tronBlockNumber} >= ${args.tronBlockNumber}
-    ORDER BY ${tronLightClientCheckpoint.tronBlockNumber} ASC
+      tron_block_number AS "tronBlockNumber",
+      tron_block_id AS "tronBlockId"
+    FROM "tron_light_client_checkpoint"
+    WHERE chain_id = ${args.mainnetChainId}
+      AND contract_address = ${args.tronLightClientAddress}
+      AND tron_block_number >= ${args.tronBlockNumber}
+    ORDER BY tron_block_number ASC
     LIMIT 1;
   `);
 

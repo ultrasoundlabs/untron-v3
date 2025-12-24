@@ -14,7 +14,6 @@ import { computeNextEventChainTip } from "../../eventChain/tip";
 import { tryPromise } from "../../effect/tryPromise";
 import type { RelayJobRow } from "../types";
 import type { RelayJobHandlerContext } from "./types";
-import { eventChainEvent } from "ponder:schema";
 import { getRows } from "../sqlRows";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
@@ -145,12 +144,12 @@ async function loadControllerEventsToRelay(args: {
 
   const endRowResult = await args.context.db.sql.execute(sql`
     SELECT
-      ${eventChainEvent.sequence} AS "sequence"
-    FROM ${eventChainEvent}
-    WHERE ${eventChainEvent.chainId} = ${args.tronChainId}
-      AND ${eventChainEvent.contractName} = 'UntronController'
-      AND ${eventChainEvent.contractAddress} = ${args.controllerAddress}
-      AND ${eventChainEvent.tip} = ${endTipLower}
+      sequence AS "sequence"
+    FROM "event_chain_event"
+    WHERE chain_id = ${args.tronChainId}
+      AND contract_name = 'UntronController'
+      AND contract_address = ${args.controllerAddress}
+      AND tip = ${endTipLower}
     LIMIT 1;
   `);
   const endRows = getRows(endRowResult) as Array<{ sequence: bigint }>;
@@ -163,12 +162,12 @@ async function loadControllerEventsToRelay(args: {
   if (startTipLower !== endTipLower) {
     const startRowResult = await args.context.db.sql.execute(sql`
       SELECT
-        ${eventChainEvent.sequence} AS "sequence"
-      FROM ${eventChainEvent}
-      WHERE ${eventChainEvent.chainId} = ${args.tronChainId}
-        AND ${eventChainEvent.contractName} = 'UntronController'
-        AND ${eventChainEvent.contractAddress} = ${args.controllerAddress}
-        AND ${eventChainEvent.tip} = ${startTipLower}
+        sequence AS "sequence"
+      FROM "event_chain_event"
+      WHERE chain_id = ${args.tronChainId}
+        AND contract_name = 'UntronController'
+        AND contract_address = ${args.controllerAddress}
+        AND tip = ${startTipLower}
       LIMIT 1;
     `);
     const startRows = getRows(startRowResult) as Array<{ sequence: bigint }>;
@@ -177,20 +176,20 @@ async function loadControllerEventsToRelay(args: {
 
   const eventsResult = await args.context.db.sql.execute(sql`
     SELECT
-      ${eventChainEvent.tip} AS "tip",
-      ${eventChainEvent.previousTip} AS "previousTip",
-      ${eventChainEvent.blockNumber} AS "blockNumber",
-      ${eventChainEvent.blockTimestamp} AS "blockTimestamp",
-      ${eventChainEvent.eventSignature} AS "eventSignature",
-      ${eventChainEvent.encodedEventData} AS "encodedEventData",
-      ${eventChainEvent.sequence} AS "sequence"
-    FROM ${eventChainEvent}
-    WHERE ${eventChainEvent.chainId} = ${args.tronChainId}
-      AND ${eventChainEvent.contractName} = 'UntronController'
-      AND ${eventChainEvent.contractAddress} = ${args.controllerAddress}
-      AND ${eventChainEvent.sequence} > ${startSequence}
-      AND ${eventChainEvent.sequence} <= ${endSequence}
-    ORDER BY ${eventChainEvent.sequence} ASC;
+      tip AS "tip",
+      previous_tip AS "previousTip",
+      block_number AS "blockNumber",
+      block_timestamp AS "blockTimestamp",
+      event_signature AS "eventSignature",
+      encoded_event_data AS "encodedEventData",
+      sequence AS "sequence"
+    FROM "event_chain_event"
+    WHERE chain_id = ${args.tronChainId}
+      AND contract_name = 'UntronController'
+      AND contract_address = ${args.controllerAddress}
+      AND sequence > ${startSequence}
+      AND sequence <= ${endSequence}
+    ORDER BY sequence ASC;
   `);
 
   const rows = getRows(eventsResult) as Array<{

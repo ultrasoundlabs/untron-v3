@@ -205,7 +205,10 @@ export class AppConfig extends Effect.Tag("AppConfig")<
           );
 
           const callValue = yield* requiredNumberWithDefault("RELAYER_TRON_CALL_VALUE", 0);
-          const feeLimit = yield* requiredNumberWithDefault("RELAYER_TRON_FEE_LIMIT", 100_000_000);
+          const feeLimit = yield* requiredNumberWithDefault(
+            "RELAYER_TRON_FEE_LIMIT",
+            1_000_000_000
+          );
           const pollTimes = yield* requiredNumberWithDefault("RELAYER_TRON_POLL_TIMES", 20);
           const pollIntervalMs = yield* requiredNumberWithDefault(
             "RELAYER_TRON_POLL_INTERVAL_MS",

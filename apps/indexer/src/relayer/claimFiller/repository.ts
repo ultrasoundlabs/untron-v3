@@ -1,11 +1,5 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
-import {
-  untronV3BridgerRoute,
-  untronV3Claim,
-  untronV3ClaimQueue,
-  untronV3SwapRate,
-} from "ponder:schema";
 import type { Context as PonderContext } from "ponder:registry";
 import type { Address } from "viem";
 
@@ -22,12 +16,12 @@ export const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          ${untronV3ClaimQueue.targetToken} AS targetToken,
-          ${untronV3ClaimQueue.queueLength} AS queueLength
-        FROM ${untronV3ClaimQueue}
-        WHERE ${untronV3ClaimQueue.chainId} = ${args.chainId}
-          AND ${untronV3ClaimQueue.contractAddress} = ${args.contractAddress}
-          AND ${untronV3ClaimQueue.queueLength} > 0;
+          target_token AS targetToken,
+          queue_length AS queueLength
+        FROM "untron_v3_claim_queue"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND queue_length > 0;
       `)
     ).pipe(
       Effect.map(
@@ -45,16 +39,16 @@ export const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          ${untronV3Claim.claimIndex} AS claimIndex,
-          ${untronV3Claim.leaseId} AS leaseId,
-          ${untronV3Claim.amountUsdt} AS amountUsdt,
-          ${untronV3Claim.targetChainId} AS targetChainId,
-          ${untronV3Claim.beneficiary} AS beneficiary
-        FROM ${untronV3Claim}
-        WHERE ${untronV3Claim.chainId} = ${args.chainId}
-          AND ${untronV3Claim.contractAddress} = ${args.contractAddress}
-          AND ${untronV3Claim.targetToken} = ${args.targetToken}
-          AND ${untronV3Claim.claimIndex} = ${args.claimIndex}
+          claim_index AS claimIndex,
+          lease_id AS leaseId,
+          amount_usdt AS amountUsdt,
+          target_chain_id AS targetChainId,
+          beneficiary AS beneficiary
+        FROM "untron_v3_claim"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken}
+          AND claim_index = ${args.claimIndex}
         LIMIT 1;
       `)
     ).pipe(
@@ -81,17 +75,17 @@ export const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          ${untronV3Claim.claimIndex} AS claimIndex,
-          ${untronV3Claim.leaseId} AS leaseId,
-          ${untronV3Claim.amountUsdt} AS amountUsdt,
-          ${untronV3Claim.targetChainId} AS targetChainId,
-          ${untronV3Claim.beneficiary} AS beneficiary
-        FROM ${untronV3Claim}
-        WHERE ${untronV3Claim.chainId} = ${args.chainId}
-          AND ${untronV3Claim.contractAddress} = ${args.contractAddress}
-          AND ${untronV3Claim.targetToken} = ${args.targetToken}
-          AND ${untronV3Claim.claimIndex} >= ${args.startIndex}
-        ORDER BY ${untronV3Claim.claimIndex} ASC
+          claim_index AS claimIndex,
+          lease_id AS leaseId,
+          amount_usdt AS amountUsdt,
+          target_chain_id AS targetChainId,
+          beneficiary AS beneficiary
+        FROM "untron_v3_claim"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken}
+          AND claim_index >= ${args.startIndex}
+        ORDER BY claim_index ASC
         LIMIT ${args.limit};
       `)
     ).pipe(Effect.map((result) => getRows(result) as Claim[])),
@@ -105,11 +99,11 @@ export const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          ${untronV3SwapRate.ratePpm} AS ratePpm
-        FROM ${untronV3SwapRate}
-        WHERE ${untronV3SwapRate.chainId} = ${args.chainId}
-          AND ${untronV3SwapRate.contractAddress} = ${args.contractAddress}
-          AND ${untronV3SwapRate.targetToken} = ${args.targetToken}
+          rate_ppm AS ratePpm
+        FROM "untron_v3_swap_rate"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken}
         LIMIT 1;
       `)
     ).pipe(
@@ -128,12 +122,12 @@ export const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          ${untronV3BridgerRoute.targetChainId} AS targetChainId,
-          ${untronV3BridgerRoute.bridger} AS bridger
-        FROM ${untronV3BridgerRoute}
-        WHERE ${untronV3BridgerRoute.chainId} = ${args.chainId}
-          AND ${untronV3BridgerRoute.contractAddress} = ${args.contractAddress}
-          AND ${untronV3BridgerRoute.targetToken} = ${args.targetToken};
+          target_chain_id AS targetChainId,
+          bridger AS bridger
+        FROM "untron_v3_bridger_route"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken};
       `)
     ).pipe(
       Effect.map((result) => getRows(result) as Array<{ targetChainId: bigint; bridger: Address }>)

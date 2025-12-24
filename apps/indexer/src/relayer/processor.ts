@@ -83,15 +83,28 @@ export const processRelayJobs = (args: {
         Effect.catchAll((error) => {
           const errorMessage =
             error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-          return markRelayJobFailed({
-            context: args.context,
-            id: job.id,
-            headBlockNumber: args.headBlockNumber,
-            headBlockTimestamp: args.headBlockTimestamp,
-            errorMessage,
-            maxAttempts: args.maxAttempts,
-            retryDelayBlocks: args.retryDelayBlocks,
-          });
+          return Effect.sync(() => {
+            // Ponder doesn't surface these failures by default; log so operators can see why jobs retry.
+            console.warn("[relayer] job failed", {
+              id: job.id,
+              chainId: args.chainId,
+              kind: job.kind,
+              headBlockNumber: args.headBlockNumber.toString(),
+              error: errorMessage,
+            });
+          }).pipe(
+            Effect.andThen(
+              markRelayJobFailed({
+                context: args.context,
+                id: job.id,
+                headBlockNumber: args.headBlockNumber,
+                headBlockTimestamp: args.headBlockTimestamp,
+                errorMessage,
+                maxAttempts: args.maxAttempts,
+                retryDelayBlocks: args.retryDelayBlocks,
+              })
+            )
+          );
         })
       )
     );

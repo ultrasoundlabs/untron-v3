@@ -5,7 +5,9 @@ import { eventChainState, relayerStatus } from "ponder:schema";
 
 import type { ContractName } from "./types";
 
-const getHeadBlockNumber = (context: PonderContext): Effect.Effect<bigint | null, Error> =>
+export const getRpcHeadBlockNumber = (
+  context: PonderContext
+): Effect.Effect<bigint | null, Error> =>
   Effect.tryPromise({
     try: async () => {
       const hex = (await context.client.request({
@@ -32,7 +34,7 @@ export const isProbablyLiveEvent = (args: {
     const head =
       status?.isLive === true && typeof status.headBlockNumber === "bigint"
         ? status.headBlockNumber
-        : yield* getHeadBlockNumber(args.context);
+        : yield* getRpcHeadBlockNumber(args.context);
 
     if (head === null) return false;
     if (head < args.eventBlockNumber) return false;

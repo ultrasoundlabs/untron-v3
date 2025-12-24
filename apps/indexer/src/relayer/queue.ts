@@ -57,26 +57,26 @@ export const claimRelayJobs = (args: {
 
       const result = await args.context.db.sql.execute(sql`
         WITH candidates AS (
-          SELECT ${relayJob.id} AS id
-          FROM ${relayJob}
-          WHERE ${relayJob.chainId} = ${args.chainId}
-            AND ${relayJob.kind} = ${args.kind}
-            AND ${relayJob.status} = 'pending'
-            AND ${relayJob.createdAtBlockNumber} <= ${eligibleBlock}
-            AND (${relayJob.nextRetryBlockNumber} IS NULL OR ${relayJob.nextRetryBlockNumber} <= ${args.headBlockNumber})
-          ORDER BY ${relayJob.createdAtBlockNumber} ASC, ${relayJob.id} ASC
+          SELECT "id" AS id
+          FROM "relay_job"
+          WHERE chain_id = ${args.chainId}
+            AND "kind" = ${args.kind}
+            AND "status" = 'pending'
+            AND created_at_block_number <= ${eligibleBlock}
+            AND (next_retry_block_number IS NULL OR next_retry_block_number <= ${args.headBlockNumber})
+          ORDER BY created_at_block_number ASC, "id" ASC
           LIMIT ${args.limit}
           FOR UPDATE SKIP LOCKED
         )
-        UPDATE ${relayJob}
-        SET ${relayJob.status} = 'processing',
-            ${relayJob.lockedAtBlockNumber} = ${args.headBlockNumber},
-            ${relayJob.lockedAtBlockTimestamp} = ${args.headBlockTimestamp},
-            ${relayJob.lockedBy} = ${args.workerId},
-            ${relayJob.updatedAtBlockNumber} = ${args.headBlockNumber},
-            ${relayJob.updatedAtBlockTimestamp} = ${args.headBlockTimestamp},
-            ${relayJob.lastError} = NULL
-        WHERE ${relayJob.id} IN (SELECT id FROM candidates)
+        UPDATE "relay_job"
+        SET "status" = 'processing',
+            locked_at_block_number = ${args.headBlockNumber},
+            locked_at_block_timestamp = ${args.headBlockTimestamp},
+            locked_by = ${args.workerId},
+            updated_at_block_number = ${args.headBlockNumber},
+            updated_at_block_timestamp = ${args.headBlockTimestamp},
+            last_error = NULL
+        WHERE "id" IN (SELECT id FROM candidates)
         RETURNING *;
       `);
 

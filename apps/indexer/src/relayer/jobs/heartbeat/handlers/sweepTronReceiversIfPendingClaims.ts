@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
-import { untronV3ClaimQueue } from "ponder:schema";
 
 import { UntronV3Abi } from "../../../../../abis/evm/UntronV3Abi";
 import { tryPromise } from "../../../../effect/tryPromise";
@@ -16,12 +15,12 @@ export const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =
     const result = yield* tryPromise(() =>
       ctx.ponderContext.db.sql.execute(sql`
         SELECT
-          ${untronV3ClaimQueue.targetToken} AS targetToken,
-          ${untronV3ClaimQueue.queueLength} AS queueLength
-        FROM ${untronV3ClaimQueue}
-        WHERE ${untronV3ClaimQueue.chainId} = ${chainId}
-          AND ${untronV3ClaimQueue.contractAddress} = ${untronV3Address}
-          AND ${untronV3ClaimQueue.queueLength} > 0;
+          target_token AS targetToken,
+          queue_length AS queueLength
+        FROM "untron_v3_claim_queue"
+        WHERE chain_id = ${chainId}
+          AND contract_address = ${untronV3Address}
+          AND queue_length > 0;
       `)
     );
 

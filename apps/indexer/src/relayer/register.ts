@@ -8,8 +8,8 @@ import { IndexerRuntime } from "../effect/runtime";
 
 import { enqueueRelayJob } from "./queue";
 import { processRelayJobs } from "./processor";
-import { isProbablyLiveEvent, isSyncedForChain } from "./sync";
-import type { BlockEventName, ContractName, PonderRegistry, RelayJobKind } from "./types";
+import { getRpcHeadBlockNumber, isProbablyLiveEvent } from "./sync";
+import type { BlockEventName, PonderRegistry, RelayJobKind } from "./types";
 
 const upsertRelayerStatus = (args: {
   context: PonderContext;
@@ -38,7 +38,7 @@ export function registerRelayer({
   enabled,
   embeddedExecutorEnabled,
   dryRun,
-  maxLagBlocks = 2n,
+  maxLagBlocks = 50n,
 }: {
   ponder: PonderRegistry;
   enabled?: boolean;
@@ -48,8 +48,7 @@ export function registerRelayer({
 }) {
   const onBlock = <TEventName extends BlockEventName>(
     blockEventName: TEventName,
-    heartbeatKind: RelayJobKind,
-    requiredContracts: readonly ContractName[]
+    heartbeatKind: RelayJobKind
   ) => {
     ponder.on(blockEventName, ({ event, context }: IndexingFunctionArgs<TEventName>) =>
       IndexerRuntime.runPromise(
@@ -63,22 +62,20 @@ export function registerRelayer({
           const blockNumber = event.block.number as bigint;
           const blockTimestamp = event.block.timestamp as bigint;
 
+          const rpcHead = yield* getRpcHeadBlockNumber(context as PonderContext);
+          const isLive =
+            rpcHead !== null && rpcHead >= blockNumber && rpcHead - blockNumber <= maxLagBlocks;
+
           yield* upsertRelayerStatus({
             context: context as PonderContext,
-            isLive: true,
-            headBlockNumber: blockNumber,
+            isLive,
+            headBlockNumber: rpcHead ?? blockNumber,
             headBlockTimestamp: blockTimestamp,
           });
 
           if (!resolvedEnabled) return;
 
-          const isSynced = yield* isSyncedForChain({
-            context: context as PonderContext,
-            blockNumber,
-            maxLagBlocks,
-            requiredContracts,
-          });
-          if (!isSynced) return;
+          if (!isLive) return;
 
           yield* enqueueRelayJob({
             context: context as PonderContext,
@@ -145,8 +142,8 @@ export function registerRelayer({
     );
   };
 
-  onBlock("mainnet:block", "mainnet_heartbeat", ["UntronV3", "TronLightClient"]);
-  onBlock("tron:block", "tron_heartbeat", ["UntronController"]);
+  onBlock("mainnet:block", "mainnet_heartbeat");
+  onBlock("tron:block", "tron_heartbeat");
 
   ponder.on("TRC20:Transfer", ({ event, context }: IndexingFunctionArgs<"TRC20:Transfer">) =>
     IndexerRuntime.runPromise(
@@ -189,14 +186,6 @@ export function registerRelayer({
           maxLagBlocks,
         });
         if (!isLive) return;
-
-        const isSynced = yield* isSyncedForChain({
-          context: context as PonderContext,
-          blockNumber,
-          maxLagBlocks,
-          requiredContracts: ["UntronController"],
-        });
-        if (!isSynced) return;
 
         yield* enqueueRelayJob({
           context: context as PonderContext,

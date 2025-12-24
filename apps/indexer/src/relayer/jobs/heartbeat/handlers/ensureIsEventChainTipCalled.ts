@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
-import { eventChainState, untronControllerIsEventChainTipCalled } from "ponder:schema";
+import { eventChainState } from "ponder:schema";
 
 import { tryPromise } from "../../../../effect/tryPromise";
 import { TronRelayer } from "../../../deps/tron";
@@ -24,12 +24,12 @@ export const ensureIsEventChainTipCalled = (ctx: RelayJobHandlerContext) =>
     const result = yield* tryPromise(() =>
       ctx.ponderContext.db.sql.execute(sql`
         SELECT
-          ${untronControllerIsEventChainTipCalled.eventChainTip} AS "eventChainTip"
-        FROM ${untronControllerIsEventChainTipCalled}
-        WHERE ${untronControllerIsEventChainTipCalled.chainId} = ${chainId}
-          AND ${untronControllerIsEventChainTipCalled.contractAddress} = ${controllerAddress}
-        ORDER BY ${untronControllerIsEventChainTipCalled.blockNumber} DESC,
-          ${untronControllerIsEventChainTipCalled.logIndex} DESC
+          event_chain_tip AS "eventChainTip"
+        FROM "untron_controller_is_event_chain_tip_called"
+        WHERE chain_id = ${chainId}
+          AND contract_address = ${controllerAddress}
+        ORDER BY block_number DESC,
+          log_index DESC
         LIMIT 1;
       `)
     );
