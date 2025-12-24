@@ -43,6 +43,9 @@ contract CCTPV2Bridger is IBridger, Ownable {
     error ZeroBeneficiary();
     error ApproveFailed();
     error InsufficientUsdcBalance(uint256 balance, uint256 required);
+    error ZeroAddress();
+    error ArrayLengthMismatch(uint256 a, uint256 b);
+    error DuplicateChainId(uint256 chainId);
 
     /// @notice The only caller allowed to initiate a burn (expected to be UntronV3).
     address public immutable UNTRON;
@@ -53,6 +56,14 @@ contract CCTPV2Bridger is IBridger, Ownable {
     /// @notice The only supported token (CCTP burns/mints USDC).
     IERC20 public immutable USDC;
 
+    /// @notice EVM chainId -> Circle CCTP domain id.
+    /// @dev Circle domains are NOT EVM chainIds.
+    mapping(uint256 => uint32) public circleDomainByChainId;
+
+    /// @notice Whether an EVM chainId is supported by this bridger.
+    /// @dev Needed because Circle domain id `0` (Ethereum) is valid.
+    mapping(uint256 => bool) public isSupportedChainId;
+
     uint32 internal constant _FINALITY_STANDARD = 2000; // standard finality
     uint256 internal constant _MAX_FEE = 0;
 
@@ -60,11 +71,31 @@ contract CCTPV2Bridger is IBridger, Ownable {
     /// @param untron The UntronV3 contract allowed to call `bridge`.
     /// @param tokenMessengerV2 Circle `TokenMessengerV2` address on the current chain.
     /// @param usdc USDC token address on the current chain.
-    constructor(address untron, address tokenMessengerV2, address usdc) {
+    /// @param supportedChainIds Supported destination EVM chain ids.
+    /// @param circleDomains Circle CCTP domain ids corresponding 1:1 with `supportedChainIds`.
+    constructor(
+        address untron,
+        address tokenMessengerV2,
+        address usdc,
+        uint256[] memory supportedChainIds,
+        uint32[] memory circleDomains
+    ) {
+        if (untron == address(0) || tokenMessengerV2 == address(0) || usdc == address(0)) revert ZeroAddress();
+        if (supportedChainIds.length != circleDomains.length) {
+            revert ArrayLengthMismatch(supportedChainIds.length, circleDomains.length);
+        }
+
         UNTRON = untron;
         TOKEN_MESSENGER_V2 = ITokenMessengerV2(tokenMessengerV2);
         USDC = IERC20(usdc);
         _initializeOwner(msg.sender);
+
+        for (uint256 i = 0; i < supportedChainIds.length; ++i) {
+            uint256 chainId = supportedChainIds[i];
+            if (isSupportedChainId[chainId]) revert DuplicateChainId(chainId);
+            isSupportedChainId[chainId] = true;
+            circleDomainByChainId[chainId] = circleDomains[i];
+        }
     }
 
     /// @inheritdoc IBridger
@@ -109,25 +140,11 @@ contract CCTPV2Bridger is IBridger, Ownable {
     }
 
     /// @notice Maps an EVM `chainId` to a Circle CCTP domain id.
-    /// @dev Circle domains are NOT EVM chainIds; this mapping must match Circle's published domain table.
+    /// @dev This mapping must match Circle's published domain table.
     /// @param chainId EVM chain id of the destination chain.
     /// @return Circle CCTP domain id for `chainId`.
-    function _circleDomainForChainId(uint256 chainId) internal pure returns (uint32) {
-        // TODO: switch to a constant mapping filled at constructor
-
-        if (chainId == 1) return 0; // Ethereum -> domain 0
-        if (chainId == 43114) return 1; // Avalanche -> domain 1
-        if (chainId == 10) return 2; // OP Mainnet -> domain 2
-        if (chainId == 42161) return 3; // Arbitrum One -> domain 3
-        if (chainId == 8453) return 6; // Base -> domain 6
-        if (chainId == 137) return 7; // Polygon PoS -> domain 7
-        if (chainId == 130) return 10; // Unichain -> domain 10
-        if (chainId == 59144) return 11; // Linea -> domain 11
-        if (chainId == 146) return 13; // Sonic -> domain 13
-        if (chainId == 480) return 14; // World Chain -> domain 14
-        if (chainId == 999) return 19; // HyperEVM -> domain 19
-        if (chainId == 57073) return 21; // Ink -> domain 21
-
-        revert UnsupportedChainId(chainId);
+    function _circleDomainForChainId(uint256 chainId) internal view returns (uint32) {
+        if (!isSupportedChainId[chainId]) revert UnsupportedChainId(chainId);
+        return circleDomainByChainId[chainId];
     }
 }

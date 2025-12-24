@@ -9,6 +9,12 @@ export const cctpv2BridgerAbi = [
       { name: 'untron', internalType: 'address', type: 'address' },
       { name: 'tokenMessengerV2', internalType: 'address', type: 'address' },
       { name: 'usdc', internalType: 'address', type: 'address' },
+      {
+        name: 'supportedChainIds',
+        internalType: 'uint256[]',
+        type: 'uint256[]',
+      },
+      { name: 'circleDomains', internalType: 'uint32[]', type: 'uint32[]' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -56,12 +62,26 @@ export const cctpv2BridgerAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'circleDomainByChainId',
+    outputs: [{ name: '', internalType: 'uint32', type: 'uint32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'pendingOwner', internalType: 'address', type: 'address' },
     ],
     name: 'completeOwnershipHandover',
     outputs: [],
     stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'isSupportedChainId',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -160,6 +180,19 @@ export const cctpv2BridgerAbi = [
   {
     type: 'error',
     inputs: [
+      { name: 'a', internalType: 'uint256', type: 'uint256' },
+      { name: 'b', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'ArrayLengthMismatch',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'chainId', internalType: 'uint256', type: 'uint256' }],
+    name: 'DuplicateChainId',
+  },
+  {
+    type: 'error',
+    inputs: [
       { name: 'balance', internalType: 'uint256', type: 'uint256' },
       { name: 'required', internalType: 'uint256', type: 'uint256' },
     ],
@@ -179,6 +212,7 @@ export const cctpv2BridgerAbi = [
     inputs: [{ name: 'token', internalType: 'address', type: 'address' }],
     name: 'UnsupportedToken',
   },
+  { type: 'error', inputs: [], name: 'ZeroAddress' },
   { type: 'error', inputs: [], name: 'ZeroBeneficiary' },
 ] as const
 
@@ -6203,6 +6237,12 @@ export const usdt0BridgerAbi = [
       { name: 'untron', internalType: 'address', type: 'address' },
       { name: 'usdt0', internalType: 'address', type: 'address' },
       { name: 'oft', internalType: 'address', type: 'address' },
+      {
+        name: 'supportedChainIds',
+        internalType: 'uint256[]',
+        type: 'uint256[]',
+      },
+      { name: 'eids', internalType: 'uint32[]', type: 'uint32[]' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -6358,6 +6398,19 @@ export const usdt0BridgerAbi = [
   { type: 'error', inputs: [], name: 'AlreadyInitialized' },
   { type: 'error', inputs: [], name: 'AmountZero' },
   { type: 'error', inputs: [], name: 'ApproveFailed' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'a', internalType: 'uint256', type: 'uint256' },
+      { name: 'b', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'ArrayLengthMismatch',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'chainId', internalType: 'uint256', type: 'uint256' }],
+    name: 'DuplicateChainId',
+  },
   {
     type: 'error',
     inputs: [

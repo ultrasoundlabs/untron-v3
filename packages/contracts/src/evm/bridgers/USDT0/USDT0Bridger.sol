@@ -24,6 +24,8 @@ contract USDT0Bridger is IBridger, Ownable {
     error FeeTooHigh(uint256 fee, uint256 maxFee);
     error InsufficientNativeBalance(uint256 have, uint256 need);
     error ZeroAddress();
+    error ArrayLengthMismatch(uint256 a, uint256 b);
+    error DuplicateChainId(uint256 chainId);
 
     // --- Immutables ---
     /// @notice The UntronV3 contract allowed to call `bridge`.
@@ -40,8 +42,11 @@ contract USDT0Bridger is IBridger, Ownable {
     /// @param untron The UntronV3 contract allowed to call `bridge`.
     /// @param usdt0 USDT0 token address on the current chain.
     /// @param oft The LayerZero OFT contract/module used to send USDT0 on the current chain.
-    constructor(address untron, address usdt0, address oft) {
+    /// @param supportedChainIds Supported destination EVM chain ids.
+    /// @param eids LayerZero endpoint IDs (eid) corresponding 1:1 with `supportedChainIds`.
+    constructor(address untron, address usdt0, address oft, uint256[] memory supportedChainIds, uint32[] memory eids) {
         if (untron == address(0) || usdt0 == address(0) || oft == address(0)) revert ZeroAddress();
+        if (supportedChainIds.length != eids.length) revert ArrayLengthMismatch(supportedChainIds.length, eids.length);
 
         UNTRON = untron;
         USDT0 = IERC20(usdt0);
@@ -49,26 +54,13 @@ contract USDT0Bridger is IBridger, Ownable {
 
         _initializeOwner(msg.sender);
 
-        // TODO: make this deployer-specified
-
-        eidByChainId[1] = 30101; // Ethereum
-        eidByChainId[42161] = 30110; // Arbitrum One
-        eidByChainId[137] = 30109; // Polygon PoS
-        eidByChainId[10] = 30111; // Optimism
-        eidByChainId[80094] = 30362; // Berachain
-        eidByChainId[57073] = 30339; // Ink
-        eidByChainId[130] = 30320; // Unichain
-        eidByChainId[21000000] = 30331; // Corn
-        eidByChainId[1329] = 30280; // Sei (EVM)
-        eidByChainId[14] = 30295; // Flare
-        eidByChainId[999] = 30367; // HyperEVM
-        eidByChainId[30] = 30333; // Rootstock
-        eidByChainId[196] = 30274; // XLayer
-        eidByChainId[9745] = 30383; // Plasma
-        eidByChainId[1030] = 30212; // Conflux eSpace
-        eidByChainId[5000] = 30181; // Mantle
-        eidByChainId[143] = 30390; // Monad
-        eidByChainId[988] = 30396; // Stable
+        for (uint256 i = 0; i < supportedChainIds.length; ++i) {
+            uint256 chainId = supportedChainIds[i];
+            if (eidByChainId[chainId] != 0) revert DuplicateChainId(chainId);
+            uint32 eid = eids[i];
+            if (eid == 0) revert UnsupportedChainId(chainId);
+            eidByChainId[chainId] = eid;
+        }
     }
 
     // --- IBridger ---
