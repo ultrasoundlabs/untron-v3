@@ -6446,6 +6446,68 @@ export const usdt0BridgerAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// USDT0Forwarder
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const usdt0ForwarderAbi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: '_token', internalType: 'address', type: 'address' },
+      { name: '_oft', internalType: 'contract IOFT', type: 'address' },
+      { name: '_dstEid', internalType: 'uint32', type: 'uint32' },
+      { name: '_beneficiary', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'BENEFICIARY',
+    outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'DST_EID',
+    outputs: [{ name: '', internalType: 'uint32', type: 'uint32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'OFT',
+    outputs: [{ name: '', internalType: 'contract IOFT', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'TOKEN',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'amountLD', internalType: 'uint256', type: 'uint256' }],
+    name: 'forward',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'required', internalType: 'uint256', type: 'uint256' },
+      { name: 'received', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'InsufficientMsgValue',
+  },
+  { type: 'error', inputs: [], name: 'OFTSendFailed' },
+  { type: 'error', inputs: [], name: 'RefundFailed' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // UntronController
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
