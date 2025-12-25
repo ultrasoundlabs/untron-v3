@@ -19,9 +19,13 @@ import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
 import { TronGrpc } from "../deps/tronGrpc";
 import { computeTronTxMerkleProof } from "../tronProofs";
-import { buildTronLightClientProveBlocksCallToCheckpointBlock } from "../tronLightClientPublisher";
+import {
+  buildTronLightClientProveBlocksCallToCheckpointBlock,
+  upsertTronLightClientCheckpointsFromTransaction,
+} from "../tronLightClientPublisher";
 import { tronLightClientProveBlocksSent } from "ponder:schema";
 import { resolveContractAddress } from "../resolveContractAddress";
+import { RetryLaterError } from "../errors";
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -380,7 +384,7 @@ export const handleRelayControllerEventChain = ({
         lastAttempt.lastAttemptAtBlockNumber >= ctx.headBlockNumber - PROVE_BLOCKS_COOLDOWN_BLOCKS
       ) {
         return yield* Effect.fail(
-          new Error(
+          new RetryLaterError(
             `TronLightClient proveBlocks recently attempted for tronBlock=${tronBlockNumber.toString()}, waiting`
           )
         );
@@ -445,8 +449,22 @@ export const handleRelayControllerEventChain = ({
         })
       );
 
+      const upserted = yield* upsertTronLightClientCheckpointsFromTransaction({
+        context: ctx.ponderContext,
+        mainnetClient,
+        tronLightClientAddress,
+        transactionHash: included.transactionHash,
+      });
+      yield* Effect.logInfo("[tron_light_client] checkpoint upserted from receipt").pipe(
+        Effect.annotateLogs({
+          storedCount: upserted.storedCount,
+          maxStoredTronBlockNumber: upserted.maxStoredTronBlockNumber?.toString() ?? null,
+          transactionHash: included.transactionHash,
+        })
+      );
+
       return yield* Effect.fail(
-        new Error(
+        new RetryLaterError(
           "Tron block not yet published in TronLightClient; proveBlocks submitted (possibly chunked), retry later."
         )
       );

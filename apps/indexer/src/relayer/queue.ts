@@ -197,6 +197,9 @@ export const markRelayJobSent = (args: {
     try: () =>
       args.context.db.update(relayJob, { id: args.id }).set({
         status: "sent",
+        lockedAtBlockNumber: null,
+        lockedAtBlockTimestamp: null,
+        lockedBy: null,
         updatedAtBlockNumber: args.headBlockNumber,
         updatedAtBlockTimestamp: args.headBlockTimestamp,
       }),
@@ -222,10 +225,36 @@ export const markRelayJobFailed = (args: {
           attempts: nextAttempts,
           status: isTerminal ? ("failed" as const) : ("pending" as const),
           lastError: args.errorMessage,
+          lockedAtBlockNumber: null,
+          lockedAtBlockTimestamp: null,
+          lockedBy: null,
           updatedAtBlockNumber: args.headBlockNumber,
           updatedAtBlockTimestamp: args.headBlockTimestamp,
           nextRetryBlockNumber: isTerminal ? null : args.headBlockNumber + args.retryDelayBlocks,
         };
+      }),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+
+export const markRelayJobRetryLater = (args: {
+  context: PonderContext;
+  id: string;
+  headBlockNumber: bigint;
+  headBlockTimestamp: bigint;
+  errorMessage: string;
+  retryDelayBlocks: bigint;
+}) =>
+  Effect.tryPromise({
+    try: () =>
+      args.context.db.update(relayJob, { id: args.id }).set({
+        status: "pending",
+        lastError: args.errorMessage,
+        lockedAtBlockNumber: null,
+        lockedAtBlockTimestamp: null,
+        lockedBy: null,
+        updatedAtBlockNumber: args.headBlockNumber,
+        updatedAtBlockTimestamp: args.headBlockTimestamp,
+        nextRetryBlockNumber: args.headBlockNumber + args.retryDelayBlocks,
       }),
     catch: (error) => (error instanceof Error ? error : new Error(String(error))),
   });

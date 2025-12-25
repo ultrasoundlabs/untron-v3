@@ -7,7 +7,13 @@ import { handleRelayControllerEventChain } from "./jobs/relayControllerEventChai
 import { handleTrc20Transfer } from "./jobs/trc20Transfer";
 import type { RelayJobHandlerContext } from "./jobs/types";
 import type { RelayJobKind, RelayJobRow } from "./types";
-import { claimRelayJobs, markRelayJobFailed, markRelayJobSent } from "./queue";
+import { isRetryLaterError } from "./errors";
+import {
+  claimRelayJobs,
+  markRelayJobFailed,
+  markRelayJobRetryLater,
+  markRelayJobSent,
+} from "./queue";
 
 export const handleRelayJob = (args: { job: RelayJobRow; ctx: RelayJobHandlerContext }) => {
   switch (args.job.kind) {
@@ -99,6 +105,31 @@ export const processRelayJobs = (args: {
           const squashed = Cause.squash(cause);
           const errorMessage =
             squashed instanceof Error ? `${squashed.name}: ${squashed.message}` : String(squashed);
+
+          if (isRetryLaterError(squashed)) {
+            return Effect.logInfo("[relayer] job retry later").pipe(
+              Effect.annotateLogs({
+                id: job.id,
+                chainId: args.chainId,
+                kind: job.kind,
+                headBlockNumber: args.headBlockNumber.toString(),
+                error: errorMessage,
+                attempts: job.attempts ?? 0,
+                cause: Cause.pretty(cause),
+              }),
+              Effect.andThen(
+                markRelayJobRetryLater({
+                  context: args.context,
+                  id: job.id,
+                  headBlockNumber: args.headBlockNumber,
+                  headBlockTimestamp: args.headBlockTimestamp,
+                  errorMessage,
+                  retryDelayBlocks: args.retryDelayBlocks,
+                })
+              )
+            );
+          }
+
           return Effect.logWarning("[relayer] job failed").pipe(
             Effect.annotateLogs({
               id: job.id,

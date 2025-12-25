@@ -2,11 +2,12 @@ import { Effect } from "effect";
 import { sql } from "ponder";
 import type { Context as PonderContext } from "ponder:registry";
 import type { PublicClient } from "viem";
-import { encodeFunctionData, type Address, type Hex } from "viem";
+import { decodeEventLog, encodeFunctionData, type Address, type Hex } from "viem";
 
 import type { BlockExtention } from "@untron/tron-protocol/api";
 
 import { TronLightClientAbi } from "../../abis/evm/TronLightClientAbi";
+import { tronLightClientCheckpoint } from "ponder:schema";
 
 import { getRows } from "./sqlRows";
 import {
@@ -191,6 +192,113 @@ export type TronLightClientProveBlocksPlan = {
   compressedTronBlockMetadata: Hex;
   compressedSignatures: Hex;
 };
+
+export const upsertTronLightClientCheckpointsFromTransaction = (args: {
+  context: PonderContext;
+  mainnetClient: PublicClient;
+  tronLightClientAddress: Address;
+  transactionHash: Hex;
+}): Effect.Effect<{ storedCount: number; maxStoredTronBlockNumber: bigint | null }, Error> =>
+  Effect.gen(function* () {
+    const receipt = yield* Effect.tryPromise({
+      try: () => args.mainnetClient.getTransactionReceipt({ hash: args.transactionHash }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    });
+
+    const block = yield* Effect.tryPromise({
+      try: () => args.mainnetClient.getBlock({ blockNumber: receipt.blockNumber }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    });
+
+    const chainId = yield* Effect.tryPromise({
+      try: async () => Number(await args.mainnetClient.getChainId()),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    });
+
+    const tronLightClientAddressLower = args.tronLightClientAddress.toLowerCase() as Address;
+
+    const decodedLogs: Array<{
+      tronBlockNumber: bigint;
+      tronBlockId: Hex;
+      tronTxTrieRoot: Hex;
+      tronBlockTimestamp: bigint;
+      logIndex: number;
+    }> = [];
+
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== tronLightClientAddressLower) continue;
+
+      try {
+        const decoded = decodeEventLog({
+          abi: TronLightClientAbi,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName !== "TronBlockStored") continue;
+
+        const { blockNumber, blockId, txTrieRoot, timestamp } = decoded.args as {
+          blockNumber: bigint;
+          blockId: Hex;
+          txTrieRoot: Hex;
+          timestamp: number | bigint;
+        };
+
+        decodedLogs.push({
+          tronBlockNumber: blockNumber,
+          tronBlockId: blockId,
+          tronTxTrieRoot: txTrieRoot,
+          tronBlockTimestamp: typeof timestamp === "bigint" ? timestamp : BigInt(timestamp),
+          logIndex: log.logIndex,
+        });
+      } catch {
+        // ignore non-matching logs
+      }
+    }
+
+    if (decodedLogs.length === 0) {
+      return { storedCount: 0, maxStoredTronBlockNumber: null };
+    }
+
+    let maxStoredTronBlockNumber: bigint | null = null;
+
+    for (const stored of decodedLogs) {
+      const id = `${chainId}:${tronLightClientAddressLower}:${stored.tronBlockNumber.toString()}`;
+      yield* Effect.tryPromise({
+        try: () =>
+          args.context.db
+            .insert(tronLightClientCheckpoint)
+            .values({
+              id,
+              chainId,
+              contractAddress: tronLightClientAddressLower,
+              tronBlockNumber: stored.tronBlockNumber,
+              tronBlockId: stored.tronBlockId,
+              tronTxTrieRoot: stored.tronTxTrieRoot,
+              tronBlockTimestamp: stored.tronBlockTimestamp,
+              storedAtBlockNumber: receipt.blockNumber,
+              storedAtBlockTimestamp: block.timestamp,
+              storedAtTransactionHash: receipt.transactionHash,
+              storedAtLogIndex: stored.logIndex,
+            })
+            .onConflictDoUpdate({
+              tronBlockId: stored.tronBlockId,
+              tronTxTrieRoot: stored.tronTxTrieRoot,
+              tronBlockTimestamp: stored.tronBlockTimestamp,
+              storedAtBlockNumber: receipt.blockNumber,
+              storedAtBlockTimestamp: block.timestamp,
+              storedAtTransactionHash: receipt.transactionHash,
+              storedAtLogIndex: stored.logIndex,
+            }),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      });
+
+      if (maxStoredTronBlockNumber === null || stored.tronBlockNumber > maxStoredTronBlockNumber) {
+        maxStoredTronBlockNumber = stored.tronBlockNumber;
+      }
+    }
+
+    return { storedCount: decodedLogs.length, maxStoredTronBlockNumber };
+  });
 
 export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
   args: BuildTronLightClientProveBlocksCallArgs

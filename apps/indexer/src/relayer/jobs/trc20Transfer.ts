@@ -9,12 +9,16 @@ import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
 import { TronGrpc } from "../deps/tronGrpc";
-import { buildTronLightClientProveBlocksCallToCheckpointBlock } from "../tronLightClientPublisher";
+import {
+  buildTronLightClientProveBlocksCallToCheckpointBlock,
+  upsertTronLightClientCheckpointsFromTransaction,
+} from "../tronLightClientPublisher";
 import { computeTronTxIdFromEncodedTx, computeTronTxMerkleProof } from "../tronProofs";
 
 import { TronRelayer } from "../deps/tron";
 import { getKnownTronReceiver } from "../receivers";
 import { resolveContractAddress } from "../resolveContractAddress";
+import { RetryLaterError } from "../errors";
 import type { RelayJobRow } from "../types";
 import type { RelayJobHandlerContext } from "./types";
 import { tronLightClientProveBlocksSent } from "ponder:schema";
@@ -270,7 +274,11 @@ export const handleTrc20Transfer = ({
           lastAttempt &&
           lastAttempt.lastAttemptAtBlockNumber >= ctx.headBlockNumber - PROVE_BLOCKS_COOLDOWN_BLOCKS
         ) {
-          // Another job recently attempted to prove this block; avoid spamming userOps.
+          return yield* Effect.fail(
+            new RetryLaterError(
+              `TronLightClient proveBlocks recently attempted for tronBlock=${tronBlockNumber.toString()}, waiting`
+            )
+          );
         } else {
           yield* tryPromise(() =>
             ctx.ponderContext.db
@@ -330,8 +338,22 @@ export const handleTrc20Transfer = ({
             })
           );
 
+          const upserted = yield* upsertTronLightClientCheckpointsFromTransaction({
+            context: ctx.ponderContext,
+            mainnetClient,
+            tronLightClientAddress,
+            transactionHash: included.transactionHash,
+          });
+          yield* Effect.logInfo("[tron_light_client] checkpoint upserted from receipt").pipe(
+            Effect.annotateLogs({
+              storedCount: upserted.storedCount,
+              maxStoredTronBlockNumber: upserted.maxStoredTronBlockNumber?.toString() ?? null,
+              transactionHash: included.transactionHash,
+            })
+          );
+
           return yield* Effect.fail(
-            new Error(
+            new RetryLaterError(
               "Tron block not yet published in TronLightClient; proveBlocks submitted (possibly chunked), retry later."
             )
           );
