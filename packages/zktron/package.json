@@ -4,7 +4,6 @@
   "type": "module",
   "files": ["artifacts", "solidity", "target"],
   "scripts": {
-    "build": "nargo compile",
     "verifier": "mkdir -p target solidity && bb write_vk -b ./target/zktron.json -o ./target --oracle_hash keccak && bb write_solidity_verifier -k ./target/vk -o ./solidity/ZKTronV1Verifier.sol",
     "clean": "rm -rf target solidity"
   }
