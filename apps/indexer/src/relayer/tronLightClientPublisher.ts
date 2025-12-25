@@ -17,7 +17,7 @@ import {
 
 const UINT256_MAX = (1n << 256n) - 1n;
 
-const MAX_TRON_BLOCKS_PER_PROVE_CALL = 20_000n;
+const MAX_TRON_BLOCKS_PER_PROVE_CALL = 500n;
 const TRON_BLOCK_FETCH_CONCURRENCY = (() => {
   const raw = process.env.TRON_BLOCK_FETCH_CONCURRENCY;
   if (!raw) return 1;
