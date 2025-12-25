@@ -41,6 +41,8 @@ export type TronNetworkConfig = Readonly<{
 export type MainnetRelayerConfig = Readonly<{
   bundlerUrls: Option.Option<readonly string[]>;
   bundlerSponsored: boolean;
+  bundler429MaxRetries: number;
+  bundler429BaseDelayMs: number;
   ownerPrivateKey: Option.Option<Redacted.Redacted<string>>;
   safeVersion: "1.4.1" | "1.5.0";
   entryPointVersion: "0.6" | "0.7";
@@ -260,6 +262,16 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             false
           );
 
+          const bundler429MaxRetries = yield* requiredNumberWithDefault(
+            "RELAYER_MAINNET_BUNDLER_429_MAX_RETRIES",
+            5
+          );
+
+          const bundler429BaseDelayMs = yield* requiredNumberWithDefault(
+            "RELAYER_MAINNET_BUNDLER_429_BASE_DELAY_MS",
+            1_000
+          );
+
           const ownerPrivateKey = yield* optionalRedactedString(
             "RELAYER_MAINNET_OWNER_PRIVATE_KEY"
           );
@@ -293,6 +305,8 @@ export class AppConfig extends Effect.Tag("AppConfig")<
           return {
             bundlerUrls,
             bundlerSponsored,
+            bundler429MaxRetries,
+            bundler429BaseDelayMs,
             ownerPrivateKey,
             safeVersion,
             entryPointVersion,

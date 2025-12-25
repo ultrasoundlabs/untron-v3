@@ -1,4 +1,4 @@
-import { ConfigError, Effect, Layer, Option, Redacted } from "effect";
+import { ConfigError, Duration, Effect, Layer, Option, Redacted, Schedule } from "effect";
 import { createSmartAccountClient } from "permissionless";
 import { type SafeVersion, toSafeSmartAccount } from "permissionless/accounts";
 import {
@@ -19,6 +19,54 @@ import type {
   MainnetUserOperationCall,
   SendMainnetUserOperationResult,
 } from "./types";
+
+const shouldRetryBundler429 = (error: unknown): boolean => {
+  const seen = new Set<unknown>();
+  const queue: unknown[] = [error];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || seen.has(current)) continue;
+    seen.add(current);
+
+    if (current instanceof Error) {
+      const message = current.message.toLowerCase();
+      if (
+        message.includes("too many requests") ||
+        message.includes("rate limit") ||
+        message.includes("ratelimit") ||
+        message.includes("http 429") ||
+        message.includes("status code 429") ||
+        message.includes("429")
+      ) {
+        return true;
+      }
+
+      const cause = (current as { cause?: unknown }).cause;
+      if (cause) queue.push(cause);
+    } else if (typeof current === "object") {
+      const maybeMessage = (current as { message?: unknown }).message;
+      if (typeof maybeMessage === "string") {
+        const message = maybeMessage.toLowerCase();
+        if (
+          message.includes("too many requests") ||
+          message.includes("rate limit") ||
+          message.includes("ratelimit") ||
+          message.includes("http 429") ||
+          message.includes("status code 429") ||
+          message.includes("429")
+        ) {
+          return true;
+        }
+      }
+
+      const cause = (current as { cause?: unknown }).cause;
+      if (cause) queue.push(cause);
+    }
+  }
+
+  return false;
+};
 
 const requireSome = <A>(opt: Option.Option<A>, message: string): Effect.Effect<A, Error> =>
   Option.match(opt, {
@@ -122,12 +170,16 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
           const resolvedTimeoutBlocks = args.timeoutBlocks ?? config.bundlerTimeoutBlocks;
           const resolvedPollIntervalMs = args.pollIntervalMs ?? config.bundlerPollIntervalMs;
           const sponsoredBundler = config.bundlerSponsored;
+          const bundler429MaxRetries = Math.max(0, Math.floor(config.bundler429MaxRetries));
+          const bundler429BaseDelayMs = Math.max(0, Math.floor(config.bundler429BaseDelayMs));
 
           yield* Effect.logInfo("[mainnet] send UserOperation").pipe(
             Effect.annotateLogs({
               callCount: args.calls.length,
               bundlerCount: resolvedBundlerUrls.length,
               sponsoredBundler,
+              bundler429MaxRetries,
+              bundler429BaseDelayMs,
               timeoutBlocks: resolvedTimeoutBlocks.toString(),
               pollIntervalMs: resolvedPollIntervalMs,
             })
@@ -217,10 +269,37 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
                   : undefined,
               });
 
-              const userOpHash = yield* tryPromise(() =>
+              const sendUserOperationOnce = tryPromise(() =>
                 smartAccountClient.sendUserOperation({
                   account,
                   calls: normalizedCalls,
+                })
+              );
+
+              const retrySchedule = Schedule.intersect(
+                Schedule.mapInput(
+                  Schedule.jittered(Schedule.exponential(bundler429BaseDelayMs)),
+                  (_: Error) => _
+                ),
+                Schedule.mapInput(Schedule.count, (_: Error) => _)
+              ).pipe(
+                Schedule.tapOutput(([delay, attempt]) =>
+                  Effect.logWarning("[mainnet] bundler rate-limited (429), retrying").pipe(
+                    Effect.annotateLogs({
+                      bundlerUrl,
+                      attempt: attempt + 1,
+                      maxRetries: bundler429MaxRetries,
+                      delayMs: Duration.toMillis(delay),
+                    })
+                  )
+                )
+              );
+
+              const userOpHash = yield* sendUserOperationOnce.pipe(
+                Effect.retry({
+                  times: bundler429MaxRetries,
+                  while: (error) => shouldRetryBundler429(error),
+                  schedule: retrySchedule,
                 })
               );
 
