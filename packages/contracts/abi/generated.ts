@@ -5133,12 +5133,6 @@ export const tronLightClientAbi = [
         indexed: true,
       },
       {
-        name: 'delegateeGroupsPacked',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-      {
         name: 'initialTxTrieRoot',
         internalType: 'bytes32',
         type: 'bytes32',
@@ -5234,7 +5228,7 @@ export const tronLightClientAbi = [
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
   {
     type: 'error',
-    inputs: [{ name: 'signer', internalType: 'bytes20', type: 'bytes20' }],
+    inputs: [{ name: 'sr', internalType: 'bytes20', type: 'bytes20' }],
     name: 'WitnessProducedRecently',
   },
 ] as const
@@ -5484,12 +5478,6 @@ export const tronLightClientHarnessAbi = [
         indexed: true,
       },
       {
-        name: 'delegateeGroupsPacked',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-      {
         name: 'initialTxTrieRoot',
         internalType: 'bytes32',
         type: 'bytes32',
@@ -5585,7 +5573,7 @@ export const tronLightClientHarnessAbi = [
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
   {
     type: 'error',
-    inputs: [{ name: 'signer', internalType: 'bytes20', type: 'bytes20' }],
+    inputs: [{ name: 'sr', internalType: 'bytes20', type: 'bytes20' }],
     name: 'WitnessProducedRecently',
   },
 ] as const
@@ -5679,12 +5667,6 @@ export const tronLightClientIndexAbi = [
         internalType: 'bytes32',
         type: 'bytes32',
         indexed: true,
-      },
-      {
-        name: 'delegateeGroupsPacked',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
       },
       {
         name: 'initialTxTrieRoot',

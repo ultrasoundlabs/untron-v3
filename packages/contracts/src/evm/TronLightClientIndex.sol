@@ -24,7 +24,6 @@ contract TronLightClientIndex {
     /// @param blockRangeProver External verifier for `proveBlockRange`.
     /// @param srDataHash Hash of the SR data for the epoch.
     /// @param initialBlockId Initial Tron `blockId` checkpoint (height embedded in the top 8 bytes).
-    /// @param delegateeGroupsPacked Packed mapping witnessIndex -> delegateeGroup.
     /// @param initialTxTrieRoot Transaction trie root corresponding to `initialBlockId`.
     /// @param initialTimestamp Block timestamp for `initialBlockId` (seconds).
     /// @param srs SR owner accounts for the epoch.
@@ -33,7 +32,6 @@ contract TronLightClientIndex {
         address indexed blockRangeProver,
         bytes32 indexed srDataHash,
         bytes32 indexed initialBlockId,
-        uint256 delegateeGroupsPacked,
         bytes32 initialTxTrieRoot,
         uint32 initialTimestamp,
         bytes20[27] srs,
@@ -73,7 +71,6 @@ contract TronLightClientIndex {
     /// @param blockRangeProver The address of the block range prover.
     /// @param srDataHash The hash of the SR data.
     /// @param initialBlockId The initial block ID.
-    /// @param delegateeGroupsPacked The packed delegatee groups.
     /// @param initialTxTrieRoot The initial transaction trie root.
     /// @param initialTimestamp The initial timestamp.
     /// @param srs The array of SRS.
@@ -82,7 +79,6 @@ contract TronLightClientIndex {
         address blockRangeProver,
         bytes32 srDataHash,
         bytes32 initialBlockId,
-        uint256 delegateeGroupsPacked,
         bytes32 initialTxTrieRoot,
         uint32 initialTimestamp,
         bytes20[27] memory srs,
@@ -94,7 +90,6 @@ contract TronLightClientIndex {
                 blockRangeProver,
                 srDataHash,
                 initialBlockId,
-                delegateeGroupsPacked,
                 initialTxTrieRoot,
                 initialTimestamp,
                 srs,
@@ -102,14 +97,7 @@ contract TronLightClientIndex {
             )
         );
         emit TronLightClientConfigured(
-            blockRangeProver,
-            srDataHash,
-            initialBlockId,
-            delegateeGroupsPacked,
-            initialTxTrieRoot,
-            initialTimestamp,
-            srs,
-            witnessDelegatees
+            blockRangeProver, srDataHash, initialBlockId, initialTxTrieRoot, initialTimestamp, srs, witnessDelegatees
         );
     }
 

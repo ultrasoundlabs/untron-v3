@@ -28,9 +28,8 @@ contract TronLightClient is TronLightClientIndex {
 
         bytes32 lastTxTrieRoot;
 
-        // Ring buffer (last 18 creators) tracked by delegatee-group id
-        // (indices with the same delegatee key share the same group id).
-        uint8[18] recentGroups;
+        // Ring buffer (last 18 creators) tracked by SR index (`witnessIndex`).
+        uint8[18] recentProducers;
         uint32 recentMask;
 
         bool intersectedExisting;
@@ -120,11 +119,6 @@ contract TronLightClient is TronLightClientIndex {
     bytes20 internal immutable _WITNESS_DELEGATEE_25;
     bytes20 internal immutable _WITNESS_DELEGATEE_26;
 
-    /// @notice Packed mapping witnessIndex -> delegateeGroup (5 bits per index, 27 indices total).
-    /// @dev Indices that share the same delegatee key share the same group id.
-    ///      This lets us do "recently produced" checks by group without assuming delegatees are unique.
-    uint256 internal immutable _DELEGATEE_GROUPS_PACKED;
-
     /// @notice ZK-friendly hash of public keys (not addresses!) of SRs and their delegatees.
     /// @dev This hash is used as a public input to the block range prover, to save proving cycles compared to
     ///      passing two arrays of Keccak-hashed arrays (as above).
@@ -151,7 +145,7 @@ contract TronLightClient is TronLightClientIndex {
     error InvalidIntersectionOffset(uint256 intersectionOffset, uint256 numBlocks);
     error InvalidIntersectionClaim(uint256 blockNumber, bytes32 blockId);
     error InvalidWitnessSigner();
-    error WitnessProducedRecently(bytes20 signer);
+    error WitnessProducedRecently(bytes20 sr);
     error UnanchoredBlockRange();
     error InvalidSrIndex(uint256 index);
     error InvalidWitnessDelegateeIndex(uint256 index);
@@ -183,40 +177,6 @@ contract TronLightClient is TronLightClientIndex {
         bytes32 srDataHash
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
-
-        // Build a packed mapping witnessIndex -> delegateeGroup.
-        // If multiple witness indices share the same delegatee key, they share a group id.
-        // We use this group id for the "recently produced" uniqueness window.
-        uint8[27] memory groups;
-        uint8 nextGroup = 0;
-
-        for (uint256 i = 0; i < 27; ++i) {
-            uint8 g = type(uint8).max;
-
-            // Find a prior index with the same delegatee; if found, reuse its group id.
-            for (uint256 j = 0; j < i; ++j) {
-                if (_witnessDelegatees[i] == _witnessDelegatees[j]) {
-                    g = groups[j];
-                    break;
-                }
-            }
-
-            // Otherwise assign a fresh group id.
-            if (g == type(uint8).max) {
-                g = nextGroup;
-                unchecked {
-                    ++nextGroup;
-                }
-            }
-
-            groups[i] = g;
-        }
-
-        uint256 packed;
-        for (uint256 i = 0; i < 27; ++i) {
-            packed |= uint256(groups[i]) << (i * 5);
-        }
-        _DELEGATEE_GROUPS_PACKED = packed;
 
         _SR_0 = _srs[0];
         _SR_1 = _srs[1];
@@ -280,7 +240,6 @@ contract TronLightClient is TronLightClientIndex {
             address(blockRangeProver),
             srDataHash,
             initialBlockHash,
-            packed,
             initialTxTrieRoot,
             initialTimestamp,
             _srs,
@@ -467,9 +426,7 @@ contract TronLightClient is TronLightClientIndex {
                 bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
                 if (signer != _witnessDelegateeAt(witnessIndex)) revert InvalidWitnessSigner();
 
-                _enforceRecentUniqueGroup(
-                    ctx, uint8((_DELEGATEE_GROUPS_PACKED >> (uint256(witnessIndex) * 5)) & 0x1f), signer
-                );
+                _enforceRecentUniqueWitnessIndex(ctx, witnessIndex, _srAt(witnessIndex));
             }
 
             // IMPORTANT: If the range is unanchored, the caller's intersection claim must be verified against
@@ -886,26 +843,25 @@ contract TronLightClient is TronLightClientIndex {
         }
     }
 
-    /// @notice Enforces that a delegatee-group hasn't produced a block recently and tracks it.
-    /// @dev This is robust even if multiple witness indices share the same delegatee key.
+    /// @notice Enforces that an SR index (`witnessIndex`) hasn't produced a block recently and tracks it.
     /// @param ctx The proof context containing recent creator tracking state.
-    /// @param group Delegatee-group id (0..26).
-    /// @param signer The recovered signer (only used for revert data).
-    function _enforceRecentUniqueGroup(ProveBlocksCtx memory ctx, uint8 group, bytes20 signer) internal pure {
-        uint32 bit = uint32(1) << group;
-        if ((ctx.recentMask & bit) != 0) revert WitnessProducedRecently(signer);
+    /// @param witnessIndex SR index (0..26).
+    /// @param sr SR owner account (only used for revert data).
+    function _enforceRecentUniqueWitnessIndex(ProveBlocksCtx memory ctx, uint8 witnessIndex, bytes20 sr) internal pure {
+        uint32 bit = uint32(1) << witnessIndex;
+        if ((ctx.recentMask & bit) != 0) revert WitnessProducedRecently(sr);
 
         if (ctx.recentCount < _RECENT_BLOCK_CREATOR_WINDOW) {
-            ctx.recentGroups[ctx.recentCount] = group;
+            ctx.recentProducers[ctx.recentCount] = witnessIndex;
             ctx.recentMask |= bit;
             unchecked {
                 ++ctx.recentCount;
             }
         } else {
-            uint8 old = ctx.recentGroups[ctx.recentPos];
+            uint8 old = ctx.recentProducers[ctx.recentPos];
             ctx.recentMask &= ~(uint32(1) << old);
 
-            ctx.recentGroups[ctx.recentPos] = group;
+            ctx.recentProducers[ctx.recentPos] = witnessIndex;
             ctx.recentMask |= bit;
 
             unchecked {

@@ -65,39 +65,6 @@ contract TronLightClientLayer1Test is Test {
         return uint256(blockId) >> 192;
     }
 
-    function _computeDelegateeGroupsPacked(bytes20[27] memory witnessDelegatees)
-        internal
-        pure
-        returns (uint256 packed)
-    {
-        uint8[27] memory groups;
-        uint8 nextGroup = 0;
-
-        for (uint256 i = 0; i < 27; ++i) {
-            uint8 g = type(uint8).max;
-
-            for (uint256 j = 0; j < i; ++j) {
-                if (witnessDelegatees[i] == witnessDelegatees[j]) {
-                    g = groups[j];
-                    break;
-                }
-            }
-
-            if (g == type(uint8).max) {
-                g = nextGroup;
-                unchecked {
-                    ++nextGroup;
-                }
-            }
-
-            groups[i] = g;
-        }
-
-        for (uint256 i = 0; i < 27; ++i) {
-            packed |= uint256(groups[i]) << (i * 5);
-        }
-    }
-
     function setUp() public {
         // Read JSON fixture
         string memory root = vm.projectRoot();
@@ -160,7 +127,6 @@ contract TronLightClientLayer1Test is Test {
 
         bytes20[27] memory srs = _srs;
         bytes20[27] memory witnessDelegatees = _witnessDelegatees;
-        uint256 delegateeGroupsPacked = _computeDelegateeGroupsPacked(witnessDelegatees);
 
         bytes32 tip1 = sha256(
             abi.encodePacked(
@@ -172,7 +138,6 @@ contract TronLightClientLayer1Test is Test {
                     address(0),
                     bytes32(0),
                     _startingBlockId,
-                    delegateeGroupsPacked,
                     _startingBlockTxTrieRoot,
                     _startingBlockTimestamp,
                     srs,
@@ -461,7 +426,7 @@ contract TronLightClientLayer1Test is Test {
         (TronLightClientHarness c, bytes32 startingBlockId) = _deployHarnessForPk(pk0);
         (bytes memory meta, bytes memory sigs) = _buildTwoBlocksSameCreatorProof(c, startingBlockId, pk0);
 
-        _expectWitnessProducedRecently(c, startingBlockId, meta, sigs, pk0);
+        _expectWitnessProducedRecently(c, startingBlockId, meta, sigs);
     }
 
     function _deployHarnessForPk(uint256 pk0) internal returns (TronLightClientHarness c, bytes32 startingBlockId) {
@@ -530,14 +495,52 @@ contract TronLightClientLayer1Test is Test {
         TronLightClientHarness c,
         bytes32 startingBlockId,
         bytes memory meta,
-        bytes memory sigs,
-        uint256 pk0
+        bytes memory sigs
     ) internal {
         // keep this function *tiny* so we never hit stack-too-deep here
-        bytes20 signer = bytes20(vm.addr(pk0));
-        bytes memory err = abi.encodeWithSelector(TronLightClient.WitnessProducedRecently.selector, signer);
+        bytes20 sr = c.srs(0);
+        bytes memory err = abi.encodeWithSelector(TronLightClient.WitnessProducedRecently.selector, sr);
 
         vm.expectRevert(err);
+        c.proveBlocks(startingBlockId, meta, sigs, type(uint256).max, type(uint256).max);
+    }
+
+    function test_proveBlocks_allowsSameDelegateeDifferentSrWithinPrevious18Blocks() public {
+        uint256 pk0 = 0xA11CE;
+
+        bytes20[27] memory srs;
+        bytes20[27] memory witnessDelegatees;
+
+        srs[0] = bytes20(address(0x1111111111111111111111111111111111111111));
+        srs[1] = bytes20(address(0x2222222222222222222222222222222222222222));
+        witnessDelegatees[0] = bytes20(vm.addr(pk0));
+        witnessDelegatees[1] = bytes20(vm.addr(pk0));
+
+        uint256 parentNumber = 100;
+        bytes32 startingBlockId = bytes32((parentNumber << 192) | 1);
+
+        TronLightClientHarness c = new TronLightClientHarness(
+            IBlockRangeProver(address(0)),
+            startingBlockId,
+            bytes32(0),
+            uint32(0),
+            srs,
+            witnessDelegatees,
+            bytes32(0) // TODO: fix
+        );
+
+        uint256 n1 = 101;
+        bytes32 h1 = c.hashBlockPublic(startingBlockId, bytes32(uint256(1)), uint32(1), 0, n1);
+        bytes32 id1 = _toBlockId(n1, h1);
+
+        uint256 n2 = 102;
+        bytes32 h2 = c.hashBlockPublic(id1, bytes32(uint256(2)), uint32(2), 1, n2);
+
+        bytes memory m1 = _packMeta(startingBlockId, bytes32(uint256(1)), uint32(1), 0);
+        bytes memory m2 = _packMeta(id1, bytes32(uint256(2)), uint32(2), 1);
+
+        (bytes memory meta, bytes memory sigs) = _twoBlockMetaAndSigs(pk0, h1, h2, m1, m2);
+
         c.proveBlocks(startingBlockId, meta, sigs, type(uint256).max, type(uint256).max);
     }
 }
