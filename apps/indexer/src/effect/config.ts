@@ -40,6 +40,7 @@ export type TronNetworkConfig = Readonly<{
 
 export type MainnetRelayerConfig = Readonly<{
   bundlerUrls: Option.Option<readonly string[]>;
+  bundlerSponsored: boolean;
   ownerPrivateKey: Option.Option<Redacted.Redacted<string>>;
   safeVersion: "1.4.1" | "1.5.0";
   entryPointVersion: "0.6" | "0.7";
@@ -254,6 +255,11 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             )
           );
 
+          const bundlerSponsored = yield* requiredBooleanWithDefault(
+            "RELAYER_MAINNET_BUNDLER_SPONSORED",
+            false
+          );
+
           const ownerPrivateKey = yield* optionalRedactedString(
             "RELAYER_MAINNET_OWNER_PRIVATE_KEY"
           );
@@ -286,6 +292,7 @@ export class AppConfig extends Effect.Tag("AppConfig")<
 
           return {
             bundlerUrls,
+            bundlerSponsored,
             ownerPrivateKey,
             safeVersion,
             entryPointVersion,

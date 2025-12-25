@@ -121,11 +121,13 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
 
           const resolvedTimeoutBlocks = args.timeoutBlocks ?? config.bundlerTimeoutBlocks;
           const resolvedPollIntervalMs = args.pollIntervalMs ?? config.bundlerPollIntervalMs;
+          const sponsoredBundler = config.bundlerSponsored;
 
           yield* Effect.logInfo("[mainnet] send UserOperation").pipe(
             Effect.annotateLogs({
               callCount: args.calls.length,
               bundlerCount: resolvedBundlerUrls.length,
+              sponsoredBundler,
               timeoutBlocks: resolvedTimeoutBlocks.toString(),
               pollIntervalMs: resolvedPollIntervalMs,
             })
@@ -205,6 +207,14 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
                 account,
                 bundlerTransport: http(bundlerUrl),
                 client: publicClient,
+                userOperation: sponsoredBundler
+                  ? {
+                      estimateFeesPerGas: async () => ({
+                        maxFeePerGas: 0n,
+                        maxPriorityFeePerGas: 0n,
+                      }),
+                    }
+                  : undefined,
               });
 
               const userOpHash = yield* tryPromise(() =>
