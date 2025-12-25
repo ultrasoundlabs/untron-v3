@@ -1,4 +1,4 @@
-import { ConfigError, Duration, Effect, Layer, Option, Redacted, Runtime, Schedule } from "effect";
+import { ConfigError, Effect, Layer, Option, Redacted, Runtime } from "effect";
 import { createSmartAccountClient } from "permissionless";
 import { type SafeVersion, toSafeSmartAccount } from "permissionless/accounts";
 import {
@@ -221,6 +221,9 @@ const shouldRetryBundler429 = (error: unknown): boolean => {
   return false;
 };
 
+const stableStringify = (value: unknown): string =>
+  JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v));
+
 const requireSome = <A>(opt: Option.Option<A>, message: string): Effect.Effect<A, Error> =>
   Option.match(opt, {
     onNone: () => Effect.fail(new Error(message)),
@@ -378,7 +381,8 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
           const entryPointAddress = account.entryPoint.address;
           const entryPointAbi = entryPoint06Abi;
 
-          const sent: Array<{ bundlerUrl: string; userOpHash: Hash }> = [];
+          const sent: Array<{ bundlerUrl: string; bundlerUrlForLogs: string; userOpHash: Hash }> =
+            [];
           let nextFromBlock = yield* tryPromise(() => publicClient.getBlockNumber());
 
           const checkInclusionUpTo = (toBlock: bigint) =>
@@ -412,7 +416,7 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
 
                 yield* Effect.logInfo("[mainnet] UserOperation included").pipe(
                   Effect.annotateLogs({
-                    bundlerUrl: result.bundlerUrl,
+                    bundlerUrl: attempt.bundlerUrlForLogs,
                     userOpHash: result.userOpHash,
                     transactionHash: result.transactionHash,
                     blockNumber: result.blockNumber.toString(),
@@ -429,177 +433,170 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
           const errors: string[] = [];
 
           for (const bundlerUrl of resolvedBundlerUrls) {
+            const bundlerUrlForLogs = safeUrlForLogs(bundlerUrl);
             const includedBeforeSend = yield* checkInclusionUpTo(
               yield* tryPromise(() => publicClient.getBlockNumber())
             );
             if (includedBeforeSend) return includedBeforeSend;
 
             try {
-              const retryScheduleFor = (pm: ResolvedPaymaster, message: string) =>
-                Schedule.intersect(
-                  Schedule.mapInput(
-                    Schedule.jittered(Schedule.exponential(pm.baseDelayMs429)),
-                    (_: Error) => _
-                  ),
-                  Schedule.mapInput(Schedule.count, (_: Error) => _)
-                ).pipe(
-                  Schedule.tapOutput(([delay, attempt]) =>
-                    Effect.logWarning(message).pipe(
-                      Effect.annotateLogs({
-                        bundlerUrl,
-                        paymaster: pm.name,
-                        paymasterUrl: pm.urlForLogs,
-                        attempt: attempt + 1,
-                        maxRetries: pm.maxRetries429,
-                        delayMs: Duration.toMillis(delay),
-                      })
-                    )
-                  )
-                );
+              const paymasterDataCache = new Map<string, Promise<{ paymasterAndData: Hex }>>();
+              const paymasterStubCache = new Map<string, Promise<{ paymasterAndData: Hex }>>();
+
+              const paymasterKey = (parameters: unknown) => stableStringify(parameters);
 
               const getPaymasterData = async (
                 parameters: unknown
               ): Promise<{ paymasterAndData: Hex }> => {
-                const params = parameters as Record<string, unknown>;
+                const key = paymasterKey(parameters);
+                const cached = paymasterDataCache.get(key);
+                if (cached) return cached;
 
-                const errors: string[] = [];
+                const promise = (async () => {
+                  const params = parameters as Record<string, unknown>;
+                  const errors: string[] = [];
 
-                for (const pm of paymasters) {
-                  const start = Date.now();
-                  await Runtime.runPromise(runtime)(
-                    Effect.logInfo("[mainnet] paymaster attempt").pipe(
-                      Effect.annotateLogs({
-                        bundlerUrl,
-                        paymaster: pm.name,
-                        paymasterUrl: pm.urlForLogs,
-                      })
-                    )
-                  );
-
-                  try {
-                    const result = await Runtime.runPromise(runtime)(
-                      tryPromise(() =>
-                        pm.client.getPaymasterData({
-                          ...(params as any),
-                          context: pm.context,
-                        })
-                      ).pipe(
-                        Effect.retry({
-                          times: pm.maxRetries429,
-                          while: (error) => shouldRetryBundler429(error),
-                          schedule: retryScheduleFor(
-                            pm,
-                            "[mainnet] paymaster rate-limited (429), retrying"
-                          ),
-                        })
-                      )
-                    );
-
-                    const normalized = toPaymasterAndDataV06(result);
-
+                  for (const pm of paymasters) {
+                    const start = Date.now();
                     await Runtime.runPromise(runtime)(
-                      Effect.logInfo("[mainnet] paymaster success").pipe(
+                      Effect.logInfo("[mainnet] paymaster attempt").pipe(
                         Effect.annotateLogs({
-                          bundlerUrl,
+                          bundlerUrl: bundlerUrlForLogs,
                           paymaster: pm.name,
                           paymasterUrl: pm.urlForLogs,
-                          latencyMs: Date.now() - start,
                         })
                       )
                     );
 
-                    return normalized;
-                  } catch (error) {
-                    const message =
-                      error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-                    errors.push(`${pm.name}: ${message}`);
-                    await Runtime.runPromise(runtime)(
-                      Effect.logWarning("[mainnet] paymaster failure").pipe(
-                        Effect.annotateLogs({
-                          bundlerUrl,
-                          paymaster: pm.name,
-                          paymasterUrl: pm.urlForLogs,
-                          latencyMs: Date.now() - start,
-                          error: message,
-                        })
-                      )
-                    );
+                    try {
+                      const result = await Runtime.runPromise(runtime)(
+                        tryPromise(() =>
+                          pm.client.getPaymasterData({
+                            ...(params as any),
+                            context: pm.context,
+                          })
+                        )
+                      );
+
+                      const normalized = toPaymasterAndDataV06(result);
+
+                      await Runtime.runPromise(runtime)(
+                        Effect.logInfo("[mainnet] paymaster success").pipe(
+                          Effect.annotateLogs({
+                            bundlerUrl: bundlerUrlForLogs,
+                            paymaster: pm.name,
+                            paymasterUrl: pm.urlForLogs,
+                            latencyMs: Date.now() - start,
+                          })
+                        )
+                      );
+
+                      return normalized;
+                    } catch (error) {
+                      const message =
+                        error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+                      errors.push(`${pm.name}: ${message}`);
+                      await Runtime.runPromise(runtime)(
+                        Effect.logWarning("[mainnet] paymaster failure").pipe(
+                          Effect.annotateLogs({
+                            bundlerUrl: bundlerUrlForLogs,
+                            paymaster: pm.name,
+                            paymasterUrl: pm.urlForLogs,
+                            latencyMs: Date.now() - start,
+                            error: message,
+                          })
+                        )
+                      );
+                    }
                   }
-                }
 
-                throw new Error(`All paymasters failed: ${errors.join(" | ")}`);
+                  throw new Error(`All paymasters failed: ${errors.join(" | ")}`);
+                })();
+
+                paymasterDataCache.set(key, promise);
+                try {
+                  return await promise;
+                } catch (error) {
+                  paymasterDataCache.delete(key);
+                  throw error;
+                }
               };
 
               const getPaymasterStubData = async (
                 parameters: unknown
               ): Promise<{ paymasterAndData: Hex }> => {
-                const params = parameters as Record<string, unknown>;
-                const errors: string[] = [];
+                const key = paymasterKey(parameters);
+                const cached = paymasterStubCache.get(key);
+                if (cached) return cached;
 
-                for (const pm of paymasters) {
-                  const start = Date.now();
-                  await Runtime.runPromise(runtime)(
-                    Effect.logInfo("[mainnet] paymaster stub attempt").pipe(
-                      Effect.annotateLogs({
-                        bundlerUrl,
-                        paymaster: pm.name,
-                        paymasterUrl: pm.urlForLogs,
-                      })
-                    )
-                  );
+                const promise = (async () => {
+                  const params = parameters as Record<string, unknown>;
+                  const errors: string[] = [];
 
-                  try {
-                    const result = await Runtime.runPromise(runtime)(
-                      tryPromise(() =>
-                        pm.client.getPaymasterStubData({
-                          ...(params as any),
-                          context: pm.context,
-                        })
-                      ).pipe(
-                        Effect.retry({
-                          times: pm.maxRetries429,
-                          while: (error) => shouldRetryBundler429(error),
-                          schedule: retryScheduleFor(
-                            pm,
-                            "[mainnet] paymaster stub rate-limited (429), retrying"
-                          ),
-                        })
-                      )
-                    );
-
-                    const normalized = toPaymasterAndDataV06(result);
-
+                  for (const pm of paymasters) {
+                    const start = Date.now();
                     await Runtime.runPromise(runtime)(
-                      Effect.logInfo("[mainnet] paymaster stub success").pipe(
+                      Effect.logInfo("[mainnet] paymaster stub attempt").pipe(
                         Effect.annotateLogs({
-                          bundlerUrl,
+                          bundlerUrl: bundlerUrlForLogs,
                           paymaster: pm.name,
                           paymasterUrl: pm.urlForLogs,
-                          latencyMs: Date.now() - start,
                         })
                       )
                     );
 
-                    return normalized;
-                  } catch (error) {
-                    const message =
-                      error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-                    errors.push(`${pm.name}: ${message}`);
-                    await Runtime.runPromise(runtime)(
-                      Effect.logWarning("[mainnet] paymaster stub failure").pipe(
-                        Effect.annotateLogs({
-                          bundlerUrl,
-                          paymaster: pm.name,
-                          paymasterUrl: pm.urlForLogs,
-                          latencyMs: Date.now() - start,
-                          error: message,
-                        })
-                      )
-                    );
+                    try {
+                      const result = await Runtime.runPromise(runtime)(
+                        tryPromise(() =>
+                          pm.client.getPaymasterStubData({
+                            ...(params as any),
+                            context: pm.context,
+                          })
+                        )
+                      );
+
+                      const normalized = toPaymasterAndDataV06(result);
+
+                      await Runtime.runPromise(runtime)(
+                        Effect.logInfo("[mainnet] paymaster stub success").pipe(
+                          Effect.annotateLogs({
+                            bundlerUrl: bundlerUrlForLogs,
+                            paymaster: pm.name,
+                            paymasterUrl: pm.urlForLogs,
+                            latencyMs: Date.now() - start,
+                          })
+                        )
+                      );
+
+                      return normalized;
+                    } catch (error) {
+                      const message =
+                        error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+                      errors.push(`${pm.name}: ${message}`);
+                      await Runtime.runPromise(runtime)(
+                        Effect.logWarning("[mainnet] paymaster stub failure").pipe(
+                          Effect.annotateLogs({
+                            bundlerUrl: bundlerUrlForLogs,
+                            paymaster: pm.name,
+                            paymasterUrl: pm.urlForLogs,
+                            latencyMs: Date.now() - start,
+                            error: message,
+                          })
+                        )
+                      );
+                    }
                   }
-                }
 
-                return getPaymasterData(parameters);
+                  return getPaymasterData(parameters);
+                })();
+
+                paymasterStubCache.set(key, promise);
+                try {
+                  return await promise;
+                } catch (error) {
+                  paymasterStubCache.delete(key);
+                  throw error;
+                }
               };
 
               const smartAccountClient = createSmartAccountClient({
@@ -618,39 +615,13 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
                   calls: normalizedCalls,
                 })
               );
-
-              const retrySchedule = Schedule.intersect(
-                Schedule.mapInput(
-                  Schedule.jittered(Schedule.exponential(bundler429BaseDelayMs)),
-                  (_: Error) => _
-                ),
-                Schedule.mapInput(Schedule.count, (_: Error) => _)
-              ).pipe(
-                Schedule.tapOutput(([delay, attempt]) =>
-                  Effect.logWarning("[mainnet] bundler rate-limited (429), retrying").pipe(
-                    Effect.annotateLogs({
-                      bundlerUrl,
-                      attempt: attempt + 1,
-                      maxRetries: bundler429MaxRetries,
-                      delayMs: Duration.toMillis(delay),
-                    })
-                  )
-                )
-              );
-
-              const userOpHash = yield* sendUserOperationOnce.pipe(
-                Effect.retry({
-                  times: bundler429MaxRetries,
-                  while: (error) => shouldRetryBundler429(error),
-                  schedule: retrySchedule,
-                })
-              );
+              const userOpHash = yield* sendUserOperationOnce;
 
               yield* Effect.logInfo("[mainnet] UserOperation sent").pipe(
-                Effect.annotateLogs({ bundlerUrl, userOpHash })
+                Effect.annotateLogs({ bundlerUrl: bundlerUrlForLogs, userOpHash })
               );
 
-              sent.push({ bundlerUrl, userOpHash });
+              sent.push({ bundlerUrl, bundlerUrlForLogs, userOpHash });
 
               const startWaitBlock = yield* tryPromise(() => publicClient.getBlockNumber());
               const deadlineBlock = startWaitBlock + resolvedTimeoutBlocks;
@@ -677,11 +648,24 @@ export class MainnetRelayer extends Effect.Tag("MainnetRelayer")<
 
               const errorMessage =
                 error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-              errors.push(`${bundlerUrl}: ${errorMessage}`);
+              errors.push(`${bundlerUrlForLogs}: ${errorMessage}`);
+
+              if (shouldRetryBundler429(error)) {
+                yield* Effect.logWarning(
+                  "[mainnet] bundler rate-limited (429), trying next bundler"
+                ).pipe(
+                  Effect.annotateLogs({
+                    bundlerUrl: bundlerUrlForLogs,
+                    paymasterCount: paymasters.length,
+                  })
+                );
+              }
             }
           }
 
-          const sentHashes = sent.map((s) => `${s.bundlerUrl} => ${s.userOpHash}`).join(", ");
+          const sentHashes = sent
+            .map((s) => `${s.bundlerUrlForLogs} => ${s.userOpHash}`)
+            .join(", ");
           const errorsJoined = errors.length > 0 ? ` Errors: ${errors.join(" | ")}` : "";
           return yield* Effect.fail(
             new Error(
