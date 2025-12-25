@@ -40,17 +40,16 @@ export type TronNetworkConfig = Readonly<{
 
 export type MainnetRelayerConfig = Readonly<{
   bundlerUrls: Option.Option<readonly string[]>;
-  bundlerSponsored: boolean;
   bundler429MaxRetries: number;
   bundler429BaseDelayMs: number;
   ownerPrivateKey: Option.Option<Redacted.Redacted<string>>;
   safeVersion: "1.4.1" | "1.5.0";
-  entryPointVersion: "0.6" | "0.7";
   entryPointAddress: Option.Option<Address>;
   safeAddress: Option.Option<Address>;
   saltNonce: bigint;
   bundlerTimeoutBlocks: bigint;
   bundlerPollIntervalMs: number;
+  paymastersJson: Option.Option<string>;
 }>;
 
 const bigintFromString = (value: string, label: string) => {
@@ -257,11 +256,6 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             )
           );
 
-          const bundlerSponsored = yield* requiredBooleanWithDefault(
-            "RELAYER_MAINNET_BUNDLER_SPONSORED",
-            false
-          );
-
           const bundler429MaxRetries = yield* requiredNumberWithDefault(
             "RELAYER_MAINNET_BUNDLER_429_MAX_RETRIES",
             5
@@ -282,12 +276,6 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             "1.4.1"
           );
 
-          const entryPointVersion = yield* requiredLiteralWithDefault(
-            "RELAYER_MAINNET_ENTRYPOINT_VERSION",
-            ["0.6", "0.7"],
-            "0.7"
-          );
-
           const entryPointAddress = yield* optionalAddress("RELAYER_MAINNET_ENTRYPOINT_ADDRESS");
           const safeAddress = yield* optionalAddress("RELAYER_MAINNET_SAFE_ADDRESS");
           const saltNonce = yield* requiredBigint("RELAYER_MAINNET_SAFE_SALT_NONCE").pipe(
@@ -302,19 +290,22 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             3_000
           );
 
+          const paymastersJson = yield* optionalNonEmptyTrimmedString(
+            "RELAYER_MAINNET_PAYMASTERS_JSON"
+          );
+
           return {
             bundlerUrls,
-            bundlerSponsored,
             bundler429MaxRetries,
             bundler429BaseDelayMs,
             ownerPrivateKey,
             safeVersion,
-            entryPointVersion,
             entryPointAddress,
             safeAddress,
             saltNonce,
             bundlerTimeoutBlocks,
             bundlerPollIntervalMs,
+            paymastersJson,
           } satisfies MainnetRelayerConfig;
         })
       );

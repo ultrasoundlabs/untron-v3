@@ -4,8 +4,6 @@ import type { Address, Hash, Hex } from "viem";
 export type TronGrpcClients = ReturnType<typeof createTronClients>;
 export type EvmChainName = "mainnet" | "tron";
 
-export type EntryPointVersion = "0.6" | "0.7";
-
 export type MainnetUserOperationCall = {
   to: Address;
   data?: Hex;
