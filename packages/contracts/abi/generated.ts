@@ -5161,6 +5161,14 @@ export const tronLightClientAbi = [
   },
   { type: 'error', inputs: [], name: 'BlockNotRelayed' },
   { type: 'error', inputs: [], name: 'BlockTooOld' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'offset', internalType: 'uint256', type: 'uint256' },
+      { name: 'distinct', internalType: 'uint8', type: 'uint8' },
+    ],
+    name: 'CheckpointNotFinalized',
+  },
   { type: 'error', inputs: [], name: 'InvalidChain' },
   { type: 'error', inputs: [], name: 'InvalidCompressedSignaturesLength' },
   {
@@ -5215,6 +5223,15 @@ export const tronLightClientAbi = [
   {
     type: 'error',
     inputs: [
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+      { name: 'prev', internalType: 'bytes20', type: 'bytes20' },
+      { name: 'next', internalType: 'bytes20', type: 'bytes20' },
+    ],
+    name: 'SrSetNotSorted',
+  },
+  {
+    type: 'error',
+    inputs: [
       { name: 'prev', internalType: 'uint256', type: 'uint256' },
       { name: 'next', internalType: 'uint256', type: 'uint256' },
     ],
@@ -5226,11 +5243,6 @@ export const tronLightClientAbi = [
     name: 'TooManyBlocks',
   },
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
-  {
-    type: 'error',
-    inputs: [{ name: 'sr', internalType: 'bytes20', type: 'bytes20' }],
-    name: 'WitnessProducedRecently',
-  },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5506,6 +5518,14 @@ export const tronLightClientHarnessAbi = [
   },
   { type: 'error', inputs: [], name: 'BlockNotRelayed' },
   { type: 'error', inputs: [], name: 'BlockTooOld' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'offset', internalType: 'uint256', type: 'uint256' },
+      { name: 'distinct', internalType: 'uint8', type: 'uint8' },
+    ],
+    name: 'CheckpointNotFinalized',
+  },
   { type: 'error', inputs: [], name: 'InvalidChain' },
   { type: 'error', inputs: [], name: 'InvalidCompressedSignaturesLength' },
   {
@@ -5560,6 +5580,15 @@ export const tronLightClientHarnessAbi = [
   {
     type: 'error',
     inputs: [
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+      { name: 'prev', internalType: 'bytes20', type: 'bytes20' },
+      { name: 'next', internalType: 'bytes20', type: 'bytes20' },
+    ],
+    name: 'SrSetNotSorted',
+  },
+  {
+    type: 'error',
+    inputs: [
       { name: 'prev', internalType: 'uint256', type: 'uint256' },
       { name: 'next', internalType: 'uint256', type: 'uint256' },
     ],
@@ -5571,11 +5600,6 @@ export const tronLightClientHarnessAbi = [
     name: 'TooManyBlocks',
   },
   { type: 'error', inputs: [], name: 'UnanchoredBlockRange' },
-  {
-    type: 'error',
-    inputs: [{ name: 'sr', internalType: 'bytes20', type: 'bytes20' }],
-    name: 'WitnessProducedRecently',
-  },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

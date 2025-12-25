@@ -82,6 +82,13 @@ function evmAddressFromUncompressed(pub: Uint8Array): Address {
   return `0x${Buffer.from(hash.subarray(12)).toString("hex")}` as Address;
 }
 
+function isStrictlySortedLex(addresses: Address[]): boolean {
+  for (let i = 1; i < addresses.length; i++) {
+    if (addresses[i - 1]!.toLowerCase() >= addresses[i]!.toLowerCase()) return false;
+  }
+  return true;
+}
+
 // Compute Tron-style blockId and related reference values for testing:
 // - blockHash: sha256(BlockHeader_raw)
 // - blockId:   uint64(blockNumber) || sha256(BlockHeader_raw)[8:]
@@ -232,8 +239,9 @@ async function main() {
   const parentTimestampMs = BigInt(parentRaw.timestamp.toString());
   const parentTimestampSec = (parentTimestampMs / 1000n).toString();
 
-  // Index construction keyed by signing key (delegatee). We later map each index to its SR owner.
-  const signerIndexMap = new Map<Address, number>();
+  // We canonicalize SR indexing by SR owner address (witnessAddress), not by delegatee/signer.
+  // This makes `witnessIndex` stable across schedules/JSON permutations.
+  const ownerToDelegatee = new Map<Address, Address>();
 
   // Pre-allocate buffers
   const TRON_BLOCK_METADATA_SIZE = 69; // 32 + 32 + 4 + 1
@@ -249,9 +257,7 @@ async function main() {
   const witnessEvmAddresses: Address[] = [];
   const witnessIndices: number[] = [];
   const witnessSignatures: Hex[] = [];
-  const witnessOwnersByIndex: Address[] = new Array(27).fill(
-    "0x0000000000000000000000000000000000000000"
-  ) as Address[];
+  const witnessOwnersByBlock: Address[] = [];
 
   let metaOffset = 0;
   let sigOffset = 0;
@@ -297,33 +303,14 @@ async function main() {
     }
     const signerEvm = evmAddressFromUncompressed(pubUncompressed);
 
-    // Map signer -> SR index.
-    let idx = signerIndexMap.get(signerEvm);
-    if (idx === undefined) {
-      idx = witnessOwnersByIndex.findIndex(
-        (addr) => addr === "0x0000000000000000000000000000000000000000"
+    // Record per-owner delegatee mapping.
+    const existing = ownerToDelegatee.get(ownerEvm);
+    if (existing && existing !== signerEvm) {
+      throw new Error(
+        `Owner ${ownerEvm} has conflicting delegatees: ${existing} vs ${signerEvm} at block ${blockNumber}`
       );
-      if (idx === -1) {
-        idx = 27;
-      }
-      if (idx >= 27) {
-        throw new Error(
-          `More than 27 unique SR addresses encountered in block range; cannot fit into bytes20[27]`
-        );
-      }
-      signerIndexMap.set(signerEvm, idx);
-
-      // Record the owner address corresponding to this signer index.
-      witnessOwnersByIndex[idx] = ownerEvm;
-    } else {
-      // Sanity check: a given signer index should always map to the same owner.
-      const recordedOwner = witnessOwnersByIndex[idx];
-      if (recordedOwner !== ownerEvm) {
-        throw new Error(
-          `Signer index ${idx} has conflicting owner addresses: ${recordedOwner} vs ${ownerEvm} at block ${blockNumber}`
-        );
-      }
     }
+    ownerToDelegatee.set(ownerEvm, signerEvm);
 
     // CompressedTronBlockMetadata layout per block:
     // [0..31]  parentHash (bytes32)  -> raw.parentHash
@@ -351,10 +338,11 @@ async function main() {
     metadataBuf.writeUInt32BE(Number(tsSec), metaOffset);
     metaOffset += 4;
 
-    metadataBuf.writeUInt8(idx, metaOffset);
+    // Placeholder witnessIndex (patched after deriving the canonical SR ordering).
+    metadataBuf.writeUInt8(0, metaOffset);
     metaOffset += 1;
     witnessEvmAddresses.push(signerEvm);
-    witnessIndices.push(idx);
+    witnessOwnersByBlock.push(ownerEvm);
 
     // Signatures: Tron stores [r(32) | s(32) | v(1)].
     witnessSig.copy(sigsBuf, sigOffset, 0, SIGNATURE_SIZE);
@@ -367,7 +355,7 @@ async function main() {
       blockHash,
       rawHeaderBytes,
       witnessEvmAddress: signerEvm,
-      witnessIndex: idx,
+      witnessOwnerEvmAddress: ownerEvm,
     });
   }
 
@@ -378,17 +366,38 @@ async function main() {
     throw new Error("Signature buffer offset mismatch");
   }
 
-  // Build SR owners (srs) and witness delegatees arrays.
+  // Build SR owners (srs) and witness delegatees arrays in canonical lexicographic order by SR owner address.
   const zeroAddress = "0x0000000000000000000000000000000000000000" as Address;
-  const srsFixed: Address[] = new Array(27).fill(zeroAddress) as Address[];
-  const witnessDelegateesFixed: Address[] = new Array(27).fill(zeroAddress) as Address[];
+  const srsFixed = [...ownerToDelegatee.keys()].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
 
-  for (let i = 0; i < 27; i++) {
-    srsFixed[i] = witnessOwnersByIndex[i] ?? zeroAddress;
+  if (srsFixed.length !== 27) {
+    throw new Error(`Expected exactly 27 unique SR owners, got ${srsFixed.length}`);
+  }
+  if (!isStrictlySortedLex(srsFixed)) {
+    throw new Error("SR owners must be strictly increasing (lexicographic)");
+  }
+  if (srsFixed.some((a) => a === zeroAddress)) {
+    throw new Error("SR owners must not contain the zero address");
   }
 
-  for (const [signer, idx] of signerIndexMap.entries()) {
-    witnessDelegateesFixed[idx] = signer;
+  const witnessDelegateesFixed = srsFixed.map((sr) => ownerToDelegatee.get(sr) ?? zeroAddress);
+  if (witnessDelegateesFixed.some((a) => a === zeroAddress)) {
+    throw new Error("Missing witness delegatee for at least one SR owner");
+  }
+
+  // Patch witnessIndex bytes in metadata and fill witnessIndices using the canonical SR ordering.
+  if (witnessOwnersByBlock.length !== numBlocks) {
+    throw new Error("witnessOwnersByBlock length mismatch");
+  }
+  const indexByOwner = new Map<Address, number>(srsFixed.map((sr, i) => [sr, i]));
+  for (let i = 0; i < witnessOwnersByBlock.length; i++) {
+    const owner = witnessOwnersByBlock[i]!;
+    const idx = indexByOwner.get(owner);
+    if (idx == null) throw new Error(`Block witness owner not in SR set: ${owner}`);
+    witnessIndices.push(idx);
+    metadataBuf.writeUInt8(idx, i * TRON_BLOCK_METADATA_SIZE + 68);
   }
 
   const endingBlockId = blockIds[blockIds.length - 1]!;

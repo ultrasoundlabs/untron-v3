@@ -28,14 +28,17 @@ contract TronLightClient is TronLightClientIndex {
 
         bytes32 lastTxTrieRoot;
 
-        // Ring buffer (last 18 creators) tracked by SR index (`witnessIndex`).
-        uint8[18] recentProducers;
-        uint32 recentMask;
-
         bool intersectedExisting;
         uint32 lastTimestamp;
-        uint8 recentCount;
-        uint8 recentPos;
+    }
+
+    struct StoreFinalityCtx {
+        uint16[16] offsets;
+        bytes32[16] blockId;
+        bytes32[16] txTrieRoot;
+        uint32[16] timestamp;
+        uint32[16] afterMask;
+        uint256 numCandidates;
     }
 
     // ------------------------------------------------------------------------
@@ -46,7 +49,7 @@ contract TronLightClient is TronLightClientIndex {
     uint256 internal constant _SIGNATURE_SIZE = 65; // bytes per secp256k1 signature (r,s,v)
 
     uint256 internal constant _TRON_BLOCK_VERSION = 32; // current observed Tron BlockHeader_raw.version
-    uint256 internal constant _RECENT_BLOCK_CREATOR_WINDOW = 18; // sliding window size for block creator uniqueness
+    uint8 internal constant _FINALITY_DISTINCT_SR_THRESHOLD = 19; // >18 of 27 distinct SRs
 
     // ------------------------------------------------------------------------
     // State
@@ -145,7 +148,8 @@ contract TronLightClient is TronLightClientIndex {
     error InvalidIntersectionOffset(uint256 intersectionOffset, uint256 numBlocks);
     error InvalidIntersectionClaim(uint256 blockNumber, bytes32 blockId);
     error InvalidWitnessSigner();
-    error WitnessProducedRecently(bytes20 sr);
+    error CheckpointNotFinalized(uint256 offset, uint8 distinct);
+    error SrSetNotSorted(uint256 index, bytes20 prev, bytes20 next);
     error UnanchoredBlockRange();
     error InvalidSrIndex(uint256 index);
     error InvalidWitnessDelegateeIndex(uint256 index);
@@ -177,6 +181,14 @@ contract TronLightClient is TronLightClientIndex {
         bytes32 srDataHash
     ) {
         BLOCK_RANGE_PROVER = blockRangeProver;
+
+        // Require a canonical (lexicographic) SR ordering so `witnessIndex` is order-insensitive across callers.
+        for (uint256 i = 1; i < 27; ++i) {
+            bytes20 prev = _srs[i - 1];
+            bytes20 next = _srs[i];
+            // solhint-disable-next-line gas-strict-inequalities
+            if (uint160(prev) >= uint160(next)) revert SrSetNotSorted(i, prev, next);
+        }
 
         _SR_0 = _srs[0];
         _SR_1 = _srs[1];
@@ -394,6 +406,7 @@ contract TronLightClient is TronLightClientIndex {
     // Internal functions
     // ------------------------------------------------------------------------
 
+    /* solhint-disable function-max-lines */
     /// @notice Main loop for proving blocks in a range.
     /// @param ctx The proof context containing state during verification.
     /// @param compressedTronBlockMetadata Compressed block metadata for all blocks.
@@ -413,20 +426,27 @@ contract TronLightClient is TronLightClientIndex {
         // and the associated repeated memory expansion.
         bytes memory scratch = new bytes(128);
 
-        // Consume the packed offsets by shifting 16 bits at a time (cheaper + reduces live locals).
+        // Track finality only for the (up to 16) checkpoints that the caller asked us to store.
+        // Consume packed offsets by shifting 16 bits at a time (keeps live locals small).
         // Sentinel `0xFFFF` means "store nothing further".
-        uint256 remainingStoreOffsets = storeOffsets16;
-        uint256 nextStoreOffset = remainingStoreOffsets & type(uint16).max;
-        remainingStoreOffsets >>= 16;
+        StoreFinalityCtx memory store;
+        uint256 storeOffsetsCursor = storeOffsets16;
 
         for (uint256 i = 0; i < numBlocks; ++i) {
+            uint32 bit;
             {
                 (bytes32 blockHash, uint8 witnessIndex) = _advanceAndHash(ctx, compressedTronBlockMetadata, i, scratch);
 
                 bytes20 signer = _recoverSigner(blockHash, compressedSignatures, i, scratch);
                 if (signer != _witnessDelegateeAt(witnessIndex)) revert InvalidWitnessSigner();
 
-                _enforceRecentUniqueWitnessIndex(ctx, witnessIndex, _srAt(witnessIndex));
+                // Count distinct SRs that produced blocks *after* each candidate checkpoint.
+                // This intentionally allows repeats within the range (Tron can legally repeat at schedule boundaries),
+                // and instead enforces the finality property we actually need (>18 distinct SRs building on top).
+                bit = uint32(1) << witnessIndex;
+                for (uint256 k = 0; k < store.numCandidates; ++k) {
+                    store.afterMask[k] |= bit;
+                }
             }
 
             // IMPORTANT: If the range is unanchored, the caller's intersection claim must be verified against
@@ -434,14 +454,36 @@ contract TronLightClient is TronLightClientIndex {
             // a caller could self-create the intersection in the same transaction.
             _maybeCheckIntersection(ctx, i, intersectionOffset);
 
-            if (i == nextStoreOffset) {
-                _appendBlockId(ctx.blockId, ctx.lastTxTrieRoot, ctx.lastTimestamp);
+            // Record checkpoint candidates at their offsets, but only append once finalized (after the loop).
+            if (
+                (storeOffsetsCursor & type(uint16).max) != type(uint16).max
+                    && i == (storeOffsetsCursor & type(uint16).max)
+            ) {
+                uint256 off = storeOffsetsCursor & type(uint16).max;
+                // forge-lint: disable-next-line(unsafe-typecast)
+                store.offsets[store.numCandidates] = uint16(off);
+                store.blockId[store.numCandidates] = ctx.blockId;
+                store.txTrieRoot[store.numCandidates] = ctx.lastTxTrieRoot;
+                store.timestamp[store.numCandidates] = ctx.lastTimestamp;
+                store.afterMask[store.numCandidates] = bit;
+                unchecked {
+                    ++store.numCandidates;
+                }
 
-                nextStoreOffset = remainingStoreOffsets & type(uint16).max;
-                remainingStoreOffsets >>= 16;
+                storeOffsetsCursor >>= 16;
             }
         }
+
+        // Store only checkpoints that have support from >=19 distinct SRs counting the checkpoint producer
+        // plus producers of blocks after it within this proven segment.
+        for (uint256 k = 0; k < store.numCandidates; ++k) {
+            uint8 distinct = _popcount32(store.afterMask[k]);
+            if (distinct < _FINALITY_DISTINCT_SR_THRESHOLD) revert CheckpointNotFinalized(store.offsets[k], distinct);
+            _appendBlockId(store.blockId[k], store.txTrieRoot[k], store.timestamp[k]);
+        }
     }
+
+    /* solhint-enable function-max-lines */
 
     /// @notice Stores a checkpoint for `blockId` and updates `latestProvenBlock` if it is newer.
     /// @dev Callers must ensure the provided checkpoint is consistent with the intended chain.
@@ -843,30 +885,15 @@ contract TronLightClient is TronLightClientIndex {
         }
     }
 
-    /// @notice Enforces that an SR index (`witnessIndex`) hasn't produced a block recently and tracks it.
-    /// @param ctx The proof context containing recent creator tracking state.
-    /// @param witnessIndex SR index (0..26).
-    /// @param sr SR owner account (only used for revert data).
-    function _enforceRecentUniqueWitnessIndex(ProveBlocksCtx memory ctx, uint8 witnessIndex, bytes20 sr) internal pure {
-        uint32 bit = uint32(1) << witnessIndex;
-        if ((ctx.recentMask & bit) != 0) revert WitnessProducedRecently(sr);
-
-        if (ctx.recentCount < _RECENT_BLOCK_CREATOR_WINDOW) {
-            ctx.recentProducers[ctx.recentCount] = witnessIndex;
-            ctx.recentMask |= bit;
+    /// @notice Counts set bits in a 32-bit word.
+    /// @dev Used for counting distinct SR indices within 27-bit masks.
+    /// @param x Bitmask to count.
+    /// @return c Number of set bits in `x`.
+    function _popcount32(uint32 x) internal pure returns (uint8 c) {
+        while (x != 0) {
+            x &= (x - 1);
             unchecked {
-                ++ctx.recentCount;
-            }
-        } else {
-            uint8 old = ctx.recentProducers[ctx.recentPos];
-            ctx.recentMask &= ~(uint32(1) << old);
-
-            ctx.recentProducers[ctx.recentPos] = witnessIndex;
-            ctx.recentMask |= bit;
-
-            unchecked {
-                ++ctx.recentPos;
-                if (ctx.recentPos == _RECENT_BLOCK_CREATOR_WINDOW) ctx.recentPos = 0;
+                ++c;
             }
         }
     }

@@ -206,6 +206,36 @@ function witnessVoteCount(w: Witness): bigint {
   return longToBigInt(anyW.voteCount ?? anyW.vote_count ?? anyW.votes ?? 0);
 }
 
+function sortBySrOwnerLex(
+  srs: string[],
+  witnessDelegatees: string[]
+): {
+  srs: string[];
+  witnessDelegatees: string[];
+} {
+  if (srs.length !== 27 || witnessDelegatees.length !== 27) {
+    throw new Error("srs and witnessDelegatees must both have length 27");
+  }
+
+  const pairs = srs.map((sr, i) => ({
+    sr: sr.toLowerCase(),
+    delegate: witnessDelegatees[i]!.toLowerCase(),
+  }));
+
+  pairs.sort((a, b) => strip0x(a.sr).localeCompare(strip0x(b.sr)));
+
+  for (let i = 1; i < pairs.length; i++) {
+    if (pairs[i - 1]!.sr >= pairs[i]!.sr) {
+      throw new Error(`srs must be strictly increasing (index=${i})`);
+    }
+  }
+
+  return {
+    srs: pairs.map((p) => p.sr),
+    witnessDelegatees: pairs.map((p) => p.delegate),
+  };
+}
+
 async function main() {
   const env = parseEnv(
     z.object({
@@ -313,6 +343,7 @@ async function main() {
   });
 
   const witnessDelegatees = delegatesHex21.map((hex21) => tron21ToEvm20(Buffer.from(hex21, "hex")));
+  const canonical = sortBySrOwnerLex(srs, witnessDelegatees);
 
   // choose initial block as end of the round (so the SR schedule we derived matches this round)
   const initBlockNum = roundEnd;
@@ -332,7 +363,7 @@ async function main() {
   const tsMs = BigInt(raw.timestamp?.toString?.() ?? "0");
   const initialTimestamp = Number(tsMs / 1000n);
 
-  const srDataHash = computeSrDataHash(srs, witnessDelegatees);
+  const srDataHash = computeSrDataHash(canonical.srs, canonical.witnessDelegatees);
 
   // basic prover address sanity
   const prover = env.BLOCK_RANGE_PROVER ?? "0x0000000000000000000000000000000000000000";
@@ -346,8 +377,8 @@ async function main() {
     initialBlockHash: bytesTo0xHex(blockId),
     initialTxTrieRoot: bytesTo0xHex(txTrieRoot),
     initialTimestamp,
-    srs,
-    witnessDelegatees,
+    srs: canonical.srs,
+    witnessDelegatees: canonical.witnessDelegatees,
     srDataHash,
   };
 
