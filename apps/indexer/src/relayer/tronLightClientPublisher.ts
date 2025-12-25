@@ -18,7 +18,13 @@ import {
 const UINT256_MAX = (1n << 256n) - 1n;
 
 const MAX_TRON_BLOCKS_PER_PROVE_CALL = 20_000n;
-const TRON_BLOCK_FETCH_CONCURRENCY = 10;
+const TRON_BLOCK_FETCH_CONCURRENCY = (() => {
+  const raw = process.env.TRON_BLOCK_FETCH_CONCURRENCY;
+  if (!raw) return 1;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+})();
+const TRON_BLOCK_FETCH_PROGRESS_INTERVAL_MS = 5_000;
 
 function coerceBigint(value: unknown, label: string): bigint {
   if (typeof value === "bigint") return value;
@@ -255,10 +261,49 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
       })
     );
 
+    const downloadStartedAtMs = Date.now();
+    let downloaded = 0;
+    let lastProgressLogAtMs = downloadStartedAtMs;
+
     const blocks = yield* Effect.forEach(
       blockNumbers,
-      (blockNumber) => args.fetchTronBlockByNum(blockNumber),
+      (blockNumber) =>
+        args.fetchTronBlockByNum(blockNumber).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              downloaded += 1;
+              const now = Date.now();
+              if (now - lastProgressLogAtMs < TRON_BLOCK_FETCH_PROGRESS_INTERVAL_MS) return null;
+              lastProgressLogAtMs = now;
+              return { downloaded, elapsedMs: now - downloadStartedAtMs };
+            }).pipe(
+              Effect.flatMap((progress) =>
+                progress
+                  ? Effect.logInfo("[tron_light_client] proveBlocks downloading").pipe(
+                      Effect.annotateLogs({
+                        downloaded: progress.downloaded,
+                        total: blockNumbers.length,
+                        concurrency: TRON_BLOCK_FETCH_CONCURRENCY,
+                        elapsedMs: progress.elapsedMs,
+                      })
+                    )
+                  : Effect.void
+              )
+            )
+          )
+        ),
       { concurrency: TRON_BLOCK_FETCH_CONCURRENCY }
+    );
+
+    const downloadElapsedMs = Date.now() - downloadStartedAtMs;
+    const blocksPerSecond = downloadElapsedMs > 0 ? (downloaded / downloadElapsedMs) * 1000 : 0;
+    yield* Effect.logInfo("[tron_light_client] proveBlocks downloaded").pipe(
+      Effect.annotateLogs({
+        downloaded,
+        total: blockNumbers.length,
+        elapsedMs: downloadElapsedMs,
+        blocksPerSecond: blocksPerSecond.toFixed(2),
+      })
     );
 
     const witnessIndexByTronOwnerHex = (yield* Effect.tryPromise({
