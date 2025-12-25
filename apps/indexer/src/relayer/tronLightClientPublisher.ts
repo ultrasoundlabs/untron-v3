@@ -265,7 +265,7 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
     let downloaded = 0;
     let lastProgressLogAtMs = downloadStartedAtMs;
 
-    const blocks = yield* Effect.forEach(
+    const parsedBlocks = yield* Effect.forEach(
       blockNumbers,
       (blockNumber) =>
         args.fetchTronBlockByNum(blockNumber).pipe(
@@ -290,7 +290,8 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
                   : Effect.void
               )
             )
-          )
+          ),
+          Effect.map(parseTronBlockForLightClient)
         ),
       { concurrency: TRON_BLOCK_FETCH_CONCURRENCY }
     );
@@ -315,7 +316,6 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })).witnessIndexByTronOwnerHex;
 
-    const parsedBlocks = blocks.map(parseTronBlockForLightClient);
     const { compressedTronBlockMetadata, compressedSignatures } =
       encodeTronLightClientMetadataAndSignatures({
         blocks: parsedBlocks,
