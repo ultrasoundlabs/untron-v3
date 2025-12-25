@@ -8,6 +8,7 @@ import "forge-std/console2.sol";
 import {UntronV3} from "../src/evm/UntronV3.sol";
 import {CCTPV2Bridger} from "../src/evm/bridgers/USDC/CCTPV2Bridger.sol";
 import {USDT0Bridger} from "../src/evm/bridgers/USDT0/USDT0Bridger.sol";
+import {UntronDeployer} from "./UntronDeployer.sol";
 
 /// @notice Configures UntronV3 bridgers from `config/bridgers.json`.
 /// @dev Expects the caller to be the UntronV3 owner.
@@ -16,17 +17,9 @@ import {USDT0Bridger} from "../src/evm/bridgers/USDT0/USDT0Bridger.sol";
 /// - UNTRON (required)
 /// - CCTPV2_BRIDGER (required)
 /// - USDT0_BRIDGER (required)
-/// - BRIDGER_CONFIG_PATH (optional; defaults to `<projectRoot>/config/bridgers.json`)
-contract ConfigureUntronV3BridgersScript is Script {
+/// - BRIDGER_CONFIG_PATH (optional; defaults to `<projectRoot>/script/bridgers.json`)
+contract ConfigureUntronV3BridgersScript is UntronDeployer {
     using stdJson for string;
-
-    function _configPath() internal view returns (string memory) {
-        try vm.envString("BRIDGER_CONFIG_PATH") returns (string memory path) {
-            return path;
-        } catch {
-            return string.concat(vm.projectRoot(), "/script/bridgers.json");
-        }
-    }
 
     function run() external {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
@@ -45,11 +38,11 @@ contract ConfigureUntronV3BridgersScript is Script {
         address usdc = address(cctpV2Bridger.USDC());
         address usdt0 = address(usdt0Bridger.USDT0());
 
-        string memory json = vm.readFile(_configPath());
+        string memory json = vm.readFile(_bridgerConfigPath());
         uint256[] memory cctpChainIds = json.readUintArray(".cctpV2.supportedChainIds");
         uint256[] memory usdt0ChainIds = json.readUintArray(".usdt0.supportedChainIds");
 
-        console2.log("Config path:", _configPath());
+        console2.log("Config path:", _bridgerConfigPath());
         console2.log("UntronV3:", untronAddr);
         console2.log("CCTPV2Bridger:", cctpV2BridgerAddr);
         console2.log("USDT0Bridger:", usdt0BridgerAddr);
@@ -57,14 +50,8 @@ contract ConfigureUntronV3BridgersScript is Script {
         console2.log("USDT0 token:", usdt0);
 
         vm.startBroadcast(deployerPk);
-
-        for (uint256 i = 0; i < cctpChainIds.length; i++) {
-            untron.setBridger(usdc, cctpChainIds[i], cctpV2BridgerAddr);
-        }
-
-        for (uint256 i = 0; i < usdt0ChainIds.length; i++) {
-            untron.setBridger(usdt0, usdt0ChainIds[i], usdt0BridgerAddr);
-        }
+        _setBridgerRoutes(untron, usdc, cctpChainIds, cctpV2BridgerAddr);
+        _setBridgerRoutes(untron, usdt0, usdt0ChainIds, usdt0BridgerAddr);
 
         vm.stopBroadcast();
 

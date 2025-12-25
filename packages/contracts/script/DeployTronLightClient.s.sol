@@ -6,9 +6,9 @@ import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
 
 import {TronLightClient} from "../src/evm/TronLightClient.sol";
-import {IBlockRangeProver} from "../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
+import {UntronDeployer} from "./UntronDeployer.sol";
 
-contract DeployTronLightClientScript is Script {
+contract DeployTronLightClientScript is UntronDeployer {
     using stdJson for string;
 
     function run() external returns (TronLightClient lc) {
@@ -16,9 +16,9 @@ contract DeployTronLightClientScript is Script {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
 
         // ---- read config json ----
-        string memory json = vm.readFile("script/tlc.json");
+        string memory json = vm.readFile(_tlcConfigPath());
 
-        address proverAddr = json.readAddress(".blockRangeProver");
+        address proverAddr = _overrideAddress("BLOCK_RANGE_PROVER", json.readAddress(".blockRangeProver"));
         bytes32 initialBlockHash = json.readBytes32(".initialBlockHash"); // NOTE: must be the TRON blockId (height||tail), not just sha256(header)
         bytes32 initialTxTrieRoot = json.readBytes32(".initialTxTrieRoot");
         uint256 ts = json.readUint(".initialTimestamp"); // seconds
@@ -26,7 +26,7 @@ contract DeployTronLightClientScript is Script {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint32 initialTimestamp = uint32(ts);
 
-        bytes32 srDataHash = json.readBytes32(".srDataHash");
+        bytes32 srDataHash = _overrideBytes32("SR_DATA_HASH", json.readBytes32(".srDataHash"));
 
         // srs + witnessDelegatees as address arrays in JSON, converted to bytes20[27]
         address[] memory srsAddr = json.readAddressArray(".srs");
@@ -45,15 +45,8 @@ contract DeployTronLightClientScript is Script {
 
         // ---- deploy ----
         vm.startBroadcast(deployerPk);
-
-        lc = new TronLightClient(
-            IBlockRangeProver(proverAddr),
-            initialBlockHash,
-            initialTxTrieRoot,
-            initialTimestamp,
-            srs,
-            witnessDelegatees,
-            srDataHash
+        lc = _deployTronLightClient(
+            proverAddr, initialBlockHash, initialTxTrieRoot, initialTimestamp, srs, witnessDelegatees, srDataHash
         );
 
         vm.stopBroadcast();

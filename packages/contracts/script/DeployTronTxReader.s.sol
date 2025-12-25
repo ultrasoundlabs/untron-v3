@@ -6,15 +6,16 @@ import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
 
 import {TronTxReader} from "../src/evm/TronTxReader.sol";
+import {UntronDeployer} from "./UntronDeployer.sol";
 
-contract DeployTronTxReaderScript is Script {
+contract DeployTronTxReaderScript is UntronDeployer {
     function run() external returns (TronTxReader reader) {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
         address tronLightClient = vm.envAddress("TRON_LIGHT_CLIENT");
         require(tronLightClient != address(0), "tronLightClient is zero");
 
         vm.startBroadcast(deployerPk);
-        reader = new TronTxReader(tronLightClient);
+        reader = _deployTronTxReader(tronLightClient);
         vm.stopBroadcast();
 
         console2.log("TronTxReader deployed at:", address(reader));
