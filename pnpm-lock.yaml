@@ -31,28 +31,6 @@ importers:
         specifier: ^5
         version: 5.0.10
 
-  apps/forwarder:
-    dependencies:
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.2.3
-      pino:
-        specifier: ^10.1.0
-        version: 10.1.0
-      viem:
-        specifier: ^2.21.3
-        version: 2.38.6(typescript@5.9.2)(zod@4.1.12)
-    devDependencies:
-      '@types/node':
-        specifier: ^20.9.0
-        version: 20.19.27
-      ts-node:
-        specifier: ^10.9.1
-        version: 10.9.2(@types/node@20.19.27)(typescript@5.9.2)
-      typescript:
-        specifier: ^5.2.2
-        version: 5.9.2
-
   apps/backend:
     dependencies:
       '@effect/vitest':
@@ -105,6 +83,28 @@ importers:
         specifier: ^5.2.2
         version: 5.9.2
 
+  apps/forwarder:
+    dependencies:
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.2.3
+      pino:
+        specifier: ^10.1.0
+        version: 10.1.0
+      viem:
+        specifier: ^2.21.3
+        version: 2.38.6(typescript@5.9.2)(zod@4.1.12)
+    devDependencies:
+      '@types/node':
+        specifier: ^20.9.0
+        version: 20.19.27
+      ts-node:
+        specifier: ^10.9.1
+        version: 10.9.2(@types/node@20.19.27)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.2.2
+        version: 5.9.2
+
   apps/research:
     dependencies:
       '@noble/hashes':
@@ -116,6 +116,9 @@ importers:
       '@untron/tron-protocol':
         specifier: workspace:*
         version: link:../../packages/tron-protocol
+      '@untron/v3-contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       consola:
         specifier: ^3.4.2
         version: 3.4.2

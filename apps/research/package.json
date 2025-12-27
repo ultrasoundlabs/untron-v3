@@ -13,6 +13,7 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@noble/secp256k1": "^3.0.0",
+    "@untron/v3-contracts": "workspace:*",
     "@untron/tron-protocol": "workspace:*",
     "consola": "^3.4.2",
     "dotenv": "^17.2.3",
