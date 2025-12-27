@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { log } from "./lib/logger.js";
 import dotenv from "dotenv";
+import { summarizeError } from "./lib/sanitize.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,7 +54,13 @@ async function main() {
     const moduleUrl = pathToFileURL(targetTs).href;
     await import(moduleUrl);
   } catch (err) {
-    log.error(`Failed to run script '${scriptName}'`, err);
+    const summary = summarizeError(err);
+    // Avoid dumping huge nested error objects (e.g., calldata blobs) into the terminal by default.
+    if (process.env.RESEARCH_DEBUG_ERRORS === "1") {
+      log.error(`Failed to run script '${scriptName}'`, err);
+    } else {
+      log.error(`Failed to run script '${scriptName}': ${summary.message}`, summary.data);
+    }
     const names = await listScripts();
     log.info("Try one of:", names);
     process.exit(1);

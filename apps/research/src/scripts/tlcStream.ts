@@ -5,6 +5,7 @@ import Long from "long";
 import { z } from "zod";
 import { parseEnv } from "../lib/env.js";
 import { log } from "../lib/logger.js";
+import { summarizeError } from "../lib/sanitize.js";
 import { createTronClients } from "@untron/tron-protocol";
 import type { BlockExtention, NumberMessage } from "@untron/tron-protocol/api";
 import { BlockHeader_raw } from "@untron/tron-protocol/tron";
@@ -595,7 +596,15 @@ async function main() {
 }
 
 main().catch((err) => {
+  const summary = summarizeError(err);
   // eslint-disable-next-line no-console
-  console.error(err);
+  console.error(summary.message);
+  if (process.env.RESEARCH_DEBUG_ERRORS === "1") {
+    // eslint-disable-next-line no-console
+    console.error(err);
+  } else if (summary.data) {
+    // eslint-disable-next-line no-console
+    console.error(summary.data);
+  }
   process.exit(1);
 });
