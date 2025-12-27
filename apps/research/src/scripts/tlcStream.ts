@@ -337,6 +337,11 @@ function packStoreOnly(offset: number): bigint {
   return x;
 }
 
+function packStoreNone(): bigint {
+  // All lanes set to sentinel 0xFFFF.
+  return MAX_UINT256;
+}
+
 async function buildBatch(
   wallet: any,
   callOpts: any,
@@ -496,6 +501,7 @@ async function main() {
   let anchorBlockId = startingBlockId;
   let anchorNumber = Number(blockIdToNumber(anchorBlockId));
   let nextBlock = anchorNumber + 1;
+  let provedThrough = anchorNumber;
 
   log.info("Streaming proveBlocks batches...", {
     start: args.start,
@@ -507,7 +513,7 @@ async function main() {
   });
 
   let batchCount = 0;
-  while (nextBlock <= args.end) {
+  while (provedThrough < args.end) {
     batchCount++;
     if (args.maxBatches != null && batchCount > args.maxBatches) {
       log.warn("Stopping early due to --max-batches", { batchCount, maxBatches: args.maxBatches });
@@ -517,6 +523,7 @@ async function main() {
     const batchStart = nextBlock;
     const batchEnd = Math.min(args.end, batchStart + args.batch - 1);
     const count = batchEnd - batchStart + 1;
+    const isLastBatch = batchEnd >= args.end;
 
     const t0 = Date.now();
     const { metadata, sigs, witnessIndices } = await buildBatch(
@@ -529,9 +536,27 @@ async function main() {
     );
     const metadataHex = toHex0x(metadata);
     const sigsHex = toHex0x(sigs);
-    const storeOffset = latestFinalizedOffset(witnessIndices);
-    const storeOffsets16 = packStoreOnly(storeOffset);
-    const expectedStoredBlock = batchStart + storeOffset;
+
+    // We store a checkpoint once it's finalized within the proven segment (>=19 distinct SRs).
+    // For the final tail (especially when the caller ends at an arbitrary block), there may be
+    // fewer than 19 blocks remaining after the last stored checkpoint. In that case we can
+    // still *verify* to `--end` without storing a new checkpoint.
+    let storeOffsets16: bigint;
+    let expectedStoredBlock: number;
+    let storeOffset: number | null = null;
+    if (count < FINALITY_DISTINCT_SR_THRESHOLD) {
+      if (!isLastBatch) {
+        throw new Error(
+          `batch too small to finalize a checkpoint (count=${count} < ${FINALITY_DISTINCT_SR_THRESHOLD}); increase --batch`
+        );
+      }
+      storeOffsets16 = packStoreNone();
+      expectedStoredBlock = anchorNumber;
+    } else {
+      storeOffset = latestFinalizedOffset(witnessIndices);
+      storeOffsets16 = packStoreOnly(storeOffset);
+      expectedStoredBlock = batchStart + storeOffset;
+    }
 
     const buildMs = Date.now() - t0;
     log.info("Built batch", {
@@ -542,9 +567,12 @@ async function main() {
       buildMs,
       storeOffset,
       expectedStoredBlock,
+      isLastBatch,
     });
 
     if (args.dryRun) {
+      provedThrough = batchEnd;
+      if (provedThrough >= args.end) break;
       anchorNumber = expectedStoredBlock;
       nextBlock = anchorNumber + 1;
       continue;
@@ -571,7 +599,7 @@ async function main() {
         `Unexpected latestProvenBlock number: got ${latestNum}, expected ${expectedStoredBlock} (batch ${batchCount})`
       );
     }
-    if (latestNum <= anchorNumber) {
+    if (expectedStoredBlock !== anchorNumber && latestNum <= anchorNumber) {
       throw new Error(`latestProvenBlock did not advance (prev=${anchorNumber}, new=${latestNum})`);
     }
 
@@ -581,7 +609,11 @@ async function main() {
       gasUsed: receipt.gasUsed.toString(),
       latestProvenBlock: latest,
       latestNum,
+      provedThrough: batchEnd,
     });
+
+    provedThrough = batchEnd;
+    if (provedThrough >= args.end) break;
 
     anchorBlockId = latest;
     anchorNumber = latestNum;
@@ -590,6 +622,7 @@ async function main() {
 
   log.info("Done", {
     batches: batchCount,
+    provedThrough,
     finalAnchorBlock: anchorNumber,
     finalAnchorId: anchorBlockId,
   });
