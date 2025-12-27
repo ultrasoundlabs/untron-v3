@@ -12,7 +12,7 @@ import {
 } from "viem";
 
 import { tryPromise } from "./effect/tryPromise";
-import { IndexerRuntime } from "./effect/runtime";
+import { BackendRuntime } from "./effect/runtime";
 import { computeNextEventChainTip } from "./eventChain/tip";
 import { getArgValue } from "./parse";
 
@@ -334,7 +334,7 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
 
   for (const eventName of chainedEvents) {
     ponder.on(`${contractName}:${eventName}` as any, ({ event, context }: any) =>
-      IndexerRuntime.runPromise(
+      BackendRuntime.runPromise(
         handleChainedEvent({
           eventName: eventName as AbiEventName<TAbi>,
           event,

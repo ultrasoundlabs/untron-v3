@@ -4,7 +4,7 @@ import type { Context as PonderContext, IndexingFunctionArgs } from "ponder:regi
 import { relayerStatus, trc20Transfer, tronLightClientPublishRequest } from "ponder:schema";
 
 import { AppConfig } from "../effect/config";
-import { IndexerRuntime } from "../effect/runtime";
+import { BackendRuntime } from "../effect/runtime";
 import { MAINNET_CHAIN_ID } from "../env";
 
 import { enqueueRelayJob } from "./queue";
@@ -85,7 +85,7 @@ export function registerRelayer({
     heartbeatKind: RelayJobKind
   ) => {
     ponder.on(blockEventName, ({ event, context }: IndexingFunctionArgs<TEventName>) =>
-      IndexerRuntime.runPromise(
+      BackendRuntime.runPromise(
         Effect.gen(function* () {
           const runtime = yield* AppConfig.relayerRuntime();
           const resolvedEnabled = enabled ?? runtime.enabled;
@@ -192,7 +192,7 @@ export function registerRelayer({
   onBlock("tron:block", "tron_heartbeat");
 
   ponder.on("TRC20:Transfer", ({ event, context }: IndexingFunctionArgs<"TRC20:Transfer">) =>
-    IndexerRuntime.runPromise(
+    BackendRuntime.runPromise(
       Effect.gen(function* () {
         const runtime = yield* AppConfig.relayerRuntime();
         const resolvedEnabled = enabled ?? runtime.enabled;

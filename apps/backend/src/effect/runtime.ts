@@ -38,4 +38,4 @@ const RuntimeLayer = Layer.mergeAll(
   SwapPlannerLayer
 );
 
-export const IndexerRuntime = ManagedRuntime.make(RuntimeLayer);
+export const BackendRuntime = ManagedRuntime.make(RuntimeLayer);

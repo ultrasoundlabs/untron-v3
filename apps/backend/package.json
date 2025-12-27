@@ -1,5 +1,5 @@
 {
-  "name": "@untron/v3-indexer",
+  "name": "@untron/v3-backend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
