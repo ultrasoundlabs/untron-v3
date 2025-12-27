@@ -5,19 +5,11 @@ import { relayerStatus, trc20Transfer, tronLightClientPublishRequest } from "pon
 
 import { AppConfig } from "../effect/config";
 import { IndexerRuntime } from "../effect/runtime";
+import { MAINNET_CHAIN_ID } from "../env";
 
 import { enqueueRelayJob } from "./queue";
 import { processRelayJobs } from "./processor";
-import { getRpcHeadBlockNumber, isProbablyLiveEvent } from "./sync";
 import type { BlockEventName, PonderRegistry, RelayJobKind } from "./types";
-
-const MAINNET_CHAIN_ID = (() => {
-  const raw = process.env.UNTRON_V3_CHAIN_ID;
-  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
-  return parsed;
-})();
 
 const upsertRelayerStatus = (args: {
   context: PonderContext;
@@ -40,6 +32,40 @@ const upsertRelayerStatus = (args: {
         headBlockTimestamp: args.headBlockTimestamp,
       })
   );
+
+const getRpcHeadBlockNumber = (context: PonderContext): Effect.Effect<bigint | null, Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const hex = (await context.client.request({
+        method: "eth_blockNumber",
+      } as any)) as unknown;
+
+      if (typeof hex !== "string") return null;
+      return BigInt(hex);
+    },
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+
+const isProbablyLiveEvent = (args: {
+  context: PonderContext;
+  eventBlockNumber: bigint;
+  maxLagBlocks: bigint;
+}): Effect.Effect<boolean, Error> =>
+  Effect.gen(function* () {
+    const status = yield* Effect.tryPromise({
+      try: () => args.context.db.find(relayerStatus, { chainId: args.context.chain.id }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+    const head =
+      status?.isLive === true && typeof status.headBlockNumber === "bigint"
+        ? status.headBlockNumber
+        : yield* getRpcHeadBlockNumber(args.context);
+
+    if (head === null) return false;
+    if (head < args.eventBlockNumber) return false;
+    return head - args.eventBlockNumber <= args.maxLagBlocks;
+  });
 
 export function registerRelayer({
   ponder,

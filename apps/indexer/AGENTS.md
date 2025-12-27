@@ -260,7 +260,7 @@ There are two important guards:
 
 ### 1) Is this event live-ish?
 
-- `apps/indexer/src/relayer/sync.ts` has `isProbablyLiveEvent`:
+- `apps/indexer/src/relayer/register.ts` has `isProbablyLiveEvent`:
   - Uses `relayer_status` head if available.
   - Falls back to asking the chain head via `eth_blockNumber`.
   - Treats an event as probably live if `head - eventBlockNumber <= maxLagBlocks`.
@@ -313,10 +313,9 @@ Currently, the relayer does **not** enforce an additional “is the indexer caug
 
 - `apps/indexer/src/relayer/jobs/heartbeat/mainnetHeartbeat.ts`:
   - If `dryRun`, do nothing.
-  - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers` (each wrapped in `Effect.exit` so later handlers still run if one fails).
+  - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers` (`apps/indexer/src/relayer/jobs/heartbeat/runHeartbeatHandlers.ts`) (each wrapped in `Effect.exit` so later handlers still run if one fails).
   - Current handlers:
     - `fill_claims_from_untron_balance`:
-      - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/fillClaimsFromUntronBalance.ts`.
       - Uses `apps/indexer/src/relayer/claimFiller/buildMainnetFillCalls.ts` to:
         - Read derived queue state (`untron_v3_claim_queue`) and per-claim rows (`untron_v3_claim`) from the DB.
         - Read onchain `UntronV3.nextIndexByTargetToken(targetToken)` to determine the pending head per queue.
@@ -325,19 +324,18 @@ Currently, the relayer does **not** enforce an additional “is the indexer caug
           - `UntronV3.fill(targetToken, maxClaims, calls)` for each planned queue.
       - Swap support is designed to be pluggable via the `SwapPlanner` service (`apps/indexer/src/relayer/claimFiller/swapPlanner.ts`); if no providers are configured, non-USDT queues are skipped.
     - `sweep_tron_receivers_if_pending_claims`:
-      - Implemented in `apps/indexer/src/relayer/jobs/heartbeat/handlers/sweepTronReceiversIfPendingClaims.ts`.
       - Reads `untron_v3_claim_queue` rows (max observed claim index + 1 per `targetToken`).
       - Compares that `queueLength` to onchain `UntronV3.nextIndexByTargetToken(targetToken)` at latest state.
-      - If any queue has pending claims (`queueLength > nextIndex`), sweeps Tron **USDT** from known receivers into the controller (`apps/indexer/src/relayer/jobs/heartbeat/handlers/usdtSweep.ts`).
+      - If any queue has pending claims (`queueLength > nextIndex`), sweeps Tron **USDT** from known receivers into the controller.
         - Rationale: sweeping USDT is significantly more expensive than sweeping TRX, so it’s only done when there’s evidence it’s needed (pending claims).
 - `apps/indexer/src/relayer/jobs/heartbeat/tronHeartbeat.ts`:
   - If `dryRun`, do nothing.
-  - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers`.
+  - Runs a list of heartbeat handlers sequentially via `runHeartbeatHandlers` (`apps/indexer/src/relayer/jobs/heartbeat/runHeartbeatHandlers.ts`).
   - Current handlers:
     - `sweep_tron_receivers_trx`: sweeps TRX (native token; modeled as `0x000…000`) from known receivers into the controller.
-      - It uses the controller’s USDT position to budget how many receivers to sweep in a single tx (see `apps/indexer/src/relayer/jobs/heartbeat/handlers/trxSweep.ts`).
-    - `rebalance_pulled_usdt`: if configured, calls `UntronController.rebalanceUsdt` for `pulledUsdt - 1` when `pulledUsdt` is above a threshold (`apps/indexer/src/relayer/jobs/heartbeat/handlers/rebalancePulledUsdt.ts`).
-    - `ensure_is_event_chain_tip_called`: calls `UntronController.isEventChainTip(...)` on Tron when the onchain controller tip matches the indexed tip but no recent call is observed (`apps/indexer/src/relayer/jobs/heartbeat/handlers/ensureIsEventChainTipCalled.ts`).
+      - It uses the controller’s USDT position to budget how many receivers to sweep in a single tx.
+    - `rebalance_pulled_usdt`: if configured, calls `UntronController.rebalanceUsdt` for `pulledUsdt - 1` when `pulledUsdt` is above a threshold.
+    - `ensure_is_event_chain_tip_called`: calls `UntronController.isEventChainTip(...)` on Tron when the onchain controller tip matches the indexed tip but no recent call is observed.
     - `publish_tron_light_client`: consumes demand-driven publish requests and calls `TronLightClient.proveBlocks(...)` on mainnet to store txTrieRoots for exact Tron blocks needed by relaying jobs (`apps/indexer/src/relayer/jobs/heartbeat/handlers/publishTronLightClient.ts`).
 - `apps/indexer/src/relayer/jobs/trc20Transfer.ts`:
   - If `dryRun`, do nothing.
@@ -475,9 +473,9 @@ If you start the app with `ponder start`:
      - `untron_v3_bridger_route`
      - `untron_v3_claim_queue`
      - `untron_v3_claim`
-   - For `TronLightClient` events, `apps/indexer/src/index.ts` wires `apps/indexer/src/tronLightClientDerivedIndexer.ts` in as an `afterEvent` hook to maintain:
+   - For `TronLightClient` events, `apps/indexer/src/index.ts` handles a small `afterEvent` hook inline to maintain:
      - `tron_light_client_checkpoint` (observability: which Tron blocks have stored txTrieRoots on mainnet)
-   - For `UntronController:IsEventChainTipCalled`, `apps/indexer/src/index.ts` wires `apps/indexer/src/untronControllerIsEventChainTipCalled.ts` in as an `afterEvent` hook to:
+   - For `UntronController:IsEventChainTipCalled`, `apps/indexer/src/index.ts` handles a small `afterEvent` hook inline to:
      - store the call into `untron_controller_is_event_chain_tip_called`,
      - insert a `tron_light_client_publish_request` for that Tron block, and
      - enqueue a `relay_controller_event_chain` job.
@@ -506,6 +504,6 @@ Effect’s role in all of this is to make each step:
 
 - You’ll still see a few `as any` casts around `context.client.request({ method: "eth_blockNumber" })` in:
   - `apps/indexer/src/eventChainIndexer.ts`
-  - `apps/indexer/src/relayer/sync.ts`
+  - `apps/indexer/src/relayer/register.ts`
   - This works around Ponder/viem typing of raw RPC calls.
 - `apps/indexer/ponder.config.ts` does nontrivial work (computing receiver addresses, possibly reading controller bytecode). That’s intentional: it keeps the `TRC20:Transfer` subscription small by filtering in the indexer layer rather than in the relayer.

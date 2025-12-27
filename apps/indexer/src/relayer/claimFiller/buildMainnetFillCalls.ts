@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import { sql } from "ponder";
+import type { Context as PonderContext } from "ponder:registry";
 import { encodeFunctionData, type Address } from "viem";
 
 import { ERC20Abi } from "../../../abis/ERC20Abi";
@@ -8,9 +10,9 @@ import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
 import type { MainnetUserOperationCall } from "../deps/types";
 import type { RelayJobHandlerContext } from "../jobs/types";
-import { ClaimFillerRepository } from "./repository";
-import { planQueueFill } from "./planner";
+import { getRows } from "../sqlRows";
 import { SwapPlanner, SwapPlanUnavailableError } from "./swapPlanner";
+import type { Claim } from "./types";
 
 const lower = (address: Address) => address.toLowerCase();
 
@@ -217,3 +219,180 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
 
     return calls;
   });
+
+const ClaimFillerRepository = {
+  getNonEmptyClaimQueues: (args: {
+    context: PonderContext;
+    chainId: number;
+    contractAddress: Address;
+  }) =>
+    tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        SELECT
+          target_token AS targetToken,
+          queue_length AS queueLength
+        FROM "untron_v3_claim_queue"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND queue_length > 0;
+      `)
+    ).pipe(
+      Effect.map(
+        (result) => getRows(result) as Array<{ targetToken: Address; queueLength: bigint }>
+      )
+    ),
+
+  getClaimAtIndex: (args: {
+    context: PonderContext;
+    chainId: number;
+    contractAddress: Address;
+    targetToken: Address;
+    claimIndex: bigint;
+  }) =>
+    tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        SELECT
+          claim_index AS claimIndex,
+          lease_id AS leaseId,
+          amount_usdt AS amountUsdt,
+          target_chain_id AS targetChainId,
+          beneficiary AS beneficiary
+        FROM "untron_v3_claim"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken}
+          AND claim_index = ${args.claimIndex}
+        LIMIT 1;
+      `)
+    ).pipe(
+      Effect.map((result) => {
+        const row = (getRows(result)[0] ?? null) as null | {
+          claimIndex: bigint;
+          leaseId: bigint;
+          amountUsdt: bigint;
+          targetChainId: bigint;
+          beneficiary: Address;
+        };
+        return row;
+      })
+    ),
+
+  getClaimsFromIndex: (args: {
+    context: PonderContext;
+    chainId: number;
+    contractAddress: Address;
+    targetToken: Address;
+    startIndex: bigint;
+    limit: bigint;
+  }) =>
+    tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        SELECT
+          claim_index AS claimIndex,
+          lease_id AS leaseId,
+          amount_usdt AS amountUsdt,
+          target_chain_id AS targetChainId,
+          beneficiary AS beneficiary
+        FROM "untron_v3_claim"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken}
+          AND claim_index >= ${args.startIndex}
+        ORDER BY claim_index ASC
+        LIMIT ${args.limit};
+      `)
+    ).pipe(Effect.map((result) => getRows(result) as Claim[])),
+
+  getSwapRatePpm: (args: {
+    context: PonderContext;
+    chainId: number;
+    contractAddress: Address;
+    targetToken: Address;
+  }) =>
+    tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        SELECT
+          rate_ppm AS ratePpm
+        FROM "untron_v3_swap_rate"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken}
+        LIMIT 1;
+      `)
+    ).pipe(
+      Effect.map((result) => {
+        const row = (getRows(result)[0] ?? null) as null | { ratePpm: bigint };
+        return row?.ratePpm ?? null;
+      })
+    ),
+
+  getBridgerRoutesForToken: (args: {
+    context: PonderContext;
+    chainId: number;
+    contractAddress: Address;
+    targetToken: Address;
+  }) =>
+    tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        SELECT
+          target_chain_id AS targetChainId,
+          bridger AS bridger
+        FROM "untron_v3_bridger_route"
+        WHERE chain_id = ${args.chainId}
+          AND contract_address = ${args.contractAddress}
+          AND target_token = ${args.targetToken};
+      `)
+    ).pipe(
+      Effect.map((result) => getRows(result) as Array<{ targetChainId: bigint; bridger: Address }>)
+    ),
+} as const;
+
+const RATE_DENOMINATOR = 1_000_000n;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
+
+const planQueueFill = (args: {
+  chainId: number;
+  usdt: Address;
+  targetToken: Address;
+  ratePpm: bigint | null;
+  maxClaims: bigint;
+  availableUsdt: bigint;
+  claims: readonly Claim[];
+  bridgerRoutes: ReadonlyMap<bigint, Address>;
+}) => {
+  let remainingUsdt = args.availableUsdt;
+  let fillCount = 0n;
+  let totalUsdt = 0n;
+  let expectedOutTotal = 0n;
+
+  const isUsdt = args.targetToken.toLowerCase() === args.usdt.toLowerCase();
+  if (!isUsdt && (!args.ratePpm || args.ratePpm === 0n)) {
+    return { fillCount: 0n, totalUsdt: 0n, expectedOutTotal: 0n } as const;
+  }
+
+  const max = Number(
+    args.maxClaims < BigInt(args.claims.length) ? args.maxClaims : BigInt(args.claims.length)
+  );
+
+  for (let i = 0; i < max; i++) {
+    const claim = args.claims[i]!;
+    const amountUsdt = claim.amountUsdt;
+    if (remainingUsdt < amountUsdt) break;
+
+    const needsBridge = claim.targetChainId !== BigInt(args.chainId);
+    if (needsBridge) {
+      const bridger = args.bridgerRoutes.get(claim.targetChainId);
+      if (!bridger || bridger.toLowerCase() === ZERO_ADDRESS) break;
+    }
+
+    totalUsdt += amountUsdt;
+    remainingUsdt -= amountUsdt;
+    fillCount += 1n;
+
+    if (!isUsdt) {
+      expectedOutTotal += (amountUsdt * (args.ratePpm as bigint)) / RATE_DENOMINATOR;
+    }
+  }
+
+  return { fillCount, totalUsdt, expectedOutTotal } as const;
+};

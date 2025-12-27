@@ -1,17 +1,18 @@
-import { Effect } from "effect";
+import { ConfigError, Effect } from "effect";
 import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
 
 import type { BlockExtention } from "@untron/tron-protocol/api";
 
 import { untronV3Abi } from "@untron/v3-contracts";
 import { tryPromise } from "../../effect/tryPromise";
+import { MAINNET_CHAIN_ID } from "../../env";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
 import { TronGrpc, fetchTronBlockByNum } from "../deps/tronGrpc";
 import { computeTronTxIdFromEncodedTx, computeTronTxMerkleProof } from "../tronProofs";
 
 import { TronRelayer } from "../deps/tron";
-import { getKnownTronReceiver } from "../receivers";
+import type { TronReceiverMapEntry } from "../deps/types";
 import { RetryLaterError } from "../errors";
 import type { RelayJobRow } from "../types";
 import { tronLightClientCheckpoint } from "ponder:schema";
@@ -22,14 +23,6 @@ import {
   expectRecord,
   type RelayJobHandlerContext,
 } from "./types";
-
-const MAINNET_CHAIN_ID = (() => {
-  const raw = process.env.UNTRON_V3_CHAIN_ID;
-  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
-  return parsed;
-})();
 
 function isIgnorablePreEntitleFailure(error: unknown): boolean {
   const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -64,6 +57,23 @@ async function loadTronUsdt(args: {
   tronUsdtCache.set(key, promise);
   return promise;
 }
+
+const getKnownTronReceiver = (
+  receiverAddress: Address
+): Effect.Effect<TronReceiverMapEntry, ConfigError.ConfigError | Error, TronRelayer> =>
+  TronRelayer.getReceiverMap().pipe(
+    Effect.flatMap((receiverMap) => {
+      const receiver = receiverMap.get(receiverAddress.toLowerCase());
+      if (!receiver) {
+        return Effect.fail(
+          new Error(
+            `Unknown receiver address (not in PREKNOWN_RECEIVER_SALTS mapping): ${receiverAddress}`
+          )
+        );
+      }
+      return Effect.succeed(receiver);
+    })
+  );
 
 export const handleTrc20Transfer = ({
   ctx,

@@ -1,6 +1,5 @@
 import { Cause, Effect } from "effect";
 import type { Context as PonderContext } from "ponder:registry";
-
 import { handleMainnetHeartbeat } from "./jobs/heartbeat/mainnetHeartbeat";
 import { handleTronHeartbeat } from "./jobs/heartbeat/tronHeartbeat";
 import { handleRelayControllerEventChain } from "./jobs/relayControllerEventChain";

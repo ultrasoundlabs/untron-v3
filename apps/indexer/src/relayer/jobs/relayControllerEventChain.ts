@@ -10,6 +10,7 @@ import type { Transaction } from "@untron/tron-protocol/tron";
 import { untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 import { computeNextEventChainTip } from "../../eventChain/tip";
 import { tryPromise } from "../../effect/tryPromise";
+import { MAINNET_CHAIN_ID } from "../../env";
 import type { RelayJobRow } from "../types";
 import { getRows } from "../sqlRows";
 import { MainnetRelayer } from "../deps/mainnet";
@@ -26,14 +27,6 @@ import {
   expectRecord,
   type RelayJobHandlerContext,
 } from "./types";
-
-const MAINNET_CHAIN_ID = (() => {
-  const raw = process.env.UNTRON_V3_CHAIN_ID;
-  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
-  return parsed;
-})();
 
 function hasIsEventChainTipCallInMulticall(calls: readonly Hex[], selectorIsEventChainTip: Hex) {
   for (const call of calls) {
