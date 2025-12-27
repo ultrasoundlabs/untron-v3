@@ -1,7 +1,5 @@
 import { ConfigError, Effect } from "effect";
-import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
-
-import type { BlockExtention } from "@untron/tron-protocol/api";
+import { encodeFunctionData, type Address, type Hex } from "viem";
 
 import { untronV3Abi } from "@untron/v3-contracts";
 import { tryPromise } from "../../effect/tryPromise";
@@ -10,6 +8,7 @@ import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
 import { TronGrpc, TronRelayer, fetchTronBlockByNum } from "../deps/tron";
 import { computeTronTxIdFromEncodedTx, computeTronTxMerkleProof } from "../tronProofs";
+import { UntronV3Meta } from "../deps/untronV3Meta";
 
 import type { TronReceiverMapEntry } from "../deps/types";
 import { RetryLaterError } from "../errors";
@@ -32,29 +31,6 @@ function isIgnorablePreEntitleFailure(error: unknown): boolean {
     msg.includes("InvalidReceiverForSalt") ||
     msg.includes("NotTronUsdt")
   );
-}
-
-const tronUsdtCache = new Map<string, Promise<Address>>();
-
-async function loadTronUsdt(args: {
-  mainnetClient: PublicClient;
-  untronV3Address: Address;
-}): Promise<Address> {
-  const key = args.untronV3Address.toLowerCase();
-  const existing = tronUsdtCache.get(key);
-  if (existing) return existing;
-
-  const promise = (async () => {
-    const tronUsdt = (await args.mainnetClient.readContract({
-      address: args.untronV3Address,
-      abi: untronV3Abi,
-      functionName: "tronUsdt",
-    })) as Address;
-    return tronUsdt.toLowerCase() as Address;
-  })();
-
-  tronUsdtCache.set(key, promise);
-  return promise;
 }
 
 const getKnownTronReceiver = (
@@ -138,7 +114,7 @@ export const handleTrc20Transfer = ({
       ctx.ponderContext.contracts.UntronV3.address as Address
     ).toLowerCase() as Address;
 
-    const tronUsdt = yield* tryPromise(() => loadTronUsdt({ mainnetClient, untronV3Address }));
+    const tronUsdt = yield* UntronV3Meta.getTronUsdt({ untronV3Address });
     if (tokenAddress.toLowerCase() !== tronUsdt) {
       yield* sweepReceiver();
       return;

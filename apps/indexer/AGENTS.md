@@ -78,7 +78,7 @@ In this repo you’ll mostly see:
 
 - A Tag declares a service interface.
 - Effect turns the service’s fields into static accessors on the tag class (so you can call `TronRelayer.getReceiverMap()` without manually threading context).
-- Example used all over: `apps/indexer/src/relayer/deps/tron/service.ts` defines `TronRelayer` as a Tag with methods like `getReceiverMap`, `sendTronControllerPullFromReceivers`, etc.
+- Example used all over: `apps/indexer/src/relayer/deps/tron/relayer.ts` defines `TronRelayer` as a Tag with methods like `getReceiverMap`, `sendTronControllerPullFromReceivers`, etc.
 
 ## `Layer`
 
@@ -145,7 +145,7 @@ Each group is:
 
 Key design choice: most relayer config is optional until you actually run relayer code.
 
-- Example: `TRON_GRPC_HOST` is optional in the config shape, but `TronGrpc` will `requireSome` it when you call `TronGrpc.get()` (`apps/indexer/src/relayer/deps/tron/grpc.ts`).
+- Example: `TRON_GRPC_HOST` is optional in the config shape, but `TronGrpc` will `requireSome` it when you call `TronGrpc.get()` (`apps/indexer/src/relayer/deps/tron/grpcClient.ts`).
 - This lets you run “indexer-only” without filling every relayer env var, as long as you don’t execute relayer paths.
 
 Secrets are wrapped in `Redacted` so you don’t accidentally log them.
@@ -369,10 +369,15 @@ These files are the ports that the relayer uses. They’re structured as `Effect
 
 ## TronGrpc: gRPC client factory
 
-- `apps/indexer/src/relayer/deps/tron/grpc.ts`
+- `apps/indexer/src/relayer/deps/tron/grpcClient.ts`
 - Wraps `@untron/tron-protocol`’s `createTronClients`.
 - Reads `TRON_GRPC_HOST` (required when used), optional API key, and insecure flag from `AppConfig.tronNetwork()`.
 - Returns cached clients via `TronGrpc.get()`.
+
+This module also contains low-level gRPC utilities:
+
+- `makeGrpcUnary` (Promise wrapper around unary calls with `callOpts.metadata`)
+- helpers to detect NotFound/Unimplemented errors by gRPC `code`
 
 ## `protocol.ts`: pure helpers
 
@@ -394,12 +399,12 @@ Imported by both:
 
 ## TronRelayer: Tron read/write port
 
-- `apps/indexer/src/relayer/deps/tron/service.ts`
+- `apps/indexer/src/relayer/deps/tron/relayer.ts`
 - Encapsulates Tron quirks:
-  - Constant calls (readContract-like),
-  - Building unsigned transactions via gRPC,
-  - Signing + broadcasting,
-  - Predicting emitted events to compute an expected event-chain tip.
+  - Constant calls (readContract-like) via `apps/indexer/src/relayer/deps/tron/contractCalls.ts`,
+  - Building unsigned transactions + sending controller ops via `apps/indexer/src/relayer/deps/tron/untronController.ts`,
+  - Signing + broadcasting via `apps/indexer/src/relayer/deps/tron/transactions.ts`,
+  - Deterministic address/key utilities via `apps/indexer/src/relayer/deps/tron/protocol.ts`.
 
 Key internal pieces:
 
@@ -413,20 +418,20 @@ Key internal pieces:
 
 ### 2) `tronReadContract`
 
-- Uses gRPC `triggerConstantContract` (`apps/indexer/src/relayer/deps/tron/service.ts`)
+- Uses gRPC `triggerConstantContract` (`apps/indexer/src/relayer/deps/tron/contractCalls.ts`)
 - Encodes calldata with viem `encodeFunctionData` and decodes with `decodeFunctionResult`.
 
 ### 3) Receiver map
 
-- `getReceiverMap` is cached (`apps/indexer/src/relayer/deps/tron/service.ts`)
+- `getReceiverMap` is cached (`apps/indexer/src/relayer/deps/tron/relayer.ts`)
 - For each `PREKNOWN_RECEIVER_SALTS`, calls controller’s `predictReceiverAddress` and builds a lowercase lookup map.
 
 ### 4) Building and sending transactions
 
-- `buildControllerMulticallTx` (`apps/indexer/src/relayer/deps/tron/service.ts`)
+- `buildControllerMulticallTx` (`apps/indexer/src/relayer/deps/tron/untronController.ts`)
   - Uses gRPC `triggerContract` to get an unsigned tx calling `UntronController.multicall(calls)`.
   - Enforces `RELAYER_TRON_CALL_VALUE === 0` because Solady multicall forbids `msg.value`.
-- `broadcastTronTx` (`apps/indexer/src/relayer/deps/tron/tx.ts`)
+- `broadcastTronTx` (`apps/indexer/src/relayer/deps/tron/transactions.ts`)
   - Sets `feeLimit`,
   - Signs with `signTronTransaction`,
   - Broadcasts,
@@ -442,17 +447,17 @@ Key internal pieces:
 
 To do that, `TronRelayer`:
 
-- Reads `preTip = controller.eventChainTip` (`apps/indexer/src/relayer/deps/tron/service.ts`)
+- Reads `preTip = controller.eventChainTip` (`apps/indexer/src/relayer/deps/tron/untronController.ts`)
 - Runs the multicall event planner (`apps/indexer/src/relayer/tron/controllerMulticallPlanner.ts`) to simulate which events will be emitted by the calls, by reading current chain state (balances, deployment status, exchange rates, etc)
 - Computes `expectedTip = fold(computeNextEventChainTip, preTip, plannedEvents)` using the tx’s block/time fields
-- Appends a final checkpoint call `isEventChainTip(expectedTip)` into the multicall (`apps/indexer/src/relayer/deps/tron/service.ts`)
+- Appends a final checkpoint call `isEventChainTip(expectedTip)` into the multicall (`apps/indexer/src/relayer/deps/tron/untronController.ts`)
 
-That last call acts as an onchain assertion: if anything about the tip prediction is wrong (or the tip changed), the tx fails, and the relayer retries a few times (`apps/indexer/src/relayer/deps/tron/service.ts`).
+That last call acts as an onchain assertion: if anything about the tip prediction is wrong (or the tip changed), the tx fails, and the relayer retries a few times (`apps/indexer/src/relayer/deps/tron/untronController.ts`).
 
 Public methods are small wrappers:
 
-- `sendTronControllerPullFromReceivers` (`apps/indexer/src/relayer/deps/tron/service.ts`)
-- `sendTronControllerRebalanceUsdt` (`apps/indexer/src/relayer/deps/tron/service.ts`)
+- `sendTronControllerPullFromReceivers` (`apps/indexer/src/relayer/deps/tron/untronController.ts`)
+- `sendTronControllerRebalanceUsdt` (`apps/indexer/src/relayer/deps/tron/untronController.ts`)
 
 ## MainnetRelayer: account abstraction (EIP-4337)
 

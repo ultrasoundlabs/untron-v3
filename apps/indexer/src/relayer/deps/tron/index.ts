@@ -1,2 +1,2 @@
-export { TronGrpc, fetchTronBlockByNum } from "./grpc";
-export { TronRelayer } from "./service";
+export { TronGrpc, fetchTronBlockByNum } from "./grpcClient";
+export { TronRelayer } from "./relayer";

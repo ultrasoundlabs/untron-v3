@@ -9,7 +9,7 @@ import {
   type Transaction,
 } from "@untron/tron-protocol/tron";
 
-import type { UnaryCall } from "./grpcHelpers";
+import type { UnaryCall } from "./grpcClient";
 import { signTronTransaction } from "./protocol";
 
 export const getTxRefBlockNumber = (tx: Transaction): bigint => {

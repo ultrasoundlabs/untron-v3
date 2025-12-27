@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { TronBlockForLightClient } from "../tronProofs";
 
 import { tryPromise } from "../../effect/tryPromise";
-import { fetchTronBlockByNum } from "../deps/tron/grpc";
+import { fetchTronBlockByNum } from "../deps/tron";
 import { parseTronBlockForLightClient } from "../tronProofs";
 
 export const fetchTronBlocksForLightClient = (args: {
