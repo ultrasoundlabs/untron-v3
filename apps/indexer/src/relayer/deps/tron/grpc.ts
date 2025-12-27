@@ -3,8 +3,8 @@ import { ConfigError, Effect, Layer, Option } from "effect";
 import { createTronClients } from "@untron/tron-protocol";
 import { NumberMessage, type BlockExtention } from "@untron/tron-protocol/api";
 
-import { AppConfig } from "../../effect/config";
-import type { TronGrpcClients } from "./types";
+import { AppConfig } from "../../../effect/config";
+import type { TronGrpcClients } from "../types";
 
 const requireSome = <A>(value: Option.Option<A>, message: string): Effect.Effect<A, Error> =>
   Option.match(value, {

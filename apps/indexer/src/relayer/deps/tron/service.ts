@@ -1,77 +1,38 @@
 import { ConfigError, Effect, Layer, Option, Redacted } from "effect";
-import {
-  decodeAbiParameters,
-  decodeFunctionData,
-  decodeFunctionResult,
-  encodeAbiParameters,
-  encodeFunctionData,
-  isAddress,
-  keccak256,
-  stringToHex,
-  type Address,
-  type Hex,
-} from "viem";
+import { decodeFunctionResult, encodeFunctionData, isAddress, type Address, type Hex } from "viem";
 
-import type { BytesMessage, Return, TransactionExtention } from "@untron/tron-protocol/api";
+import type { BytesMessage, TransactionExtention } from "@untron/tron-protocol/api";
 import { AccountBalanceRequest } from "@untron/tron-protocol/core/contract/balance_contract";
 import type { AccountBalanceResponse } from "@untron/tron-protocol/core/contract/balance_contract";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
 import type { SmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
-import {
-  TransactionInfo_code,
-  Transaction_raw,
-  type TransactionInfo,
-  type Transaction,
-} from "@untron/tron-protocol/tron";
+import { type TransactionInfo, type Transaction } from "@untron/tron-protocol/tron";
 
-import { ERC20Abi } from "../../../abis/ERC20Abi";
+import { ERC20Abi } from "../../../../abis/ERC20Abi";
 import { untronControllerAbi } from "@untron/v3-contracts";
-import { AppConfig } from "../../effect/config";
-import { computeNextEventChainTip } from "../../eventChain/tip";
+import { AppConfig } from "../../../effect/config";
+import { computeNextEventChainTip } from "../../../eventChain/tip";
+import { planIndexedEventsForControllerCalls } from "../../tron/controllerMulticallPlanner";
 
-import type { SendTronTransactionResult, TronReceiverMapEntry } from "./types";
-import { TronGrpc } from "./tronGrpc";
+import type { SendTronTransactionResult, TronReceiverMapEntry } from "../types";
+import { TronGrpc } from "./grpc";
 import {
-  signTronTransaction,
+  isGrpcNotFoundError,
+  isGrpcUnimplementedError,
+  makeGrpcUnary,
+  type UnaryCall,
+} from "./grpcHelpers";
+import {
+  broadcastTronTx,
+  getTxRefBlockNumber,
+  getTxTimestamp,
+  setTxTriggerSmartContractData,
+} from "./tx";
+import {
   tronEvmAddressToBytes21,
   tronPrivateKeyToAddressBase58,
   tronPrivateKeyToAddressBytes21,
-} from "./tronProtocol";
-
-const LEGACY_MESH_OFT_ABI = [
-  {
-    type: "function",
-    name: "feeBps",
-    inputs: [],
-    outputs: [{ name: "", type: "uint16", internalType: "uint16" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "BPS_DENOMINATOR",
-    inputs: [],
-    outputs: [{ name: "", type: "uint16", internalType: "uint16" }],
-    stateMutability: "view",
-  },
-] as const;
-
-const RATE_SCALE = 1_000_000_000_000_000_000n; // 1e18
-
-const EVENT_SIG_RECEIVER_DEPLOYED = keccak256(
-  stringToHex("ReceiverDeployed(address,bytes32)")
-) as Hex;
-const EVENT_SIG_PULLED_FROM_RECEIVER = keccak256(
-  stringToHex("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)")
-) as Hex;
-const EVENT_SIG_USDT_REBALANCED = keccak256(
-  stringToHex("UsdtRebalanced(uint256,uint256,address)")
-) as Hex;
-
-type UnaryCall<Req, Res> = (
-  request: Req,
-  metadata: unknown,
-  callback: (error: unknown, response?: Res) => void
-) => unknown;
+} from "./protocol";
 
 const requireSome = <A>(opt: Option.Option<A>, message: string): Effect.Effect<A, Error> =>
   Option.match(opt, {
@@ -163,26 +124,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
         privateKey().pipe(Effect.map(tronPrivateKeyToAddressBytes21))
       );
 
-      const grpcUnary = <Req, Res>(call: UnaryCall<Req, Res>, req: Req) =>
-        tronGrpc.get().pipe(
-          Effect.flatMap(({ callOpts }) =>
-            Effect.tryPromise({
-              try: () =>
-                new Promise<Res>((resolve, reject) => {
-                  try {
-                    call(req, callOpts.metadata, (err, res) => {
-                      if (err) return reject(err);
-                      if (res === undefined) return reject(new Error("Empty gRPC response"));
-                      resolve(res);
-                    });
-                  } catch (err) {
-                    reject(err);
-                  }
-                }),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-            })
-          )
-        );
+      const grpcUnary = makeGrpcUnary(() => tronGrpc.get());
 
       const tronReadContract = <T>({
         addressBytes21,
@@ -266,18 +208,6 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
         })
       );
 
-      const isGrpcNotFoundError = (error: unknown): boolean => {
-        if (!error || typeof error !== "object") return false;
-        const maybeCode = (error as { readonly code?: unknown }).code;
-        return maybeCode === 5;
-      };
-
-      const isGrpcUnimplementedError = (error: unknown): boolean => {
-        if (!error || typeof error !== "object") return false;
-        const maybeCode = (error as { readonly code?: unknown }).code;
-        return maybeCode === 12;
-      };
-
       const isTronContractDeployed = (
         addressBytes21: Buffer
       ): Effect.Effect<boolean, ConfigError.ConfigError | Error> =>
@@ -295,32 +225,6 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)));
           }
         });
-
-      const getTxRefBlockNumber = (tx: Transaction): bigint => {
-        const rawData = tx.rawData;
-        if (!rawData) throw new Error("Tron tx missing rawData");
-        return BigInt(rawData.refBlockNum.toString());
-      };
-
-      const getTxTimestamp = (tx: Transaction): bigint => {
-        const rawData = tx.rawData;
-        if (!rawData) throw new Error("Tron tx missing rawData");
-        return BigInt(rawData.timestamp.toString());
-      };
-
-      const setTxTriggerSmartContractData = (tx: Transaction, data: Hex) => {
-        const rawData = tx.rawData;
-        if (!rawData) throw new Error("Tron tx missing rawData");
-
-        const contract = rawData.contract?.[0];
-        if (!contract?.parameter?.value?.length) {
-          throw new Error("Tron tx missing contract parameter value");
-        }
-
-        const trigger = TriggerSmartContract.decode(contract.parameter.value);
-        trigger.data = Buffer.from(data.slice(2), "hex");
-        contract.parameter.value = Buffer.from(TriggerSmartContract.encode(trigger).finish());
-      };
 
       const getTransactionInfoById = (txidHex: string) =>
         Effect.gen(function* () {
@@ -348,36 +252,6 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           );
           if (fromWallet && fromWallet.id?.length) return fromWallet;
           return null;
-        });
-
-      const waitForTronTransaction = ({
-        txid,
-        pollTimes,
-        pollIntervalMs,
-      }: {
-        txid: string;
-        pollTimes: number;
-        pollIntervalMs: number;
-      }) =>
-        Effect.gen(function* () {
-          for (let i = 0; i < pollTimes; i++) {
-            const info = yield* getTransactionInfoById(txid);
-            if (!info) {
-              yield* Effect.sleep(pollIntervalMs);
-              continue;
-            }
-
-            if (info.result === TransactionInfo_code.FAILED) {
-              const message = info.resMessage?.length
-                ? info.resMessage.toString("utf8")
-                : "Tron transaction execution failed";
-              return yield* Effect.fail(new Error(message));
-            }
-
-            return;
-          }
-
-          return yield* Effect.fail(new Error(`Timed out waiting for Tron tx receipt: ${txid}`));
         });
 
       const buildControllerMulticallTx = (calls: readonly Hex[]) =>
@@ -439,296 +313,6 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           return tx;
         });
 
-      const broadcastTronTx = (tx: Transaction) =>
-        Effect.gen(function* () {
-          const config = yield* tronConfigCached;
-          const { wallet } = yield* tronGrpc.get();
-
-          const privateKeyRaw = yield* privateKey();
-
-          if (!tx.rawData) return yield* Effect.fail(new Error("Tron tx missing rawData"));
-          tx.rawData = Transaction_raw.fromPartial({ ...tx.rawData, feeLimit: config.feeLimit });
-
-          const { txidHex, signed } = signTronTransaction(tx, privateKeyRaw);
-
-          const broadcast = yield* grpcUnary(
-            wallet.broadcastTransaction.bind(wallet) as unknown as UnaryCall<Transaction, Return>,
-            signed
-          );
-
-          if (!broadcast.result) {
-            const msg = broadcast.message?.length ? broadcast.message.toString("utf8") : "unknown";
-            return yield* Effect.fail(new Error(`Tron broadcast rejected: ${msg}`));
-          }
-
-          yield* waitForTronTransaction({
-            txid: txidHex,
-            pollTimes: config.pollTimes,
-            pollIntervalMs: config.pollIntervalMs,
-          });
-
-          yield* Effect.logInfo("[tron] tx confirmed").pipe(Effect.annotateLogs({ txid: txidHex }));
-          return txidHex;
-        }).pipe(Effect.withLogSpan("tron.tx"));
-
-      type PlannedIndexedEvent = {
-        eventSignature: Hex;
-        encodedEventData: Hex;
-      };
-
-      const planIndexedEventsForCalls = (calls: readonly Hex[]) =>
-        Effect.gen(function* () {
-          const controllerBytes21 = yield* controllerAddressBytes21();
-          const usdtAddress = yield* tronReadContract<Address>({
-            addressBytes21: controllerBytes21,
-            abi: untronControllerAbi,
-            functionName: "usdt",
-          });
-
-          const receiverAddressCache = new Map<string, Address>();
-          const receiverDeployedCache = new Map<string, boolean>();
-          const tokenRateCache = new Map<string, bigint>();
-          const balanceCache = new Map<string, bigint>();
-
-          const predictReceiverAddresses = (salts: readonly Hex[]) =>
-            Effect.gen(function* () {
-              const pendingSalts = salts.filter(
-                (salt) => !receiverAddressCache.has(salt.toLowerCase())
-              );
-
-              if (pendingSalts.length) {
-                const multicallCalls = pendingSalts.map((salt) =>
-                  encodeFunctionData({
-                    abi: untronControllerAbi,
-                    functionName: "predictReceiverAddress",
-                    args: [salt],
-                  })
-                );
-
-                const results = yield* tronReadContract<readonly Hex[]>({
-                  addressBytes21: controllerBytes21,
-                  abi: untronControllerAbi,
-                  functionName: "multicall",
-                  args: [multicallCalls],
-                });
-
-                if (results.length !== pendingSalts.length) {
-                  return yield* Effect.fail(
-                    new Error(
-                      `Tron controller multicall returned unexpected results length (expected ${pendingSalts.length}, got ${results.length})`
-                    )
-                  );
-                }
-
-                for (let i = 0; i < pendingSalts.length; i++) {
-                  const salt = pendingSalts[i]!;
-                  const data = results[i]!;
-                  const decoded = decodeFunctionResult({
-                    abi: untronControllerAbi,
-                    functionName: "predictReceiverAddress",
-                    data,
-                  }) as Address;
-                  receiverAddressCache.set(salt.toLowerCase(), decoded);
-                }
-              }
-
-              return salts.map((salt) => {
-                const address = receiverAddressCache.get(salt.toLowerCase());
-                if (!address)
-                  throw new Error(`Missing predicted receiver address for salt ${salt}`);
-                return address;
-              });
-            });
-
-          const getLpExchangeRateFor = (token: Address) =>
-            Effect.gen(function* () {
-              const key = token.toLowerCase();
-              const cached = tokenRateCache.get(key);
-              if (cached !== undefined) return cached;
-
-              const rate = yield* tronReadContract<bigint>({
-                addressBytes21: controllerBytes21,
-                abi: untronControllerAbi,
-                functionName: "lpExchangeRateFor",
-                args: [token],
-              });
-
-              tokenRateCache.set(key, rate);
-              return rate;
-            });
-
-          const getTokenBalanceOf = (token: Address, account: Address) =>
-            Effect.gen(function* () {
-              const key = `${token.toLowerCase()}:${account.toLowerCase()}`;
-              const cached = balanceCache.get(key);
-              if (cached !== undefined) return cached;
-
-              const balance = yield* tronReadContract<bigint>({
-                addressBytes21: tronEvmAddressToBytes21(token),
-                abi: ERC20Abi,
-                functionName: "balanceOf",
-                args: [account],
-              });
-
-              balanceCache.set(key, balance);
-              return balance;
-            });
-
-          const getReceiverDeployed = (receiver: Address) =>
-            Effect.gen(function* () {
-              const key = receiver.toLowerCase();
-              const cached = receiverDeployedCache.get(key);
-              if (cached !== undefined) return cached;
-
-              const deployed = yield* isTronContractDeployed(tronEvmAddressToBytes21(receiver));
-              receiverDeployedCache.set(key, deployed);
-              return deployed;
-            });
-
-          const computeLegacyMeshOutAmount = ({
-            rebalancer,
-            inAmount,
-          }: {
-            rebalancer: Address;
-            inAmount: bigint;
-          }) =>
-            Effect.gen(function* () {
-              const payload = yield* tronReadContract<Hex>({
-                addressBytes21: controllerBytes21,
-                abi: untronControllerAbi,
-                functionName: "payloadFor",
-                args: [rebalancer],
-              });
-              if (!payload || payload === "0x") {
-                return yield* Effect.fail(
-                  new Error("Tron rebalance route not set (payloadFor empty)")
-                );
-              }
-
-              const decoded = decodeAbiParameters(
-                [{ type: "address" }, { type: "uint32" }, { type: "bytes32" }],
-                payload
-              );
-              const oft = decoded[0];
-              if (typeof oft !== "string" || !isAddress(oft)) {
-                return yield* Effect.fail(
-                  new Error(
-                    "Unsupported rebalance payload (expected (address oft, uint32, bytes32))"
-                  )
-                );
-              }
-
-              const feeBps = yield* tronReadContract<bigint>({
-                addressBytes21: tronEvmAddressToBytes21(oft),
-                abi: LEGACY_MESH_OFT_ABI,
-                functionName: "feeBps",
-              });
-              const denom = yield* tronReadContract<bigint>({
-                addressBytes21: tronEvmAddressToBytes21(oft),
-                abi: LEGACY_MESH_OFT_ABI,
-                functionName: "BPS_DENOMINATOR",
-              });
-
-              if (denom === 0n)
-                return yield* Effect.fail(new Error("Legacy Mesh OFT BPS_DENOMINATOR returned 0"));
-              const fee = (inAmount * feeBps) / denom;
-              return inAmount - fee;
-            });
-
-          const plannedEvents: PlannedIndexedEvent[] = [];
-
-          for (const callData of calls) {
-            const decoded = decodeFunctionData({ abi: untronControllerAbi, data: callData });
-
-            if (decoded.functionName === "pullFromReceivers") {
-              const token = decoded.args?.[0] as Address | undefined;
-              const salts = decoded.args?.[1] as readonly Hex[] | undefined;
-              if (!token || !isAddress(token))
-                return yield* Effect.fail(new Error("pullFromReceivers: invalid token arg"));
-              if (!salts || salts.length === 0)
-                return yield* Effect.fail(new Error("pullFromReceivers: missing receiverSalts"));
-
-              const isUsdt = token.toLowerCase() === usdtAddress.toLowerCase();
-              const rateUsed = isUsdt ? RATE_SCALE : yield* getLpExchangeRateFor(token);
-              if (!isUsdt && rateUsed === 0n) {
-                return yield* Effect.fail(
-                  new Error("pullFromReceivers: LP exchange rate not set (lpExchangeRateFor == 0)")
-                );
-              }
-
-              const receiverAddresses = yield* predictReceiverAddresses(salts);
-
-              for (let i = 0; i < salts.length; i++) {
-                const receiverSalt = salts[i]!;
-                const receiverAddress = receiverAddresses[i]!;
-
-                const balance = yield* getTokenBalanceOf(token, receiverAddress);
-                const sweepAmount = balance > 0n ? balance - 1n : 0n;
-                if (sweepAmount === 0n) continue;
-
-                const deployed = yield* getReceiverDeployed(receiverAddress);
-                if (!deployed) {
-                  plannedEvents.push({
-                    eventSignature: EVENT_SIG_RECEIVER_DEPLOYED,
-                    encodedEventData: encodeAbiParameters(
-                      [{ type: "address" }, { type: "bytes32" }],
-                      [receiverAddress, receiverSalt]
-                    ),
-                  });
-                  receiverDeployedCache.set(receiverAddress.toLowerCase(), true);
-                }
-
-                const usdtAmount = isUsdt ? sweepAmount : (sweepAmount * rateUsed) / RATE_SCALE;
-                plannedEvents.push({
-                  eventSignature: EVENT_SIG_PULLED_FROM_RECEIVER,
-                  encodedEventData: encodeAbiParameters(
-                    [
-                      { type: "bytes32" },
-                      { type: "address" },
-                      { type: "uint256" },
-                      { type: "uint256" },
-                      { type: "uint256" },
-                    ],
-                    [receiverSalt, token, sweepAmount, rateUsed, usdtAmount]
-                  ),
-                });
-
-                balanceCache.set(`${token.toLowerCase()}:${receiverAddress.toLowerCase()}`, 1n);
-              }
-
-              continue;
-            }
-
-            if (decoded.functionName === "rebalanceUsdt") {
-              const rebalancer = decoded.args?.[0] as Address | undefined;
-              const inAmount = decoded.args?.[1] as bigint | undefined;
-              if (!rebalancer || !isAddress(rebalancer))
-                return yield* Effect.fail(new Error("rebalanceUsdt: invalid rebalancer"));
-              if (typeof inAmount !== "bigint")
-                return yield* Effect.fail(new Error("rebalanceUsdt: invalid inAmount"));
-
-              const outAmount = yield* computeLegacyMeshOutAmount({ rebalancer, inAmount });
-
-              plannedEvents.push({
-                eventSignature: EVENT_SIG_USDT_REBALANCED,
-                encodedEventData: encodeAbiParameters(
-                  [{ type: "uint256" }, { type: "uint256" }, { type: "address" }],
-                  [inAmount, outAmount, rebalancer]
-                ),
-              });
-              continue;
-            }
-
-            if (decoded.functionName === "isEventChainTip") continue;
-
-            return yield* Effect.fail(
-              new Error(`sendTronControllerMulticall: unsupported call "${decoded.functionName}"`)
-            );
-          }
-
-          return plannedEvents;
-        });
-
       const sendTronControllerMulticall = ({ calls }: { calls: readonly Hex[] }) =>
         Effect.gen(function* () {
           if (calls.length === 0) {
@@ -750,7 +334,12 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
               functionName: "eventChainTip",
             });
 
-            const plannedEvents = yield* planIndexedEventsForCalls(calls);
+            const plannedEvents = yield* planIndexedEventsForControllerCalls({
+              controllerBytes21,
+              calls,
+              tronReadContract,
+              isTronContractDeployed,
+            });
 
             const tx = yield* buildControllerMulticallTx(calls);
             const blockNumber = getTxRefBlockNumber(tx);
@@ -779,10 +368,27 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
               args: [[...calls, checkpointCall]],
             });
 
-            setTxTriggerSmartContractData(tx, finalData);
+            setTxTriggerSmartContractData({ tx, data: finalData });
 
             try {
-              return yield* broadcastTronTx(tx);
+              const config = yield* tronConfigCached;
+              const { wallet } = yield* tronGrpc.get();
+              const privateKeyRaw = yield* privateKey();
+
+              const txidHex = yield* broadcastTronTx({
+                tx,
+                feeLimit: config.feeLimit,
+                privateKeyRaw,
+                pollTimes: config.pollTimes,
+                pollIntervalMs: config.pollIntervalMs,
+                grpcUnary,
+                wallet,
+                getTransactionInfoById,
+              });
+              yield* Effect.logInfo("[tron] tx confirmed").pipe(
+                Effect.annotateLogs({ txid: txidHex })
+              );
+              return txidHex;
             } catch (error) {
               const err = error instanceof Error ? error : new Error(String(error));
               const errorMessage = `${err.name}: ${err.message}`.toLowerCase();
@@ -965,7 +571,19 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             }
 
             try {
-              const txid = yield* broadcastTronTx(tx);
+              const config = yield* tronConfigCached;
+              const privateKeyRaw = yield* privateKey();
+              const txid = yield* broadcastTronTx({
+                tx,
+                feeLimit: config.feeLimit,
+                privateKeyRaw,
+                pollTimes: config.pollTimes,
+                pollIntervalMs: config.pollIntervalMs,
+                grpcUnary,
+                wallet,
+                getTransactionInfoById,
+              });
+              yield* Effect.logInfo("[tron] tx confirmed").pipe(Effect.annotateLogs({ txid }));
               return { txid };
             } catch (error) {
               const err = error instanceof Error ? error : new Error(String(error));

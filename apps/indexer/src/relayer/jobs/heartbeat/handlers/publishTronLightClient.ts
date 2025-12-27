@@ -9,7 +9,7 @@ import { tronLightClientAbi } from "@untron/v3-contracts";
 import { tryPromise } from "../../../../effect/tryPromise";
 import { MAINNET_CHAIN_ID } from "../../../../env";
 import { MainnetRelayer } from "../../../deps/mainnet";
-import { TronGrpc, fetchTronBlockByNum } from "../../../deps/tronGrpc";
+import { TronGrpc, fetchTronBlockByNum } from "../../../deps/tron";
 import { getRows } from "../../../sqlRows";
 import {
   encodeStoreOffsets16,

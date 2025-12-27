@@ -15,7 +15,7 @@ import type { RelayJobRow } from "../types";
 import { getRows } from "../sqlRows";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
-import { TronGrpc, fetchTronBlockByNum } from "../deps/tronGrpc";
+import { TronGrpc, fetchTronBlockByNum } from "../deps/tron";
 import { computeTronTxMerkleProof } from "../tronProofs";
 import { RetryLaterError } from "../errors";
 import { tronLightClientCheckpoint } from "ponder:schema";

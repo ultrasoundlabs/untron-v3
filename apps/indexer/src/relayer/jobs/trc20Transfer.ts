@@ -8,10 +8,9 @@ import { tryPromise } from "../../effect/tryPromise";
 import { MAINNET_CHAIN_ID } from "../../env";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
-import { TronGrpc, fetchTronBlockByNum } from "../deps/tronGrpc";
+import { TronGrpc, TronRelayer, fetchTronBlockByNum } from "../deps/tron";
 import { computeTronTxIdFromEncodedTx, computeTronTxMerkleProof } from "../tronProofs";
 
-import { TronRelayer } from "../deps/tron";
 import type { TronReceiverMapEntry } from "../deps/types";
 import { RetryLaterError } from "../errors";
 import type { RelayJobRow } from "../types";

@@ -3,8 +3,7 @@ import { Config, ConfigProvider, Effect, Layer, LogLevel, Logger, ManagedRuntime
 import { AppConfig } from "./config";
 import { MainnetRelayer } from "../relayer/deps/mainnet";
 import { PublicClients } from "../relayer/deps/publicClients";
-import { TronRelayer } from "../relayer/deps/tron";
-import { TronGrpc } from "../relayer/deps/tronGrpc";
+import { TronGrpc, TronRelayer } from "../relayer/deps/tron";
 import { SwapPlanner } from "../relayer/claimFiller/swapPlanner";
 
 const MinimumLogLevel = Layer.unwrapEffect(

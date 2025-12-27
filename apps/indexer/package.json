@@ -8,20 +8,24 @@
     "start": "ponder start",
     "db": "ponder db",
     "codegen": "ponder codegen",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@effect/vitest": "^0.27.0",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
-    "@untron/v3-contracts": "workspace:*",
     "@untron/tron-protocol": "workspace:*",
+    "@untron/v3-contracts": "workspace:*",
     "effect": "^3.19.12",
     "hono": "^4.5.0",
     "permissionless": "^0.3.2",
     "ponder": "^0.15.17",
-    "viem": "^2.21.3"
+    "viem": "^2.21.3",
+    "vitest": "^4.0.16"
   },
   "devDependencies": {
     "@types/node": "^20.9.0",

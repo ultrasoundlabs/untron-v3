@@ -5,7 +5,7 @@ import {
   tronBase58ToBytes21,
   tronBase58ToEvmAddress,
   normalizeTronPrivateKey,
-} from "../relayer/deps/tronProtocol";
+} from "../relayer/deps/tron/protocol";
 
 export type RelayerRuntimeConfig = Readonly<{
   enabled: boolean;
