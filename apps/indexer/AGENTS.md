@@ -338,7 +338,7 @@ Currently, the relayer does **not** enforce an additional “is the indexer caug
       - It uses the controller’s USDT position to budget how many receivers to sweep in a single tx.
     - `rebalance_pulled_usdt`: if configured, calls `UntronController.rebalanceUsdt` for `pulledUsdt - 1` when `pulledUsdt` is above a threshold.
     - `ensure_is_event_chain_tip_called`: calls `UntronController.isEventChainTip(...)` on Tron when the onchain controller tip matches the indexed tip but no recent call is observed.
-    - `publish_tron_light_client`: consumes demand-driven publish requests and calls `TronLightClient.proveBlocks(...)` on mainnet to store txTrieRoots for exact Tron blocks needed by relaying jobs (`apps/indexer/src/relayer/jobs/heartbeat/handlers/publishTronLightClient.ts`).
+    - `publish_tron_light_client`: consumes demand-driven publish requests and calls `TronLightClient.proveBlocks(...)` on mainnet to store txTrieRoots for exact Tron blocks needed by relaying jobs (`apps/indexer/src/relayer/tronLightClientPublisher/publish.ts`).
 - `apps/indexer/src/relayer/jobs/trc20Transfer.ts`:
   - If `dryRun`, do nothing.
   - Parse and validate payload fields from `job.payloadJson` (no guessing types).

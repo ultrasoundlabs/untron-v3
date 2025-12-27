@@ -15,7 +15,7 @@ import { TronRelayer } from "../../deps/tron";
 import { getRows } from "../../sqlRows";
 import type { RelayJobRow } from "../../types";
 import type { RelayJobHandlerContext } from "../types";
-import { publishTronLightClient } from "./handlers/publishTronLightClient";
+import { publishTronLightClient } from "../../tronLightClient";
 import type { HeartbeatHandler } from "./types";
 import { runHeartbeatHandlers } from "./runHeartbeatHandlers";
 

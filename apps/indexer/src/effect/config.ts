@@ -50,6 +50,12 @@ export type MainnetRelayerConfig = Readonly<{
   paymastersJson: Option.Option<string>;
 }>;
 
+export type TronLightClientPublisherConfig = Readonly<{
+  publishLagBlocks: bigint;
+  requestCooldownBlocks: bigint;
+  blockFetchConcurrency: number;
+}>;
+
 const bigintFromString = (value: string, label: string) => {
   try {
     return BigInt(value);
@@ -98,6 +104,23 @@ const requiredBooleanWithDefault = (name: string, fallback: boolean) =>
 const requiredNumberWithDefault = (name: string, fallback: number) =>
   Config.number(name).pipe(Config.withDefault(fallback));
 
+const requiredNonNegativeBigintWithDefault = (name: string, fallback: bigint) =>
+  requiredBigint(name).pipe(
+    Config.withDefault(fallback),
+    Config.mapAttempt((value) => {
+      if (value < 0n) throw new Error(`Invalid ${name} (expected non-negative bigint)`);
+      return value;
+    })
+  );
+
+const requiredPositiveIntWithDefault = (name: string, fallback: number) =>
+  requiredNumberWithDefault(name, fallback).pipe(
+    Config.mapAttempt((n) => {
+      if (!Number.isInteger(n) || n <= 0) throw new Error(`Invalid ${name} (expected int > 0)`);
+      return n;
+    })
+  );
+
 const requiredLiteralWithDefault = <A extends string>(
   name: string,
   allowed: readonly [A, ...A[]],
@@ -110,6 +133,10 @@ export class AppConfig extends Effect.Tag("AppConfig")<
     readonly relayerRuntime: () => Effect.Effect<RelayerRuntimeConfig, ConfigError.ConfigError>;
     readonly tronNetwork: () => Effect.Effect<TronNetworkConfig, ConfigError.ConfigError>;
     readonly mainnetRelayer: () => Effect.Effect<MainnetRelayerConfig, ConfigError.ConfigError>;
+    readonly tronLightClientPublisher: () => Effect.Effect<
+      TronLightClientPublisherConfig,
+      ConfigError.ConfigError
+    >;
   }
 >() {
   static readonly Live = Layer.effect(
@@ -296,10 +323,34 @@ export class AppConfig extends Effect.Tag("AppConfig")<
         })
       );
 
+      const tronLightClientPublisher = yield* Effect.cached(
+        Effect.gen(function* () {
+          const publishLagBlocks = yield* requiredNonNegativeBigintWithDefault(
+            "TRON_LIGHT_CLIENT_PUBLISH_LAG_BLOCKS",
+            0n
+          );
+          const requestCooldownBlocks = yield* requiredNonNegativeBigintWithDefault(
+            "TRON_LIGHT_CLIENT_PUBLISH_REQUEST_COOLDOWN_BLOCKS",
+            5n
+          );
+          const blockFetchConcurrency = yield* requiredPositiveIntWithDefault(
+            "TRON_BLOCK_FETCH_CONCURRENCY",
+            1
+          );
+
+          return {
+            publishLagBlocks,
+            requestCooldownBlocks,
+            blockFetchConcurrency,
+          } satisfies TronLightClientPublisherConfig;
+        })
+      );
+
       return {
         relayerRuntime: () => relayerRuntime,
         tronNetwork: () => tronNetwork,
         mainnetRelayer: () => mainnetRelayer,
+        tronLightClientPublisher: () => tronLightClientPublisher,
       };
     })
   );
