@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
 
-import { tronLightClientCheckpoint } from "ponder:schema";
+import { tronLightClientCheckpoint, tronLightClientConfig } from "ponder:schema";
 
 import { tryPromise } from "./effect/tryPromise";
 
 type PonderLogEvent = Extract<PonderEvent, { log: unknown }>;
 
-type TronLightClientDerivedEventName = "TronBlockStored";
+type TronLightClientDerivedEventName = "TronBlockStored" | "TronLightClientConfigured";
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -48,12 +48,68 @@ export const handleTronLightClientDerivedEvent = (args: {
   context: PonderContext;
 }) =>
   Effect.gen(function* () {
-    if (args.eventName !== "TronBlockStored") return;
-
     const parsedArgs = expectRecord(args.event.args, "event.args");
 
     const chainId = args.context.chain.id;
     const contractAddress = expectHex(args.event.log.address, "event.log.address");
+
+    if (args.eventName === "TronLightClientConfigured") {
+      const srDataHash = expectHex(getArgValue(parsedArgs, 1, "srDataHash"), "srDataHash");
+      const initialBlockId = expectHex(
+        getArgValue(parsedArgs, 2, "initialBlockId"),
+        "initialBlockId"
+      );
+      const srs = getArgValue(parsedArgs, 5, "srs");
+      const witnessDelegatees = getArgValue(parsedArgs, 6, "witnessDelegatees");
+
+      if (!Array.isArray(srs) || srs.length !== 27) {
+        throw new Error("Invalid TronLightClientConfigured.srs (expected array length 27)");
+      }
+      if (!Array.isArray(witnessDelegatees) || witnessDelegatees.length !== 27) {
+        throw new Error(
+          "Invalid TronLightClientConfigured.witnessDelegatees (expected array length 27)"
+        );
+      }
+
+      const srsNormalized = srs.map((v, i) => expectHex(v, `srs[${i}]`));
+      const witnessDelegateesNormalized = witnessDelegatees.map((v, i) =>
+        expectHex(v, `witnessDelegatees[${i}]`)
+      );
+
+      const id = `${chainId}:${contractAddress}`;
+
+      yield* tryPromise(() =>
+        args.context.db
+          .insert(tronLightClientConfig)
+          .values({
+            id,
+            chainId,
+            contractAddress,
+            srDataHash,
+            initialBlockId,
+            srsJson: JSON.stringify(srsNormalized),
+            witnessDelegateesJson: JSON.stringify(witnessDelegateesNormalized),
+            configuredAtBlockNumber: args.event.block.number,
+            configuredAtBlockTimestamp: args.event.block.timestamp,
+            configuredAtTransactionHash: args.event.transaction.hash,
+            configuredAtLogIndex: args.event.log.logIndex,
+          })
+          .onConflictDoUpdate({
+            srDataHash,
+            initialBlockId,
+            srsJson: JSON.stringify(srsNormalized),
+            witnessDelegateesJson: JSON.stringify(witnessDelegateesNormalized),
+            configuredAtBlockNumber: args.event.block.number,
+            configuredAtBlockTimestamp: args.event.block.timestamp,
+            configuredAtTransactionHash: args.event.transaction.hash,
+            configuredAtLogIndex: args.event.log.logIndex,
+          })
+      );
+
+      return;
+    }
+
+    if (args.eventName !== "TronBlockStored") return;
 
     const tronBlockNumber = expectBigint(
       getArgValue(parsedArgs, 0, "blockNumber"),

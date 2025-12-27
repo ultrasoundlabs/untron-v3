@@ -1,103 +1,35 @@
 import { Effect } from "effect";
-import { encodeFunctionData, isAddress, type Address, type Hex, type PublicClient } from "viem";
+import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
 
-import { NumberMessage, type BlockExtention } from "@untron/tron-protocol/api";
+import type { BlockExtention } from "@untron/tron-protocol/api";
 
-import { tronLightClientAbi, untronV3Abi } from "@untron/v3-contracts";
+import { untronV3Abi } from "@untron/v3-contracts";
 import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
-import { TronGrpc } from "../deps/tronGrpc";
-import {
-  buildTronLightClientProveBlocksCallToCheckpointBlock,
-  upsertTronLightClientCheckpointsFromTransaction,
-} from "../tronLightClientPublisher";
+import { TronGrpc, fetchTronBlockByNum } from "../deps/tronGrpc";
 import { computeTronTxIdFromEncodedTx, computeTronTxMerkleProof } from "../tronProofs";
 
 import { TronRelayer } from "../deps/tron";
 import { getKnownTronReceiver } from "../receivers";
-import { resolveContractAddress } from "../resolveContractAddress";
 import { RetryLaterError } from "../errors";
 import type { RelayJobRow } from "../types";
-import type { RelayJobHandlerContext } from "./types";
-import { tronLightClientProveBlocksSent } from "ponder:schema";
+import { tronLightClientCheckpoint } from "ponder:schema";
+import {
+  expectAddress,
+  expectBigint,
+  expectHex,
+  expectRecord,
+  type RelayJobHandlerContext,
+} from "./types";
 
-function expectRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Invalid ${label} (expected object)`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function expectAddress(value: unknown, label: string): Address {
-  if (typeof value !== "string" || !isAddress(value)) throw new Error(`Invalid ${label} address`);
-  return value as Address;
-}
-
-function expectString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`Invalid ${label}`);
-  return value;
-}
-
-function expectHex(value: unknown, label: string): Hex {
-  const raw = expectString(value, label).toLowerCase();
-  if (!/^0x[0-9a-f]+$/.test(raw)) throw new Error(`Invalid ${label} (expected 0x-hex)`);
-  return raw as Hex;
-}
-
-function expectBigint(value: unknown, label: string): bigint {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-  if (typeof value === "string" && value.length > 0) {
-    try {
-      return BigInt(value);
-    } catch {
-      // fall through
-    }
-  }
-  throw new Error(`Invalid ${label} (expected bigint-compatible value)`);
-}
-
-async function fetchTronBlockByNum(args: {
-  wallet: any;
-  metadata: unknown;
-  blockNumber: bigint;
-  timeoutMs?: number;
-  retries?: number;
-  retryDelayMs?: number;
-}): Promise<BlockExtention> {
-  const retries = args.retries ?? 2;
-  const retryDelayMs = args.retryDelayMs ?? 500;
-  const timeoutMs = args.timeoutMs ?? 15_000;
-
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const req = NumberMessage.fromPartial({ num: args.blockNumber.toString() });
-    try {
-      return await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error(`Timeout in getBlockByNum2(${args.blockNumber.toString()})`));
-        }, timeoutMs);
-
-        args.wallet.getBlockByNum2(
-          req,
-          args.metadata,
-          (err: unknown, res: BlockExtention | null) =>
-            err || !res
-              ? (clearTimeout(timeout),
-                reject(err ?? new Error("Empty response from getBlockByNum2")))
-              : (clearTimeout(timeout), resolve(res))
-        );
-      });
-    } catch (error) {
-      lastError = error;
-      if (attempt >= retries) break;
-      await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
+const MAINNET_CHAIN_ID = (() => {
+  const raw = process.env.UNTRON_V3_CHAIN_ID;
+  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
+  return parsed;
+})();
 
 function isIgnorablePreEntitleFailure(error: unknown): boolean {
   const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -190,16 +122,12 @@ export const handleTrc20Transfer = ({
     const tronGrpc = yield* TronGrpc;
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = resolveContractAddress({
-      ponderContracts: ctx.ponderContext.contracts,
-      contractName: "TronLightClient",
-      envVar: "TRON_LIGHT_CLIENT_ADDRESS",
-    });
-    const untronV3Address = resolveContractAddress({
-      ponderContracts: ctx.ponderContext.contracts,
-      contractName: "UntronV3",
-      envVar: "UNTRON_V3_ADDRESS",
-    });
+    const tronLightClientAddress = (
+      ctx.ponderContext.contracts.TronLightClient.address as Address
+    ).toLowerCase() as Address;
+    const untronV3Address = (
+      ctx.ponderContext.contracts.UntronV3.address as Address
+    ).toLowerCase() as Address;
 
     const tronUsdt = yield* tryPromise(() => loadTronUsdt({ mainnetClient, untronV3Address }));
     if (tokenAddress.toLowerCase() !== tronUsdt) {
@@ -249,114 +177,20 @@ export const handleTrc20Transfer = ({
       )) as boolean;
       if (alreadyProcessed) return;
 
-      const tronBlockPublished = yield* tryPromise(() =>
-        mainnetClient.readContract({
-          address: tronLightClientAddress,
-          abi: tronLightClientAbi,
-          functionName: "getTxTrieRoot",
-          args: [tronBlockNumber],
+      const checkpoint = yield* tryPromise(() =>
+        ctx.ponderContext.db.find(tronLightClientCheckpoint, {
+          id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${tronBlockNumber.toString()}`,
         })
-      ).pipe(
-        Effect.as(true as const),
-        Effect.catchAll(() => Effect.succeed(false as const))
       );
 
-      if (!tronBlockPublished) {
-        const PROVE_BLOCKS_COOLDOWN_BLOCKS = 5n;
-        const proveId = `${job.chainId}:${tronLightClientAddress.toLowerCase()}:${tronBlockNumber.toString()}`;
-
-        const lastAttempt = yield* tryPromise(() =>
-          ctx.ponderContext.db.find(tronLightClientProveBlocksSent, { id: proveId })
+      if (!checkpoint) {
+        // Note: TronLightClient publishing is handled by the dedicated publisher (run on tron heartbeat).
+        // We only retry once the target Tron block becomes available on mainnet.
+        return yield* Effect.fail(
+          new RetryLaterError(
+            `Tron block ${tronBlockNumber.toString()} not yet published in TronLightClient`
+          )
         );
-
-        if (
-          lastAttempt &&
-          lastAttempt.lastAttemptAtBlockNumber >= ctx.headBlockNumber - PROVE_BLOCKS_COOLDOWN_BLOCKS
-        ) {
-          return yield* Effect.fail(
-            new RetryLaterError(
-              `TronLightClient proveBlocks recently attempted for tronBlock=${tronBlockNumber.toString()}, waiting`
-            )
-          );
-        } else {
-          yield* tryPromise(() =>
-            ctx.ponderContext.db
-              .insert(tronLightClientProveBlocksSent)
-              .values({
-                id: proveId,
-                chainId: job.chainId,
-                tronLightClientAddress: tronLightClientAddress.toLowerCase() as `0x${string}`,
-                tronBlockNumber,
-                lastAttemptAtBlockNumber: ctx.headBlockNumber,
-                lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
-                lockedBy: job.id,
-                includedTransactionHash: null,
-                includedAtBlockNumber: null,
-              })
-              .onConflictDoUpdate({
-                lastAttemptAtBlockNumber: ctx.headBlockNumber,
-                lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
-                lockedBy: job.id,
-              })
-          );
-
-          const proveCall = yield* buildTronLightClientProveBlocksCallToCheckpointBlock({
-            context: ctx.ponderContext,
-            mainnetClient,
-            tronLightClientAddress,
-            tronBlockNumber,
-            fetchTronBlockByNum: (blockNumber) =>
-              tryPromise(() =>
-                fetchTronBlockByNum({
-                  wallet,
-                  metadata: callOpts.metadata,
-                  blockNumber,
-                  timeoutMs: 60_000,
-                  retries: 2,
-                })
-              ),
-          });
-
-          if (!proveCall) {
-            return yield* Effect.fail(
-              new Error(
-                "Tron block not yet published in TronLightClient; no proveBlocks call planned."
-              )
-            );
-          }
-
-          const included = yield* MainnetRelayer.sendUserOperation({ calls: [proveCall] });
-
-          yield* tryPromise(() =>
-            ctx.ponderContext.db.update(tronLightClientProveBlocksSent, { id: proveId }).set({
-              includedTransactionHash: included.transactionHash,
-              includedAtBlockNumber: included.blockNumber,
-              lockedBy: null,
-              lastAttemptAtBlockNumber: ctx.headBlockNumber,
-              lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
-            })
-          );
-
-          const upserted = yield* upsertTronLightClientCheckpointsFromTransaction({
-            context: ctx.ponderContext,
-            mainnetClient,
-            tronLightClientAddress,
-            transactionHash: included.transactionHash,
-          });
-          yield* Effect.logInfo("[tron_light_client] checkpoint upserted from receipt").pipe(
-            Effect.annotateLogs({
-              storedCount: upserted.storedCount,
-              maxStoredTronBlockNumber: upserted.maxStoredTronBlockNumber?.toString() ?? null,
-              transactionHash: included.transactionHash,
-            })
-          );
-
-          return yield* Effect.fail(
-            new RetryLaterError(
-              "Tron block not yet published in TronLightClient; proveBlocks submitted (possibly chunked), retry later."
-            )
-          );
-        }
       }
 
       const args = [

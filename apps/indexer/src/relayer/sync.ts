@@ -1,9 +1,7 @@
 import { Effect } from "effect";
 import type { Context as PonderContext } from "ponder:registry";
 
-import { eventChainState, relayerStatus } from "ponder:schema";
-
-import type { ContractName } from "./types";
+import { relayerStatus } from "ponder:schema";
 
 export const getRpcHeadBlockNumber = (
   context: PonderContext
@@ -39,50 +37,4 @@ export const isProbablyLiveEvent = (args: {
     if (head === null) return false;
     if (head < args.eventBlockNumber) return false;
     return head - args.eventBlockNumber <= args.maxLagBlocks;
-  });
-
-const requireSingleAddress = (
-  address: PonderContext["contracts"][ContractName]["address"]
-): `0x${string}` => {
-  if (typeof address === "string") return address;
-  if (Array.isArray(address) && address.length === 1 && typeof address[0] === "string")
-    return address[0];
-  throw new Error("Expected a single contract address");
-};
-
-const makeEventChainStateId = (args: {
-  chainId: number;
-  contractName: ContractName;
-  contractAddress: string;
-}): string => `${args.chainId}:${args.contractName}:${args.contractAddress.toLowerCase()}`;
-
-export const isSyncedForChain = (args: {
-  context: PonderContext;
-  blockNumber: bigint;
-  maxLagBlocks: bigint;
-  requiredContracts: readonly ContractName[];
-}): Effect.Effect<boolean, Error> =>
-  Effect.gen(function* () {
-    const minRequired =
-      args.blockNumber > args.maxLagBlocks ? args.blockNumber - args.maxLagBlocks : 0n;
-
-    for (const contractName of args.requiredContracts) {
-      const contractConfig = args.context.contracts[contractName];
-      const contractAddress = requireSingleAddress(contractConfig.address);
-
-      const id = makeEventChainStateId({
-        chainId: args.context.chain.id,
-        contractName,
-        contractAddress,
-      });
-
-      const state = yield* Effect.tryPromise({
-        try: () => args.context.db.find(eventChainState, { id }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      });
-      if (!state) return false;
-      if (state.lastEventBlockNumber < minRequired) return false;
-    }
-
-    return true;
   });

@@ -1,7 +1,7 @@
 import { Cause, Effect } from "effect";
 import type { Context as PonderContext, IndexingFunctionArgs } from "ponder:registry";
 
-import { relayerStatus, trc20Transfer } from "ponder:schema";
+import { relayerStatus, trc20Transfer, tronLightClientPublishRequest } from "ponder:schema";
 
 import { AppConfig } from "../effect/config";
 import { IndexerRuntime } from "../effect/runtime";
@@ -10,6 +10,14 @@ import { enqueueRelayJob } from "./queue";
 import { processRelayJobs } from "./processor";
 import { getRpcHeadBlockNumber, isProbablyLiveEvent } from "./sync";
 import type { BlockEventName, PonderRegistry, RelayJobKind } from "./types";
+
+const MAINNET_CHAIN_ID = (() => {
+  const raw = process.env.UNTRON_V3_CHAIN_ID;
+  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
+  return parsed;
+})();
 
 const upsertRelayerStatus = (args: {
   context: PonderContext;
@@ -198,6 +206,23 @@ export function registerRelayer({
           maxLagBlocks,
         });
         if (!isLive) return;
+
+        const tronLightClientAddress = (
+          (context as PonderContext).contracts.TronLightClient.address as `0x${string}`
+        ).toLowerCase() as `0x${string}`;
+        yield* Effect.tryPromise(() =>
+          (context as PonderContext).db
+            .insert(tronLightClientPublishRequest)
+            .values({
+              id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${blockNumber.toString()}`,
+              chainId: MAINNET_CHAIN_ID,
+              tronLightClientAddress,
+              tronBlockNumber: blockNumber,
+              requestedAtTronBlockTimestamp: blockTimestamp,
+              source: "trc20_transfer",
+            })
+            .onConflictDoNothing()
+        );
 
         yield* enqueueRelayJob({
           context: context as PonderContext,

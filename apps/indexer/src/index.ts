@@ -24,9 +24,9 @@ registerEventChainIndexer({
   indexName: "TronLightClientIndex",
   abi: tronLightClientAbi,
   afterEvent: ({ eventName, event, context }) =>
-    eventName === "TronBlockStored"
+    eventName === "TronBlockStored" || eventName === "TronLightClientConfigured"
       ? handleTronLightClientDerivedEvent({
-          eventName,
+          eventName: eventName as any,
           event,
           context,
         })

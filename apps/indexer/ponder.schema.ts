@@ -179,19 +179,19 @@ export const tronRebalanceUsdtSent = onchainTable(
   })
 );
 
-// Best-effort dedupe for proving TronLightClient blocks on mainnet. Keyed by the target Tron block.
-export const tronLightClientProveBlocksSent = onchainTable(
-  "tron_light_client_prove_blocks_sent",
+// Demand-driven publish requests for storing Tron txTrieRoots in TronLightClient.
+// Rows are deleted once the Tron block root is confirmed on mainnet.
+export const tronLightClientPublishRequest = onchainTable(
+  "tron_light_client_publish_request",
   (t) => ({
-    id: t.text().primaryKey(), // `${chainId}:${tronLightClientAddress}:${tronBlockNumber}`
-    chainId: t.integer().notNull(),
+    id: t.text().primaryKey(), // `${mainnetChainId}:${tronLightClientAddress}:${tronBlockNumber}`
+    chainId: t.integer().notNull(), // mainnet chain id
     tronLightClientAddress: t.hex().notNull(),
     tronBlockNumber: t.bigint().notNull(),
-    lastAttemptAtBlockNumber: t.bigint().notNull(),
-    lastAttemptAtBlockTimestamp: t.bigint().notNull(),
-    lockedBy: t.text(),
-    includedTransactionHash: t.hex(),
-    includedAtBlockNumber: t.bigint(),
+    requestedAtTronBlockTimestamp: t.bigint().notNull(),
+    lastSentAtTronBlockNumber: t.bigint(),
+    lastSentAtTronBlockTimestamp: t.bigint(),
+    source: t.text(),
   }),
   (table) => ({
     contractBlockIdx: index().on(
@@ -199,6 +199,7 @@ export const tronLightClientProveBlocksSent = onchainTable(
       table.tronLightClientAddress,
       table.tronBlockNumber
     ),
+    contractIdx: index().on(table.chainId, table.tronLightClientAddress),
   })
 );
 
@@ -224,6 +225,28 @@ export const tronLightClientCheckpoint = onchainTable(
       table.contractAddress,
       table.storedAtBlockNumber
     ),
+  })
+);
+
+// Singleton config/state row for each TronLightClient instance, derived from TronLightClientConfigured.
+// Used by the publisher to derive the SR-owner -> witnessIndex mapping without onchain calls.
+export const tronLightClientConfig = onchainTable(
+  "tron_light_client_config",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    srDataHash: t.hex().notNull(),
+    initialBlockId: t.hex().notNull(),
+    srsJson: t.text().notNull(), // JSON array of bytes20 hex (length 27)
+    witnessDelegateesJson: t.text().notNull(), // JSON array of bytes20 hex (length 27)
+    configuredAtBlockNumber: t.bigint().notNull(),
+    configuredAtBlockTimestamp: t.bigint().notNull(),
+    configuredAtTransactionHash: t.hex().notNull(),
+    configuredAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
   })
 );
 

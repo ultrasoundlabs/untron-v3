@@ -223,6 +223,9 @@ export function parseTronBlockForLightClient(block: BlockExtention): TronBlockFo
     throw new Error("Tron block missing witnessSignature");
 
   const timestampMs = BigInt(raw.timestamp.toString());
+  if (timestampMs % 1000n !== 0n) {
+    throw new Error("Tron block timestamp is not a whole number of seconds (ms % 1000 != 0)");
+  }
   const timestampSecBig = timestampMs / 1000n;
   if (timestampSecBig < 0n || timestampSecBig > 0xffff_ffffn) {
     throw new Error("Tron block timestamp out of uint32 range");

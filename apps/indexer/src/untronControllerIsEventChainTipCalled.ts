@@ -1,12 +1,23 @@
 import { Effect } from "effect";
 import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
-import { untronControllerIsEventChainTipCalled } from "ponder:schema";
+import {
+  tronLightClientPublishRequest,
+  untronControllerIsEventChainTipCalled,
+} from "ponder:schema";
 
 import { AppConfig } from "./effect/config";
 import { tryPromise } from "./effect/tryPromise";
 import { enqueueRelayJob } from "./relayer/queue";
 
 type PonderLogEvent = Extract<PonderEvent, { log: unknown }>;
+
+const MAINNET_CHAIN_ID = (() => {
+  const raw = process.env.UNTRON_V3_CHAIN_ID;
+  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
+  return parsed;
+})();
 
 export const handleUntronControllerIsEventChainTipCalled = (args: {
   event: PonderLogEvent;
@@ -46,6 +57,23 @@ export const handleUntronControllerIsEventChainTipCalled = (args: {
     );
 
     if (!relayerRuntime.enabled) return;
+
+    const tronLightClientAddress = (
+      args.context.contracts.TronLightClient.address as `0x${string}`
+    ).toLowerCase() as `0x${string}`;
+    yield* tryPromise(() =>
+      args.context.db
+        .insert(tronLightClientPublishRequest)
+        .values({
+          id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${args.event.block.number.toString()}`,
+          chainId: MAINNET_CHAIN_ID,
+          tronLightClientAddress,
+          tronBlockNumber: args.event.block.number,
+          requestedAtTronBlockTimestamp: args.event.block.timestamp,
+          source: "relay_controller_event_chain",
+        })
+        .onConflictDoNothing()
+    );
 
     yield* enqueueRelayJob({
       context: args.context,

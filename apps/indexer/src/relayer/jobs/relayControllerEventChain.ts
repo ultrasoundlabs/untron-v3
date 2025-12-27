@@ -1,66 +1,39 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
 import type { Context as PonderContext } from "ponder:registry";
-import { decodeFunctionData, encodeFunctionData, isAddress, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, type Address, type Hex } from "viem";
 
-import { NumberMessage, type BlockExtention } from "@untron/tron-protocol/api";
+import type { BlockExtention } from "@untron/tron-protocol/api";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
 import type { Transaction } from "@untron/tron-protocol/tron";
 
-import { tronLightClientAbi, untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
+import { untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 import { computeNextEventChainTip } from "../../eventChain/tip";
 import { tryPromise } from "../../effect/tryPromise";
 import type { RelayJobRow } from "../types";
-import type { RelayJobHandlerContext } from "./types";
 import { getRows } from "../sqlRows";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
-import { TronGrpc } from "../deps/tronGrpc";
+import { TronGrpc, fetchTronBlockByNum } from "../deps/tronGrpc";
 import { computeTronTxMerkleProof } from "../tronProofs";
-import {
-  buildTronLightClientProveBlocksCallToCheckpointBlock,
-  upsertTronLightClientCheckpointsFromTransaction,
-} from "../tronLightClientPublisher";
-import { tronLightClientProveBlocksSent } from "ponder:schema";
-import { resolveContractAddress } from "../resolveContractAddress";
 import { RetryLaterError } from "../errors";
+import { tronLightClientCheckpoint } from "ponder:schema";
 
-function expectRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Invalid ${label} (expected object)`);
-  }
-  return value as Record<string, unknown>;
-}
+import {
+  expectAddress,
+  expectBigint,
+  expectHex,
+  expectRecord,
+  type RelayJobHandlerContext,
+} from "./types";
 
-function expectString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`Invalid ${label}`);
-  return value;
-}
-
-function expectHex(value: unknown, label: string): Hex {
-  const raw = expectString(value, label).toLowerCase();
-  if (!/^0x[0-9a-f]+$/.test(raw)) throw new Error(`Invalid ${label} (expected 0x-hex)`);
-  return raw as Hex;
-}
-
-function expectAddress(value: unknown, label: string): Address {
-  const raw = expectString(value, label);
-  if (!isAddress(raw)) throw new Error(`Invalid ${label} (expected EVM address)`);
-  return raw.toLowerCase() as Address;
-}
-
-function expectBigint(value: unknown, label: string): bigint {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-  if (typeof value === "string" && value.length > 0) {
-    try {
-      return BigInt(value);
-    } catch {
-      // fall through
-    }
-  }
-  throw new Error(`Invalid ${label} (expected bigint-compatible value)`);
-}
+const MAINNET_CHAIN_ID = (() => {
+  const raw = process.env.UNTRON_V3_CHAIN_ID;
+  if (!raw) throw new Error("Missing UNTRON_V3_CHAIN_ID");
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid UNTRON_V3_CHAIN_ID");
+  return parsed;
+})();
 
 function hasIsEventChainTipCallInMulticall(calls: readonly Hex[], selectorIsEventChainTip: Hex) {
   for (const call of calls) {
@@ -68,47 +41,6 @@ function hasIsEventChainTipCallInMulticall(calls: readonly Hex[], selectorIsEven
     if (call.slice(0, 10).toLowerCase() === selectorIsEventChainTip.toLowerCase()) return true;
   }
   return false;
-}
-
-async function fetchTronBlockByNum(args: {
-  wallet: any;
-  metadata: unknown;
-  blockNumber: bigint;
-  timeoutMs?: number;
-  retries?: number;
-  retryDelayMs?: number;
-}): Promise<BlockExtention> {
-  const retries = args.retries ?? 2;
-  const retryDelayMs = args.retryDelayMs ?? 500;
-  const timeoutMs = args.timeoutMs ?? 15_000;
-
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const req = NumberMessage.fromPartial({ num: args.blockNumber.toString() });
-    try {
-      return await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error(`Timeout in getBlockByNum2(${args.blockNumber.toString()})`));
-        }, timeoutMs);
-
-        args.wallet.getBlockByNum2(
-          req,
-          args.metadata,
-          (err: unknown, res: BlockExtention | null) =>
-            err || !res
-              ? (clearTimeout(timeout),
-                reject(err ?? new Error("Empty response from getBlockByNum2")))
-              : (clearTimeout(timeout), resolve(res))
-        );
-      });
-    } catch (error) {
-      lastError = error;
-      if (attempt >= retries) break;
-      await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function findTransactionInBlock(args: { block: BlockExtention; txid: Hex }): Transaction {
@@ -274,16 +206,12 @@ export const handleRelayControllerEventChain = ({
 
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = resolveContractAddress({
-      ponderContracts: ctx.ponderContext.contracts,
-      contractName: "TronLightClient",
-      envVar: "TRON_LIGHT_CLIENT_ADDRESS",
-    });
-    const untronV3Address = resolveContractAddress({
-      ponderContracts: ctx.ponderContext.contracts,
-      contractName: "UntronV3",
-      envVar: "UNTRON_V3_ADDRESS",
-    });
+    const tronLightClientAddress = (
+      ctx.ponderContext.contracts.TronLightClient.address as Address
+    ).toLowerCase() as Address;
+    const untronV3Address = (
+      ctx.ponderContext.contracts.UntronV3.address as Address
+    ).toLowerCase() as Address;
 
     yield* Effect.logInfo("[relay_controller_event_chain] load lastControllerEventTip");
     const lastControllerEventTip = (yield* tryPromise(() =>
@@ -352,118 +280,19 @@ export const handleRelayControllerEventChain = ({
     yield* Effect.logInfo("[relay_controller_event_chain] check tron block published").pipe(
       Effect.annotateLogs({ tronBlockNumber: tronBlockNumber.toString() })
     );
-    const tronBlockPublished = yield* tryPromise(() =>
-      mainnetClient.readContract({
-        address: tronLightClientAddress,
-        abi: tronLightClientAbi,
-        functionName: "getTxTrieRoot",
-        args: [tronBlockNumber],
-      })
-    ).pipe(
-      Effect.as(true as const),
-      Effect.catchAll(() => Effect.succeed(false as const))
-    );
 
     const plannedCalls: Array<{ to: Address; data: Hex }> = [];
 
-    if (!tronBlockPublished) {
-      yield* Effect.logInfo("[relay_controller_event_chain] plan proveBlocks").pipe(
-        Effect.annotateLogs({ tronBlockNumber: tronBlockNumber.toString() })
-      );
-      const PROVE_BLOCKS_COOLDOWN_BLOCKS = 5n;
-      const proveId = `${job.chainId}:${tronLightClientAddress.toLowerCase()}:${tronBlockNumber.toString()}`;
+    const checkpoint = yield* tryPromise(() =>
+      ctx.ponderContext.db.find(tronLightClientCheckpoint, {
+        id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${tronBlockNumber.toString()}`,
+      })
+    );
 
-      const lastAttempt = yield* tryPromise(() =>
-        ctx.ponderContext.db.find(tronLightClientProveBlocksSent, { id: proveId })
-      );
-
-      if (
-        lastAttempt &&
-        lastAttempt.lastAttemptAtBlockNumber >= ctx.headBlockNumber - PROVE_BLOCKS_COOLDOWN_BLOCKS
-      ) {
-        return yield* Effect.fail(
-          new RetryLaterError(
-            `TronLightClient proveBlocks recently attempted for tronBlock=${tronBlockNumber.toString()}, waiting`
-          )
-        );
-      }
-
-      yield* tryPromise(() =>
-        ctx.ponderContext.db
-          .insert(tronLightClientProveBlocksSent)
-          .values({
-            id: proveId,
-            chainId: job.chainId,
-            tronLightClientAddress: tronLightClientAddress.toLowerCase() as `0x${string}`,
-            tronBlockNumber,
-            lastAttemptAtBlockNumber: ctx.headBlockNumber,
-            lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
-            lockedBy: job.id,
-            includedTransactionHash: null,
-            includedAtBlockNumber: null,
-          })
-          .onConflictDoUpdate({
-            lastAttemptAtBlockNumber: ctx.headBlockNumber,
-            lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
-            lockedBy: job.id,
-          })
-      );
-
-      const proveCall = yield* buildTronLightClientProveBlocksCallToCheckpointBlock({
-        context: ctx.ponderContext,
-        mainnetClient,
-        tronLightClientAddress,
-        tronBlockNumber,
-        fetchTronBlockByNum: (blockNumber) =>
-          tryPromise(() =>
-            fetchTronBlockByNum({
-              wallet,
-              metadata: callOpts.metadata,
-              blockNumber,
-              timeoutMs: 60_000,
-              retries: 2,
-            })
-          ),
-      });
-
-      if (!proveCall) {
-        return yield* Effect.fail(
-          new Error("Tron block not yet published in TronLightClient; no proveBlocks call planned.")
-        );
-      }
-
-      plannedCalls.push(proveCall);
-
-      yield* Effect.logInfo("[relay_controller_event_chain] send proveBlocks UserOperation");
-      const included = yield* MainnetRelayer.sendUserOperation({ calls: plannedCalls });
-
-      yield* tryPromise(() =>
-        ctx.ponderContext.db.update(tronLightClientProveBlocksSent, { id: proveId }).set({
-          includedTransactionHash: included.transactionHash,
-          includedAtBlockNumber: included.blockNumber,
-          lockedBy: null,
-          lastAttemptAtBlockNumber: ctx.headBlockNumber,
-          lastAttemptAtBlockTimestamp: ctx.headBlockTimestamp,
-        })
-      );
-
-      const upserted = yield* upsertTronLightClientCheckpointsFromTransaction({
-        context: ctx.ponderContext,
-        mainnetClient,
-        tronLightClientAddress,
-        transactionHash: included.transactionHash,
-      });
-      yield* Effect.logInfo("[tron_light_client] checkpoint upserted from receipt").pipe(
-        Effect.annotateLogs({
-          storedCount: upserted.storedCount,
-          maxStoredTronBlockNumber: upserted.maxStoredTronBlockNumber?.toString() ?? null,
-          transactionHash: included.transactionHash,
-        })
-      );
-
+    if (!checkpoint) {
       return yield* Effect.fail(
         new RetryLaterError(
-          "Tron block not yet published in TronLightClient; proveBlocks submitted (possibly chunked), retry later."
+          `Tron block ${tronBlockNumber.toString()} not yet published in TronLightClient`
         )
       );
     }

@@ -1,6 +1,7 @@
 import { ConfigError, Effect, Layer, Option } from "effect";
 
 import { createTronClients } from "@untron/tron-protocol";
+import { NumberMessage, type BlockExtention } from "@untron/tron-protocol/api";
 
 import { AppConfig } from "../../effect/config";
 import type { TronGrpcClients } from "./types";
@@ -38,4 +39,45 @@ export class TronGrpc extends Effect.Tag("TronGrpc")<
       };
     })
   );
+}
+
+export async function fetchTronBlockByNum(args: {
+  wallet: any;
+  metadata: unknown;
+  blockNumber: bigint;
+  timeoutMs?: number;
+  retries?: number;
+  retryDelayMs?: number;
+}): Promise<BlockExtention> {
+  const retries = args.retries ?? 2;
+  const retryDelayMs = args.retryDelayMs ?? 500;
+  const timeoutMs = args.timeoutMs ?? 15_000;
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const req = NumberMessage.fromPartial({ num: args.blockNumber.toString() });
+    try {
+      return await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timeout in getBlockByNum2(${args.blockNumber.toString()})`));
+        }, timeoutMs);
+
+        args.wallet.getBlockByNum2(
+          req,
+          args.metadata,
+          (err: unknown, res: BlockExtention | null) =>
+            err || !res
+              ? (clearTimeout(timeout),
+                reject(err ?? new Error("Empty response from getBlockByNum2")))
+              : (clearTimeout(timeout), resolve(res))
+        );
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) break;
+      await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }

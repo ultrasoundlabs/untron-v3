@@ -267,15 +267,7 @@ There are two important guards:
 
 ### 2) Is the indexer caught up enough?
 
-- `apps/indexer/src/relayer/sync.ts` has `isSyncedForChain`:
-  - For a list of required contracts, checks `event_chain_state.lastEventBlockNumber`
-  - Ensures they’re within `maxLagBlocks` of the block we’re acting on.
-- This prevents the relayer from acting while the indexer is still backfilling.
-
-`registerRelayer` supplies the required contracts per chain:
-
-- Mainnet heartbeat requires `["UntronV3", "TronLightClient"]` (`apps/indexer/src/relayer/register.ts`)
-- Tron heartbeat requires `["UntronController"]` (`apps/indexer/src/relayer/register.ts`)
+Currently, the relayer does **not** enforce an additional “is the indexer caught up to head?” guard beyond the “live-ish” check above. If you reintroduce a backfill safety gate, it should be based on `event_chain_state.lastEventBlockNumber` for the relevant contracts.
 
 ## Enqueueing jobs
 
@@ -345,6 +337,8 @@ There are two important guards:
     - `sweep_tron_receivers_trx`: sweeps TRX (native token; modeled as `0x000…000`) from known receivers into the controller.
       - It uses the controller’s USDT position to budget how many receivers to sweep in a single tx (see `apps/indexer/src/relayer/jobs/heartbeat/handlers/trxSweep.ts`).
     - `rebalance_pulled_usdt`: if configured, calls `UntronController.rebalanceUsdt` for `pulledUsdt - 1` when `pulledUsdt` is above a threshold (`apps/indexer/src/relayer/jobs/heartbeat/handlers/rebalancePulledUsdt.ts`).
+    - `ensure_is_event_chain_tip_called`: calls `UntronController.isEventChainTip(...)` on Tron when the onchain controller tip matches the indexed tip but no recent call is observed (`apps/indexer/src/relayer/jobs/heartbeat/handlers/ensureIsEventChainTipCalled.ts`).
+    - `publish_tron_light_client`: consumes demand-driven publish requests and calls `TronLightClient.proveBlocks(...)` on mainnet to store txTrieRoots for exact Tron blocks needed by relaying jobs (`apps/indexer/src/relayer/jobs/heartbeat/handlers/publishTronLightClient.ts`).
 - `apps/indexer/src/relayer/jobs/trc20Transfer.ts`:
   - If `dryRun`, do nothing.
   - Parse and validate payload fields from `job.payloadJson` (no guessing types).
@@ -356,7 +350,7 @@ There are two important guards:
 - `apps/indexer/src/relayer/jobs/relayControllerEventChain.ts`:
   - If `dryRun`, do nothing.
   - For each indexed `IsEventChainTipCalled` on Tron, prove the calling transaction (direct call or multicall including `isEventChainTip`).
-  - Ensure the Tron block is published in `TronLightClient` (using DB checkpoints + `proveBlocks` when needed).
+  - Ensure the Tron block is published in `TronLightClient` (demand-driven publish request + tron heartbeat publisher).
   - Call `UntronV3.relayControllerEventChain(...)` via `MainnetRelayer` to enqueue controller events on mainnet.
 
 Handlers are intentionally small: chain-specific mechanics live in services in `relayer/deps/*`.
@@ -482,7 +476,11 @@ If you start the app with `ponder start`:
      - `untron_v3_claim_queue`
      - `untron_v3_claim`
    - For `TronLightClient` events, `apps/indexer/src/index.ts` wires `apps/indexer/src/tronLightClientDerivedIndexer.ts` in as an `afterEvent` hook to maintain:
-     - `tron_light_client_checkpoint` (sparse checkpoint set used by controller event-chain relaying)
+     - `tron_light_client_checkpoint` (observability: which Tron blocks have stored txTrieRoots on mainnet)
+   - For `UntronController:IsEventChainTipCalled`, `apps/indexer/src/index.ts` wires `apps/indexer/src/untronControllerIsEventChainTipCalled.ts` in as an `afterEvent` hook to:
+     - store the call into `untron_controller_is_event_chain_tip_called`,
+     - insert a `tron_light_client_publish_request` for that Tron block, and
+     - enqueue a `relay_controller_event_chain` job.
 3. For each new Tron block:
    - `apps/indexer/src/relayer/register.ts` updates `relayer_status`.
    - If relayer enabled and indexer synced, it enqueues a `tron_heartbeat` job.
@@ -490,9 +488,10 @@ If you start the app with `ponder start`:
      - `tron_heartbeat` (possibly sweeping multiple receivers),
      - then `trc20_transfer` and `relay_controller_event_chain` jobs.
 4. For each filtered TRC20 transfer into a receiver:
-   - `apps/indexer/src/relayer/register.ts` stores a `trc20_transfer` row,
-   - Enqueues a `trc20_transfer` job (only if it looks live + synced),
-   - Which later either pre-entitles the deposit on mainnet (Tron USDT only) or triggers a targeted sweep (all other tokens).
+  - `apps/indexer/src/relayer/register.ts` stores a `trc20_transfer` row,
+  - Inserts a `tron_light_client_publish_request` row for the transfer’s Tron block number,
+  - Enqueues a `trc20_transfer` job (only if it looks live + synced),
+  - Which later either pre-entitles the deposit on mainnet (Tron USDT only) or triggers a targeted sweep (all other tokens).
 
 Effect’s role in all of this is to make each step:
 
