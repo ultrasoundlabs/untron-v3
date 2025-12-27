@@ -10,6 +10,7 @@ import {
 } from "ponder:schema";
 
 import { tryPromise } from "./effect/tryPromise";
+import { expectBigint, expectHexAddress, expectRecord, getArgValue } from "./parse";
 
 type PonderLogEvent = Extract<PonderEvent, { log: unknown }>;
 
@@ -18,46 +19,6 @@ type UntronV3DerivedEventName =
   | "SwapRateSet"
   | "ClaimCreated"
   | "BridgerSet";
-
-function expectRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Invalid ${label} (expected object)`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function expectString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`Invalid ${label}`);
-  return value;
-}
-
-function expectHexAddress(value: unknown, label: string): `0x${string}` {
-  const raw = expectString(value, label).toLowerCase();
-  if (!/^0x[0-9a-f]{40}$/.test(raw))
-    throw new Error(`Invalid ${label} (expected 0x + 40 hex chars)`);
-  return raw as `0x${string}`;
-}
-
-function expectBigint(value: unknown, label: string): bigint {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-  if (typeof value === "string" && value.length > 0) {
-    try {
-      return BigInt(value);
-    } catch {
-      // fall through
-    }
-  }
-  throw new Error(`Invalid ${label} (expected bigint-compatible value)`);
-}
-
-function getArgValue(args: unknown, index: number, name: string): unknown {
-  if (args && typeof args === "object" && !Array.isArray(args) && name in args) {
-    return (args as Record<string, unknown>)[name];
-  }
-  if (Array.isArray(args)) return args[index];
-  return undefined;
-}
 
 function makeLeaseConfigId(args: {
   chainId: number;

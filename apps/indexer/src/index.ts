@@ -14,7 +14,7 @@ import { registerEventChainIndexer } from "./eventChainIndexer";
 import { AppConfig } from "./effect/config";
 import { tryPromise } from "./effect/tryPromise";
 import { MAINNET_CHAIN_ID } from "./env";
-import { expectBigint, expectHex, expectRecord } from "./relayer/jobs/types";
+import { expectBigint, expectHex, expectRecord, getArgValue } from "./parse";
 import { registerRelayer } from "./relayer/register";
 import { enqueueRelayJob } from "./relayer/queue";
 import { handleUntronV3DerivedEvent } from "./untronV3DerivedIndexer";
@@ -61,14 +61,6 @@ registerEventChainIndexer({
 });
 
 registerRelayer({ ponder });
-
-function getArgValue(args: unknown, index: number, name: string): unknown {
-  if (args && typeof args === "object" && !Array.isArray(args) && name in args) {
-    return (args as Record<string, unknown>)[name];
-  }
-  if (Array.isArray(args)) return args[index];
-  return undefined;
-}
 
 const handleTronLightClientDerivedEvent = (args: {
   eventName: TronLightClientDerivedEventName;

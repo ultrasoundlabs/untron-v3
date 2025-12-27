@@ -14,6 +14,7 @@ import {
 import { tryPromise } from "./effect/tryPromise";
 import { IndexerRuntime } from "./effect/runtime";
 import { computeNextEventChainTip } from "./eventChain/tip";
+import { getArgValue } from "./parse";
 
 type AbiEventItem<TAbi extends readonly unknown[]> = Extract<
   TAbi[number],
@@ -79,14 +80,6 @@ function getAbiEvent(abi: readonly unknown[], eventName: string): AbiEvent {
 
   if (!eventItem) throw new Error(`Event "${eventName}" not found in ABI`);
   return eventItem;
-}
-
-function getArgValue(args: unknown, index: number, name: string | undefined) {
-  if (args && typeof args === "object" && !Array.isArray(args)) {
-    if (name && name in args) return (args as Record<string, unknown>)[name];
-  }
-  if (Array.isArray(args)) return args[index];
-  return undefined;
 }
 
 function encodeEventArgs({ abiEvent, args }: { abiEvent: AbiEvent; args: unknown }): Hex {
