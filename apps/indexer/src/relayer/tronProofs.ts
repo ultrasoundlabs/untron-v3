@@ -240,12 +240,13 @@ export function parseTronBlockForLightClient(block: BlockExtention): TronBlockFo
 export function encodeTronLightClientMetadataAndSignatures(args: {
   blocks: readonly TronBlockForLightClient[];
   witnessIndexByTronOwnerAddressHex: ReadonlyMap<string, number>;
-}): { compressedTronBlockMetadata: Hex; compressedSignatures: Hex } {
+}): { compressedTronBlockMetadata: Hex; compressedSignatures: Hex; witnessIndices: number[] } {
   const TRON_BLOCK_METADATA_SIZE = 69;
   const SIGNATURE_SIZE = 65;
 
   const metadataBuf = Buffer.alloc(args.blocks.length * TRON_BLOCK_METADATA_SIZE);
   const sigsBuf = Buffer.alloc(args.blocks.length * SIGNATURE_SIZE);
+  const witnessIndices: number[] = [];
 
   let metaOffset = 0;
   let sigOffset = 0;
@@ -259,6 +260,8 @@ export function encodeTronLightClientMetadataAndSignatures(args: {
     if (!Number.isInteger(idx) || idx < 0 || idx > 26) {
       throw new Error(`Invalid witness index for 0x${ownerHex}: ${idx}`);
     }
+
+    witnessIndices.push(idx);
 
     block.parentHash.copy(metadataBuf, metaOffset);
     metaOffset += 32;
@@ -279,6 +282,7 @@ export function encodeTronLightClientMetadataAndSignatures(args: {
   return {
     compressedTronBlockMetadata: toHex0x(metadataBuf),
     compressedSignatures: toHex0x(sigsBuf),
+    witnessIndices,
   };
 }
 

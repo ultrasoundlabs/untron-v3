@@ -6,12 +6,12 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 import { createPublicClient, http, type Hex } from "viem";
 
 import { ERC20Abi } from "./abis/ERC20Abi";
-
-import { UntronV3Abi } from "./abis/evm/UntronV3Abi";
-import { TronLightClientAbi } from "./abis/evm/TronLightClientAbi";
-import { TronTxReaderAbi } from "./abis/evm/TronTxReaderAbi";
-
-import { UntronControllerAbi } from "./abis/tron/UntronControllerAbi";
+import {
+  tronLightClientAbi,
+  tronTxReaderAbi,
+  untronControllerAbi,
+  untronV3Abi,
+} from "@untron/v3-contracts";
 
 const b58c = createBase58check(sha256);
 
@@ -116,7 +116,7 @@ async function getTronReceiverInitCodeHash(untronControllerAddress: Hex): Promis
   const client = createPublicClient({ transport: http(rpcUrl) });
   const receiverBytecode = await client.readContract({
     address: untronControllerAddress,
-    abi: UntronControllerAbi,
+    abi: untronControllerAbi,
     functionName: "receiverBytecode",
   });
 
@@ -152,25 +152,25 @@ export default createConfig({
   contracts: {
     UntronV3: {
       chain: "mainnet",
-      abi: UntronV3Abi,
+      abi: untronV3Abi,
       address: process.env.UNTRON_V3_ADDRESS! as `0x${string}`,
       startBlock: parseInt(process.env.UNTRON_V3_DEPLOYMENT_BLOCK!),
     },
     TronLightClient: {
       chain: "mainnet",
-      abi: TronLightClientAbi,
+      abi: tronLightClientAbi,
       address: process.env.TRON_LIGHT_CLIENT_ADDRESS! as `0x${string}`,
       startBlock: parseInt(process.env.TRON_LIGHT_CLIENT_DEPLOYMENT_BLOCK!),
     },
     TronTxReader: {
       chain: "mainnet",
-      abi: TronTxReaderAbi,
+      abi: tronTxReaderAbi,
       address: process.env.TRON_TX_READER_ADDRESS! as `0x${string}`,
       startBlock: parseInt(process.env.TRON_TX_READER_DEPLOYMENT_BLOCK!),
     },
     UntronController: {
       chain: "tron",
-      abi: UntronControllerAbi,
+      abi: untronControllerAbi,
       address: untronControllerAddress as `0x${string}`,
       startBlock: parseInt(process.env.UNTRON_CONTROLLER_DEPLOYMENT_BLOCK!),
     },

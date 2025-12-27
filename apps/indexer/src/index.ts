@@ -1,9 +1,7 @@
 import { ponder } from "ponder:registry";
 import { Effect } from "effect";
 
-import { UntronV3Abi } from "../abis/evm/UntronV3Abi";
-import { TronLightClientAbi } from "../abis/evm/TronLightClientAbi";
-import { UntronControllerAbi } from "../abis/tron/UntronControllerAbi";
+import { tronLightClientAbi, untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 
 import { registerEventChainIndexer } from "./eventChainIndexer";
 import { registerRelayer } from "./relayer";
@@ -15,7 +13,7 @@ registerEventChainIndexer({
   ponder,
   contractName: "UntronV3",
   indexName: "UntronV3Index",
-  abi: UntronV3Abi,
+  abi: untronV3Abi,
   afterEvent: ({ eventName, event, context }) =>
     handleUntronV3DerivedEvent({ eventName, event, context }),
 });
@@ -24,7 +22,7 @@ registerEventChainIndexer({
   ponder,
   contractName: "TronLightClient",
   indexName: "TronLightClientIndex",
-  abi: TronLightClientAbi,
+  abi: tronLightClientAbi,
   afterEvent: ({ eventName, event, context }) =>
     eventName === "TronBlockStored"
       ? handleTronLightClientDerivedEvent({
@@ -39,7 +37,7 @@ registerEventChainIndexer({
   ponder,
   contractName: "UntronController",
   indexName: "UntronControllerIndex",
-  abi: UntronControllerAbi,
+  abi: untronControllerAbi,
   onchainTipValidation: "head",
   skipTipUpdateEvents: ["IsEventChainTipCalled" as any],
   afterEvent: ({ eventName, event, context }) =>

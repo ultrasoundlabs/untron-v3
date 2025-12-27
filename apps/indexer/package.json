@@ -15,6 +15,7 @@
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
+    "@untron/v3-contracts": "workspace:*",
     "@untron/tron-protocol": "workspace:*",
     "effect": "^3.19.12",
     "hono": "^4.5.0",

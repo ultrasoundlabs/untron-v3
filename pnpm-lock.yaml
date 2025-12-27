@@ -67,6 +67,9 @@ importers:
       '@untron/tron-protocol':
         specifier: workspace:*
         version: link:../../packages/tron-protocol
+      '@untron/v3-contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       effect:
         specifier: ^3.19.12
         version: 3.19.12

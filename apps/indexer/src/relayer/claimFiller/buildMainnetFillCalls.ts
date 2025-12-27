@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { encodeFunctionData, type Address } from "viem";
 
 import { ERC20Abi } from "../../../abis/ERC20Abi";
-import { UntronV3Abi } from "../../../abis/evm/UntronV3Abi";
+import { untronV3Abi } from "@untron/v3-contracts";
 import { AppConfig } from "../../effect/config";
 import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
@@ -27,7 +27,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
     const usdt = (yield* tryPromise(() =>
       ctx.ponderContext.client.readContract({
         address: untronV3Address,
-        abi: UntronV3Abi,
+        abi: untronV3Abi,
         functionName: "usdt",
       })
     )) as Address;
@@ -35,7 +35,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
     const untronUsdtBalance = (yield* tryPromise(() =>
       ctx.ponderContext.client.readContract({
         address: untronV3Address,
-        abi: UntronV3Abi,
+        abi: untronV3Abi,
         functionName: "usdtBalance",
       })
     )) as bigint;
@@ -45,7 +45,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
     const swapExecutor = (yield* tryPromise(() =>
       ctx.ponderContext.client.readContract({
         address: untronV3Address,
-        abi: UntronV3Abi,
+        abi: untronV3Abi,
         functionName: "SWAP_EXECUTOR",
       })
     )) as Address;
@@ -62,7 +62,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
         const nextIndex = (yield* tryPromise(() =>
           ctx.ponderContext.client.readContract({
             address: untronV3Address,
-            abi: UntronV3Abi,
+            abi: untronV3Abi,
             functionName: "nextIndexByTargetToken",
             args: [queue.targetToken],
           })
@@ -206,7 +206,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
         to: untronV3Address,
         value: 0n,
         data: encodeFunctionData({
-          abi: UntronV3Abi,
+          abi: untronV3Abi,
           functionName: "fill",
           args: [queue.targetToken, fillCount, swapPlan.swapExecutorCalls],
         }),

@@ -7,9 +7,7 @@ import { NumberMessage, type BlockExtention } from "@untron/tron-protocol/api";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
 import type { Transaction } from "@untron/tron-protocol/tron";
 
-import { TronLightClientAbi } from "../../../abis/evm/TronLightClientAbi";
-import { UntronV3Abi } from "../../../abis/evm/UntronV3Abi";
-import { UntronControllerAbi } from "../../../abis/tron/UntronControllerAbi";
+import { tronLightClientAbi, untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 import { computeNextEventChainTip } from "../../eventChain/tip";
 import { tryPromise } from "../../effect/tryPromise";
 import type { RelayJobRow } from "../types";
@@ -291,7 +289,7 @@ export const handleRelayControllerEventChain = ({
     const lastControllerEventTip = (yield* tryPromise(() =>
       mainnetClient.readContract({
         address: untronV3Address,
-        abi: UntronV3Abi,
+        abi: untronV3Abi,
         functionName: "lastControllerEventTip",
       })
     )) as Hex;
@@ -323,13 +321,13 @@ export const handleRelayControllerEventChain = ({
     if (trigger.toEvm.toLowerCase() !== controllerAddress.toLowerCase()) return;
 
     const selectorIsEventChainTip = encodeFunctionData({
-      abi: UntronControllerAbi,
+      abi: untronControllerAbi,
       functionName: "isEventChainTip",
       args: [eventChainTip],
     }).slice(0, 10) as Hex;
 
     const selectorMulticall = encodeFunctionData({
-      abi: UntronControllerAbi,
+      abi: untronControllerAbi,
       functionName: "multicall",
       args: [[] as Hex[]],
     }).slice(0, 10) as Hex;
@@ -339,7 +337,7 @@ export const handleRelayControllerEventChain = ({
       // ok
     } else if (topSelector === selectorMulticall.toLowerCase()) {
       const decoded = decodeFunctionData({
-        abi: UntronControllerAbi,
+        abi: untronControllerAbi,
         data: trigger.data,
       });
       if (decoded.functionName !== "multicall") return;
@@ -357,7 +355,7 @@ export const handleRelayControllerEventChain = ({
     const tronBlockPublished = yield* tryPromise(() =>
       mainnetClient.readContract({
         address: tronLightClientAddress,
-        abi: TronLightClientAbi,
+        abi: tronLightClientAbi,
         functionName: "getTxTrieRoot",
         args: [tronBlockNumber],
       })
@@ -503,7 +501,7 @@ export const handleRelayControllerEventChain = ({
     }
 
     const relayCall = encodeFunctionData({
-      abi: UntronV3Abi,
+      abi: untronV3Abi,
       functionName: "relayControllerEventChain",
       args: [
         tronBlockNumber,

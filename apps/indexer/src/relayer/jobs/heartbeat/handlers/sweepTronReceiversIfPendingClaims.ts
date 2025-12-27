@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
 
-import { UntronV3Abi } from "../../../../../abis/evm/UntronV3Abi";
+import { untronV3Abi } from "@untron/v3-contracts";
 import { tryPromise } from "../../../../effect/tryPromise";
 import { getRows } from "../../../sqlRows";
 import { tronSweepUsdtFromReceivers } from "./usdtSweep";
@@ -35,7 +35,7 @@ export const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =
       const nextIndex = (yield* tryPromise(() =>
         ctx.ponderContext.client.readContract({
           address: untronV3Address,
-          abi: UntronV3Abi,
+          abi: untronV3Abi,
           functionName: "nextIndexByTargetToken",
           args: [queue.targetToken],
         })

@@ -6,7 +6,7 @@ import { decodeEventLog, encodeFunctionData, type Address, type Hex } from "viem
 
 import type { BlockExtention } from "@untron/tron-protocol/api";
 
-import { TronLightClientAbi } from "../../abis/evm/TronLightClientAbi";
+import { tronLightClientAbi } from "@untron/v3-contracts";
 import { tronLightClientCheckpoint } from "ponder:schema";
 
 import { getRows } from "./sqlRows";
@@ -19,6 +19,9 @@ import {
 const UINT256_MAX = (1n << 256n) - 1n;
 
 const MAX_TRON_BLOCKS_PER_PROVE_CALL = 500n;
+const FINALITY_DISTINCT_SR_THRESHOLD = 19;
+const FINALITY_LOOKAHEAD_INITIAL_BLOCKS = 60n;
+const FINALITY_LOOKAHEAD_STEP_BLOCKS = 60n;
 const TRON_BLOCK_FETCH_CONCURRENCY = (() => {
   const raw = process.env.TRON_BLOCK_FETCH_CONCURRENCY;
   if (!raw) return 1;
@@ -54,6 +57,25 @@ function coerceHex(value: unknown, label: string): Hex {
   return value.toLowerCase() as Hex;
 }
 
+function popcount32(x: number): number {
+  let v = x >>> 0;
+  let c = 0;
+  while (v !== 0) {
+    v = (v & (v - 1)) >>> 0;
+    c++;
+  }
+  return c;
+}
+
+function distinctWitnessesFromOffset(witnessIndices: readonly number[], offset: number): number {
+  let mask = 0;
+  for (let i = witnessIndices.length - 1; i >= offset; i--) {
+    const wi = witnessIndices[i]!;
+    mask |= 1 << wi;
+  }
+  return popcount32(mask);
+}
+
 type TronSrsCache = {
   witnessIndexByTronOwnerHex: ReadonlyMap<string, number>;
 };
@@ -77,7 +99,7 @@ async function loadTronLightClientSrs(args: {
     for (let i = 0; i < 27; i++) {
       const sr = (await args.mainnetClient.readContract({
         address: args.tronLightClientAddress,
-        abi: TronLightClientAbi,
+        abi: tronLightClientAbi,
         functionName: "srs",
         args: [BigInt(i)],
       })) as `0x${string}`;
@@ -230,7 +252,7 @@ export const upsertTronLightClientCheckpointsFromTransaction = (args: {
 
       try {
         const decoded = decodeEventLog({
-          abi: TronLightClientAbi,
+          abi: tronLightClientAbi,
           data: log.data,
           topics: log.topics,
         });
@@ -348,70 +370,26 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
       forwardLen !== null && (backfillLen === null || forwardLen <= backfillLen);
 
     const rangeStart = preferForward ? nearest.prev!.tronBlockNumber + 1n : args.tronBlockNumber;
-    const rangeEnd = preferForward ? args.tronBlockNumber : nearest.next!.tronBlockNumber;
+    const candidateOffsetBigint = args.tronBlockNumber - rangeStart;
+    if (candidateOffsetBigint < 0n) {
+      return yield* Effect.fail(new Error("proveBlocks planning error: negative candidate offset"));
+    }
 
-    const cappedRangeEnd =
-      preferForward && rangeEnd - rangeStart + 1n > MAX_TRON_BLOCKS_PER_PROVE_CALL
-        ? rangeStart + (MAX_TRON_BLOCKS_PER_PROVE_CALL - 1n)
-        : rangeEnd;
-
-    const blockNumbers: bigint[] = [];
-    for (let n = rangeStart; n <= cappedRangeEnd; n++) blockNumbers.push(n);
+    const maxRangeEnd = rangeStart + (MAX_TRON_BLOCKS_PER_PROVE_CALL - 1n);
+    const baseRangeEnd = preferForward ? args.tronBlockNumber : nearest.next!.tronBlockNumber;
+    let rangeEnd =
+      baseRangeEnd + FINALITY_LOOKAHEAD_INITIAL_BLOCKS > maxRangeEnd
+        ? maxRangeEnd
+        : baseRangeEnd + FINALITY_LOOKAHEAD_INITIAL_BLOCKS;
 
     yield* Effect.logInfo("[tron_light_client] proveBlocks plan").pipe(
       Effect.annotateLogs({
         tronBlockNumber: args.tronBlockNumber.toString(),
         rangeStart: rangeStart.toString(),
-        rangeEnd: cappedRangeEnd.toString(),
-        count: blockNumbers.length,
+        rangeEnd: rangeEnd.toString(),
+        candidateOffset: candidateOffsetBigint.toString(),
         direction: preferForward ? "forward" : "backfill",
-        capped: preferForward && cappedRangeEnd !== rangeEnd,
-      })
-    );
-
-    const downloadStartedAtMs = Date.now();
-    let downloaded = 0;
-    let lastProgressLogAtMs = downloadStartedAtMs;
-
-    const parsedBlocks = yield* Effect.forEach(
-      blockNumbers,
-      (blockNumber) =>
-        args.fetchTronBlockByNum(blockNumber).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              downloaded += 1;
-              const now = Date.now();
-              if (now - lastProgressLogAtMs < TRON_BLOCK_FETCH_PROGRESS_INTERVAL_MS) return null;
-              lastProgressLogAtMs = now;
-              return { downloaded, elapsedMs: now - downloadStartedAtMs };
-            }).pipe(
-              Effect.flatMap((progress) =>
-                progress
-                  ? Effect.logInfo("[tron_light_client] proveBlocks downloading").pipe(
-                      Effect.annotateLogs({
-                        downloaded: progress.downloaded,
-                        total: blockNumbers.length,
-                        concurrency: TRON_BLOCK_FETCH_CONCURRENCY,
-                        elapsedMs: progress.elapsedMs,
-                      })
-                    )
-                  : Effect.void
-              )
-            )
-          ),
-          Effect.map(parseTronBlockForLightClient)
-        ),
-      { concurrency: TRON_BLOCK_FETCH_CONCURRENCY }
-    );
-
-    const downloadElapsedMs = Date.now() - downloadStartedAtMs;
-    const blocksPerSecond = downloadElapsedMs > 0 ? (downloaded / downloadElapsedMs) * 1000 : 0;
-    yield* Effect.logInfo("[tron_light_client] proveBlocks downloaded").pipe(
-      Effect.annotateLogs({
-        downloaded,
-        total: blockNumbers.length,
-        elapsedMs: downloadElapsedMs,
-        blocksPerSecond: blocksPerSecond.toFixed(2),
+        maxRangeEnd: maxRangeEnd.toString(),
       })
     );
 
@@ -424,34 +402,125 @@ export const buildTronLightClientProveBlocksCallToCheckpointBlock = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })).witnessIndexByTronOwnerHex;
 
-    const { compressedTronBlockMetadata, compressedSignatures } =
-      encodeTronLightClientMetadataAndSignatures({
-        blocks: parsedBlocks,
-        witnessIndexByTronOwnerAddressHex: witnessIndexByTronOwnerHex,
-      });
+    const parsedBlocks: Array<ReturnType<typeof parseTronBlockForLightClient>> = [];
+    const blockNumbers: bigint[] = [];
 
-    const startingBlockId = preferForward
-      ? nearest.prev!.tronBlockId
-      : (`0x${Buffer.from(parsedBlocks[0]!.parentHash).toString("hex")}` as Hex);
+    const downloadStartedAtMs = Date.now();
+    let downloaded = 0;
+    let lastProgressLogAtMs = downloadStartedAtMs;
 
-    const numBlocks = BigInt(parsedBlocks.length);
-    const storeOffsets16 = encodeStoreOffsets16([preferForward ? Number(numBlocks - 1n) : 0]);
+    const downloadSegment = (segmentStart: bigint, segmentEnd: bigint) =>
+      Effect.forEach(
+        (() => {
+          const nums: bigint[] = [];
+          for (let n = segmentStart; n <= segmentEnd; n++) nums.push(n);
+          return nums;
+        })(),
+        (blockNumber) =>
+          args.fetchTronBlockByNum(blockNumber).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                downloaded += 1;
+                const now = Date.now();
+                if (now - lastProgressLogAtMs < TRON_BLOCK_FETCH_PROGRESS_INTERVAL_MS) return null;
+                lastProgressLogAtMs = now;
+                return { downloaded, elapsedMs: now - downloadStartedAtMs };
+              }).pipe(
+                Effect.flatMap((progress) =>
+                  progress
+                    ? Effect.logInfo("[tron_light_client] proveBlocks downloading").pipe(
+                        Effect.annotateLogs({
+                          downloaded: progress.downloaded,
+                          concurrency: TRON_BLOCK_FETCH_CONCURRENCY,
+                          elapsedMs: progress.elapsedMs,
+                        })
+                      )
+                    : Effect.void
+                )
+              )
+            ),
+            Effect.map(parseTronBlockForLightClient)
+          ),
+        { concurrency: TRON_BLOCK_FETCH_CONCURRENCY }
+      );
 
-    const intersectionOffset = preferForward
-      ? UINT256_MAX
-      : BigInt(nearest.next!.tronBlockNumber - args.tronBlockNumber);
+    let segmentStart = rangeStart;
 
-    const data = encodeFunctionData({
-      abi: TronLightClientAbi,
-      functionName: "proveBlocks",
-      args: [
-        startingBlockId,
-        compressedTronBlockMetadata,
-        compressedSignatures,
-        intersectionOffset,
-        storeOffsets16,
-      ],
-    });
+    while (true) {
+      const newlyParsed = yield* downloadSegment(segmentStart, rangeEnd);
+      parsedBlocks.push(...newlyParsed);
+      for (let n = segmentStart; n <= rangeEnd; n++) blockNumbers.push(n);
 
-    return { to: args.tronLightClientAddress, data };
+      const { compressedTronBlockMetadata, compressedSignatures, witnessIndices } =
+        encodeTronLightClientMetadataAndSignatures({
+          blocks: parsedBlocks,
+          witnessIndexByTronOwnerAddressHex: witnessIndexByTronOwnerHex,
+        });
+
+      const candidateOffset = Number(candidateOffsetBigint);
+      const distinct = distinctWitnessesFromOffset(witnessIndices, candidateOffset);
+
+      if (distinct >= FINALITY_DISTINCT_SR_THRESHOLD) {
+        const downloadElapsedMs = Date.now() - downloadStartedAtMs;
+        const blocksPerSecond = downloadElapsedMs > 0 ? (downloaded / downloadElapsedMs) * 1000 : 0;
+        yield* Effect.logInfo("[tron_light_client] proveBlocks downloaded").pipe(
+          Effect.annotateLogs({
+            downloaded,
+            total: blockNumbers.length,
+            rangeEnd: rangeEnd.toString(),
+            distinct,
+            elapsedMs: downloadElapsedMs,
+            blocksPerSecond: blocksPerSecond.toFixed(2),
+          })
+        );
+
+        const startingBlockId = preferForward
+          ? nearest.prev!.tronBlockId
+          : (`0x${Buffer.from(parsedBlocks[0]!.parentHash).toString("hex")}` as Hex);
+
+        const storeOffsets16 = encodeStoreOffsets16([candidateOffset]);
+
+        const intersectionOffset = preferForward
+          ? UINT256_MAX
+          : BigInt(nearest.next!.tronBlockNumber - args.tronBlockNumber);
+
+        const data = encodeFunctionData({
+          abi: tronLightClientAbi,
+          functionName: "proveBlocks",
+          args: [
+            startingBlockId,
+            compressedTronBlockMetadata,
+            compressedSignatures,
+            intersectionOffset,
+            storeOffsets16,
+          ],
+        });
+
+        return { to: args.tronLightClientAddress, data };
+      }
+
+      if (rangeEnd >= maxRangeEnd) {
+        return yield* Effect.fail(
+          new Error(
+            `proveBlocks planning error: checkpoint not finalized within max range (distinct=${distinct}, need>=${FINALITY_DISTINCT_SR_THRESHOLD})`
+          )
+        );
+      }
+
+      const nextEndCandidate = rangeEnd + FINALITY_LOOKAHEAD_STEP_BLOCKS;
+      const nextEnd = nextEndCandidate > maxRangeEnd ? maxRangeEnd : nextEndCandidate;
+      yield* Effect.logInfo("[tron_light_client] proveBlocks extending for finality").pipe(
+        Effect.annotateLogs({
+          previousRangeEnd: rangeEnd.toString(),
+          nextRangeEnd: nextEnd.toString(),
+          distinct,
+          threshold: FINALITY_DISTINCT_SR_THRESHOLD,
+        })
+      );
+
+      segmentStart = rangeEnd + 1n;
+      rangeEnd = nextEnd;
+    }
+
+    // unreachable
   });

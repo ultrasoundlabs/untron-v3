@@ -3,8 +3,7 @@ import { encodeFunctionData, isAddress, type Address, type Hex, type PublicClien
 
 import { NumberMessage, type BlockExtention } from "@untron/tron-protocol/api";
 
-import { TronLightClientAbi } from "../../../abis/evm/TronLightClientAbi";
-import { UntronV3Abi } from "../../../abis/evm/UntronV3Abi";
+import { tronLightClientAbi, untronV3Abi } from "@untron/v3-contracts";
 import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
 import { PublicClients } from "../deps/publicClients";
@@ -124,7 +123,7 @@ async function loadTronUsdt(args: {
   const promise = (async () => {
     const tronUsdt = (await args.mainnetClient.readContract({
       address: args.untronV3Address,
-      abi: UntronV3Abi,
+      abi: untronV3Abi,
       functionName: "tronUsdt",
     })) as Address;
     return tronUsdt.toLowerCase() as Address;
@@ -229,7 +228,7 @@ export const handleTrc20Transfer = ({
       const lastPullTs = (yield* tryPromise(() =>
         mainnetClient.readContract({
           address: untronV3Address,
-          abi: UntronV3Abi,
+          abi: untronV3Abi,
           functionName: "lastReceiverPullTimestamp",
           args: [receiver.receiverSalt],
         })
@@ -243,7 +242,7 @@ export const handleTrc20Transfer = ({
       const alreadyProcessed = (yield* tryPromise(() =>
         mainnetClient.readContract({
           address: untronV3Address,
-          abi: UntronV3Abi,
+          abi: untronV3Abi,
           functionName: "depositProcessed",
           args: [txId],
         })
@@ -253,7 +252,7 @@ export const handleTrc20Transfer = ({
       const tronBlockPublished = yield* tryPromise(() =>
         mainnetClient.readContract({
           address: tronLightClientAddress,
-          abi: TronLightClientAbi,
+          abi: tronLightClientAbi,
           functionName: "getTxTrieRoot",
           args: [tronBlockNumber],
         })
@@ -373,7 +372,7 @@ export const handleTrc20Transfer = ({
       const simulation = yield* tryPromise(() =>
         mainnetClient.simulateContract({
           address: untronV3Address,
-          abi: UntronV3Abi,
+          abi: untronV3Abi,
           functionName: "preEntitle",
           args,
           account: relayerAddress,
@@ -388,7 +387,7 @@ export const handleTrc20Transfer = ({
       if (simulation === "skip") return;
 
       const data = encodeFunctionData({
-        abi: UntronV3Abi,
+        abi: untronV3Abi,
         functionName: "preEntitle",
         args,
       });

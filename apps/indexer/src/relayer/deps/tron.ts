@@ -25,7 +25,7 @@ import {
 } from "@untron/tron-protocol/tron";
 
 import { ERC20Abi } from "../../../abis/ERC20Abi";
-import { UntronControllerAbi } from "../../../abis/tron/UntronControllerAbi";
+import { untronControllerAbi } from "@untron/v3-contracts";
 import { AppConfig } from "../../effect/config";
 import { computeNextEventChainTip } from "../../eventChain/tip";
 
@@ -249,7 +249,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           const entries = yield* Effect.forEach(salts, (receiverSalt) =>
             tronReadContract<Address>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "predictReceiverAddress",
               args: [receiverSalt],
             }).pipe(
@@ -402,7 +402,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           const ownerAddressBytes21 = yield* relayerAddressBytes21Cached;
 
           const data = encodeFunctionData({
-            abi: UntronControllerAbi,
+            abi: untronControllerAbi,
             functionName: "multicall",
             args: [calls],
           });
@@ -481,7 +481,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           const controllerBytes21 = yield* controllerAddressBytes21();
           const usdtAddress = yield* tronReadContract<Address>({
             addressBytes21: controllerBytes21,
-            abi: UntronControllerAbi,
+            abi: untronControllerAbi,
             functionName: "usdt",
           });
 
@@ -499,7 +499,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
               if (pendingSalts.length) {
                 const multicallCalls = pendingSalts.map((salt) =>
                   encodeFunctionData({
-                    abi: UntronControllerAbi,
+                    abi: untronControllerAbi,
                     functionName: "predictReceiverAddress",
                     args: [salt],
                   })
@@ -507,7 +507,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
 
                 const results = yield* tronReadContract<readonly Hex[]>({
                   addressBytes21: controllerBytes21,
-                  abi: UntronControllerAbi,
+                  abi: untronControllerAbi,
                   functionName: "multicall",
                   args: [multicallCalls],
                 });
@@ -524,7 +524,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
                   const salt = pendingSalts[i]!;
                   const data = results[i]!;
                   const decoded = decodeFunctionResult({
-                    abi: UntronControllerAbi,
+                    abi: untronControllerAbi,
                     functionName: "predictReceiverAddress",
                     data,
                   }) as Address;
@@ -548,7 +548,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
 
               const rate = yield* tronReadContract<bigint>({
                 addressBytes21: controllerBytes21,
-                abi: UntronControllerAbi,
+                abi: untronControllerAbi,
                 functionName: "lpExchangeRateFor",
                 args: [token],
               });
@@ -595,7 +595,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             Effect.gen(function* () {
               const payload = yield* tronReadContract<Hex>({
                 addressBytes21: controllerBytes21,
-                abi: UntronControllerAbi,
+                abi: untronControllerAbi,
                 functionName: "payloadFor",
                 args: [rebalancer],
               });
@@ -638,7 +638,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           const plannedEvents: PlannedIndexedEvent[] = [];
 
           for (const callData of calls) {
-            const decoded = decodeFunctionData({ abi: UntronControllerAbi, data: callData });
+            const decoded = decodeFunctionData({ abi: untronControllerAbi, data: callData });
 
             if (decoded.functionName === "pullFromReceivers") {
               const token = decoded.args?.[0] as Address | undefined;
@@ -746,7 +746,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           for (let attempt = 0; attempt < 3; attempt++) {
             const preTip = yield* tronReadContract<Hex>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "eventChainTip",
             });
 
@@ -768,13 +768,13 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             }
 
             const checkpointCall = encodeFunctionData({
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "isEventChainTip",
               args: [expectedTip],
             });
 
             const finalData = encodeFunctionData({
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "multicall",
               args: [[...calls, checkpointCall]],
             });
@@ -802,7 +802,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           Effect.flatMap((controllerBytes21) =>
             tronReadContract<Address>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "usdt",
             })
           )
@@ -813,7 +813,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           Effect.flatMap((controllerBytes21) =>
             tronReadContract<Hex>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "eventChainTip",
             })
           )
@@ -824,7 +824,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           Effect.flatMap((controllerBytes21) =>
             tronReadContract<bigint>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "pulledUsdt",
             })
           )
@@ -835,7 +835,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           Effect.flatMap((controllerBytes21) =>
             tronReadContract<bigint>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "lpExchangeRateFor",
               args: [tokenAddress],
             })
@@ -892,7 +892,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           }
 
           const call = encodeFunctionData({
-            abi: UntronControllerAbi,
+            abi: untronControllerAbi,
             functionName: "pullFromReceivers",
             args: [tokenAddress, receiverSalts],
           });
@@ -925,12 +925,12 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
           for (let attempt = 0; attempt < 3; attempt++) {
             const tip = yield* tronReadContract<Hex>({
               addressBytes21: controllerBytes21,
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "eventChainTip",
             });
 
             const data = encodeFunctionData({
-              abi: UntronControllerAbi,
+              abi: untronControllerAbi,
               functionName: "isEventChainTip",
               args: [tip],
             });
@@ -994,7 +994,7 @@ export class TronRelayer extends Effect.Tag("TronRelayer")<
             return yield* Effect.fail(new Error("Invalid rebalancer address"));
 
           const call = encodeFunctionData({
-            abi: UntronControllerAbi,
+            abi: untronControllerAbi,
             functionName: "rebalanceUsdt",
             args: [rebalancer, inAmount],
           });
