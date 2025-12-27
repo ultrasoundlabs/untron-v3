@@ -456,7 +456,7 @@ Public methods are small wrappers:
 
 ## MainnetRelayer: account abstraction (EIP-4337)
 
-- `apps/indexer/src/relayer/deps/mainnet.ts`
+- `apps/indexer/src/relayer/deps/mainnet/index.ts` (plus helpers in `apps/indexer/src/relayer/deps/mainnet/*`)
 - Wraps `permissionless` to send EIP-4337 UserOperations via bundlers:
   - Builds a Safe smart account (cached)
   - Sends UOs to one or more bundlers
