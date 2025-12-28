@@ -3,8 +3,6 @@ import { encodeStoreOffsets16, encodeTronLightClientMetadataAndSignatures } from
 import { encodeFunctionData, type Address, type Hex } from "viem";
 
 import { tronLightClientAbi } from "@untron/v3-contracts";
-
-const UINT256_MAX = (1n << 256n) - 1n;
 const FINALITY_DISTINCT_SR_THRESHOLD = 19;
 const MAX_STORE_OFFSETS = 16;
 
@@ -32,6 +30,7 @@ export type TronLightClientProveBlocksPlan = Readonly<{
   call: { to: Address; data: Hex };
   rangeStart: bigint;
   rangeEnd: bigint;
+  intersectionOffset: bigint;
   storeOffsets: readonly number[];
   storedRequestedTronBlockNumbers: readonly bigint[];
   maxFinalizableOffset: number;
@@ -44,7 +43,9 @@ export function planTronLightClientProveBlocksCall(args: {
   rangeStart: bigint;
   rangeEnd: bigint;
   blocks: readonly TronBlockForLightClient[];
+  intersectionOffset: bigint;
   requestedOffsets: readonly number[];
+  progressOffset?: "start" | "end";
   witnessIndexByTronOwnerAddressHex: ReadonlyMap<string, number>;
 }): TronLightClientProveBlocksPlan | null {
   if (args.rangeEnd < args.rangeStart) return null;
@@ -82,10 +83,12 @@ export function planTronLightClientProveBlocksCall(args: {
   );
 
   const storeOffsets = (() => {
+    const progressOffset = args.progressOffset ?? "end";
     const eligible = requestedOffsetsBounded
       .filter((off) => off <= maxFinalizableOffset)
       .slice(0, MAX_STORE_OFFSETS);
     if (eligible.length > 0) return eligible;
+    if (progressOffset === "start") return [0];
     return [maxFinalizableOffset];
   })();
 
@@ -99,7 +102,7 @@ export function planTronLightClientProveBlocksCall(args: {
       args.startingBlockId,
       compressedTronBlockMetadata,
       compressedSignatures,
-      UINT256_MAX,
+      args.intersectionOffset,
       storeOffsets16,
     ],
   });
@@ -112,6 +115,7 @@ export function planTronLightClientProveBlocksCall(args: {
     call: { to: args.tronLightClientAddress, data },
     rangeStart: args.rangeStart,
     rangeEnd: args.rangeEnd,
+    intersectionOffset: args.intersectionOffset,
     storeOffsets,
     storedRequestedTronBlockNumbers,
     maxFinalizableOffset,

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type { Hex } from "viem";
 
 import { AppConfig } from "../../effect/config";
 import { getTronLightClientAddress } from "../../contracts";
@@ -11,14 +12,23 @@ import { fetchTronBlocksForLightClient } from "./fetch";
 import { planTronLightClientProveBlocksCall } from "./planner";
 import {
   deleteFulfilledPublishRequests,
+  getCheckpointAtOrAbove,
   getEligibleRequestBlockNumbersInRange,
   getLatestCheckpoint,
+  getOldestEligibleRequestBlockNumber,
   loadWitnessIndexByTronOwnerAddressHex,
+  markPublishRequestSent,
   markPublishRequestsSentInRange,
 } from "./repo";
 
 const MAX_TRON_BLOCKS_PER_PROVE_CALL = 500n;
 const MAX_REQUESTS_PER_RANGE_QUERY = 256;
+const UINT256_MAX = (1n << 256n) - 1n;
+
+function bufferToHex32(value: Buffer, label: string): Hex {
+  if (value.length !== 32) throw new Error(`Invalid ${label} (expected 32 bytes)`);
+  return `0x${value.toString("hex")}` as Hex;
+}
 
 function safeOffsetsFromBlockNumbers(args: {
   rangeStart: bigint;
@@ -52,6 +62,11 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
       tronLightClientAddress,
     });
 
+    const eligibleLastSent =
+      tronHeadBlockNumber > publisherConfig.requestCooldownBlocks
+        ? tronHeadBlockNumber - publisherConfig.requestCooldownBlocks
+        : 0n;
+
     const latestCheckpoint = yield* getLatestCheckpoint({
       context: ctx.ponderContext,
       tronLightClientAddress,
@@ -63,32 +78,108 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
       return;
     }
 
-    const startingBlockNumber = latestCheckpoint.tronBlockNumber;
-    const startingBlockId = latestCheckpoint.tronBlockId;
+    const maxSpan = MAX_TRON_BLOCKS_PER_PROVE_CALL - 1n;
 
-    if (startingBlockNumber >= publishTargetBlockNumber) return;
-    if (startingBlockNumber >= tronHeadBlockNumber) return;
+    const forwardRangeStart = latestCheckpoint.tronBlockNumber + 1n;
+    const forwardRangeEnd = (() => {
+      if (forwardRangeStart > publishTargetBlockNumber) return null;
+      let end = forwardRangeStart + maxSpan;
+      if (end > publishTargetBlockNumber) end = publishTargetBlockNumber;
+      if (end < forwardRangeStart) return null;
+      return end;
+    })();
 
-    const rangeStart = startingBlockNumber + 1n;
-    let rangeEnd = rangeStart + (MAX_TRON_BLOCKS_PER_PROVE_CALL - 1n);
-    if (rangeEnd > publishTargetBlockNumber) rangeEnd = publishTargetBlockNumber;
-    if (rangeEnd < rangeStart) return;
+    const selected = yield* Effect.gen(function* () {
+      if (forwardRangeEnd !== null) {
+        const requestedBlockNumbers = yield* getEligibleRequestBlockNumbersInRange({
+          context: ctx.ponderContext,
+          tronLightClientAddress,
+          rangeStart: forwardRangeStart,
+          rangeEnd: forwardRangeEnd,
+          eligibleLastSent,
+          limit: MAX_REQUESTS_PER_RANGE_QUERY,
+        });
 
-    const eligibleLastSent =
-      tronHeadBlockNumber > publisherConfig.requestCooldownBlocks
-        ? tronHeadBlockNumber - publisherConfig.requestCooldownBlocks
-        : 0n;
+        if (requestedBlockNumbers.length > 0) {
+          return {
+            kind: "forward" as const,
+            rangeStart: forwardRangeStart,
+            rangeEnd: forwardRangeEnd,
+            intersectionOffset: UINT256_MAX,
+            progressOffset: "end" as const,
+            anchorCheckpoint: latestCheckpoint,
+            oldestEligibleRequestBlockNumber: requestedBlockNumbers[0]!,
+            requestedBlockNumbers,
+          };
+        }
+      }
 
-    const requestedBlockNumbers = yield* getEligibleRequestBlockNumbersInRange({
-      context: ctx.ponderContext,
-      tronLightClientAddress,
-      rangeStart,
-      rangeEnd,
-      eligibleLastSent,
-      limit: MAX_REQUESTS_PER_RANGE_QUERY,
+      const oldestEligibleRequestBlockNumber = yield* getOldestEligibleRequestBlockNumber({
+        context: ctx.ponderContext,
+        tronLightClientAddress,
+        eligibleLastSent,
+      });
+      if (oldestEligibleRequestBlockNumber === null) return null;
+
+      const anchorCheckpoint = yield* getCheckpointAtOrAbove({
+        context: ctx.ponderContext,
+        tronLightClientAddress,
+        tronBlockNumber: oldestEligibleRequestBlockNumber,
+      });
+      if (!anchorCheckpoint) {
+        yield* Effect.logError(
+          "[tron_light_client] missing anchor checkpoint for publish requests"
+        ).pipe(Effect.annotateLogs({ tronLightClientAddress, oldestEligibleRequestBlockNumber }));
+        return null;
+      }
+
+      const distance = anchorCheckpoint.tronBlockNumber - oldestEligibleRequestBlockNumber;
+
+      if (distance > maxSpan) {
+        const rangeEnd = anchorCheckpoint.tronBlockNumber;
+        const rangeStart = rangeEnd > maxSpan ? rangeEnd - maxSpan : 0n;
+        return {
+          kind: "backfill_step" as const,
+          rangeStart,
+          rangeEnd,
+          intersectionOffset: rangeEnd - rangeStart,
+          progressOffset: "start" as const,
+          anchorCheckpoint,
+          oldestEligibleRequestBlockNumber,
+          requestedBlockNumbers: [] as readonly bigint[],
+        };
+      }
+
+      const rangeStart = oldestEligibleRequestBlockNumber;
+      let rangeEnd = rangeStart + maxSpan;
+      if (rangeEnd > tronHeadBlockNumber) rangeEnd = tronHeadBlockNumber;
+      if (rangeEnd < anchorCheckpoint.tronBlockNumber) rangeEnd = anchorCheckpoint.tronBlockNumber;
+
+      const requestedBlockNumbers = yield* getEligibleRequestBlockNumbersInRange({
+        context: ctx.ponderContext,
+        tronLightClientAddress,
+        rangeStart,
+        rangeEnd,
+        eligibleLastSent,
+        limit: MAX_REQUESTS_PER_RANGE_QUERY,
+      });
+
+      return {
+        kind: "backfill" as const,
+        rangeStart,
+        rangeEnd,
+        intersectionOffset: anchorCheckpoint.tronBlockNumber - rangeStart,
+        progressOffset: "end" as const,
+        anchorCheckpoint,
+        oldestEligibleRequestBlockNumber,
+        requestedBlockNumbers,
+      };
     });
-    if (requestedBlockNumbers.length === 0) return;
-    const nextRequestedTronBlockNumber = requestedBlockNumbers[0]!;
+
+    if (!selected) return;
+
+    const nextRequestedTronBlockNumber =
+      selected.requestedBlockNumbers[0] ?? selected.oldestEligibleRequestBlockNumber;
 
     const tronGrpc = yield* TronGrpc;
     const { wallet, callOpts } = yield* tronGrpc.get();
@@ -101,30 +192,42 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
     const blocks = yield* fetchTronBlocksForLightClient({
       wallet,
       metadata: callOpts.metadata,
-      rangeStart,
-      rangeEnd,
+      rangeStart: selected.rangeStart,
+      rangeEnd: selected.rangeEnd,
       concurrency: publisherConfig.blockFetchConcurrency,
     });
+
+    const startingBlockId =
+      selected.intersectionOffset === UINT256_MAX
+        ? selected.anchorCheckpoint.tronBlockId
+        : bufferToHex32(blocks[0]!.parentHash, "tronBlock.parentHash");
 
     const plan = planTronLightClientProveBlocksCall({
       tronLightClientAddress,
       startingBlockId,
-      rangeStart,
-      rangeEnd,
+      rangeStart: selected.rangeStart,
+      rangeEnd: selected.rangeEnd,
       blocks,
-      requestedOffsets: safeOffsetsFromBlockNumbers({ rangeStart, requestedBlockNumbers }),
+      intersectionOffset: selected.intersectionOffset,
+      requestedOffsets: safeOffsetsFromBlockNumbers({
+        rangeStart: selected.rangeStart,
+        requestedBlockNumbers: selected.requestedBlockNumbers,
+      }),
+      progressOffset: selected.progressOffset,
       witnessIndexByTronOwnerAddressHex,
     });
     if (!plan) return;
 
     yield* Effect.logInfo("[tron_light_client] publish proveBlocks").pipe(
       Effect.annotateLogs({
+        kind: selected.kind,
         tronHeadBlockNumber: tronHeadBlockNumber.toString(),
         publishTargetBlockNumber: publishTargetBlockNumber.toString(),
-        latestCheckpointBlockNumber: startingBlockNumber.toString(),
+        anchorCheckpointBlockNumber: selected.anchorCheckpoint.tronBlockNumber.toString(),
         nextRequestedTronBlockNumber: nextRequestedTronBlockNumber.toString(),
         rangeStart: plan.rangeStart.toString(),
         rangeEnd: plan.rangeEnd.toString(),
+        intersectionOffset: plan.intersectionOffset.toString(),
         storeOffsets: plan.storeOffsets.join(","),
         storedRequestedTronBlockNumbers: plan.storedRequestedTronBlockNumbers
           .map((n) => n.toString())
@@ -143,22 +246,33 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
       })
     );
 
-    yield* markPublishRequestsSentInRange({
-      context: ctx.ponderContext,
-      tronLightClientAddress,
-      rangeStart,
-      rangeEnd,
-      eligibleLastSent,
-      headBlockNumber: tronHeadBlockNumber,
-      headBlockTimestamp: ctx.headBlockTimestamp,
-    });
+    if (selected.requestedBlockNumbers.length > 0) {
+      yield* markPublishRequestsSentInRange({
+        context: ctx.ponderContext,
+        tronLightClientAddress,
+        rangeStart: selected.rangeStart,
+        rangeEnd: selected.rangeEnd,
+        eligibleLastSent,
+        headBlockNumber: tronHeadBlockNumber,
+        headBlockTimestamp: ctx.headBlockTimestamp,
+      });
+    } else {
+      yield* markPublishRequestSent({
+        context: ctx.ponderContext,
+        tronLightClientAddress,
+        tronBlockNumber: selected.oldestEligibleRequestBlockNumber,
+        headBlockNumber: tronHeadBlockNumber,
+        headBlockTimestamp: ctx.headBlockTimestamp,
+      });
+    }
 
     yield* Effect.logInfo("[tron_light_client] publish proveBlocks done").pipe(
       Effect.annotateLogs({
         chainId: MAINNET_CHAIN_ID,
         tronLightClientAddress,
-        rangeStart: rangeStart.toString(),
-        rangeEnd: rangeEnd.toString(),
+        kind: selected.kind,
+        rangeStart: selected.rangeStart.toString(),
+        rangeEnd: selected.rangeEnd.toString(),
       })
     );
   });

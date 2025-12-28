@@ -91,6 +91,34 @@ export const getLatestCheckpoint = (args: {
     })
   );
 
+export const getCheckpointAtOrAbove = (args: {
+  context: PonderContext;
+  tronLightClientAddress: Address;
+  tronBlockNumber: bigint;
+}): Effect.Effect<{ tronBlockNumber: bigint; tronBlockId: Hex } | null, Error> =>
+  tryPromise(() =>
+    args.context.db.sql.execute(sql`
+      SELECT
+        tron_block_number AS "tronBlockNumber",
+        tron_block_id AS "tronBlockId"
+      FROM "tron_light_client_checkpoint"
+      WHERE chain_id = ${MAINNET_CHAIN_ID}
+        AND contract_address = ${args.tronLightClientAddress}
+        AND tron_block_number >= ${args.tronBlockNumber}
+      ORDER BY tron_block_number ASC
+      LIMIT 1;
+    `)
+  ).pipe(
+    Effect.map((result) => {
+      const rows = getRows(result) as Array<{ tronBlockNumber: unknown; tronBlockId: unknown }>;
+      if (rows.length === 0) return null;
+      return {
+        tronBlockNumber: coerceBigint(rows[0]!.tronBlockNumber, "checkpoint.tronBlockNumber"),
+        tronBlockId: coerceHexBytes32(rows[0]!.tronBlockId, "checkpoint.tronBlockId"),
+      };
+    })
+  );
+
 export const getEligibleRequestBlockNumbersInRange = (args: {
   context: PonderContext;
   tronLightClientAddress: Address;
@@ -119,6 +147,30 @@ export const getEligibleRequestBlockNumbersInRange = (args: {
     })
   );
 
+export const getOldestEligibleRequestBlockNumber = (args: {
+  context: PonderContext;
+  tronLightClientAddress: Address;
+  eligibleLastSent: bigint;
+}): Effect.Effect<bigint | null, Error> =>
+  tryPromise(() =>
+    args.context.db.sql.execute(sql`
+      SELECT
+        tron_block_number AS "tronBlockNumber"
+      FROM "tron_light_client_publish_request"
+      WHERE chain_id = ${MAINNET_CHAIN_ID}
+        AND tron_light_client_address = ${args.tronLightClientAddress}
+        AND (last_sent_at_tron_block_number IS NULL OR last_sent_at_tron_block_number <= ${args.eligibleLastSent})
+      ORDER BY tron_block_number ASC, "id" ASC
+      LIMIT 1;
+    `)
+  ).pipe(
+    Effect.map((result) => {
+      const rows = getRows(result) as Array<{ tronBlockNumber: unknown }>;
+      if (rows.length === 0) return null;
+      return coerceBigint(rows[0]!.tronBlockNumber, "publish_request.tronBlockNumber");
+    })
+  );
+
 export const markPublishRequestsSentInRange = (args: {
   context: PonderContext;
   tronLightClientAddress: Address;
@@ -138,6 +190,24 @@ export const markPublishRequestsSentInRange = (args: {
         AND tron_block_number >= ${args.rangeStart}
         AND tron_block_number <= ${args.rangeEnd}
         AND (last_sent_at_tron_block_number IS NULL OR last_sent_at_tron_block_number <= ${args.eligibleLastSent});
+    `)
+  ).pipe(Effect.asVoid);
+
+export const markPublishRequestSent = (args: {
+  context: PonderContext;
+  tronLightClientAddress: Address;
+  tronBlockNumber: bigint;
+  headBlockNumber: bigint;
+  headBlockTimestamp: bigint;
+}) =>
+  tryPromise(() =>
+    args.context.db.sql.execute(sql`
+      UPDATE "tron_light_client_publish_request"
+      SET last_sent_at_tron_block_number = ${args.headBlockNumber},
+          last_sent_at_tron_block_timestamp = ${args.headBlockTimestamp}
+      WHERE chain_id = ${MAINNET_CHAIN_ID}
+        AND tron_light_client_address = ${args.tronLightClientAddress}
+        AND tron_block_number = ${args.tronBlockNumber};
     `)
   ).pipe(Effect.asVoid);
 
