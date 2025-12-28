@@ -11,11 +11,13 @@ import { encodeAbiParameters, keccak256 } from "viem";
 
 import { AppConfig } from "../../../effect/config";
 import { tryPromise } from "../../../effect/tryPromise";
+import { getTronLightClientAddress } from "../../../contracts";
 import { TronRelayer } from "../../deps/tron";
 import { getRows } from "../../sqlRows";
 import type { RelayJobRow } from "../../types";
 import type { RelayJobHandlerContext } from "../types";
 import { publishTronLightClient } from "../../tronLightClient";
+import { getCheckpointAtOrAbove } from "../../tronLightClient/repo";
 import type { HeartbeatHandler } from "./types";
 import { runHeartbeatHandlers } from "./runHeartbeatHandlers";
 
@@ -24,6 +26,20 @@ const RATE_SCALE = 1_000_000_000_000_000_000n; // 1e18
 
 const MIN_REBALANCE_AMOUNT = 2n;
 const DUST_LEFT_BEHIND = 1n;
+const RESEND_IS_EVENT_CHAIN_TIP_IF_TLC_LAG_BLOCKS = 1000n;
+
+function coerceBigint(value: unknown): bigint | null {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 type SweepCandidate = {
   readonly receiverSalt: `0x${string}`;
@@ -229,6 +245,7 @@ const ensureIsEventChainTipCalled = (ctx: RelayJobHandlerContext) =>
     const controllerAddress = (
       ctx.ponderContext.contracts.UntronController.address as `0x${string}`
     ).toLowerCase() as `0x${string}`;
+    const tronLightClientAddress = getTronLightClientAddress();
 
     const state = yield* tryPromise(() =>
       ctx.ponderContext.db.find(eventChainState, {
@@ -237,32 +254,56 @@ const ensureIsEventChainTipCalled = (ctx: RelayJobHandlerContext) =>
     );
     if (!state) return;
 
-    const result = yield* tryPromise(() =>
+    const lastSent = yield* tryPromise(() =>
+      ctx.ponderContext.db.find(tronIsEventChainTipSent, {
+        id: `${chainId}:${controllerAddress}`,
+      })
+    );
+
+    const lastCalledForTip = yield* tryPromise(() =>
       ctx.ponderContext.db.sql.execute(sql`
         SELECT
-          event_chain_tip AS "eventChainTip"
+          block_number AS "blockNumber"
         FROM "untron_controller_is_event_chain_tip_called"
         WHERE chain_id = ${chainId}
           AND contract_address = ${controllerAddress}
+          AND event_chain_tip = ${state.eventChainTip}
         ORDER BY block_number DESC,
           log_index DESC
         LIMIT 1;
       `)
     );
 
-    const rows = getRows(result) as Array<{ eventChainTip: `0x${string}` }>;
-    const lastCalledTip = rows[0]?.eventChainTip;
-    if (lastCalledTip && lastCalledTip.toLowerCase() === state.eventChainTip.toLowerCase()) {
-      return;
-    }
+    const lastCalledRows = getRows(lastCalledForTip) as Array<{ blockNumber: unknown }>;
+    const lastCalledBlockNumber = coerceBigint(lastCalledRows[0]?.blockNumber);
 
-    const lastSent = yield* tryPromise(() =>
-      ctx.ponderContext.db.find(tronIsEventChainTipSent, {
-        id: `${chainId}:${controllerAddress}`,
-      })
-    );
-    if (lastSent && lastSent.eventChainTip.toLowerCase() === state.eventChainTip.toLowerCase()) {
-      return;
+    const lastSentBlockNumber =
+      lastSent && lastSent.eventChainTip.toLowerCase() === state.eventChainTip.toLowerCase()
+        ? coerceBigint(lastSent.confirmedAtBlockNumber)
+        : null;
+
+    const bestKnownCallBlockNumber =
+      lastCalledBlockNumber === null
+        ? lastSentBlockNumber
+        : lastSentBlockNumber === null
+          ? lastCalledBlockNumber
+          : lastCalledBlockNumber > lastSentBlockNumber
+            ? lastCalledBlockNumber
+            : lastSentBlockNumber;
+
+    if (bestKnownCallBlockNumber !== null) {
+      const checkpoint = yield* getCheckpointAtOrAbove({
+        context: ctx.ponderContext,
+        tronLightClientAddress,
+        tronBlockNumber: bestKnownCallBlockNumber,
+      });
+
+      if (checkpoint) {
+        const lag = checkpoint.tronBlockNumber - bestKnownCallBlockNumber;
+        if (lag <= RESEND_IS_EVENT_CHAIN_TIP_IF_TLC_LAG_BLOCKS) return;
+      } else {
+        return;
+      }
     }
 
     const onchainTip = yield* TronRelayer.getControllerEventChainTip();
