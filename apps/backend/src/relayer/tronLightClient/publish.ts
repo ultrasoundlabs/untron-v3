@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import type { Address } from "viem";
 
 import { AppConfig } from "../../effect/config";
+import { getTronLightClientAddress } from "../../contracts";
 import { MainnetRelayer } from "../deps/mainnet";
 import { TronGrpc } from "../deps/tron";
 import { MAINNET_CHAIN_ID } from "../../env";
@@ -45,9 +45,7 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
         ? tronHeadBlockNumber - publisherConfig.publishLagBlocks
         : 0n;
 
-    const tronLightClientAddress = (
-      ctx.ponderContext.contracts.TronLightClient.address as Address
-    ).toLowerCase() as Address;
+    const tronLightClientAddress = getTronLightClientAddress();
 
     yield* deleteFulfilledPublishRequests({
       context: ctx.ponderContext,

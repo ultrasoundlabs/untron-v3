@@ -11,6 +11,7 @@ import {
 } from "ponder:schema";
 
 import { registerEventChainIndexer } from "./eventChainIndexer";
+import { getTronLightClientAddress } from "./contracts";
 import { AppConfig } from "./effect/config";
 import { tryPromise } from "./effect/tryPromise";
 import { MAINNET_CHAIN_ID } from "./env";
@@ -214,9 +215,7 @@ const handleUntronControllerIsEventChainTipCalled = (args: {
 
     if (!relayerRuntime.enabled) return;
 
-    const tronLightClientAddress = (
-      args.context.contracts.TronLightClient.address as `0x${string}`
-    ).toLowerCase() as `0x${string}`;
+    const tronLightClientAddress = getTronLightClientAddress() as `0x${string}`;
     yield* tryPromise(() =>
       args.context.db
         .insert(tronLightClientPublishRequest)

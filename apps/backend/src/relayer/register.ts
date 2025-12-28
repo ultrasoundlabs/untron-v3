@@ -3,6 +3,7 @@ import type { Context as PonderContext, IndexingFunctionArgs } from "ponder:regi
 
 import { relayerStatus, trc20Transfer, tronLightClientPublishRequest } from "ponder:schema";
 
+import { getTronLightClientAddress } from "../contracts";
 import { AppConfig } from "../effect/config";
 import { BackendRuntime } from "../effect/runtime";
 import { MAINNET_CHAIN_ID } from "../env";
@@ -233,9 +234,7 @@ export function registerRelayer({
         });
         if (!isLive) return;
 
-        const tronLightClientAddress = (
-          (context as PonderContext).contracts.TronLightClient.address as `0x${string}`
-        ).toLowerCase() as `0x${string}`;
+        const tronLightClientAddress = getTronLightClientAddress() as `0x${string}`;
         yield* Effect.tryPromise(() =>
           (context as PonderContext).db
             .insert(tronLightClientPublishRequest)

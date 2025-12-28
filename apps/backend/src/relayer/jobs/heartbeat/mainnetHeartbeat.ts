@@ -118,7 +118,7 @@ const tronSweepUsdtFromReceivers = (ctx: RelayJobHandlerContext) =>
 
     const chainId = ctx.ponderContext.chain.id;
     const controllerAddress = (
-      ctx.ponderContext.contracts.UntronController.address as `0x${string}`
+      (yield* TronRelayer.getControllerEvmAddress()) as `0x${string}`
     ).toLowerCase() as `0x${string}`;
 
     const receiverSaltsSorted = [...receiverSalts].sort((a, b) =>

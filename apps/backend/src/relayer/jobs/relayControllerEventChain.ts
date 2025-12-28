@@ -9,6 +9,7 @@ import type { Transaction } from "@untron/tron-protocol/tron";
 
 import { untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 import { computeNextEventChainTip } from "../../eventChain/tip";
+import { getTronLightClientAddress, getUntronV3Address } from "../../contracts";
 import { tryPromise } from "../../effect/tryPromise";
 import { MAINNET_CHAIN_ID } from "../../env";
 import type { RelayJobRow } from "../types";
@@ -199,12 +200,8 @@ export const handleRelayControllerEventChain = ({
 
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = (
-      ctx.ponderContext.contracts.TronLightClient.address as Address
-    ).toLowerCase() as Address;
-    const untronV3Address = (
-      ctx.ponderContext.contracts.UntronV3.address as Address
-    ).toLowerCase() as Address;
+    const tronLightClientAddress = getTronLightClientAddress();
+    const untronV3Address = getUntronV3Address();
 
     yield* Effect.logInfo("[relay_controller_event_chain] load lastControllerEventTip");
     const lastControllerEventTip = (yield* tryPromise(() =>

@@ -2,6 +2,7 @@ import { ConfigError, Effect } from "effect";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 
 import { untronV3Abi } from "@untron/v3-contracts";
+import { getTronLightClientAddress, getUntronV3Address } from "../../contracts";
 import { tryPromise } from "../../effect/tryPromise";
 import { MAINNET_CHAIN_ID } from "../../env";
 import { MainnetRelayer } from "../deps/mainnet";
@@ -107,12 +108,8 @@ export const handleTrc20Transfer = ({
     const tronGrpc = yield* TronGrpc;
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = (
-      ctx.ponderContext.contracts.TronLightClient.address as Address
-    ).toLowerCase() as Address;
-    const untronV3Address = (
-      ctx.ponderContext.contracts.UntronV3.address as Address
-    ).toLowerCase() as Address;
+    const tronLightClientAddress = getTronLightClientAddress();
+    const untronV3Address = getUntronV3Address();
 
     const tronUsdt = yield* UntronV3Meta.getTronUsdt({ untronV3Address });
     if (tokenAddress.toLowerCase() !== tronUsdt) {
