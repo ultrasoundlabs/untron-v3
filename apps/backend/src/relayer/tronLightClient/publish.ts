@@ -228,6 +228,25 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
       });
       if (oldestEligibleRequestBlockNumber === null) return null;
 
+      // If the oldest request is ahead of our latest stored checkpoint, we might not have a usable
+      // "anchor checkpoint at-or-above" yet. In that case, keep publishing forward progress until
+      // the requested block falls within a forward window.
+      if (
+        forwardRangeEnd !== null &&
+        oldestEligibleRequestBlockNumber > latestCheckpoint.tronBlockNumber
+      ) {
+        return {
+          kind: "forward_progress" as const,
+          rangeStart: forwardRangeStart,
+          rangeEnd: forwardRangeEnd,
+          intersectionOffset: UINT256_MAX,
+          progressOffset: "end" as const,
+          anchorCheckpoint: latestCheckpoint,
+          oldestEligibleRequestBlockNumber,
+          requestedBlockNumbers: [] as readonly bigint[],
+        };
+      }
+
       const anchorCheckpoint = yield* getCheckpointAtOrAbove({
         context: ctx.ponderContext,
         tronLightClientAddress,

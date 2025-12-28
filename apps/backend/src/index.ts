@@ -1,5 +1,6 @@
 import { ponder } from "ponder:registry";
 import { Effect } from "effect";
+import { sql } from "ponder";
 
 import { tronLightClientAbi, untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
@@ -215,7 +216,41 @@ const handleUntronControllerIsEventChainTipCalled = (args: {
 
     if (!relayerRuntime.enabled) return;
 
+    const relayJobId = `${chainId}:relay_controller_event_chain:${transactionHash}:${logIndex}`;
+
     const tronLightClientAddress = getTronLightClientAddress() as `0x${string}`;
+
+    // Latest-wins: only keep the most recent controller `isEventChainTip` call around.
+    // Older pending jobs/requests are redundant because relaying the latest tip subsumes them.
+    yield* tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        UPDATE "relay_job"
+        SET "status" = 'sent',
+            last_error = ${`Superseded by ${relayJobId}`},
+            locked_at_block_number = NULL,
+            locked_at_block_timestamp = NULL,
+            locked_by = NULL,
+            next_retry_block_number = NULL,
+            updated_at_block_number = ${args.event.block.number},
+            updated_at_block_timestamp = ${args.event.block.timestamp}
+        WHERE chain_id = ${chainId}
+          AND "kind" = 'relay_controller_event_chain'
+          AND "status" = 'pending'
+          AND id <> ${relayJobId}
+          AND (payload_json->>'controllerAddress') = ${contractAddress};
+      `)
+    );
+
+    yield* tryPromise(() =>
+      args.context.db.sql.execute(sql`
+        DELETE FROM "tron_light_client_publish_request"
+        WHERE chain_id = ${MAINNET_CHAIN_ID}
+          AND tron_light_client_address = ${tronLightClientAddress}
+          AND source = 'relay_controller_event_chain'
+          AND tron_block_number <> ${args.event.block.number};
+      `)
+    );
+
     yield* tryPromise(() =>
       args.context.db
         .insert(tronLightClientPublishRequest)
@@ -232,7 +267,7 @@ const handleUntronControllerIsEventChainTipCalled = (args: {
 
     yield* enqueueRelayJob({
       context: args.context,
-      id: `${chainId}:relay_controller_event_chain:${transactionHash}:${logIndex}`,
+      id: relayJobId,
       chainId,
       createdAtBlockNumber: args.event.block.number,
       createdAtBlockTimestamp: args.event.block.timestamp,

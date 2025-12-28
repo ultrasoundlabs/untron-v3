@@ -198,6 +198,47 @@ export const handleRelayControllerEventChain = ({
     const publicClients = yield* PublicClients;
     const tronGrpc = yield* TronGrpc;
 
+    const latestCallResult = yield* tryPromise(() =>
+      ctx.ponderContext.db.sql.execute(sql`
+        SELECT
+          block_number AS "blockNumber",
+          transaction_hash AS "transactionHash"
+        FROM "untron_controller_is_event_chain_tip_called"
+        WHERE chain_id = ${job.chainId}
+          AND contract_address = ${controllerAddress}
+        ORDER BY block_number DESC, log_index DESC
+        LIMIT 1;
+      `)
+    );
+    const latestCallRows = getRows(latestCallResult) as Array<{
+      blockNumber: unknown;
+      transactionHash: unknown;
+    }>;
+    const latestCall = latestCallRows[0];
+    if (latestCall) {
+      const latestBlockNumber =
+        typeof latestCall.blockNumber === "bigint"
+          ? latestCall.blockNumber
+          : BigInt(String(latestCall.blockNumber));
+      const latestTransactionHash = String(latestCall.transactionHash).toLowerCase() as Hex;
+
+      if (
+        latestBlockNumber !== tronBlockNumber ||
+        latestTransactionHash !== transactionHash.toLowerCase()
+      ) {
+        yield* Effect.logDebug("[relay_controller_event_chain] superseded").pipe(
+          Effect.annotateLogs({
+            controllerAddress,
+            tronBlockNumber: tronBlockNumber.toString(),
+            transactionHash,
+            supersededByTronBlockNumber: latestBlockNumber.toString(),
+            supersededByTransactionHash: latestTransactionHash,
+          })
+        );
+        return;
+      }
+    }
+
     const mainnetClient = yield* publicClients.get("mainnet");
 
     const tronLightClientAddress = getTronLightClientAddress();
