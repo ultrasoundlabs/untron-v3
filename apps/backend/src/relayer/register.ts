@@ -2,6 +2,7 @@ import { Cause, Effect } from "effect";
 import type { Context as PonderContext, IndexingFunctionArgs } from "ponder:registry";
 
 import { relayerStatus, trc20Transfer, tronLightClientPublishRequest } from "ponder:schema";
+import { sql } from "ponder";
 
 import { getTronLightClientAddress } from "../contracts";
 import { AppConfig } from "../effect/config";
@@ -10,6 +11,7 @@ import { MAINNET_CHAIN_ID } from "../env";
 
 import { enqueueRelayJob } from "./queue";
 import { processRelayJobs } from "./processor";
+import { getRows } from "./sqlRows";
 import type { BlockEventName, PonderRegistry, RelayJobKind } from "./types";
 
 const upsertRelayerStatus = (args: {
@@ -81,6 +83,30 @@ export function registerRelayer({
   dryRun?: boolean;
   maxLagBlocks?: bigint;
 }) {
+  const hasOutstandingHeartbeatJob = (args: {
+    context: PonderContext;
+    chainId: number;
+    kind: "mainnet_heartbeat" | "tron_heartbeat";
+    workerId: string;
+  }) =>
+    Effect.tryPromise({
+      try: async () => {
+        const result = await args.context.db.sql.execute(sql`
+          SELECT 1 AS one
+          FROM "relay_job"
+          WHERE chain_id = ${args.chainId}
+            AND "kind" = ${args.kind}
+            AND (
+              "status" = 'pending'
+              OR ("status" = 'processing' AND locked_by = ${args.workerId})
+            )
+          LIMIT 1;
+        `);
+        return getRows(result).length > 0;
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
   const onBlock = <TEventName extends BlockEventName>(
     blockEventName: TEventName,
     heartbeatKind: RelayJobKind
@@ -111,6 +137,16 @@ export function registerRelayer({
           if (!resolvedEnabled) return;
 
           if (!isLive) return;
+
+          if (heartbeatKind === "mainnet_heartbeat" || heartbeatKind === "tron_heartbeat") {
+            const outstanding = yield* hasOutstandingHeartbeatJob({
+              context: context as PonderContext,
+              chainId: context.chain.id,
+              kind: heartbeatKind,
+              workerId: runtime.workerId,
+            });
+            if (outstanding) return;
+          }
 
           yield* enqueueRelayJob({
             context: context as PonderContext,

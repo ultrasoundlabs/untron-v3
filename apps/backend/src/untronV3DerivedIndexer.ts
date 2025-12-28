@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { sql } from "ponder";
 import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
 
 import {
@@ -18,7 +19,9 @@ type UntronV3DerivedEventName =
   | "PayoutConfigUpdated"
   | "SwapRateSet"
   | "ClaimCreated"
-  | "BridgerSet";
+  | "BridgerSet"
+  | "ControllerEventChainTipUpdated"
+  | "ControllerEventProcessed";
 
 function makeLeaseConfigId(args: {
   chainId: number;
@@ -52,6 +55,10 @@ function makeBridgerRouteId(args: {
   targetChainId: bigint;
 }): string {
   return `${args.chainId}:${args.contractAddress.toLowerCase()}:${args.targetToken.toLowerCase()}:${args.targetChainId.toString()}`;
+}
+
+function makeControllerEventQueueId(args: { chainId: number; contractAddress: string }): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
 }
 
 const handlePayoutConfigUpdated = (args: { event: PonderLogEvent; context: PonderContext }) =>
@@ -278,6 +285,101 @@ const handleClaimCreated = (args: { event: PonderLogEvent; context: PonderContex
     );
   });
 
+const handleControllerEventChainTipUpdated = (args: {
+  event: PonderLogEvent;
+  context: PonderContext;
+}) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const id = makeControllerEventQueueId({ chainId, contractAddress });
+
+    yield* tryPromise(() =>
+      context.db.sql.execute(sql`
+        INSERT INTO "untron_v3_controller_event_queue" (
+          id,
+          chain_id,
+          contract_address,
+          enqueued_count,
+          processed_count,
+          updated_at_block_number,
+          updated_at_block_timestamp,
+          updated_at_transaction_hash,
+          updated_at_log_index
+        )
+        VALUES (
+          ${id},
+          ${chainId},
+          ${contractAddress},
+          1,
+          0,
+          ${event.block.number},
+          ${event.block.timestamp},
+          ${event.transaction.hash},
+          ${event.log.logIndex}
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          enqueued_count = "untron_v3_controller_event_queue".enqueued_count + 1,
+          updated_at_block_number = EXCLUDED.updated_at_block_number,
+          updated_at_block_timestamp = EXCLUDED.updated_at_block_timestamp,
+          updated_at_transaction_hash = EXCLUDED.updated_at_transaction_hash,
+          updated_at_log_index = EXCLUDED.updated_at_log_index;
+      `)
+    );
+  });
+
+const handleControllerEventProcessed = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const eventIndex = expectBigint(
+      getArgValue(parsedArgs, 0, "eventIndex"),
+      "ControllerEventProcessed.eventIndex"
+    );
+
+    const processedCount = eventIndex + 1n;
+    const id = makeControllerEventQueueId({ chainId, contractAddress });
+
+    yield* tryPromise(() =>
+      context.db.sql.execute(sql`
+        INSERT INTO "untron_v3_controller_event_queue" (
+          id,
+          chain_id,
+          contract_address,
+          enqueued_count,
+          processed_count,
+          updated_at_block_number,
+          updated_at_block_timestamp,
+          updated_at_transaction_hash,
+          updated_at_log_index
+        )
+        VALUES (
+          ${id},
+          ${chainId},
+          ${contractAddress},
+          ${processedCount},
+          ${processedCount},
+          ${event.block.number},
+          ${event.block.timestamp},
+          ${event.transaction.hash},
+          ${event.log.logIndex}
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          processed_count = GREATEST("untron_v3_controller_event_queue".processed_count, ${processedCount}),
+          enqueued_count = GREATEST("untron_v3_controller_event_queue".enqueued_count, ${processedCount}),
+          updated_at_block_number = EXCLUDED.updated_at_block_number,
+          updated_at_block_timestamp = EXCLUDED.updated_at_block_timestamp,
+          updated_at_transaction_hash = EXCLUDED.updated_at_transaction_hash,
+          updated_at_log_index = EXCLUDED.updated_at_log_index;
+      `)
+    );
+  });
+
 export const handleUntronV3DerivedEvent = (args: {
   eventName: UntronV3DerivedEventName | (string & {});
   event: PonderLogEvent;
@@ -292,6 +394,10 @@ export const handleUntronV3DerivedEvent = (args: {
       return handleBridgerSet({ event: args.event, context: args.context });
     case "ClaimCreated":
       return handleClaimCreated({ event: args.event, context: args.context });
+    case "ControllerEventChainTipUpdated":
+      return handleControllerEventChainTipUpdated({ event: args.event, context: args.context });
+    case "ControllerEventProcessed":
+      return handleControllerEventProcessed({ event: args.event, context: args.context });
     default:
       return Effect.void;
   }

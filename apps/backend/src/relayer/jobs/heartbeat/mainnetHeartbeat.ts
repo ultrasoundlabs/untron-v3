@@ -1,10 +1,15 @@
 import { Effect } from "effect";
 import { sql } from "ponder";
-import { tronPullFromReceiversSent } from "ponder:schema";
-import { encodeAbiParameters, keccak256 } from "viem";
+import {
+  tronPullFromReceiversSent,
+  untronV3ControllerEventQueue,
+  untronV3ProcessControllerEventsSent,
+} from "ponder:schema";
+import { encodeAbiParameters, encodeFunctionData, keccak256, type Address } from "viem";
 
 import { untronV3Abi } from "@untron/v3-contracts";
 
+import { AppConfig } from "../../../effect/config";
 import { tryPromise } from "../../../effect/tryPromise";
 import { buildMainnetFillCalls } from "../../claimFiller/buildMainnetFillCalls";
 import { MainnetRelayer } from "../../deps/mainnet";
@@ -28,6 +33,10 @@ export const handleMainnetHeartbeat = (_args: {
 
     const handlers: ReadonlyArray<HeartbeatHandler> = [
       {
+        name: "process_controller_events",
+        effect: processControllerEventsIfBacklog(ctx),
+      },
+      {
         name: "fill_claims_from_untron_balance",
         effect: fillClaimsFromUntronBalance(ctx),
       },
@@ -38,6 +47,85 @@ export const handleMainnetHeartbeat = (_args: {
     ];
 
     yield* runHeartbeatHandlers({ jobName: "mainnet heartbeat", handlers });
+  });
+
+const processControllerEventsIfBacklog = (ctx: RelayJobHandlerContext) =>
+  Effect.gen(function* () {
+    const chainId = ctx.ponderContext.chain.id;
+    const untronV3Address = (
+      ctx.ponderContext.contracts.UntronV3.address as Address
+    ).toLowerCase() as Address;
+
+    const runtime = yield* AppConfig.relayerRuntime();
+    const maxToProcess = BigInt(runtime.processMaxControllerEvents);
+    if (maxToProcess === 0n) return;
+
+    const state = yield* tryPromise(() =>
+      ctx.ponderContext.db.find(untronV3ControllerEventQueue, {
+        id: `${chainId}:${untronV3Address}`,
+      })
+    );
+    if (!state) return;
+
+    const enqueuedCount = state.enqueuedCount;
+    const processedCount = state.processedCount;
+    if (enqueuedCount <= processedCount) return;
+
+    const backlog = enqueuedCount - processedCount;
+    const toProcess = backlog < maxToProcess ? backlog : maxToProcess;
+    if (toProcess === 0n) return;
+
+    const cooldownBlocks = runtime.processControllerEventsCooldownBlocks;
+    const attemptId = `${chainId}:${untronV3Address}`;
+    const attemptResult = yield* tryPromise(() =>
+      ctx.ponderContext.db.sql.execute(sql`
+        INSERT INTO "untron_v3_process_controller_events_sent" (
+          id,
+          chain_id,
+          contract_address,
+          enqueued_count,
+          processed_count,
+          sent_at_block_number,
+          sent_at_block_timestamp
+        )
+        VALUES (
+          ${attemptId},
+          ${chainId},
+          ${untronV3Address},
+          ${enqueuedCount},
+          ${processedCount},
+          ${ctx.headBlockNumber},
+          ${ctx.headBlockTimestamp}
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          enqueued_count = EXCLUDED.enqueued_count,
+          processed_count = EXCLUDED.processed_count,
+          sent_at_block_number = EXCLUDED.sent_at_block_number,
+          sent_at_block_timestamp = EXCLUDED.sent_at_block_timestamp
+        WHERE
+          "untron_v3_process_controller_events_sent".enqueued_count <> EXCLUDED.enqueued_count
+          OR "untron_v3_process_controller_events_sent".processed_count <> EXCLUDED.processed_count
+          OR "untron_v3_process_controller_events_sent".sent_at_block_number <= EXCLUDED.sent_at_block_number - ${cooldownBlocks}
+        RETURNING id;
+      `)
+    );
+    const attemptRows = getRows(attemptResult) as Array<{ id: unknown }>;
+    if (attemptRows.length === 0) return;
+
+    const relayer = yield* MainnetRelayer;
+    yield* relayer.sendUserOperation({
+      calls: [
+        {
+          to: untronV3Address,
+          value: 0n,
+          data: encodeFunctionData({
+            abi: untronV3Abi,
+            functionName: "processControllerEvents",
+            args: [toProcess],
+          }),
+        },
+      ],
+    });
   });
 
 const fillClaimsFromUntronBalance = (ctx: RelayJobHandlerContext) =>

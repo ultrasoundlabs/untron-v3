@@ -11,6 +11,7 @@ import { untronControllerAbi, untronV3Abi } from "@untron/v3-contracts";
 import { computeNextEventChainTip } from "../../eventChain/tip";
 import { getTronLightClientAddress, getUntronV3Address } from "../../contracts";
 import { tryPromise } from "../../effect/tryPromise";
+import { AppConfig } from "../../effect/config";
 import { MAINNET_CHAIN_ID } from "../../env";
 import type { RelayJobRow } from "../types";
 import { getRows } from "../sqlRows";
@@ -384,6 +385,22 @@ export const handleRelayControllerEventChain = ({
     });
 
     plannedCalls.push({ to: untronV3Address, data: relayCall });
+
+    const runtime = yield* AppConfig.relayerRuntime();
+    const maxToProcess = BigInt(runtime.processMaxControllerEvents);
+    const relayedCount = BigInt(controllerEvents.length);
+    const toProcess =
+      maxToProcess === 0n ? 0n : maxToProcess < relayedCount ? maxToProcess : relayedCount;
+    if (toProcess > 0n) {
+      plannedCalls.push({
+        to: untronV3Address,
+        data: encodeFunctionData({
+          abi: untronV3Abi,
+          functionName: "processControllerEvents",
+          args: [toProcess],
+        }),
+      });
+    }
 
     yield* Effect.logInfo("[relay_controller_event_chain] send UserOperation").pipe(
       Effect.annotateLogs({ callCount: plannedCalls.length })

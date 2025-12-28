@@ -151,6 +151,7 @@ export const claimRelayJobs = (args: {
 }): Effect.Effect<RelayJobRow[], Error> =>
   Effect.tryPromise({
     try: async () => {
+      const staleLockBlocks = 50n;
       const eligibleBlock =
         args.headBlockNumber > args.minConfirmations
           ? args.headBlockNumber - args.minConfirmations
@@ -162,9 +163,20 @@ export const claimRelayJobs = (args: {
           FROM "relay_job"
           WHERE chain_id = ${args.chainId}
             AND "kind" = ${args.kind}
-            AND "status" = 'pending'
-            AND created_at_block_number <= ${eligibleBlock}
-            AND (next_retry_block_number IS NULL OR next_retry_block_number <= ${args.headBlockNumber})
+            AND (
+              (
+                "status" = 'pending'
+                AND created_at_block_number <= ${eligibleBlock}
+                AND (next_retry_block_number IS NULL OR next_retry_block_number <= ${args.headBlockNumber})
+              )
+              OR (
+                "status" = 'processing'
+                AND locked_by IS NOT NULL
+                AND locked_by <> ${args.workerId}
+                AND locked_at_block_number IS NOT NULL
+                AND locked_at_block_number <= ${args.headBlockNumber} - ${staleLockBlocks}
+              )
+            )
           ORDER BY created_at_block_number ASC, "id" ASC
           LIMIT ${args.limit}
           FOR UPDATE SKIP LOCKED

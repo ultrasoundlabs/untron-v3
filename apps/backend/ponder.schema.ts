@@ -288,6 +288,40 @@ export const untronV3SwapRate = onchainTable(
   })
 );
 
+export const untronV3ControllerEventQueue = onchainTable(
+  "untron_v3_controller_event_queue",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    enqueuedCount: t.bigint().notNull(),
+    processedCount: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+export const untronV3ProcessControllerEventsSent = onchainTable(
+  "untron_v3_process_controller_events_sent",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    enqueuedCount: t.bigint().notNull(),
+    processedCount: t.bigint().notNull(),
+    sentAtBlockNumber: t.bigint().notNull(),
+    sentAtBlockTimestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
 export const untronV3ClaimQueue = onchainTable(
   "untron_v3_claim_queue",
   (t) => ({

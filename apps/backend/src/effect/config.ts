@@ -16,6 +16,8 @@ export type RelayerRuntimeConfig = Readonly<{
   tronConfirmations: bigint;
   claimLimit: number;
   fillMaxClaimsPerQueue: number;
+  processMaxControllerEvents: number;
+  processControllerEventsCooldownBlocks: bigint;
   maxAttempts: number;
   retryDelayBlocks: bigint;
 }>;
@@ -167,6 +169,23 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             "RELAYER_FILL_MAX_CLAIMS_PER_QUEUE",
             500
           );
+          const processMaxControllerEvents = yield* requiredNumberWithDefault(
+            "RELAYER_PROCESS_MAX_CONTROLLER_EVENTS",
+            200
+          ).pipe(
+            Config.mapAttempt((n) => {
+              if (!Number.isInteger(n) || n < 0) {
+                throw new Error(
+                  `Invalid RELAYER_PROCESS_MAX_CONTROLLER_EVENTS (expected int >= 0)`
+                );
+              }
+              return n;
+            })
+          );
+          const processControllerEventsCooldownBlocks = yield* requiredNonNegativeBigintWithDefault(
+            "RELAYER_PROCESS_CONTROLLER_EVENTS_COOLDOWN_BLOCKS",
+            20n
+          );
           const maxAttempts = yield* requiredNumberWithDefault("RELAYER_MAX_ATTEMPTS", 5);
           const retryDelayBlocks = yield* requiredBigint("RELAYER_RETRY_DELAY_BLOCKS").pipe(
             Config.withDefault(5n)
@@ -181,6 +200,8 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             tronConfirmations,
             claimLimit,
             fillMaxClaimsPerQueue,
+            processMaxControllerEvents,
+            processControllerEventsCooldownBlocks,
             maxAttempts,
             retryDelayBlocks,
           } satisfies RelayerRuntimeConfig;

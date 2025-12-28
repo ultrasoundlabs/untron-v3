@@ -315,6 +315,16 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
       tronLightClientAddress,
     });
 
+    yield* Effect.logInfo("[tron_light_client] fetch tron blocks").pipe(
+      Effect.annotateLogs({
+        kind: selected.kind,
+        rangeStart: selected.rangeStart.toString(),
+        rangeEnd: selected.rangeEnd.toString(),
+        blockCount: (selected.rangeEnd - selected.rangeStart + 1n).toString(),
+        concurrency: publisherConfig.blockFetchConcurrency,
+      })
+    );
+
     const blocks = yield* fetchTronBlocksForLightClient({
       wallet,
       metadata: callOpts.metadata,
