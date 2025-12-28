@@ -1,12 +1,16 @@
 import { Effect } from "effect";
-import type { Hex } from "viem";
+import { parseEventLogs, type Address, type Hash, type Hex } from "viem";
 
 import { AppConfig } from "../../effect/config";
+import { tryPromise } from "../../effect/tryPromise";
 import { getTronLightClientAddress } from "../../contracts";
+import { tronLightClientAbi } from "@untron/v3-contracts";
 import { MainnetRelayer } from "../deps/mainnet";
+import { PublicClients } from "../deps/publicClients";
 import { TronGrpc } from "../deps/tron";
 import { MAINNET_CHAIN_ID } from "../../env";
 import type { RelayJobHandlerContext } from "../jobs/types";
+import { tronLightClientCheckpoint } from "ponder:schema";
 
 import { fetchTronBlocksForLightClient } from "./fetch";
 import { planTronLightClientProveBlocksCall } from "./planner";
@@ -43,6 +47,109 @@ function safeOffsetsFromBlockNumbers(args: {
   }
   return offsets;
 }
+
+const fastIndexTronLightClientCheckpointsFromMainnetTx = (args: {
+  ctx: RelayJobHandlerContext;
+  tronLightClientAddress: Address;
+  transactionHash: Hash;
+}) =>
+  Effect.gen(function* () {
+    const publicClients = yield* PublicClients;
+    const mainnetClient = yield* publicClients.get("mainnet");
+
+    const receipt = yield* tryPromise(() =>
+      mainnetClient.getTransactionReceipt({ hash: args.transactionHash })
+    );
+
+    const tronLightClientLogs = receipt.logs.filter(
+      (log) => log.address.toLowerCase() === args.tronLightClientAddress.toLowerCase()
+    );
+
+    const parsed = parseEventLogs({
+      abi: tronLightClientAbi,
+      logs: tronLightClientLogs,
+      eventName: "TronBlockStored",
+      strict: false,
+    });
+
+    if (parsed.length === 0) return;
+
+    const storedAtBlock = yield* tryPromise(() =>
+      mainnetClient.getBlock({ blockNumber: receipt.blockNumber })
+    );
+
+    const contractAddress = args.tronLightClientAddress.toLowerCase() as Address;
+
+    let inserted = 0;
+    for (const log of parsed) {
+      const parsedArgs = log.args as unknown as {
+        blockNumber?: bigint;
+        blockId?: Hex;
+        txTrieRoot?: Hex;
+        timestamp?: bigint | number;
+      };
+
+      const tronBlockNumber = parsedArgs.blockNumber;
+      const tronBlockId = parsedArgs.blockId;
+      const tronTxTrieRoot = parsedArgs.txTrieRoot;
+      const tronBlockTimestampRaw = parsedArgs.timestamp;
+      const storedAtLogIndex = log.logIndex;
+
+      if (
+        tronBlockNumber === undefined ||
+        tronBlockId === undefined ||
+        tronTxTrieRoot === undefined ||
+        tronBlockTimestampRaw === undefined ||
+        storedAtLogIndex === undefined
+      ) {
+        continue;
+      }
+
+      const tronBlockTimestamp =
+        typeof tronBlockTimestampRaw === "bigint"
+          ? tronBlockTimestampRaw
+          : BigInt(tronBlockTimestampRaw);
+
+      const id = `${MAINNET_CHAIN_ID}:${contractAddress}:${tronBlockNumber.toString()}`;
+
+      yield* tryPromise(() =>
+        args.ctx.ponderContext.db
+          .insert(tronLightClientCheckpoint)
+          .values({
+            id,
+            chainId: MAINNET_CHAIN_ID,
+            contractAddress,
+            tronBlockNumber,
+            tronBlockId,
+            tronTxTrieRoot,
+            tronBlockTimestamp,
+            storedAtBlockNumber: receipt.blockNumber,
+            storedAtBlockTimestamp: storedAtBlock.timestamp,
+            storedAtTransactionHash: receipt.transactionHash,
+            storedAtLogIndex,
+          })
+          .onConflictDoUpdate({
+            tronBlockId,
+            tronTxTrieRoot,
+            tronBlockTimestamp,
+            storedAtBlockNumber: receipt.blockNumber,
+            storedAtBlockTimestamp: storedAtBlock.timestamp,
+            storedAtTransactionHash: receipt.transactionHash,
+            storedAtLogIndex,
+          })
+      );
+
+      inserted++;
+    }
+
+    yield* Effect.logInfo("[tron_light_client] fast-indexed TronBlockStored checkpoints").pipe(
+      Effect.annotateLogs({
+        tronLightClientAddress: contractAddress,
+        transactionHash: receipt.transactionHash,
+        checkpointCount: inserted.toString(),
+      })
+    );
+  });
 
 export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
   Effect.gen(function* () {
@@ -244,6 +351,22 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
         transactionHash: included.transactionHash,
         blockNumber: included.blockNumber.toString(),
       })
+    );
+
+    yield* fastIndexTronLightClientCheckpointsFromMainnetTx({
+      ctx,
+      tronLightClientAddress,
+      transactionHash: included.transactionHash,
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.logWarning("[tron_light_client] fast-index checkpoints failed").pipe(
+          Effect.annotateLogs({
+            tronLightClientAddress,
+            transactionHash: included.transactionHash,
+            error: error.message,
+          })
+        )
+      )
     );
 
     if (selected.requestedBlockNumbers.length > 0) {
