@@ -99,6 +99,7 @@ async function loadControllerEventsToRelay(args: {
 > {
   const endTipLower = args.endTip.toLowerCase() as Hex;
   const startTipLower = args.startTip.toLowerCase() as Hex;
+  const controllerAddressLower = args.controllerAddress.toLowerCase() as Address;
 
   const endRowResult = await args.context.db.sql.execute(sql`
     SELECT
@@ -106,14 +107,16 @@ async function loadControllerEventsToRelay(args: {
     FROM "event_chain_event"
     WHERE chain_id = ${args.tronChainId}
       AND contract_name = 'UntronController'
-      AND contract_address = ${args.controllerAddress}
+      AND lower(contract_address) = ${controllerAddressLower}
       AND tip = ${endTipLower}
     LIMIT 1;
   `);
   const endRows = getRows(endRowResult) as Array<{ sequence: bigint }>;
   const endSequence = endRows[0]?.sequence;
   if (typeof endSequence !== "bigint") {
-    throw new Error(`Missing UntronController event chain row for end tip ${endTipLower}`);
+    throw new RetryLaterError(
+      `Missing UntronController event chain row for end tip ${endTipLower} (indexer may be behind)`
+    );
   }
 
   let startSequence = 0n;
@@ -124,7 +127,7 @@ async function loadControllerEventsToRelay(args: {
       FROM "event_chain_event"
       WHERE chain_id = ${args.tronChainId}
         AND contract_name = 'UntronController'
-        AND contract_address = ${args.controllerAddress}
+        AND lower(contract_address) = ${controllerAddressLower}
         AND tip = ${startTipLower}
       LIMIT 1;
     `);
@@ -144,7 +147,7 @@ async function loadControllerEventsToRelay(args: {
     FROM "event_chain_event"
     WHERE chain_id = ${args.tronChainId}
       AND contract_name = 'UntronController'
-      AND contract_address = ${args.controllerAddress}
+      AND lower(contract_address) = ${controllerAddressLower}
       AND sequence > ${startSequence}
       AND sequence <= ${endSequence}
     ORDER BY sequence ASC;
@@ -354,7 +357,7 @@ export const handleRelayControllerEventChain = ({
 
     if (computed.toLowerCase() !== eventChainTip.toLowerCase()) {
       return yield* Effect.fail(
-        new Error(
+        new RetryLaterError(
           `Controller event chain mismatch (computed=${computed}, expected=${eventChainTip}). Indexer may be behind.`
         )
       );
