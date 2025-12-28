@@ -111,13 +111,14 @@ async function loadControllerEventsToRelay(args: {
       AND tip = ${endTipLower}
     LIMIT 1;
   `);
-  const endRows = getRows(endRowResult) as Array<{ sequence: bigint }>;
-  const endSequence = endRows[0]?.sequence;
-  if (typeof endSequence !== "bigint") {
+  const endRows = getRows(endRowResult) as Array<{ sequence: unknown }>;
+  const endSequenceRaw = endRows[0]?.sequence;
+  if (endSequenceRaw === undefined) {
     throw new RetryLaterError(
       `Missing UntronController event chain row for end tip ${endTipLower} (indexer may be behind)`
     );
   }
+  const endSequence = expectBigint(endSequenceRaw, "endSequence");
 
   let startSequence = 0n;
   if (startTipLower !== endTipLower) {
@@ -131,8 +132,10 @@ async function loadControllerEventsToRelay(args: {
         AND tip = ${startTipLower}
       LIMIT 1;
     `);
-    const startRows = getRows(startRowResult) as Array<{ sequence: bigint }>;
-    startSequence = startRows[0]?.sequence ?? 0n;
+    const startRows = getRows(startRowResult) as Array<{ sequence: unknown }>;
+    const startSequenceRaw = startRows[0]?.sequence;
+    startSequence =
+      startSequenceRaw === undefined ? 0n : expectBigint(startSequenceRaw, "startSequence");
   }
 
   const eventsResult = await args.context.db.sql.execute(sql`
@@ -156,18 +159,18 @@ async function loadControllerEventsToRelay(args: {
   const rows = getRows(eventsResult) as Array<{
     tip: Hex;
     previousTip: Hex;
-    blockNumber: bigint;
-    blockTimestamp: bigint;
+    blockNumber: unknown;
+    blockTimestamp: unknown;
     eventSignature: Hex;
     encodedEventData: Hex;
-    sequence: bigint;
+    sequence: unknown;
   }>;
 
   return rows.map((row) => ({
     sig: row.eventSignature,
     data: row.encodedEventData,
-    blockNumber: row.blockNumber,
-    blockTimestamp: row.blockTimestamp,
+    blockNumber: expectBigint(row.blockNumber, "blockNumber"),
+    blockTimestamp: expectBigint(row.blockTimestamp, "blockTimestamp"),
     tip: row.tip,
     previousTip: row.previousTip,
   }));

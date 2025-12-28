@@ -9,7 +9,7 @@ import { AppConfig } from "../../effect/config";
 import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
 import type { MainnetUserOperationCall } from "../deps/types";
-import type { RelayJobHandlerContext } from "../jobs/types";
+import { expectBigint, type RelayJobHandlerContext } from "../jobs/types";
 import { getRows } from "../sqlRows";
 import { SwapPlanner, SwapPlanUnavailableError } from "./swapPlanner";
 import type { Claim } from "./types";
@@ -237,9 +237,13 @@ const ClaimFillerRepository = {
           AND queue_length > 0;
       `)
     ).pipe(
-      Effect.map(
-        (result) => getRows(result) as Array<{ targetToken: Address; queueLength: bigint }>
-      )
+      Effect.map((result) => {
+        const rows = getRows(result) as Array<{ targetToken: unknown; queueLength: unknown }>;
+        return rows.map((row) => ({
+          targetToken: String(row.targetToken).toLowerCase() as Address,
+          queueLength: expectBigint(row.queueLength, "queueLength"),
+        }));
+      })
     ),
 
   getClaimAtIndex: (args: {
@@ -267,13 +271,20 @@ const ClaimFillerRepository = {
     ).pipe(
       Effect.map((result) => {
         const row = (getRows(result)[0] ?? null) as null | {
-          claimIndex: bigint;
-          leaseId: bigint;
-          amountUsdt: bigint;
-          targetChainId: bigint;
-          beneficiary: Address;
+          claimIndex: unknown;
+          leaseId: unknown;
+          amountUsdt: unknown;
+          targetChainId: unknown;
+          beneficiary: unknown;
         };
-        return row;
+        if (!row) return null;
+        return {
+          claimIndex: expectBigint(row.claimIndex, "claimIndex"),
+          leaseId: expectBigint(row.leaseId, "leaseId"),
+          amountUsdt: expectBigint(row.amountUsdt, "amountUsdt"),
+          targetChainId: expectBigint(row.targetChainId, "targetChainId"),
+          beneficiary: String(row.beneficiary).toLowerCase() as Address,
+        } satisfies Claim;
       })
     ),
 
@@ -301,7 +312,27 @@ const ClaimFillerRepository = {
         ORDER BY claim_index ASC
         LIMIT ${args.limit};
       `)
-    ).pipe(Effect.map((result) => getRows(result) as Claim[])),
+    ).pipe(
+      Effect.map((result) => {
+        const rows = getRows(result) as Array<{
+          claimIndex: unknown;
+          leaseId: unknown;
+          amountUsdt: unknown;
+          targetChainId: unknown;
+          beneficiary: unknown;
+        }>;
+        return rows.map(
+          (row) =>
+            ({
+              claimIndex: expectBigint(row.claimIndex, "claimIndex"),
+              leaseId: expectBigint(row.leaseId, "leaseId"),
+              amountUsdt: expectBigint(row.amountUsdt, "amountUsdt"),
+              targetChainId: expectBigint(row.targetChainId, "targetChainId"),
+              beneficiary: String(row.beneficiary).toLowerCase() as Address,
+            }) satisfies Claim
+        );
+      })
+    ),
 
   getSwapRatePpm: (args: {
     context: PonderContext;
@@ -321,8 +352,8 @@ const ClaimFillerRepository = {
       `)
     ).pipe(
       Effect.map((result) => {
-        const row = (getRows(result)[0] ?? null) as null | { ratePpm: bigint };
-        return row?.ratePpm ?? null;
+        const row = (getRows(result)[0] ?? null) as null | { ratePpm: unknown };
+        return row ? expectBigint(row.ratePpm, "ratePpm") : null;
       })
     ),
 
@@ -343,7 +374,13 @@ const ClaimFillerRepository = {
           AND target_token = ${args.targetToken};
       `)
     ).pipe(
-      Effect.map((result) => getRows(result) as Array<{ targetChainId: bigint; bridger: Address }>)
+      Effect.map((result) => {
+        const rows = getRows(result) as Array<{ targetChainId: unknown; bridger: unknown }>;
+        return rows.map((row) => ({
+          targetChainId: expectBigint(row.targetChainId, "targetChainId"),
+          bridger: String(row.bridger).toLowerCase() as Address,
+        }));
+      })
     ),
 } as const;
 

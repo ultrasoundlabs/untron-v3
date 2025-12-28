@@ -11,7 +11,7 @@ import { MainnetRelayer } from "../../deps/mainnet";
 import { TronRelayer } from "../../deps/tron";
 import { getRows } from "../../sqlRows";
 import type { RelayJobRow } from "../../types";
-import type { RelayJobHandlerContext } from "../types";
+import { expectBigint, type RelayJobHandlerContext } from "../types";
 import type { HeartbeatHandler } from "./types";
 import { runHeartbeatHandlers } from "./runHeartbeatHandlers";
 
@@ -65,10 +65,14 @@ const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =>
       `)
     );
 
-    const nonEmptyQueues = getRows(result) as Array<{
-      targetToken: `0x${string}`;
-      queueLength: bigint;
+    const nonEmptyQueuesRaw = getRows(result) as Array<{
+      targetToken: unknown;
+      queueLength: unknown;
     }>;
+    const nonEmptyQueues = nonEmptyQueuesRaw.map((row) => ({
+      targetToken: String(row.targetToken) as `0x${string}`,
+      queueLength: expectBigint(row.queueLength, "queueLength"),
+    }));
     if (nonEmptyQueues.length === 0) return;
 
     let hasPendingClaims = false;
