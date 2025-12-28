@@ -121,10 +121,14 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
 
         bytes32 tip = tipOld;
         tip = sha256(
-            abi.encodePacked(tip, events[0].blockNumber, events[0].blockTimestamp, events[0].sig, events[0].data)
+            abi.encodePacked(
+                tip, uint256(events[0].blockNumber), uint256(events[0].blockTimestamp), events[0].sig, events[0].data
+            )
         );
         tip = sha256(
-            abi.encodePacked(tip, events[1].blockNumber, events[1].blockTimestamp, events[1].sig, events[1].data)
+            abi.encodePacked(
+                tip, uint256(events[1].blockNumber), uint256(events[1].blockTimestamp), events[1].sig, events[1].data
+            )
         );
 
         bytes memory callData2 = abi.encodeWithSelector(bytes4(keccak256("isEventChainTip(bytes32)")), tip);

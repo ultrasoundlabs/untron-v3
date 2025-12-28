@@ -1418,8 +1418,12 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
         uint256 n = events.length;
         for (uint256 i = 0; i < n; ++i) {
             ControllerEvent calldata ev = events[i];
-            _emitControllerEventChainTipUpdated(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data);
-            tip = sha256(abi.encodePacked(tip, ev.blockNumber, ev.blockTimestamp, ev.sig, ev.data));
+            // Important: Tron-side UntronControllerIndex hashes block fields as uint256 via abi.encodePacked.
+            // We keep calldata compact with uint64 fields, but must cast here to preserve cross-chain tip equality.
+            _emitControllerEventChainTipUpdated(
+                tip, uint256(ev.blockNumber), uint256(ev.blockTimestamp), ev.sig, ev.data
+            );
+            tip = sha256(abi.encodePacked(tip, uint256(ev.blockNumber), uint256(ev.blockTimestamp), ev.sig, ev.data));
         }
         return tip;
     }
