@@ -103,6 +103,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,
@@ -145,6 +149,34 @@ async function getBlockByNumber(
       resolve(res);
     });
   });
+}
+
+async function getBlockByNumberEnsuringHeader(
+  wallet: TronWallet,
+  metadata: TronMetadata,
+  blockNumber: bigint,
+  opts?: { retries?: number; retryDelayMs?: number }
+): Promise<BlockExtention> {
+  const retries = Math.max(0, opts?.retries ?? 2);
+  const retryDelayMs = Math.max(0, opts?.retryDelayMs ?? 200);
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const b = await getBlockByNumber(wallet, metadata, blockNumber);
+    if (b.blockHeader?.rawData) return b;
+
+    if (attempt < retries) {
+      await sleep(retryDelayMs * (attempt + 1));
+      continue;
+    }
+
+    const now = await getNowBlock(wallet, metadata);
+    const latestNumber = BigInt(now.blockHeader?.rawData?.number?.toString() ?? "0");
+    throw new Error(
+      `missing blockHeader.rawData for block ${blockNumber.toString()} (node latest=${latestNumber.toString()})`
+    );
+  }
+
+  throw new Error("unreachable");
 }
 
 async function listWitnesses(wallet: TronWallet, metadata: TronMetadata): Promise<WitnessList> {
@@ -261,11 +293,40 @@ async function main() {
 
   const now = await getNowBlock(wallet, callOpts.metadata);
   const latestNumber = BigInt(now.blockHeader?.rawData?.number?.toString() ?? "0");
+  if (latestNumber <= 0n) {
+    throw new Error("Failed to read latest block number from getNowBlock2()");
+  }
 
-  // pick a safe “recent completed round”
-  const chosen = blockArg ? BigInt(blockArg) : latestNumber;
-  const roundStart = chosen - (chosen % 27n);
-  const roundEnd = roundStart + 26n;
+  // end-of-round blocks satisfy `block % 27 == 26`; choose the most recent one <= latest
+  const safeRoundEnd = latestNumber - ((latestNumber + 1n) % 27n);
+  if (safeRoundEnd < 26n)
+    throw new Error(`Chain height too low (latest=${latestNumber.toString()})`);
+
+  let chosen: bigint;
+  let roundStart: bigint;
+  let roundEnd: bigint;
+
+  if (blockArg) {
+    chosen = BigInt(blockArg);
+    if (chosen > latestNumber) {
+      throw new Error(
+        `Chosen block ${chosen.toString()} is > latest block ${latestNumber.toString()}`
+      );
+    }
+
+    roundStart = chosen - (chosen % 27n);
+    roundEnd = roundStart + 26n;
+    if (roundEnd > latestNumber) {
+      throw new Error(
+        `Chosen block ${chosen.toString()} is in an incomplete round (roundEnd=${roundEnd.toString()} > latest=${latestNumber.toString()}); use --block ${safeRoundEnd.toString()} or wait until block ${roundEnd.toString()} is produced`
+      );
+    }
+  } else {
+    // pick a safe “recent completed round”
+    chosen = safeRoundEnd;
+    roundEnd = safeRoundEnd;
+    roundStart = roundEnd - 26n;
+  }
 
   console.info(
     `using round blocks ${roundStart.toString()}..${roundEnd.toString()} (chosen=${chosen.toString()}, latest=${latestNumber.toString()})`
@@ -276,7 +337,7 @@ async function main() {
   const roundWitnessHex21: string[] = [];
   for (let i = 0n; i < 27n; i++) {
     const n = roundStart + i;
-    const b = await getBlockByNumber(wallet, callOpts.metadata, n);
+    const b = await getBlockByNumberEnsuringHeader(wallet, callOpts.metadata, n);
     const raw = b.blockHeader?.rawData ?? null;
     if (!raw) throw new Error(`missing blockHeader.rawData for block ${n.toString()}`);
     const wAddr = raw.witnessAddress as Buffer | undefined;
@@ -347,7 +408,7 @@ async function main() {
 
   // choose initial block as end of the round (so the SR schedule we derived matches this round)
   const initBlockNum = roundEnd;
-  const initBlock = await getBlockByNumber(wallet, callOpts.metadata, initBlockNum);
+  const initBlock = await getBlockByNumberEnsuringHeader(wallet, callOpts.metadata, initBlockNum);
 
   const blockId = initBlock.blockid as Buffer | undefined;
   if (!blockId) throw new Error("blockid missing on BlockExtention");
