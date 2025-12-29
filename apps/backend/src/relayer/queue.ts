@@ -152,6 +152,8 @@ export const claimRelayJobs = (args: {
   Effect.tryPromise({
     try: async () => {
       const staleLockBlocks = 50n;
+      const staleLockCutoff =
+        args.headBlockNumber > staleLockBlocks ? args.headBlockNumber - staleLockBlocks : 0n;
       const eligibleBlock =
         args.headBlockNumber > args.minConfirmations
           ? args.headBlockNumber - args.minConfirmations
@@ -174,7 +176,7 @@ export const claimRelayJobs = (args: {
                 AND locked_by IS NOT NULL
                 AND locked_by <> ${args.workerId}
                 AND locked_at_block_number IS NOT NULL
-                AND locked_at_block_number <= ${args.headBlockNumber} - ${staleLockBlocks}
+                AND locked_at_block_number <= ${staleLockCutoff}
               )
             )
           ORDER BY created_at_block_number ASC, "id" ASC

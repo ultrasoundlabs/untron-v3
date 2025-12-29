@@ -76,6 +76,8 @@ const processControllerEventsIfBacklog = (ctx: RelayJobHandlerContext) =>
     if (toProcess === 0n) return;
 
     const cooldownBlocks = runtime.processControllerEventsCooldownBlocks;
+    const cooldownCutoff =
+      ctx.headBlockNumber > cooldownBlocks ? ctx.headBlockNumber - cooldownBlocks : 0n;
     const attemptId = `${chainId}:${untronV3Address}`;
     const attemptResult = yield* tryPromise(() =>
       ctx.ponderContext.db.sql.execute(sql`
@@ -105,7 +107,7 @@ const processControllerEventsIfBacklog = (ctx: RelayJobHandlerContext) =>
         WHERE
           "untron_v3_process_controller_events_sent".enqueued_count <> EXCLUDED.enqueued_count
           OR "untron_v3_process_controller_events_sent".processed_count <> EXCLUDED.processed_count
-          OR "untron_v3_process_controller_events_sent".sent_at_block_number <= EXCLUDED.sent_at_block_number - ${cooldownBlocks}
+          OR "untron_v3_process_controller_events_sent".sent_at_block_number <= ${cooldownCutoff}
         RETURNING id;
       `)
     );
