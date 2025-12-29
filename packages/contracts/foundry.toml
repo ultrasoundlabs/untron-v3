@@ -24,7 +24,7 @@ deny               = "warnings"
 
 ffi = false
 fs_permissions = [
-  { access = "read", path = "./" }
+  { access = "read-write", path = "./" }
 ]
 
 build_info = true
