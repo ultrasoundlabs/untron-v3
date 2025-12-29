@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { decodeAbiParameters, type Hex } from "viem";
 
 import type { Return } from "@untron/tron-protocol/api";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
@@ -11,6 +12,67 @@ import {
 
 import type { UnaryCall } from "./grpcClient";
 import { signTronTransaction } from "./protocol";
+
+const bufferToHex = (buf: Buffer): Hex => `0x${buf.toString("hex")}` as Hex;
+
+const decodeEvmRevertData = (data: Hex): string | null => {
+  if (data === "0x") return null;
+
+  const selector = data.slice(0, 10).toLowerCase();
+
+  // EVM standard errors.
+  if (selector === "0x08c379a0") {
+    // Error(string)
+    try {
+      const [reason] = decodeAbiParameters([{ type: "string" }], `0x${data.slice(10)}` as Hex);
+      return typeof reason === "string" ? `Error(${JSON.stringify(reason)})` : "Error(<unknown>)";
+    } catch {
+      return "Error(<decode failed>)";
+    }
+  }
+  if (selector === "0x4e487b71") {
+    // Panic(uint256)
+    try {
+      const [code] = decodeAbiParameters([{ type: "uint256" }], `0x${data.slice(10)}` as Hex);
+      return typeof code === "bigint" ? `Panic(${code})` : "Panic(<unknown>)";
+    } catch {
+      return "Panic(<decode failed>)";
+    }
+  }
+
+  // Solady SafeTransferLib custom errors (common in our Tron controller path).
+  switch (selector) {
+    case "0xb12d13eb":
+      return "SafeTransferLib.ETHTransferFailed()";
+    case "0x7939f424":
+      return "SafeTransferLib.TransferFromFailed()";
+    case "0x90b8ec18":
+      return "SafeTransferLib.TransferFailed()";
+    case "0x3e3f8f73":
+      return "SafeTransferLib.ApproveFailed()";
+    case "0x54cd9435":
+      return "SafeTransferLib.TotalSupplyQueryFailed()";
+    default:
+      return null;
+  }
+};
+
+const formatTronTxFailure = (info: TransactionInfo): string => {
+  const resMessage = info.resMessage?.length
+    ? info.resMessage.toString("utf8")
+    : "Tron transaction execution failed";
+
+  const contractResult0 = info.contractResult?.[0];
+  if (!contractResult0?.length) return resMessage;
+
+  const revertData = bufferToHex(contractResult0);
+  const decoded = decodeEvmRevertData(revertData);
+
+  if (decoded) return `${resMessage} (${decoded})`;
+
+  const dataLenBytes = (revertData.length - 2) / 2;
+  return `${resMessage} (revertData=${revertData.slice(0, 10)}, len=${dataLenBytes} bytes)`;
+};
 
 export const getTxRefBlockNumber = (tx: Transaction): bigint => {
   const rawData = tx.rawData;
@@ -53,10 +115,7 @@ export const waitForTronTransaction = <E>(args: {
       }
 
       if (info.result === TransactionInfo_code.FAILED) {
-        const message = info.resMessage?.length
-          ? info.resMessage.toString("utf8")
-          : "Tron transaction execution failed";
-        return yield* Effect.fail(new Error(message));
+        return yield* Effect.fail(new Error(`${formatTronTxFailure(info)} (txid=${args.txid})`));
       }
 
       return;
