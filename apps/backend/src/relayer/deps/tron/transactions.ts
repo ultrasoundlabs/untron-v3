@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { decodeAbiParameters, type Hex } from "viem";
+import { decodeAbiParameters, type Address, type Hex } from "viem";
 
 import type { Return } from "@untron/tron-protocol/api";
 import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_contract";
@@ -11,7 +11,7 @@ import {
 } from "@untron/tron-protocol/tron";
 
 import type { UnaryCall } from "./grpcClient";
-import { signTronTransaction } from "./protocol";
+import { signTronTransaction, tronBytes21ToBase58 } from "./protocol";
 
 const bufferToHex = (buf: Buffer): Hex => `0x${buf.toString("hex")}` as Hex;
 
@@ -57,21 +57,92 @@ const decodeEvmRevertData = (data: Hex): string | null => {
   }
 };
 
+const tryDecodeErc20TransferCalldata = (data: string): { to: Address; value: bigint } | null => {
+  const normalized = data.trim().toLowerCase();
+  const hex = normalized.startsWith("0x") ? (normalized as Hex) : (`0x${normalized}` as Hex);
+  if (!hex.startsWith("0xa9059cbb")) return null;
+  if (hex.length < 10 + 64 + 64) return null;
+
+  try {
+    const [to, value] = decodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }],
+      `0x${hex.slice(10)}` as Hex
+    );
+    if (typeof to !== "string" || typeof value !== "bigint") return null;
+    return { to: to as Address, value };
+  } catch {
+    return null;
+  }
+};
+
+const summarizeRejectedInternalTx = (info: TransactionInfo): string | null => {
+  const internalTxs = info.internalTransactions ?? [];
+  if (internalTxs.length === 0) return null;
+
+  const rejected = internalTxs.find((t) => t.rejected) ?? null;
+  const tx = rejected ?? internalTxs[internalTxs.length - 1] ?? null;
+  if (!tx) return null;
+
+  let fromTo = null as string | null;
+  try {
+    const from = tronBytes21ToBase58(tx.callerAddress);
+    const to = tronBytes21ToBase58(tx.transferToAddress);
+    fromTo = `${from}->${to}`;
+  } catch {
+    // ignore
+  }
+
+  const note = tx.note?.length ? tx.note.toString("utf8") : "";
+  const extra = tx.extra?.length ? tx.extra : "";
+
+  const maybeTransferHex = (() => {
+    if (!extra) return null;
+    const match = extra.match(/0x?a9059cbb[0-9a-fA-F]{1,512}/);
+    return match?.[0] ?? null;
+  })();
+  const decodedTransfer = maybeTransferHex
+    ? tryDecodeErc20TransferCalldata(maybeTransferHex)
+    : null;
+
+  const parts: string[] = [];
+  parts.push(`internalTxs=${internalTxs.length}`);
+  if (tx.rejected) parts.push("rejected=true");
+  if (fromTo) parts.push(fromTo);
+  if (note) parts.push(`note=${JSON.stringify(note)}`);
+  if (decodedTransfer)
+    parts.push(`erc20.transfer(to=${decodedTransfer.to}, value=${decodedTransfer.value})`);
+
+  // Keep logfmt-ish and short; extra is sometimes huge.
+  if (extra && !decodedTransfer) parts.push(`extra=${JSON.stringify(extra.slice(0, 160))}`);
+
+  return parts.join(" ");
+};
+
 const formatTronTxFailure = (info: TransactionInfo): string => {
   const resMessage = info.resMessage?.length
     ? info.resMessage.toString("utf8")
     : "Tron transaction execution failed";
 
+  const internalSummary = summarizeRejectedInternalTx(info);
+
   const contractResult0 = info.contractResult?.[0];
-  if (!contractResult0?.length) return resMessage;
+  if (!contractResult0?.length) {
+    return internalSummary ? `${resMessage} (${internalSummary})` : resMessage;
+  }
 
   const revertData = bufferToHex(contractResult0);
   const decoded = decodeEvmRevertData(revertData);
 
-  if (decoded) return `${resMessage} (${decoded})`;
+  if (decoded) {
+    const suffix = internalSummary ? `${decoded}; ${internalSummary}` : decoded;
+    return `${resMessage} (${suffix})`;
+  }
 
   const dataLenBytes = (revertData.length - 2) / 2;
-  return `${resMessage} (revertData=${revertData.slice(0, 10)}, len=${dataLenBytes} bytes)`;
+  const suffix = `revertData=${revertData.slice(0, 10)}, len=${dataLenBytes} bytes`;
+  return internalSummary
+    ? `${resMessage} (${suffix}; ${internalSummary})`
+    : `${resMessage} (${suffix})`;
 };
 
 export const getTxRefBlockNumber = (tx: Transaction): bigint => {
