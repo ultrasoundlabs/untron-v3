@@ -228,6 +228,46 @@ export const tronLightClientCheckpoint = onchainTable(
   })
 );
 
+// Derived index for skipping already pre-entitled deposits without onchain reads.
+export const untronV3DepositPreEntitled = onchainTable(
+  "untron_v3_deposit_preentitled",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${txId}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    txId: t.hex().notNull(), // bytes32
+    leaseId: t.bigint().notNull(),
+    rawAmount: t.bigint().notNull(),
+    netOut: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractTxIdIdx: index().on(table.chainId, table.contractAddress, table.txId),
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+// Derived state for UntronV3.tronUsdt based on emitted events.
+export const untronV3TronUsdt = onchainTable(
+  "untron_v3_tron_usdt",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    tronUsdt: t.hex().notNull(), // EVM-representation of Tron TRC20 address
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
 // Singleton config/state row for each TronLightClient instance, derived from TronLightClientConfigured.
 // Used by the publisher to derive the SR-owner -> witnessIndex mapping without onchain calls.
 export const tronLightClientConfig = onchainTable(

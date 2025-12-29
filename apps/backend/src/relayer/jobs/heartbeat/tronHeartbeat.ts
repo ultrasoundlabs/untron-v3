@@ -2,6 +2,7 @@ import { Cause, Effect, Option } from "effect";
 import { sql } from "ponder";
 import {
   eventChainState,
+  tronLightClientPublishRequest,
   tronIsEventChainTipSent,
   tronPullFromReceiversSent,
   tronRebalanceUsdtSent,
@@ -11,15 +12,17 @@ import { encodeAbiParameters, keccak256 } from "viem";
 
 import { AppConfig } from "../../../effect/config";
 import { tryPromise } from "../../../effect/tryPromise";
-import { getTronLightClientAddress } from "../../../contracts";
+import { getTronLightClientAddress, getUntronV3Address } from "../../../contracts";
+import { MAINNET_CHAIN_ID } from "../../../env";
 import { TronRelayer } from "../../deps/tron";
 import { getRows } from "../../sqlRows";
 import type { RelayJobRow } from "../../types";
-import type { RelayJobHandlerContext } from "../types";
+import { expectBigint, type RelayJobHandlerContext } from "../types";
 import { publishTronLightClient } from "../../tronLightClient";
 import { getCheckpointAtOrAbove } from "../../tronLightClient/repo";
 import type { HeartbeatHandler } from "./types";
 import { runHeartbeatHandlers } from "./runHeartbeatHandlers";
+import { enqueueRelayJob } from "../../queue";
 
 const TRX_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
 const RATE_SCALE = 1_000_000_000_000_000_000n; // 1e18
@@ -59,6 +62,7 @@ export const handleTronHeartbeat = ({
       { name: "sweep_tron_receivers_trx", effect: tronSweepTrxFromReceivers(ctx) },
       { name: "rebalance_pulled_usdt", effect: rebalancePulledUsdtIfOverThreshold(ctx) },
       { name: "ensure_is_event_chain_tip_called", effect: ensureIsEventChainTipCalled(ctx) },
+      { name: "enqueue_missing_trc20_transfers", effect: enqueueMissingTrc20TransferJobs(ctx) },
       {
         name: "publish_tron_light_client",
         effect: publishTronLightClient(ctx).pipe(
@@ -72,6 +76,126 @@ export const handleTronHeartbeat = ({
     ];
 
     yield* runHeartbeatHandlers({ jobName: "tron heartbeat", handlers });
+  });
+
+const enqueueMissingTrc20TransferJobs = (ctx: RelayJobHandlerContext) =>
+  Effect.gen(function* () {
+    const runtime = yield* AppConfig.relayerRuntime();
+    const limit = Math.max(0, Math.min(runtime.claimLimit, 25));
+    if (limit === 0) return;
+
+    const tronChainId = ctx.ponderContext.chain.id;
+    const tronLightClientAddress = getTronLightClientAddress().toLowerCase() as `0x${string}`;
+    const untronV3Address = getUntronV3Address().toLowerCase() as `0x${string}`;
+
+    const result = yield* tryPromise(() =>
+      ctx.ponderContext.db.sql.execute(sql`
+        WITH candidates AS (
+          SELECT
+            t.token_address AS "tokenAddress",
+            t."from" AS "from",
+            t."to" AS "to",
+            t.value AS "value",
+            t.block_number AS "blockNumber",
+            t.block_timestamp AS "blockTimestamp",
+            lower(t.transaction_hash) AS "transactionHash",
+            t.log_index AS "logIndex",
+            (t.chain_id::text || ':trc20_transfer:' || lower(t.transaction_hash) || ':' || t.log_index::text) AS "jobId"
+          FROM "trc20_transfer" t
+          WHERE t.chain_id = ${tronChainId}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM "untron_v3_deposit_preentitled" d
+              WHERE d.chain_id = ${MAINNET_CHAIN_ID}
+                AND lower(d.contract_address) = ${untronV3Address}
+                AND lower(d.tx_id) = lower(t.transaction_hash)
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM "untron_v3_event" u
+              WHERE u.chain_id = ${MAINNET_CHAIN_ID}
+                AND lower(u.contract_address) = ${untronV3Address}
+                AND u.event_name = 'DepositPreEntitled'
+                AND lower(((u.args_json)::jsonb ->> 'txId')) = lower(t.transaction_hash)
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM "relay_job" j
+              WHERE j.id = (t.chain_id::text || ':trc20_transfer:' || lower(t.transaction_hash) || ':' || t.log_index::text)
+            )
+          ORDER BY t.block_number ASC, t.log_index ASC
+          LIMIT ${limit}
+        )
+        SELECT * FROM candidates;
+      `)
+    );
+
+    const rows = getRows(result) as Array<{
+      jobId: unknown;
+      tokenAddress: unknown;
+      from: unknown;
+      to: unknown;
+      value: unknown;
+      blockNumber: unknown;
+      blockTimestamp: unknown;
+      transactionHash: unknown;
+      logIndex: unknown;
+    }>;
+
+    if (rows.length === 0) return;
+
+    for (const row of rows) {
+      const jobId = String(row.jobId);
+      const tokenAddress = String(row.tokenAddress) as `0x${string}`;
+      const from = String(row.from) as `0x${string}`;
+      const to = String(row.to) as `0x${string}`;
+      const value = expectBigint(row.value, "value");
+      const blockNumber = expectBigint(row.blockNumber, "blockNumber");
+      const blockTimestamp = expectBigint(row.blockTimestamp, "blockTimestamp");
+      const transactionHash = String(row.transactionHash) as `0x${string}`;
+      const logIndex = Number(row.logIndex);
+
+      yield* tryPromise(() =>
+        ctx.ponderContext.db
+          .insert(tronLightClientPublishRequest)
+          .values({
+            id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${blockNumber.toString()}`,
+            chainId: MAINNET_CHAIN_ID,
+            tronLightClientAddress,
+            tronBlockNumber: blockNumber,
+            requestedAtTronBlockTimestamp: blockTimestamp,
+            source: "trc20_transfer_backfill",
+          })
+          .onConflictDoNothing()
+      );
+
+      yield* enqueueRelayJob({
+        context: ctx.ponderContext,
+        id: jobId,
+        chainId: tronChainId,
+        createdAtBlockNumber: blockNumber,
+        createdAtBlockTimestamp: blockTimestamp,
+        kind: "trc20_transfer",
+        payloadJson: {
+          tokenAddress,
+          from,
+          to,
+          value: value.toString(),
+          transactionHash,
+          logIndex,
+          blockNumber: blockNumber.toString(),
+        },
+      });
+    }
+
+    yield* Effect.logInfo("[tron_heartbeat] enqueued missing TRC20 transfers").pipe(
+      Effect.annotateLogs({
+        chainId: tronChainId,
+        count: rows.length,
+        oldestBlockNumber: String(rows[0]?.blockNumber ?? ""),
+        newestBlockNumber: String(rows[rows.length - 1]?.blockNumber ?? ""),
+      })
+    );
   });
 
 const tronSweepTrxFromReceivers = (ctx: RelayJobHandlerContext) =>

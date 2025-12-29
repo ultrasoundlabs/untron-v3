@@ -6,12 +6,14 @@ import {
   untronV3BridgerRoute,
   untronV3Claim,
   untronV3ClaimQueue,
+  untronV3DepositPreEntitled,
   untronV3LeasePayoutConfig,
   untronV3SwapRate,
+  untronV3TronUsdt,
 } from "ponder:schema";
 
 import { tryPromise } from "./effect/tryPromise";
-import { expectBigint, expectHexAddress, expectRecord, getArgValue } from "./parse";
+import { expectBigint, expectHex, expectHexAddress, expectRecord, getArgValue } from "./parse";
 
 type PonderLogEvent = Extract<PonderEvent, { log: unknown }>;
 
@@ -20,6 +22,8 @@ type UntronV3DerivedEventName =
   | "SwapRateSet"
   | "ClaimCreated"
   | "BridgerSet"
+  | "DepositPreEntitled"
+  | "TronUsdtSet"
   | "ControllerEventChainTipUpdated"
   | "ControllerEventProcessed";
 
@@ -58,6 +62,18 @@ function makeBridgerRouteId(args: {
 }
 
 function makeControllerEventQueueId(args: { chainId: number; contractAddress: string }): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
+}
+
+function makeDepositPreEntitledId(args: {
+  chainId: number;
+  contractAddress: string;
+  txId: string;
+}): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}:${args.txId.toLowerCase()}`;
+}
+
+function makeTronUsdtId(args: { chainId: number; contractAddress: string }): string {
   return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
 }
 
@@ -285,6 +301,90 @@ const handleClaimCreated = (args: { event: PonderLogEvent; context: PonderContex
     );
   });
 
+const handleDepositPreEntitled = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const txId = expectHex(getArgValue(parsedArgs, 0, "txId"), "DepositPreEntitled.txId");
+    const leaseId = expectBigint(
+      getArgValue(parsedArgs, 1, "leaseId"),
+      "DepositPreEntitled.leaseId"
+    );
+    const rawAmount = expectBigint(
+      getArgValue(parsedArgs, 2, "rawAmount"),
+      "DepositPreEntitled.rawAmount"
+    );
+    const netOut = expectBigint(getArgValue(parsedArgs, 3, "netOut"), "DepositPreEntitled.netOut");
+
+    const id = makeDepositPreEntitledId({ chainId, contractAddress, txId });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3DepositPreEntitled)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          txId,
+          leaseId,
+          rawAmount,
+          netOut,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          leaseId,
+          rawAmount,
+          netOut,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleTronUsdtSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const tronUsdt = expectHexAddress(
+      getArgValue(parsedArgs, 0, "tronUsdt"),
+      "TronUsdtSet.tronUsdt"
+    );
+    const id = makeTronUsdtId({ chainId, contractAddress });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3TronUsdt)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          tronUsdt,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          tronUsdt,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
 const handleControllerEventChainTipUpdated = (args: {
   event: PonderLogEvent;
   context: PonderContext;
@@ -394,6 +494,10 @@ export const handleUntronV3DerivedEvent = (args: {
       return handleBridgerSet({ event: args.event, context: args.context });
     case "ClaimCreated":
       return handleClaimCreated({ event: args.event, context: args.context });
+    case "DepositPreEntitled":
+      return handleDepositPreEntitled({ event: args.event, context: args.context });
+    case "TronUsdtSet":
+      return handleTronUsdtSet({ event: args.event, context: args.context });
     case "ControllerEventChainTipUpdated":
       return handleControllerEventChainTipUpdated({ event: args.event, context: args.context });
     case "ControllerEventProcessed":
