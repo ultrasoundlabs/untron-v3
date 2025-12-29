@@ -250,6 +250,34 @@ export const untronV3DepositPreEntitled = onchainTable(
   })
 );
 
+// Derived state for UntronV3.lastReceiverPullTimestampByToken[receiverSalt][token], based on processed controller events.
+// Used by the relayer to avoid attempting preEntitle for deposits that are known to be at/before the latest pull.
+export const untronV3LastReceiverPull = onchainTable(
+  "untron_v3_last_receiver_pull",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${receiverSalt}:${tokenAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    receiverSalt: t.hex().notNull(), // bytes32
+    tokenAddress: t.hex().notNull(),
+    lastPullTronBlockNumber: t.bigint().notNull(),
+    lastPullTronBlockTimestamp: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractReceiverTokenIdx: index().on(
+      table.chainId,
+      table.contractAddress,
+      table.receiverSalt,
+      table.tokenAddress
+    ),
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
 // Derived state for UntronV3.tronUsdt based on emitted events.
 export const untronV3TronUsdt = onchainTable(
   "untron_v3_tron_usdt",

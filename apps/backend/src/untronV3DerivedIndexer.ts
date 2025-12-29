@@ -7,10 +7,12 @@ import {
   untronV3Claim,
   untronV3ClaimQueue,
   untronV3DepositPreEntitled,
+  untronV3LastReceiverPull,
   untronV3LeasePayoutConfig,
   untronV3SwapRate,
   untronV3TronUsdt,
 } from "ponder:schema";
+import { decodeAbiParameters, keccak256, stringToHex, type Hex } from "viem";
 
 import { tryPromise } from "./effect/tryPromise";
 import { expectBigint, expectHex, expectHexAddress, expectRecord, getArgValue } from "./parse";
@@ -76,6 +78,19 @@ function makeDepositPreEntitledId(args: {
 function makeTronUsdtId(args: { chainId: number; contractAddress: string }): string {
   return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
 }
+
+function makeLastReceiverPullId(args: {
+  chainId: number;
+  contractAddress: string;
+  receiverSalt: string;
+  tokenAddress: string;
+}): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}:${args.receiverSalt.toLowerCase()}:${args.tokenAddress.toLowerCase()}`;
+}
+
+const EVENT_SIG_PULLED_FROM_RECEIVER = keccak256(
+  stringToHex("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)")
+) as Hex;
 
 const handlePayoutConfigUpdated = (args: { event: PonderLogEvent; context: PonderContext }) =>
   Effect.gen(function* () {
@@ -441,9 +456,84 @@ const handleControllerEventProcessed = (args: { event: PonderLogEvent; context: 
       getArgValue(parsedArgs, 0, "eventIndex"),
       "ControllerEventProcessed.eventIndex"
     );
+    const tronBlockNumber = expectBigint(
+      getArgValue(parsedArgs, 1, "blockNumber"),
+      "ControllerEventProcessed.blockNumber"
+    );
+    const tronBlockTimestamp = expectBigint(
+      getArgValue(parsedArgs, 2, "blockTimestamp"),
+      "ControllerEventProcessed.blockTimestamp"
+    );
+    const eventSignature = expectHex(
+      getArgValue(parsedArgs, 3, "eventSignature"),
+      "ControllerEventProcessed.eventSignature"
+    ).toLowerCase() as Hex;
+    const abiEncodedEventData = expectHex(
+      getArgValue(parsedArgs, 4, "abiEncodedEventData"),
+      "ControllerEventProcessed.abiEncodedEventData"
+    ).toLowerCase() as Hex;
 
     const processedCount = eventIndex + 1n;
     const id = makeControllerEventQueueId({ chainId, contractAddress });
+
+    if (eventSignature === EVENT_SIG_PULLED_FROM_RECEIVER) {
+      const [receiverSalt, tokenAddress] = decodeAbiParameters(
+        [
+          { type: "bytes32" },
+          { type: "address" },
+          { type: "uint256" },
+          { type: "uint256" },
+          { type: "uint256" },
+        ],
+        abiEncodedEventData
+      ) as readonly [Hex, Hex, unknown, unknown, unknown];
+
+      const receiverId = makeLastReceiverPullId({
+        chainId,
+        contractAddress,
+        receiverSalt,
+        tokenAddress,
+      });
+
+      const existing = yield* tryPromise(() =>
+        context.db.find(untronV3LastReceiverPull, { id: receiverId })
+      );
+      const existingTs =
+        existing?.lastPullTronBlockTimestamp != null
+          ? expectBigint(existing.lastPullTronBlockTimestamp, "lastPull.lastPullTronBlockTimestamp")
+          : null;
+
+      // Only move forward (onchain state is monotonic; avoid regressing on reorgs/out-of-order indexing).
+      if (existingTs === null || tronBlockTimestamp > existingTs) {
+        yield* tryPromise(() =>
+          context.db
+            .insert(untronV3LastReceiverPull)
+            .values({
+              id: receiverId,
+              chainId,
+              contractAddress,
+              receiverSalt,
+              tokenAddress,
+              lastPullTronBlockNumber: tronBlockNumber,
+              lastPullTronBlockTimestamp: tronBlockTimestamp,
+              updatedAtBlockNumber: event.block.number,
+              updatedAtBlockTimestamp: event.block.timestamp,
+              updatedAtTransactionHash: event.transaction.hash,
+              updatedAtLogIndex: event.log.logIndex,
+            })
+            .onConflictDoUpdate({
+              receiverSalt,
+              tokenAddress,
+              lastPullTronBlockNumber: tronBlockNumber,
+              lastPullTronBlockTimestamp: tronBlockTimestamp,
+              updatedAtBlockNumber: event.block.number,
+              updatedAtBlockTimestamp: event.block.timestamp,
+              updatedAtTransactionHash: event.transaction.hash,
+              updatedAtLogIndex: event.log.logIndex,
+            })
+        );
+      }
+    }
 
     yield* tryPromise(() =>
       context.db.sql.execute(sql`

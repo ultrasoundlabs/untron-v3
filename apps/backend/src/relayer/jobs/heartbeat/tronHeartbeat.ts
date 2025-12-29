@@ -6,6 +6,7 @@ import {
   tronIsEventChainTipSent,
   tronPullFromReceiversSent,
   tronRebalanceUsdtSent,
+  untronV3LastReceiverPull,
 } from "ponder:schema";
 import type { Address } from "viem";
 import { encodeAbiParameters, keccak256 } from "viem";
@@ -144,6 +145,12 @@ const enqueueMissingTrc20TransferJobs = (ctx: RelayJobHandlerContext) =>
 
     if (rows.length === 0) return;
 
+    const receiverMap = yield* TronRelayer.getReceiverMap();
+    const controllerUsdt = (yield* TronRelayer.getControllerUsdt()).toLowerCase() as `0x${string}`;
+
+    let skippedTooOld = 0;
+    let enqueued = 0;
+
     for (const row of rows) {
       const jobId = String(row.jobId);
       const tokenAddress = String(row.tokenAddress) as `0x${string}`;
@@ -155,19 +162,58 @@ const enqueueMissingTrc20TransferJobs = (ctx: RelayJobHandlerContext) =>
       const transactionHash = String(row.transactionHash) as `0x${string}`;
       const logIndex = Number(row.logIndex);
 
-      yield* tryPromise(() =>
-        ctx.ponderContext.db
-          .insert(tronLightClientPublishRequest)
-          .values({
-            id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${blockNumber.toString()}`,
-            chainId: MAINNET_CHAIN_ID,
-            tronLightClientAddress,
-            tronBlockNumber: blockNumber,
-            requestedAtTronBlockTimestamp: blockTimestamp,
-            source: "trc20_transfer_backfill",
+      const receiver = receiverMap.get(to.toLowerCase());
+      if (!receiver) continue;
+
+      const isControllerUsdt = tokenAddress.toLowerCase() === controllerUsdt;
+      if (isControllerUsdt) {
+        const lastPull = yield* tryPromise(() =>
+          ctx.ponderContext.db.find(untronV3LastReceiverPull, {
+            id: `${MAINNET_CHAIN_ID}:${untronV3Address}:${receiver.receiverSalt.toLowerCase()}:${tokenAddress.toLowerCase()}`,
           })
-          .onConflictDoNothing()
-      );
+        );
+        const lastPullTs = lastPull ? coerceBigint(lastPull.lastPullTronBlockTimestamp) : null;
+        if (lastPullTs !== null && blockTimestamp <= lastPullTs) {
+          skippedTooOld++;
+          // Mark as done so the backfill loop doesn't keep reconsidering it.
+          yield* enqueueRelayJob({
+            context: ctx.ponderContext,
+            id: jobId,
+            chainId: tronChainId,
+            createdAtBlockNumber: blockNumber,
+            createdAtBlockTimestamp: blockTimestamp,
+            kind: "trc20_transfer",
+            status: "sent",
+            payloadJson: {
+              tokenAddress,
+              from,
+              to,
+              value: value.toString(),
+              transactionHash,
+              logIndex,
+              blockNumber: blockNumber.toString(),
+              receiverSalt: receiver.receiverSalt,
+              skippedReason: "deposit_at_or_before_last_receiver_pull",
+              lastPullTronBlockTimestamp: lastPullTs.toString(),
+            },
+          });
+          continue;
+        }
+
+        yield* tryPromise(() =>
+          ctx.ponderContext.db
+            .insert(tronLightClientPublishRequest)
+            .values({
+              id: `${MAINNET_CHAIN_ID}:${tronLightClientAddress}:${blockNumber.toString()}`,
+              chainId: MAINNET_CHAIN_ID,
+              tronLightClientAddress,
+              tronBlockNumber: blockNumber,
+              requestedAtTronBlockTimestamp: blockTimestamp,
+              source: "trc20_transfer_backfill",
+            })
+            .onConflictDoNothing()
+        );
+      }
 
       yield* enqueueRelayJob({
         context: ctx.ponderContext,
@@ -186,12 +232,17 @@ const enqueueMissingTrc20TransferJobs = (ctx: RelayJobHandlerContext) =>
           blockNumber: blockNumber.toString(),
         },
       });
+
+      enqueued++;
     }
 
-    yield* Effect.logInfo("[tron_heartbeat] enqueued missing TRC20 transfers").pipe(
+    if (enqueued === 0 && skippedTooOld === 0) return;
+
+    yield* Effect.logInfo("[tron_heartbeat] processed missing TRC20 transfers").pipe(
       Effect.annotateLogs({
         chainId: tronChainId,
-        count: rows.length,
+        enqueued: enqueued.toString(),
+        skippedTooOld: skippedTooOld.toString(),
         oldestBlockNumber: String(rows[0]?.blockNumber ?? ""),
         newestBlockNumber: String(rows[rows.length - 1]?.blockNumber ?? ""),
       })

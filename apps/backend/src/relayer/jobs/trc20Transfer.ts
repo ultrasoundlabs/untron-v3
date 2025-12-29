@@ -19,6 +19,7 @@ import {
   tronLightClientCheckpoint,
   trc20Transfer,
   untronV3DepositPreEntitled,
+  untronV3LastReceiverPull,
   untronV3TronUsdt,
 } from "ponder:schema";
 import {
@@ -86,12 +87,17 @@ export const handleTrc20Transfer = ({
     const tokenAddress = expectAddress(transfer.tokenAddress, "trc20_transfer.token_address");
     const receiverAddress = expectAddress(transfer.to, "trc20_transfer.to");
     const tronBlockNumber = expectBigint(transfer.blockNumber, "trc20_transfer.block_number");
+    const tronBlockTimestamp = expectBigint(
+      transfer.blockTimestamp,
+      "trc20_transfer.block_timestamp"
+    );
 
     yield* Effect.logDebug("[trc20_transfer] handle").pipe(
       Effect.annotateLogs({
         tokenAddress,
         receiverAddress,
         tronBlockNumber: tronBlockNumber.toString(),
+        tronBlockTimestamp: tronBlockTimestamp.toString(),
         transactionHash,
         logIndex: String(logIndex),
       })
@@ -199,6 +205,33 @@ export const handleTrc20Transfer = ({
       );
       yield* sweepReceiver();
       return;
+    }
+
+    // If the receiver has already been pulled at/after this transfer's Tron timestamp, preEntitle is
+    // guaranteed to revert with DepositNotAfterLastReceiverPull. Skip early to avoid triggering
+    // TronLightClient publish/backfill for an ineligible deposit.
+    const lastPull = yield* tryPromise(() =>
+      ctx.ponderContext.db.find(untronV3LastReceiverPull, {
+        id: `${MAINNET_CHAIN_ID}:${untronV3Address}:${receiver.receiverSalt.toLowerCase()}:${tokenAddress.toLowerCase()}`,
+      })
+    );
+    if (lastPull) {
+      const lastPullTs = expectBigint(
+        lastPull.lastPullTronBlockTimestamp,
+        "lastPull.last_pull_tron_block_timestamp"
+      );
+      if (tronBlockTimestamp <= lastPullTs) {
+        yield* Effect.logInfo("[trc20_transfer] skip (deposit at/before last receiver pull)").pipe(
+          Effect.annotateLogs({
+            transactionHash,
+            logIndex: String(logIndex),
+            receiverSalt: receiver.receiverSalt,
+            transferTronBlockTimestamp: tronBlockTimestamp.toString(),
+            lastPullTronBlockTimestamp: lastPullTs.toString(),
+          })
+        );
+        return;
+      }
     }
 
     {
