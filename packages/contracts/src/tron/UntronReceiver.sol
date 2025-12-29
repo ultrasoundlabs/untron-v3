@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {TokenUtils} from "../utils/TokenUtils.sol";
+import {TronTokenUtils as TokenUtils} from "../utils/TronTokenUtils.sol";
 
 /// @title UntronReceiver
 /// @notice Simple smart contract controlled by UntronController that holds TRC-20 tokens

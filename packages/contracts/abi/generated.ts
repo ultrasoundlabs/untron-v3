@@ -1,4 +1,194 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ApproveRequiresZeroERC20
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const approveRequiresZeroErc20Abi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: 'name_', internalType: 'string', type: 'string' },
+      { name: 'symbol_', internalType: 'string', type: 'string' },
+      { name: 'decimals_', internalType: 'uint8', type: 'uint8' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'owner', internalType: 'address', type: 'address' },
+      { name: 'spender', internalType: 'address', type: 'address' },
+    ],
+    name: 'allowance',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'spender', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'approve',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'account', internalType: 'address', type: 'address' }],
+    name: 'balanceOf',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'from', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'burn',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'decimals',
+    outputs: [{ name: '', internalType: 'uint8', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'to', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'mint',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'name',
+    outputs: [{ name: '', internalType: 'string', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'symbol',
+    outputs: [{ name: '', internalType: 'string', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'totalSupply',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'to', internalType: 'address', type: 'address' },
+      { name: 'value', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'transfer',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'from', internalType: 'address', type: 'address' },
+      { name: 'to', internalType: 'address', type: 'address' },
+      { name: 'value', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'transferFrom',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'owner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'spender',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'value',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'Approval',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'from', internalType: 'address', type: 'address', indexed: true },
+      { name: 'to', internalType: 'address', type: 'address', indexed: true },
+      {
+        name: 'value',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'Transfer',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'spender', internalType: 'address', type: 'address' },
+      { name: 'allowance', internalType: 'uint256', type: 'uint256' },
+      { name: 'needed', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'ERC20InsufficientAllowance',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'sender', internalType: 'address', type: 'address' },
+      { name: 'balance', internalType: 'uint256', type: 'uint256' },
+      { name: 'needed', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'ERC20InsufficientBalance',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'approver', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidApprover',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'receiver', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidReceiver',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'sender', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidSender',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'spender', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidSpender',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // CCTPV2Bridger
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -214,65 +404,6 @@ export const cctpv2BridgerAbi = [
   },
   { type: 'error', inputs: [], name: 'ZeroAddress' },
   { type: 'error', inputs: [], name: 'ZeroBeneficiary' },
-] as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Create2Utils
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const create2UtilsAbi = [
-  {
-    type: 'constructor',
-    inputs: [
-      { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
-      {
-        name: 'receiverImplOverride',
-        internalType: 'address',
-        type: 'address',
-      },
-    ],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'RECEIVER_IMPL',
-    outputs: [{ name: '', internalType: 'address', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'deployReceiver',
-    outputs: [
-      { name: 'receiver', internalType: 'address payable', type: 'address' },
-    ],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'predictReceiverAddress',
-    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [
-      { name: 'controller', internalType: 'address', type: 'address' },
-      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
-    ],
-    name: 'predictReceiverAddress',
-    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'receiverBytecode',
-    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
-    stateMutability: 'view',
-  },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3463,6 +3594,7 @@ export const legacyMeshRebalancerAbi = [
     outputs: [{ name: 'outAmount', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'payable',
   },
+  { type: 'error', inputs: [], name: 'Trc20CallFailed' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4292,6 +4424,196 @@ export const returnFalseErc20Abi = [
     name: 'transferFrom',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'owner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'spender',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'value',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'Approval',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'from', internalType: 'address', type: 'address', indexed: true },
+      { name: 'to', internalType: 'address', type: 'address', indexed: true },
+      {
+        name: 'value',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'Transfer',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'spender', internalType: 'address', type: 'address' },
+      { name: 'allowance', internalType: 'uint256', type: 'uint256' },
+      { name: 'needed', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'ERC20InsufficientAllowance',
+  },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'sender', internalType: 'address', type: 'address' },
+      { name: 'balance', internalType: 'uint256', type: 'uint256' },
+      { name: 'needed', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'ERC20InsufficientBalance',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'approver', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidApprover',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'receiver', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidReceiver',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'sender', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidSender',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'spender', internalType: 'address', type: 'address' }],
+    name: 'ERC20InvalidSpender',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// RevertERC20
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const revertErc20Abi = [
+  {
+    type: 'constructor',
+    inputs: [
+      { name: 'name_', internalType: 'string', type: 'string' },
+      { name: 'symbol_', internalType: 'string', type: 'string' },
+      { name: 'decimals_', internalType: 'uint8', type: 'uint8' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'owner', internalType: 'address', type: 'address' },
+      { name: 'spender', internalType: 'address', type: 'address' },
+    ],
+    name: 'allowance',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'spender', internalType: 'address', type: 'address' },
+      { name: 'value', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'approve',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'account', internalType: 'address', type: 'address' }],
+    name: 'balanceOf',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'from', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'burn',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'decimals',
+    outputs: [{ name: '', internalType: 'uint8', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'to', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'mint',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'name',
+    outputs: [{ name: '', internalType: 'string', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'symbol',
+    outputs: [{ name: '', internalType: 'string', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'totalSupply',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'transfer',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'address', type: 'address' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'transferFrom',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'pure',
   },
   {
     type: 'event',
@@ -6250,6 +6572,17 @@ export const tronSha256MerkleVerifierTestAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TronTokenUtils
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const tronTokenUtilsAbi = [
+  { type: 'error', inputs: [], name: 'Trc20BadReturnData' },
+  { type: 'error', inputs: [], name: 'Trc20CallFailed' },
+  { type: 'error', inputs: [], name: 'Trc20StaticCallFailed' },
+  { type: 'error', inputs: [], name: 'TrxTransferFailed' },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // TronTxReader
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -7047,6 +7380,10 @@ export const untronControllerAbi = [
   { type: 'error', inputs: [], name: 'OnlyOwner' },
   { type: 'error', inputs: [], name: 'OutAmountMismatch' },
   { type: 'error', inputs: [], name: 'RouteNotSet' },
+  { type: 'error', inputs: [], name: 'Trc20BadReturnData' },
+  { type: 'error', inputs: [], name: 'Trc20CallFailed' },
+  { type: 'error', inputs: [], name: 'Trc20StaticCallFailed' },
+  { type: 'error', inputs: [], name: 'TrxTransferFailed' },
   { type: 'error', inputs: [], name: 'ZeroOwnerAddress' },
 ] as const
 
@@ -7328,6 +7665,8 @@ export const untronReceiverAbi = [
     stateMutability: 'nonpayable',
   },
   { type: 'error', inputs: [], name: 'NotController' },
+  { type: 'error', inputs: [], name: 'Trc20CallFailed' },
+  { type: 'error', inputs: [], name: 'TrxTransferFailed' },
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

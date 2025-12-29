@@ -2,6 +2,12 @@
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
 
+## Tron Notes
+
+- Tron-side Untron V3 contracts treat a TRC-20 transfer as failed **only if the call reverts**.
+- Therefore, Tron deployments only support TRC-20 tokens that **revert on failure** (tokens that return `false` on failure are unsupported).
+- See `packages/contracts/src/utils/TronTokenUtils.sol`.
+
 Foundry consists of:
 
 -   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).

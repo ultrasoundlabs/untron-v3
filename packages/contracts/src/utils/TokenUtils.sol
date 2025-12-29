@@ -7,9 +7,13 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title TokenUtils
 /// @notice Utility functions that work for both ERC20 and native tokens.
-/// @dev All operations related with ERC-20/TRC-20 tokens or native coins
-///      in Untron V3 protocol must be done through this library.
-///      If you found a counterexample, please fix the code to use this library.
+/// @dev For standard EVM chains, this library uses Solady's {SafeTransferLib} which expects
+///      ERC-20 transfers/approvals to revert on failure (or return `true`).
+///
+///      IMPORTANT: Tron-side Untron V3 contracts intentionally do NOT use {SafeTransferLib}
+///      for TRC-20 transfers, because some Tron TRC-20 tokens (notably USDT) can return `false`
+///      even when the call succeeds. Tron-side contracts should use
+///      `packages/contracts/src/utils/TronTokenUtils.sol` for TRC-20 transfers/approvals.
 /// @author Ultrasound Labs
 library TokenUtils {
     /// @notice Returns ERC20 or ETH balance of 'addr'.

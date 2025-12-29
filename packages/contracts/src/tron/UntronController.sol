@@ -3,13 +3,15 @@ pragma solidity ^0.8.27;
 
 import {UntronControllerIndex} from "./UntronControllerIndex.sol";
 import {UntronReceiver} from "./UntronReceiver.sol";
-import {TokenUtils} from "../utils/TokenUtils.sol";
 import {IRebalancer} from "./rebalancers/interfaces/IRebalancer.sol";
 import {ReceiverDeployer} from "../utils/ReceiverDeployer.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
+import {TronTokenUtils as TokenUtils} from "../utils/TronTokenUtils.sol";
 
 /// @title UntronController
 /// @notice Receiver coordination contract for Untron protocol on Tron-like EVM chains.
+/// @dev Token operations on Tron are performed via a Tron-specific `TokenUtils` alias
+///      (see `packages/contracts/src/utils/TronTokenUtils.sol`).
 /// @author Ultrasound Labs
 contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIndex {
     /*//////////////////////////////////////////////////////////////

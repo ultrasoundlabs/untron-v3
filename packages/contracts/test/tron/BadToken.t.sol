@@ -3,30 +3,30 @@ pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {TronTokenUtils} from "../../src/utils/TronTokenUtils.sol";
 
 import {UntronController} from "../../src/tron/UntronController.sol";
 import {UntronReceiver} from "../../src/tron/UntronReceiver.sol";
 
-import {ReturnFalseERC20} from "./mocks/ReturnFalseERC20.sol";
+import {RevertERC20} from "./mocks/RevertERC20.sol";
 
 contract BadTokenTest is Test {
-    function test_returnFalseToken_receiverPull_revertsAndDoesNotTransfer() public {
+    function test_revertingToken_receiverPull_revertsAndDoesNotTransfer() public {
         UntronReceiver receiver = new UntronReceiver();
-        ReturnFalseERC20 bad = new ReturnFalseERC20("Bad", "BAD", 18);
+        RevertERC20 bad = new RevertERC20("Bad", "BAD", 18);
 
         bad.mint(address(receiver), 100);
 
-        vm.expectRevert(SafeTransferLib.TransferFailed.selector);
+        vm.expectRevert(TronTokenUtils.Trc20CallFailed.selector);
         receiver.pull(address(bad), 99);
 
         assertEq(bad.balanceOf(address(this)), 0, "controller should not receive tokens");
         assertEq(bad.balanceOf(address(receiver)), 100, "receiver balance should be unchanged");
     }
 
-    function test_returnFalseToken_controllerPullFromReceivers_revertsAndDoesNotDeploy() public {
+    function test_revertingToken_controllerPullFromReceivers_revertsAndDoesNotDeploy() public {
         UntronController controller = new UntronController(0xff);
-        ReturnFalseERC20 bad = new ReturnFalseERC20("Bad", "BAD", 18);
+        RevertERC20 bad = new RevertERC20("Bad", "BAD", 18);
 
         controller.setUsdt(address(bad));
 
@@ -34,7 +34,7 @@ contract BadTokenTest is Test {
         address predictedReceiver = controller.predictReceiverAddress(salt);
         bad.mint(predictedReceiver, 100); // expected sweep = 99
 
-        vm.expectRevert(SafeTransferLib.TransferFailed.selector);
+        vm.expectRevert(TronTokenUtils.Trc20CallFailed.selector);
         controller.pullFromReceivers(address(bad), _asArray(salt));
 
         assertEq(predictedReceiver.code.length, 0, "receiver deployment should revert");

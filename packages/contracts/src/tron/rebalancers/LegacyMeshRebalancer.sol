@@ -4,7 +4,7 @@ pragma solidity ^0.8.27;
 import {IRebalancer} from "./interfaces/IRebalancer.sol";
 import {IOFT, SendParam} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
-import {TokenUtils} from "../../utils/TokenUtils.sol";
+import {TronTokenUtils as TokenUtils} from "../../utils/TronTokenUtils.sol";
 
 /// @title Interface for The Legacy Mesh OFT
 /// @notice Minimal OFT interface with Legacy Mesh-specific functions.
