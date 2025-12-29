@@ -17,6 +17,7 @@ import { RetryLaterError } from "../errors";
 import type { RelayJobRow } from "../types";
 import {
   tronLightClientCheckpoint,
+  trc20Transfer,
   untronV3DepositPreEntitled,
   untronV3TronUsdt,
 } from "ponder:schema";
@@ -67,10 +68,24 @@ export const handleTrc20Transfer = ({
     if (ctx.dryRun) return;
 
     const payload = expectRecord(job.payloadJson, "payloadJson");
-    const tokenAddress = expectAddress(payload.tokenAddress, "payload.tokenAddress");
-    const receiverAddress = expectAddress(payload.to, "payload.to");
-    const tronBlockNumber = expectBigint(payload.blockNumber, "payload.blockNumber");
     const transactionHash = expectHex(payload.transactionHash, "payload.transactionHash");
+    const logIndex = Number(payload.logIndex);
+
+    // Re-load canonical event data at execution time so reorgs / late indexing cannot leave us
+    // with a permanently-stale `blockNumber` in the job payload.
+    const transferId = `${job.chainId}:${transactionHash.toLowerCase()}:${logIndex}`;
+    const transfer = yield* tryPromise(() =>
+      ctx.ponderContext.db.find(trc20Transfer, { id: transferId })
+    );
+    if (!transfer) {
+      return yield* Effect.fail(
+        new RetryLaterError(`Missing trc20_transfer row for ${transferId} (indexer may be behind)`)
+      );
+    }
+
+    const tokenAddress = expectAddress(transfer.tokenAddress, "trc20_transfer.token_address");
+    const receiverAddress = expectAddress(transfer.to, "trc20_transfer.to");
+    const tronBlockNumber = expectBigint(transfer.blockNumber, "trc20_transfer.block_number");
 
     yield* Effect.logDebug("[trc20_transfer] handle").pipe(
       Effect.annotateLogs({
@@ -78,6 +93,7 @@ export const handleTrc20Transfer = ({
         receiverAddress,
         tronBlockNumber: tronBlockNumber.toString(),
         transactionHash,
+        logIndex: String(logIndex),
       })
     );
 
@@ -113,17 +129,22 @@ export const handleTrc20Transfer = ({
     const tronGrpc = yield* TronGrpc;
     const mainnetClient = yield* publicClients.get("mainnet");
 
-    const tronLightClientAddress = getTronLightClientAddress();
-    const untronV3Address = getUntronV3Address();
+    const tronLightClientAddress = getTronLightClientAddress().toLowerCase() as Address;
+    const untronV3Address = getUntronV3Address().toLowerCase() as Address;
 
     // Prefer event-derived state over onchain reads:
     // if we already indexed DepositPreEntitled(txId), there's nothing to do.
     const alreadyPreEntitled = yield* tryPromise(() =>
       ctx.ponderContext.db.find(untronV3DepositPreEntitled, {
-        id: `${MAINNET_CHAIN_ID}:${untronV3Address.toLowerCase()}:${transactionHash.toLowerCase()}`,
+        id: `${MAINNET_CHAIN_ID}:${untronV3Address}:${transactionHash.toLowerCase()}`,
       })
     );
-    if (alreadyPreEntitled) return;
+    if (alreadyPreEntitled) {
+      yield* Effect.logInfo("[trc20_transfer] skip (already pre-entitled)").pipe(
+        Effect.annotateLogs({ transactionHash, logIndex: String(logIndex) })
+      );
+      return;
+    }
 
     // Backward-compatible fallback for existing DBs before `untron_v3_deposit_preentitled` existed.
     const legacyPreEntitledResult = yield* tryPromise(() =>
@@ -137,11 +158,16 @@ export const handleTrc20Transfer = ({
         LIMIT 1;
       `)
     );
-    if (getRows(legacyPreEntitledResult).length > 0) return;
+    if (getRows(legacyPreEntitledResult).length > 0) {
+      yield* Effect.logInfo("[trc20_transfer] skip (already pre-entitled; legacy index)").pipe(
+        Effect.annotateLogs({ transactionHash, logIndex: String(logIndex) })
+      );
+      return;
+    }
 
     const tronUsdtRow = yield* tryPromise(() =>
       ctx.ponderContext.db.find(untronV3TronUsdt, {
-        id: `${MAINNET_CHAIN_ID}:${untronV3Address.toLowerCase()}`,
+        id: `${MAINNET_CHAIN_ID}:${untronV3Address}`,
       })
     );
     let tronUsdtFromEvents: string | null = tronUsdtRow?.tronUsdt ?? null;
@@ -163,6 +189,14 @@ export const handleTrc20Transfer = ({
     }
 
     if (tronUsdtFromEvents && tokenAddress.toLowerCase() !== tronUsdtFromEvents.toLowerCase()) {
+      yield* Effect.logInfo("[trc20_transfer] skip (token != tronUsdt)").pipe(
+        Effect.annotateLogs({
+          tokenAddress,
+          tronUsdt: tronUsdtFromEvents,
+          transactionHash,
+          logIndex: String(logIndex),
+        })
+      );
       yield* sweepReceiver();
       return;
     }
@@ -221,13 +255,26 @@ export const handleTrc20Transfer = ({
           account: relayerAddress,
         })
       ).pipe(
-        Effect.map(() => "ok" as const),
-        Effect.catchAll((error) =>
-          isIgnorablePreEntitleFailure(error) ? Effect.succeed("skip" as const) : Effect.fail(error)
-        )
+        Effect.map(() => ({ kind: "ok" as const })),
+        Effect.catchAll((error) => {
+          if (!isIgnorablePreEntitleFailure(error)) return Effect.fail(error);
+          const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+          return Effect.succeed({ kind: "skip" as const, reason });
+        })
       );
 
-      if (simulation === "skip") return;
+      if (simulation.kind === "skip") {
+        yield* Effect.logInfo("[trc20_transfer] skip (preEntitle not applicable)").pipe(
+          Effect.annotateLogs({
+            transactionHash,
+            logIndex: String(logIndex),
+            tronBlockNumber: tronBlockNumber.toString(),
+            receiverSalt: receiver.receiverSalt,
+            reason: simulation.reason,
+          })
+        );
+        return;
+      }
 
       const data = encodeFunctionData({
         abi: untronV3Abi,
