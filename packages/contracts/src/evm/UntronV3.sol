@@ -340,9 +340,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @dev Keyed by the Tron transaction ID as computed by `TronTxReader` (sha256 of `raw_data` bytes).
     mapping(bytes32 => bool) public depositProcessed;
 
-    /// @notice Latest processed Tron timestamp of a `PulledFromReceiver` event for a receiver salt.
-    /// @dev Used to enforce that `preEntitle` cannot recognize deposits that occurred at/before the latest known pull.
-    mapping(bytes32 => uint64) public lastReceiverPullTimestamp;
+    /// @notice Latest processed Tron timestamp of a `PulledFromReceiver` event for a receiver salt and token.
+    /// @dev Used to enforce that `preEntitle` cannot recognize deposits that occurred at/before the latest known pull
+    ///      for the deposit token (currently `tronUsdt`).
+    mapping(bytes32 => mapping(address => uint64)) public lastReceiverPullTimestampByToken;
 
     /// @notice Nonces per lease for gasless payout config updates.
     /// @dev Incremented in `setPayoutConfigWithSig` after a successful signature validation.
@@ -884,7 +885,8 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// - The proved tx must be a successful `TriggerSmartContract` call to the TRC-20 contract `tronUsdt`.
     /// - The decoded TRC-20 transfer destination must match the predicted receiver for `receiverSalt`.
     /// - There must be an active lease for `receiverSalt` at the Tron tx timestamp.
-    /// - The Tron tx timestamp must be strictly greater than the latest processed receiver pull timestamp for `receiverSalt`.
+    /// - The Tron tx timestamp must be strictly greater than the latest processed receiver pull timestamp for
+    ///   `(receiverSalt, tronUsdt)` (see `lastReceiverPullTimestampByToken`).
     ///
     /// Accounting:
     /// - Increments `lease.recognizedRaw` and `lease.unbackedRaw` by the raw TRC-20 amount.
@@ -916,8 +918,8 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
         // Enforce that the TRC-20 contract called is exactly Tron USDT.
         uint256 amountQ;
+        address tronUsdt_ = tronUsdt;
         {
-            address tronUsdt_ = tronUsdt;
             if (callData.toTron != TronCalldataUtils.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
 
             // Sanity-check that the TRC-20 transfer goes into the expected receiver.
@@ -930,8 +932,8 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         }
 
         // Enforce proof ordering against receiver pulls: do not recognize deposits that occurred at/before
-        // the latest known `PulledFromReceiver` timestamp for this receiver salt.
-        uint64 lastPullTs = lastReceiverPullTimestamp[receiverSalt];
+        // the latest known `PulledFromReceiver` timestamp for this receiver salt and token.
+        uint64 lastPullTs = lastReceiverPullTimestampByToken[receiverSalt][tronUsdt_];
         // solhint-disable-next-line gas-strict-inequalities
         if (lastPullTs != 0 && uint64(callData.tronBlockTimestamp) <= lastPullTs) {
             revert DepositNotAfterLastReceiverPull();
@@ -1044,9 +1046,9 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
             if (sig == _EVENT_SIG_PULLED_FROM_RECEIVER) {
                 // Controller indicates funds were pulled out of a receiver and converted into USDT amount.
-                (bytes32 receiverSalt,/*token*/,/*tokenAmount*/,/* exchangeRate */, uint256 usdtAmount) =
+                (bytes32 receiverSalt, address token,/*tokenAmount*/,/* exchangeRate */, uint256 usdtAmount) =
                     abi.decode(ev.data, (bytes32, address, uint256, uint256, uint256));
-                _processReceiverPulled(receiverSalt, usdtAmount, ev.blockTimestamp);
+                _processReceiverPulled(receiverSalt, token, usdtAmount, ev.blockTimestamp);
             } else if (sig == _EVENT_SIG_USDT_SET) {
                 // Controller indicates the Tron USDT contract address has changed.
                 address newTronUsdt = abi.decode(ev.data, (address));
@@ -1500,12 +1502,15 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// PnL with reason `RECEIVER_PULL_NO_LEASE`.
     ///
     /// @param receiverSalt Receiver salt whose lease timeline is affected.
+    /// @param token Token address pulled from the receiver (as reported by the controller event).
     /// @param usdtAmount Total USDT amount reported as pulled from receivers by the controller.
     /// @param dumpTimestamp Tron timestamp at which the pull occurred (used to find active lease).
-    function _processReceiverPulled(bytes32 receiverSalt, uint256 usdtAmount, uint64 dumpTimestamp) internal {
-        // Track the latest observed pull timestamp for this receiver salt (monotonic by design).
-        uint64 prev = lastReceiverPullTimestamp[receiverSalt];
-        if (dumpTimestamp > prev) lastReceiverPullTimestamp[receiverSalt] = dumpTimestamp;
+    function _processReceiverPulled(bytes32 receiverSalt, address token, uint256 usdtAmount, uint64 dumpTimestamp)
+        internal
+    {
+        // Track the latest observed pull timestamp for this receiver salt and token (monotonic by design).
+        uint64 prevToken = lastReceiverPullTimestampByToken[receiverSalt][token];
+        if (dumpTimestamp > prevToken) lastReceiverPullTimestampByToken[receiverSalt][token] = dumpTimestamp;
 
         if (usdtAmount == 0) {
             return;

@@ -7512,8 +7512,11 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'lastReceiverPullTimestamp',
+    inputs: [
+      { name: '', internalType: 'bytes32', type: 'bytes32' },
+      { name: '', internalType: 'address', type: 'address' },
+    ],
+    name: 'lastReceiverPullTimestampByToken',
     outputs: [{ name: '', internalType: 'uint64', type: 'uint64' }],
     stateMutability: 'view',
   },
@@ -8749,6 +8752,7 @@ export const untronV3HarnessAbi = [
     type: 'function',
     inputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'token', internalType: 'address', type: 'address' },
       { name: 'usdtAmount', internalType: 'uint256', type: 'uint256' },
       { name: 'dumpTimestamp', internalType: 'uint64', type: 'uint64' },
     ],
@@ -8799,8 +8803,11 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'lastReceiverPullTimestamp',
+    inputs: [
+      { name: '', internalType: 'bytes32', type: 'bytes32' },
+      { name: '', internalType: 'address', type: 'address' },
+    ],
+    name: 'lastReceiverPullTimestampByToken',
     outputs: [{ name: '', internalType: 'uint64', type: 'uint64' }],
     stateMutability: 'view',
   },

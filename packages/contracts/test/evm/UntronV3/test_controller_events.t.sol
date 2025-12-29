@@ -211,7 +211,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         _untron.pushControllerEvent(pulledSig, pulledData, 3, t2);
         _untron.processControllerEvents(1);
 
-        assertEq(_untron.lastReceiverPullTimestamp(salt), t2);
+        assertEq(_untron.lastReceiverPullTimestampByToken(salt, address(0)), t2);
 
         (,,,,,,, uint256 r1, uint256 b1, uint256 u1, UntronV3.PayoutConfig memory p1) = _untron.leases(lease1);
         (,,,,,,, uint256 r2, uint256 b2, uint256 u2, UntronV3.PayoutConfig memory p2) = _untron.leases(lease2);

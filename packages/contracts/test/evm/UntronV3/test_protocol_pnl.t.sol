@@ -99,14 +99,16 @@ contract UntronV3ProtocolPnlTest is Test {
         );
 
         uint64 pullTs = uint64(block.timestamp);
-        _untron.exposedProcessReceiverPulled(salt, 1, pullTs);
+        // Pulling a non-deposit token should not affect the preEntitle cutoff for `tronUsdt`.
+        _untron.exposedProcessReceiverPulled(salt, address(0x1234), 1, pullTs);
 
         address predictedReceiver = _untron.predictReceiverAddress(_CONTROLLER, salt);
         bytes memory trc20Data =
             abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), predictedReceiver, uint256(100));
 
+        // Deposit at the same timestamp should still be allowed since the pull was for a different token.
         _reader.setNextCallData(
-            keccak256("tx_pull_guard_eq"),
+            keccak256("tx_pull_guard_other_token_ok"),
             3,
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(pullTs),
@@ -114,21 +116,35 @@ contract UntronV3ProtocolPnlTest is Test {
             TronCalldataUtils.evmToTronAddress(address(0)),
             trc20Data
         );
-
-        vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
         _untron.preEntitle(salt, 3, hex"", new bytes32[](0), 0);
 
+        // Now record a pull for the deposit token (`tronUsdt`, which is `address(0)` in this test harness).
+        _untron.exposedProcessReceiverPulled(salt, address(0), 1, pullTs + 1);
+
         _reader.setNextCallData(
-            keccak256("tx_pull_guard_ok"),
+            keccak256("tx_pull_guard_eq"),
             4,
             // forge-lint: disable-next-line(unsafe-typecast)
             uint32(pullTs + 1),
+            TronCalldataUtils.evmToTronAddress(address(0x4444)),
+            TronCalldataUtils.evmToTronAddress(address(0)),
+            trc20Data
+        );
+
+        vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
+        _untron.preEntitle(salt, 4, hex"", new bytes32[](0), 0);
+
+        _reader.setNextCallData(
+            keccak256("tx_pull_guard_ok"),
+            5,
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint32(pullTs + 2),
             TronCalldataUtils.evmToTronAddress(address(0x5555)),
             TronCalldataUtils.evmToTronAddress(address(0)),
             trc20Data
         );
 
-        _untron.preEntitle(salt, 4, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, 5, hex"", new bytes32[](0), 0);
     }
 
     function testUsdtRebalancedBooksDrift() public {
@@ -151,7 +167,7 @@ contract UntronV3ProtocolPnlTest is Test {
             salt, address(this), nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
         );
 
-        _untron.exposedProcessReceiverPulled(salt, 100, uint64(block.timestamp));
+        _untron.exposedProcessReceiverPulled(salt, address(0), 100, uint64(block.timestamp));
 
         assertEq(_untron.protocolPnl(), 1);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 1);
@@ -163,7 +179,7 @@ contract UntronV3ProtocolPnlTest is Test {
     function testReceiverPulledNoActiveLeaseBooksProtocolProfit() public {
         bytes32 salt = keccak256("salt_no_lease");
 
-        _untron.exposedProcessReceiverPulled(salt, 100, uint64(block.timestamp));
+        _untron.exposedProcessReceiverPulled(salt, address(0), 100, uint64(block.timestamp));
 
         assertEq(_untron.protocolPnl(), 100);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 0);
@@ -179,7 +195,7 @@ contract UntronV3ProtocolPnlTest is Test {
             salt, address(this), nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
         );
 
-        _untron.exposedProcessReceiverPulled(salt, 100, uint64(block.timestamp - 1));
+        _untron.exposedProcessReceiverPulled(salt, address(0), 100, uint64(block.timestamp - 1));
 
         assertEq(_untron.protocolPnl(), 100);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 0);

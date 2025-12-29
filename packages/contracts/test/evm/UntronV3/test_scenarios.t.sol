@@ -131,7 +131,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
         _untron.pushControllerEvent(pulledSig, pulledData, 2, t2);
         _untron.processControllerEvents(1);
 
-        assertEq(_untron.lastReceiverPullTimestamp(salt), t2);
+        assertEq(_untron.lastReceiverPullTimestampByToken(salt, address(0)), t2);
         (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3.PayoutConfig memory p) =
             _untron.leases(leaseId);
         assertEq(recognizedRaw, 100);
