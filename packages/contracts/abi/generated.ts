@@ -223,7 +223,14 @@ export const cctpv2BridgerAbi = [
 export const create2UtilsAbi = [
   {
     type: 'constructor',
-    inputs: [{ name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' }],
+    inputs: [
+      { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+      {
+        name: 'receiverImplOverride',
+        internalType: 'address',
+        type: 'address',
+      },
+    ],
     stateMutability: 'nonpayable',
   },
   {
@@ -4019,6 +4026,91 @@ export const pausableAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReceiverDeployer
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const receiverDeployerAbi = [
+  {
+    type: 'function',
+    inputs: [],
+    name: 'RECEIVER_IMPL',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'deployReceiver',
+    outputs: [
+      { name: 'receiver', internalType: 'address payable', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'receiverBytecode',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReceiverUtils
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const receiverUtilsAbi = [
+  {
+    type: 'function',
+    inputs: [],
+    name: 'RECEIVER_IMPL',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'controller', internalType: 'address', type: 'address' },
+      { name: 'salt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'predictReceiverAddress',
+    outputs: [{ name: 'predicted', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'receiverBytecode',
+    outputs: [{ name: '', internalType: 'bytes', type: 'bytes' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ReentrancyGuard
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -7262,6 +7354,7 @@ export const untronV3Abi = [
     inputs: [
       { name: 'controllerAddress', internalType: 'address', type: 'address' },
       { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+      { name: 'receiverImpl', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -7327,15 +7420,6 @@ export const untronV3Abi = [
     ],
     name: 'createLease',
     outputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'deployReceiver',
-    outputs: [
-      { name: 'receiver', internalType: 'address payable', type: 'address' },
-    ],
     stateMutability: 'nonpayable',
   },
   {
@@ -8489,6 +8573,11 @@ export const untronV3HarnessAbi = [
     inputs: [
       { name: 'controllerAddress', internalType: 'address', type: 'address' },
       { name: 'create2Prefix', internalType: 'bytes1', type: 'bytes1' },
+      {
+        name: 'receiverImplOverride',
+        internalType: 'address',
+        type: 'address',
+      },
     ],
     stateMutability: 'nonpayable',
   },
@@ -8580,15 +8669,6 @@ export const untronV3HarnessAbi = [
     ],
     name: 'createLease',
     outputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: 'salt', internalType: 'bytes32', type: 'bytes32' }],
-    name: 'deployReceiver',
-    outputs: [
-      { name: 'receiver', internalType: 'address payable', type: 'address' },
-    ],
     stateMutability: 'nonpayable',
   },
   {

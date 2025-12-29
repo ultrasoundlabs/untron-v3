@@ -13,10 +13,11 @@ contract UntronV3ProtocolPnlTest is Test {
 
     address internal constant _DUMMY_USDT = address(0x1000);
     address internal constant _CONTROLLER = address(0xCAFE);
+    address internal constant _RECEIVER_IMPL_OVERRIDE = address(0xBEEF);
 
     function setUp() public {
         _reader = new MockTronTxReader();
-        _untron = new UntronV3Harness(_CONTROLLER, 0xff);
+        _untron = new UntronV3Harness(_CONTROLLER, 0xff, _RECEIVER_IMPL_OVERRIDE);
         _untron.setTronReader(address(_reader));
         _untron.setUsdt(_DUMMY_USDT);
         _untron.setRealtor(address(this), true);

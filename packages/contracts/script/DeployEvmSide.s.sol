@@ -16,6 +16,7 @@ import {UntronDeployer} from "./UntronDeployer.sol";
 /// @dev Env (required unless noted):
 /// - PRIVATE_KEY
 /// - CONTROLLER_ADDRESS (Tron-side UntronController in 20-byte EVM form)
+/// - TRON_RECEIVER_IMPL (Tron-side UntronController.RECEIVER_IMPL() in 20-byte EVM form)
 /// - TOKEN_MESSENGER_V2 (Circle CCTP V2 TokenMessengerV2 on this chain)
 /// - USDC (USDC token on this chain)
 /// - USDT0 (USDT0 token on this chain)
@@ -34,6 +35,7 @@ contract DeployEvmSideScript is UntronDeployer {
         uint256 deployerPk;
         address deployer;
         address controllerAddress;
+        address tronReceiverImpl;
         address tokenMessengerV2;
         address usdc;
         address usdt0;
@@ -72,6 +74,7 @@ contract DeployEvmSideScript is UntronDeployer {
         env.deployer = vm.addr(env.deployerPk);
 
         env.controllerAddress = vm.envAddress("CONTROLLER_ADDRESS");
+        env.tronReceiverImpl = vm.envAddress("TRON_RECEIVER_IMPL");
         env.tokenMessengerV2 = vm.envAddress("TOKEN_MESSENGER_V2");
         env.usdc = vm.envAddress("USDC");
         env.usdt0 = vm.envAddress("USDT0");
@@ -80,6 +83,7 @@ contract DeployEvmSideScript is UntronDeployer {
         env.finalOwner = _finalOwnerOrDeployer(env.deployer);
 
         require(env.controllerAddress != address(0), "CONTROLLER_ADDRESS is zero");
+        require(env.tronReceiverImpl != address(0), "TRON_RECEIVER_IMPL is zero");
         require(env.tokenMessengerV2 != address(0), "TOKEN_MESSENGER_V2 is zero");
         require(env.usdc != address(0), "USDC is zero");
         require(env.usdt0 != address(0), "USDT0 is zero");
@@ -162,7 +166,7 @@ contract DeployEvmSideScript is UntronDeployer {
         );
         TronTxReader tronReader = _deployTronTxReader(address(tronLightClient));
 
-        UntronV3 untron = _deployUntronV3(env.controllerAddress);
+        UntronV3 untron = _deployUntronV3(env.controllerAddress, env.tronReceiverImpl);
         _setUntronTronReader(untron, address(tronReader));
         _setUntronUsdt(untron, env.usdt);
 
@@ -191,6 +195,7 @@ contract DeployEvmSideScript is UntronDeployer {
         console2.log("Deployer:", env.deployer);
         console2.log("Final owner:", env.finalOwner);
         console2.log("CONTROLLER_ADDRESS:", env.controllerAddress);
+        console2.log("TRON_RECEIVER_IMPL:", env.tronReceiverImpl);
         console2.log("USDT (accounting):", env.usdt);
         console2.log("TronLightClient:", deployed.tronLightClient);
         console2.log("TronTxReader:", deployed.tronReader);

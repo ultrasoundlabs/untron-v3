@@ -39,8 +39,8 @@ abstract contract UntronDeployer is UntronScriptBase {
         reader = new TronTxReader(tronLightClient);
     }
 
-    function _deployUntronV3(address controllerAddress) internal returns (UntronV3 untron) {
-        untron = new UntronV3(controllerAddress, _TRON_CREATE2_PREFIX);
+    function _deployUntronV3(address controllerAddress, address tronReceiverImpl) internal returns (UntronV3 untron) {
+        untron = new UntronV3(controllerAddress, _TRON_CREATE2_PREFIX, tronReceiverImpl);
     }
 
     function _setUntronTronReader(UntronV3 untron, address tronReader) internal {
@@ -92,4 +92,3 @@ abstract contract UntronDeployer is UntronScriptBase {
         usdt0Bridger.transferOwnership(finalOwner);
     }
 }
-

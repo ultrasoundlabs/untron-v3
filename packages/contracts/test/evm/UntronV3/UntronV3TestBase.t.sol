@@ -15,10 +15,11 @@ abstract contract UntronV3TestBase is Test {
     MockSwapRouter internal _swapRouter;
 
     address internal constant _CONTROLLER = address(0xCAFE);
+    address internal constant _RECEIVER_IMPL_OVERRIDE = address(0xBEEF);
 
     function setUp() public virtual {
         _reader = new MockTronTxReader();
-        _untron = new UntronV3Harness(_CONTROLLER, 0xff);
+        _untron = new UntronV3Harness(_CONTROLLER, 0xff, _RECEIVER_IMPL_OVERRIDE);
         _untron.setTronReader(address(_reader));
 
         _usdt = new MockERC20("USDT", "USDT", 6);

@@ -5,7 +5,7 @@ import {UntronV3IndexedOwnable} from "./UntronV3IndexedOwnable.sol";
 import {TronTxReader} from "./TronTxReader.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
 import {IBridger} from "./bridgers/interfaces/IBridger.sol";
-import {Create2Utils} from "../utils/Create2Utils.sol";
+import {ReceiverUtils} from "../utils/ReceiverUtils.sol";
 import {EventChainGenesis} from "../utils/EventChainGenesis.sol";
 import {TronCalldataUtils} from "../utils/TronCalldataUtils.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
@@ -44,7 +44,7 @@ import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 /// - The owner is highly trusted: can change `usdt`, `tronReader`, `swapRatePpm`, bridgers, realtor list, etc.
 /// - Bridgers are trusted for delivery: UntronV3 does not verify cross-chain settlement.
 /// @author Ultrasound Labs
-contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3IndexedOwnable {
+contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3IndexedOwnable {
     using SignatureCheckerLib for address;
 
     /*//////////////////////////////////////////////////////////////
@@ -429,7 +429,12 @@ contract UntronV3 is Create2Utils, EIP712, ReentrancyGuard, Pausable, UntronV3In
     /// - Initializes ownership (events emitted via `UntronV3Index`).
     /// @param controllerAddress Address of the UntronController on Tron (source chain), in EVM 20‑byte form.
     /// @param create2Prefix Chain-specific byte prefix used for CREATE2 address computation (0x41 for Tron).
-    constructor(address controllerAddress, bytes1 create2Prefix) Create2Utils(create2Prefix) {
+    /// @param receiverImpl Tron-side receiver implementation address.
+    ///        This should be set to `UntronController.RECEIVER_IMPL()` (20-byte EVM form).
+    ///        It does not need to exist on this chain; it's only used for deterministic receiver address prediction.
+    constructor(address controllerAddress, bytes1 create2Prefix, address receiverImpl)
+        ReceiverUtils(create2Prefix, receiverImpl)
+    {
         // Deploy an isolated executor for swaps. Only this UntronV3 instance can call `execute(...)`.
         // NOTE: This is intentionally deployed via `new` (not CREATE2), so its address is derived from nonce.
         SWAP_EXECUTOR = new SwapExecutor(); // its address is gonna be keccak256(rlp([address(this), 1]))

@@ -5,13 +5,13 @@ import {UntronControllerIndex} from "./UntronControllerIndex.sol";
 import {UntronReceiver} from "./UntronReceiver.sol";
 import {TokenUtils} from "../utils/TokenUtils.sol";
 import {IRebalancer} from "./rebalancers/interfaces/IRebalancer.sol";
-import {Create2Utils} from "../utils/Create2Utils.sol";
+import {ReceiverDeployer} from "../utils/ReceiverDeployer.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
 /// @title UntronController
 /// @notice Receiver coordination contract for Untron protocol on Tron-like EVM chains.
 /// @author Ultrasound Labs
-contract UntronController is Multicallable, Create2Utils, UntronControllerIndex {
+contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIndex {
     /*//////////////////////////////////////////////////////////////
                                  STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -123,7 +123,7 @@ contract UntronController is Multicallable, Create2Utils, UntronControllerIndex 
     /// @param create2Prefix Chain-specific byte prefix used in CREATE2 address calculation.
     ///                      For Tron deployments this should be 0x41; for standard EVM 0xff.
     /// @dev Initializes CREATE2 utils, sets the owner to the caller, and emits an OwnerChanged event.
-    constructor(bytes1 create2Prefix) Create2Utils(create2Prefix) {
+    constructor(bytes1 create2Prefix) ReceiverDeployer(create2Prefix) {
         owner = msg.sender;
         _emitOwnerChanged(msg.sender);
     }

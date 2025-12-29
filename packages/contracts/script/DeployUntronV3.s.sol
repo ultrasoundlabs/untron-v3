@@ -12,10 +12,11 @@ contract DeployUntronV3Script is UntronDeployer {
     function run() external returns (UntronV3 bridger) {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
         address controllerAddress = vm.envAddress("CONTROLLER_ADDRESS");
+        address tronReceiverImpl = vm.envAddress("TRON_RECEIVER_IMPL");
         address tronReader = vm.envAddress("TRON_READER");
 
         vm.startBroadcast(deployerPk);
-        bridger = _deployUntronV3(controllerAddress);
+        bridger = _deployUntronV3(controllerAddress, tronReceiverImpl);
         _setUntronTronReader(bridger, tronReader);
         vm.stopBroadcast();
 

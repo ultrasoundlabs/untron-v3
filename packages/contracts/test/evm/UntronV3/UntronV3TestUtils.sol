@@ -118,7 +118,9 @@ contract ReentrantBridger is IBridger {
 }
 
 contract UntronV3Harness is UntronV3 {
-    constructor(address controllerAddress, bytes1 create2Prefix) UntronV3(controllerAddress, create2Prefix) {}
+    constructor(address controllerAddress, bytes1 create2Prefix, address receiverImplOverride)
+        UntronV3(controllerAddress, create2Prefix, receiverImplOverride)
+    {}
 
     function pushControllerEvent(bytes32 sig, bytes calldata data, uint64 blockNumber, uint64 blockTimestamp) external {
         _controllerEvents.push(
