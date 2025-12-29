@@ -27,6 +27,8 @@ import {UntronDeployer} from "./UntronDeployer.sol";
 /// - BRIDGER_CONFIG_PATH (optional; defaults to `<projectRoot>/script/bridgers.json`)
 /// - BLOCK_RANGE_PROVER (optional; overrides `tlc.json` `.blockRangeProver`)
 /// - SR_DATA_HASH (optional; overrides `tlc.json` `.srDataHash`)
+/// - TRON_LIGHT_CLIENT (optional; if set, uses existing and skips deploying it)
+/// - TRON_READER (optional; if set, uses existing and skips deploying TronTxReader and TronLightClient)
 /// - OUTPUT_PATH (optional; if set, writes a JSON with deployed addresses)
 contract DeployEvmSideScript is UntronDeployer {
     using stdJson for string;
@@ -36,6 +38,8 @@ contract DeployEvmSideScript is UntronDeployer {
         address deployer;
         address controllerAddress;
         address tronReceiverImpl;
+        address tronLightClient;
+        address tronReader;
         address tokenMessengerV2;
         address usdc;
         address usdt0;
@@ -75,6 +79,12 @@ contract DeployEvmSideScript is UntronDeployer {
 
         env.controllerAddress = vm.envAddress("CONTROLLER_ADDRESS");
         env.tronReceiverImpl = vm.envAddress("TRON_RECEIVER_IMPL");
+        try vm.envAddress("TRON_LIGHT_CLIENT") returns (address v) {
+            env.tronLightClient = v;
+        } catch {}
+        try vm.envAddress("TRON_READER") returns (address v) {
+            env.tronReader = v;
+        } catch {}
         env.tokenMessengerV2 = vm.envAddress("TOKEN_MESSENGER_V2");
         env.usdc = vm.envAddress("USDC");
         env.usdt0 = vm.envAddress("USDT0");
@@ -150,24 +160,49 @@ contract DeployEvmSideScript is UntronDeployer {
 
     function run() external {
         EnvConfig memory env = _readEnv();
-        TlcConfig memory tlc = _readTlc();
         BridgerConfig memory bridgers = _readBridgers();
+
+        address tronLightClientAddr = env.tronLightClient;
+        address tronReaderAddr = env.tronReader;
+        if (tronReaderAddr != address(0)) {
+            address boundLc = address(TronTxReader(tronReaderAddr).TRON_LIGHT_CLIENT());
+            if (tronLightClientAddr == address(0)) {
+                tronLightClientAddr = boundLc;
+            } else {
+                require(tronLightClientAddr == boundLc, "TRON_LIGHT_CLIENT mismatch TRON_READER");
+            }
+        }
+
+        bool deployTronReader = tronReaderAddr == address(0);
+        bool deployTronLightClient = deployTronReader && tronLightClientAddr == address(0);
+
+        TlcConfig memory tlc;
+        if (deployTronLightClient) {
+            tlc = _readTlc();
+        }
 
         vm.startBroadcast(env.deployerPk);
 
-        TronLightClient tronLightClient = _deployTronLightClient(
-            tlc.proverAddr,
-            tlc.initialBlockHash,
-            tlc.initialTxTrieRoot,
-            tlc.initialTimestamp,
-            tlc.srs,
-            tlc.witnessDelegatees,
-            tlc.srDataHash
-        );
-        TronTxReader tronReader = _deployTronTxReader(address(tronLightClient));
+        if (tronReaderAddr == address(0)) {
+            if (tronLightClientAddr == address(0)) {
+                tronLightClientAddr = address(
+                    _deployTronLightClient(
+                        tlc.proverAddr,
+                        tlc.initialBlockHash,
+                        tlc.initialTxTrieRoot,
+                        tlc.initialTimestamp,
+                        tlc.srs,
+                        tlc.witnessDelegatees,
+                        tlc.srDataHash
+                    )
+                );
+            }
+
+            tronReaderAddr = address(_deployTronTxReader(tronLightClientAddr));
+        }
 
         UntronV3 untron = _deployUntronV3(env.controllerAddress, env.tronReceiverImpl);
-        _setUntronTronReader(untron, address(tronReader));
+        _setUntronTronReader(untron, tronReaderAddr);
         _setUntronUsdt(untron, env.usdt);
 
         CCTPV2Bridger cctpV2Bridger = _deployCctpV2Bridger(
@@ -182,15 +217,21 @@ contract DeployEvmSideScript is UntronDeployer {
 
         vm.stopBroadcast();
 
+        if (tlc.proverAddr == address(0)) {
+            tlc.proverAddr = address(TronLightClient(tronLightClientAddr).BLOCK_RANGE_PROVER());
+        }
+
         Deployed memory deployed = Deployed({
-            tronLightClient: address(tronLightClient),
-            tronReader: address(tronReader),
+            tronLightClient: tronLightClientAddr,
+            tronReader: tronReaderAddr,
             untron: address(untron),
             cctpV2Bridger: address(cctpV2Bridger),
             usdt0Bridger: address(usdt0Bridger)
         });
 
-        console2.log("Config tlc.json:", _tlcConfigPath());
+        if (deployTronLightClient) {
+            console2.log("Config tlc.json:", _tlcConfigPath());
+        }
         console2.log("Config bridgers.json:", _bridgerConfigPath());
         console2.log("Deployer:", env.deployer);
         console2.log("Final owner:", env.finalOwner);
