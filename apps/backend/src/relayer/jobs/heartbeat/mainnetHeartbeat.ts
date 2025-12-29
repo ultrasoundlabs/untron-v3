@@ -12,6 +12,7 @@ import { untronV3Abi } from "@untron/v3-contracts";
 import { AppConfig } from "../../../effect/config";
 import { tryPromise } from "../../../effect/tryPromise";
 import { buildMainnetFillCalls } from "../../claimFiller/buildMainnetFillCalls";
+import { selectNonEmptyClaimQueuesSql } from "../../claimFiller/claimQueueQueries";
 import { MainnetRelayer } from "../../deps/mainnet";
 import { TronRelayer } from "../../deps/tron";
 import { getRows } from "../../sqlRows";
@@ -144,15 +145,9 @@ const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =>
     const untronV3Address = ctx.ponderContext.contracts.UntronV3.address as `0x${string}`;
 
     const result = yield* tryPromise(() =>
-      ctx.ponderContext.db.sql.execute(sql`
-        SELECT
-          target_token AS targetToken,
-          queue_length AS queueLength
-        FROM "untron_v3_claim_queue"
-        WHERE chain_id = ${chainId}
-          AND contract_address = ${untronV3Address}
-          AND queue_length > 0;
-      `)
+      ctx.ponderContext.db.sql.execute(
+        selectNonEmptyClaimQueuesSql({ chainId, contractAddress: untronV3Address })
+      )
     );
 
     const nonEmptyQueuesRaw = getRows(result) as Array<{

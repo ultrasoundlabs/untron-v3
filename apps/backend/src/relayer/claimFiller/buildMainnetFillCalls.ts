@@ -11,6 +11,7 @@ import { MainnetRelayer } from "../deps/mainnet";
 import type { MainnetUserOperationCall } from "../deps/types";
 import { expectBigint, type RelayJobHandlerContext } from "../jobs/types";
 import { getRows } from "../sqlRows";
+import { selectNonEmptyClaimQueuesSql } from "./claimQueueQueries";
 import { SwapPlanner, SwapPlanUnavailableError } from "./swapPlanner";
 import type { Claim } from "./types";
 
@@ -227,15 +228,12 @@ const ClaimFillerRepository = {
     contractAddress: Address;
   }) =>
     tryPromise(() =>
-      args.context.db.sql.execute(sql`
-        SELECT
-          target_token AS targetToken,
-          queue_length AS queueLength
-        FROM "untron_v3_claim_queue"
-        WHERE chain_id = ${args.chainId}
-          AND contract_address = ${args.contractAddress}
-          AND queue_length > 0;
-      `)
+      args.context.db.sql.execute(
+        selectNonEmptyClaimQueuesSql({
+          chainId: args.chainId,
+          contractAddress: args.contractAddress,
+        })
+      )
     ).pipe(
       Effect.map((result) => {
         const rows = getRows(result) as Array<{ targetToken: unknown; queueLength: unknown }>;
@@ -256,10 +254,10 @@ const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          claim_index AS claimIndex,
-          lease_id AS leaseId,
-          amount_usdt AS amountUsdt,
-          target_chain_id AS targetChainId,
+          claim_index AS "claimIndex",
+          lease_id AS "leaseId",
+          amount_usdt AS "amountUsdt",
+          target_chain_id AS "targetChainId",
           beneficiary AS beneficiary
         FROM "untron_v3_claim"
         WHERE chain_id = ${args.chainId}
@@ -299,10 +297,10 @@ const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          claim_index AS claimIndex,
-          lease_id AS leaseId,
-          amount_usdt AS amountUsdt,
-          target_chain_id AS targetChainId,
+          claim_index AS "claimIndex",
+          lease_id AS "leaseId",
+          amount_usdt AS "amountUsdt",
+          target_chain_id AS "targetChainId",
           beneficiary AS beneficiary
         FROM "untron_v3_claim"
         WHERE chain_id = ${args.chainId}
@@ -343,7 +341,7 @@ const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          rate_ppm AS ratePpm
+          rate_ppm AS "ratePpm"
         FROM "untron_v3_swap_rate"
         WHERE chain_id = ${args.chainId}
           AND contract_address = ${args.contractAddress}
@@ -366,7 +364,7 @@ const ClaimFillerRepository = {
     tryPromise(() =>
       args.context.db.sql.execute(sql`
         SELECT
-          target_chain_id AS targetChainId,
+          target_chain_id AS "targetChainId",
           bridger AS bridger
         FROM "untron_v3_bridger_route"
         WHERE chain_id = ${args.chainId}
