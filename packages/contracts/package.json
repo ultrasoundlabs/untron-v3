@@ -34,7 +34,8 @@
     "export": "pnpm run clean && pnpm run build",
     "tron:deploy": "tsx ./tron/deploy.ts",
     "tron:execute": "tsx ./tron/execute.ts",
-    "tron:gentlcdata": "tsx ./tron/gentlcdata.ts"
+    "tron:gentlcdata": "tsx ./tron/gentlcdata.ts",
+    "tron:genlegacymeshpayload": "tsx ./tron/genlegacymeshpayload.ts"
   },
   "exports": {
     ".": {
