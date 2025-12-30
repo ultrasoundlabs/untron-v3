@@ -7,67 +7,12 @@ import { TriggerSmartContract } from "@untron/tron-protocol/core/contract/smart_
 import { untronControllerAbi } from "@untron/v3-contracts";
 
 import type { TronNetworkConfig } from "../../../effect/config";
-import { computeNextEventChainTip } from "../../../eventChain/tip";
-import {
-  planIndexedEventsForControllerCalls,
-  type PlannedIndexedEvent,
-} from "../../tron/controllerMulticallPlanner";
 
 import type { SendTronTransactionResult, TronGrpcClients } from "../types";
-import {
-  broadcastTronTx,
-  getTxRefBlockNumber,
-  getTxTimestamp,
-  setTxTriggerSmartContractData,
-} from "./transactions";
+import { broadcastTronTx } from "./transactions";
 import type { TronReadContract } from "./contractCalls";
-import { getTransactionInfoById, isTronContractDeployed } from "./contractCalls";
+import { getTransactionInfoById } from "./contractCalls";
 import type { UnaryCall } from "./grpcClient";
-
-export function buildControllerMulticallDataWithEventChainCheckpoint(args: {
-  calls: readonly Hex[];
-  preTip: Hex;
-  plannedEvents: readonly PlannedIndexedEvent[];
-  blockNumber: bigint;
-  blockTimestamp: bigint;
-}): Readonly<{
-  expectedTip: Hex;
-  checkpointCall: Hex;
-  multicallData: Hex;
-}> {
-  let expectedTip = args.preTip;
-  for (const event of args.plannedEvents) {
-    expectedTip = computeNextEventChainTip({
-      previousTip: expectedTip,
-      blockNumber: args.blockNumber,
-      blockTimestamp: args.blockTimestamp,
-      eventSignature: event.eventSignature,
-      encodedEventData: event.encodedEventData,
-    });
-  }
-
-  const checkpointCall = encodeFunctionData({
-    abi: untronControllerAbi,
-    functionName: "isEventChainTip",
-    args: [expectedTip],
-  });
-
-  const multicallData = encodeFunctionData({
-    abi: untronControllerAbi,
-    functionName: "multicall",
-    args: [[...args.calls, checkpointCall]],
-  });
-
-  return { expectedTip, checkpointCall, multicallData };
-}
-
-function isEventChainTipMismatchRevert(error: unknown): boolean {
-  const err = error instanceof Error ? error : new Error(String(error));
-  const errorMessage = `${err.name}: ${err.message}`.toLowerCase();
-  // for AI agents: UntronControllerIndex literally reverts with "no" string message.
-  // thus this code is correct
-  return errorMessage.includes("no");
-}
 
 export function makeUntronControllerOperations(args: {
   tronConfigCached: Effect.Effect<TronNetworkConfig, ConfigError.ConfigError>;
@@ -171,77 +116,30 @@ export function makeUntronControllerOperations(args: {
         Effect.annotateLogs({ callCount: calls.length })
       );
 
-      const controllerBytes21 = yield* args.controllerAddressBytes21();
+      const tx = yield* buildControllerMulticallTx(calls);
 
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const preTip = yield* args.tronReadContract<Hex>({
-          addressBytes21: controllerBytes21,
-          abi: untronControllerAbi,
-          functionName: "eventChainTip",
-        });
+      const config = yield* args.tronConfigCached;
+      const { wallet } = yield* args.tronGrpcGet();
+      const privateKeyRaw = yield* args.privateKey();
 
-        const plannedEvents = yield* planIndexedEventsForControllerCalls({
-          controllerBytes21,
-          calls,
-          tronReadContract: args.tronReadContract,
-          isTronContractDeployed: (addressBytes21) =>
-            isTronContractDeployed({
-              tronGrpcGet: args.tronGrpcGet,
-              grpcUnary: args.grpcUnary,
-              addressBytes21,
-            }),
-        });
-
-        const tx = yield* buildControllerMulticallTx(calls);
-        const blockNumber = getTxRefBlockNumber(tx);
-        const blockTimestamp = getTxTimestamp(tx);
-
-        const finalData = buildControllerMulticallDataWithEventChainCheckpoint({
-          calls,
-          preTip,
-          plannedEvents,
-          blockNumber,
-          blockTimestamp,
-        }).multicallData;
-
-        setTxTriggerSmartContractData({ tx, data: finalData });
-
-        try {
-          const config = yield* args.tronConfigCached;
-          const { wallet } = yield* args.tronGrpcGet();
-          const privateKeyRaw = yield* args.privateKey();
-
-          const txidHex = yield* broadcastTronTx({
-            tx,
-            feeLimit: config.feeLimit,
-            privateKeyRaw,
-            pollTimes: config.pollTimes,
-            pollIntervalMs: config.pollIntervalMs,
+      const txidHex = yield* broadcastTronTx({
+        tx,
+        feeLimit: config.feeLimit,
+        privateKeyRaw,
+        pollTimes: config.pollTimes,
+        pollIntervalMs: config.pollIntervalMs,
+        grpcUnary: args.grpcUnary,
+        wallet,
+        getTransactionInfoById: (txidHex) =>
+          getTransactionInfoById({
+            tronGrpcGet: args.tronGrpcGet,
             grpcUnary: args.grpcUnary,
-            wallet,
-            getTransactionInfoById: (txidHex) =>
-              getTransactionInfoById({
-                tronGrpcGet: args.tronGrpcGet,
-                grpcUnary: args.grpcUnary,
-                txidHex,
-              }),
-          });
+            txidHex,
+          }),
+      });
 
-          yield* Effect.logInfo("[tron] tx confirmed").pipe(Effect.annotateLogs({ txid: txidHex }));
-          return txidHex;
-        } catch (error) {
-          if (!isEventChainTipMismatchRevert(error)) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            return yield* Effect.fail(err);
-          }
-        }
-      }
-
-      return yield* Effect.fail(
-        new Error(
-          "Failed to send Tron multicall with in-tx eventChainTip checkpoint (tip kept changing or prediction mismatch)"
-        )
-      );
+      yield* Effect.logInfo("[tron] tx confirmed").pipe(Effect.annotateLogs({ txid: txidHex }));
+      return txidHex;
     }).pipe(Effect.withLogSpan("tron.controllerMulticall"));
 
   const getControllerUsdt = () =>

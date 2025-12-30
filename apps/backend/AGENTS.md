@@ -457,7 +457,7 @@ To do that, `TronRelayer`:
 - Reads `preTip = controller.eventChainTip` (`apps/backend/src/relayer/deps/tron/untronController.ts`)
 - Runs the multicall event planner (`apps/backend/src/relayer/tron/controllerMulticallPlanner.ts`) to simulate which events will be emitted by the calls, by reading current chain state (balances, deployment status, exchange rates, etc)
 - Computes `expectedTip = fold(computeNextEventChainTip, preTip, plannedEvents)` using the tx’s block/time fields
-- Appends a final checkpoint call `isEventChainTip(expectedTip)` into the multicall (`apps/backend/src/relayer/deps/tron/untronController.ts`)
+- Previously appended a final checkpoint call `isEventChainTip(expectedTip)` into controller multicalls, but this is currently disabled (hotpatch) because the computed tip can mismatch on Tron.
 
 That last call acts as an onchain assertion: if anything about the tip prediction is wrong (or the tip changed), the tx fails, and the relayer retries a few times (`apps/backend/src/relayer/deps/tron/untronController.ts`).
 
