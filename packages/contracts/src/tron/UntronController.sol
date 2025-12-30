@@ -6,11 +6,11 @@ import {UntronReceiver} from "./UntronReceiver.sol";
 import {IRebalancer} from "./rebalancers/interfaces/IRebalancer.sol";
 import {ReceiverDeployer} from "../utils/ReceiverDeployer.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
-import {TronTokenUtils as TokenUtils} from "../utils/TronTokenUtils.sol";
+import {TronTokenUtils} from "../utils/TronTokenUtils.sol";
 
 /// @title UntronController
 /// @notice Receiver coordination contract for Untron protocol on Tron-like EVM chains.
-/// @dev Token operations on Tron are performed via a Tron-specific `TokenUtils` alias
+/// @dev Token operations on Tron are performed via a TRC-20-specific `TronTokenUtils` library
 ///      (see `packages/contracts/src/utils/TronTokenUtils.sol`).
 /// @author Ultrasound Labs
 contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIndex {
@@ -177,6 +177,14 @@ contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIn
         _emitOwnerChanged(_newOwner);
     }
 
+    /// @notice Approve USDT for spending by a spender.
+    /// @param spender Address of the spender.
+    /// @param amount Amount of USDT to approve.
+    /// @dev Callable only by the owner.
+    function approveUsdt(address spender, uint256 amount) external onlyOwner {
+        TronTokenUtils.approve(usdt, spender, amount);
+    }
+
     /// @notice Set the LP-configured exchange rate for a token.
     /// @param token Token address.
     /// @param exchangeRate Scaled rate: USDT (smallest units) per RATE_SCALE token units.
@@ -206,12 +214,12 @@ contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIn
             maxWithdraw = _maxWithdrawableUsdt();
         } else {
             // For non‑USDT tokens, LP can withdraw up to the full controller balance.
-            maxWithdraw = TokenUtils.getBalanceOf(token, address(this));
+            maxWithdraw = TronTokenUtils.getBalanceOf(token, address(this));
         }
 
         if (amount > maxWithdraw) revert InsufficientPulledAmount();
 
-        TokenUtils.transfer(token, payable(msg.sender), amount);
+        TronTokenUtils.transfer(token, payable(msg.sender), amount);
         _emitLpTokensWithdrawn(token, amount);
     }
 
@@ -252,7 +260,7 @@ contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIn
                 if (isUsdt) {
                     usdtAmount = sweepAmount;
                 } else {
-                    usdtAmount = TokenUtils.mulDiv(sweepAmount, rateUsed, _RATE_SCALE);
+                    usdtAmount = TronTokenUtils.mulDiv(sweepAmount, rateUsed, _RATE_SCALE);
                 }
                 totalToken += sweepAmount;
                 totalUsdt += usdtAmount;
@@ -286,7 +294,7 @@ contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIn
     /// @return sweepAmount The amount of tokens to sweep.
     function _computeSweepAmount(address token, bytes32 receiverSalt) private view returns (uint256 sweepAmount) {
         address receiver = predictReceiverAddress(receiverSalt);
-        sweepAmount = TokenUtils.getBalanceOf(token, receiver);
+        sweepAmount = TronTokenUtils.getBalanceOf(token, receiver);
         if (sweepAmount > 0) {
             unchecked {
                 // Sweep all but one base unit to keep the receiver's balance slot non-zero.
@@ -360,7 +368,7 @@ contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIn
     /// @dev Callable only by the executor.
     function transferUsdtFromController(address recipient, uint256 amount) external onlyExecutor {
         _enforceAccounting(amount);
-        TokenUtils.transfer(usdt, payable(recipient), amount);
+        TronTokenUtils.transfer(usdt, payable(recipient), amount);
         _emitControllerUsdtTransfer(recipient, amount);
     }
 
@@ -399,7 +407,7 @@ contract UntronController is Multicallable, ReceiverDeployer, UntronControllerIn
     /// @notice Computes USDT that can be spent without violating accounting invariants.
     /// @return Amount of USDT that can be withdrawn/spent without dipping into accounted `pulledUsdt`.
     function _maxWithdrawableUsdt() internal view returns (uint256) {
-        uint256 controllerUsdtBalance = TokenUtils.getBalanceOf(usdt, address(this));
+        uint256 controllerUsdtBalance = TronTokenUtils.getBalanceOf(usdt, address(this));
         if (controllerUsdtBalance < pulledUsdt) revert InsufficientPulledAmount();
         return controllerUsdtBalance - pulledUsdt;
     }

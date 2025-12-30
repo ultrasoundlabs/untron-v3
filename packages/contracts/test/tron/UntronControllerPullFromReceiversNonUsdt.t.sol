@@ -7,20 +7,21 @@ import {Vm} from "forge-std/Vm.sol";
 import {UntronController} from "../../src/tron/UntronController.sol";
 
 import {MockERC20} from "./mocks/MockERC20.sol";
+import {TronUsdtLikeERC20} from "./mocks/TronUsdtLikeERC20.sol";
 
 contract UntronControllerPullFromReceiversNonUsdtTest is Test {
     bytes32 private constant _SIG_PULLED_FROM_RECEIVER =
         keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
 
     UntronController internal _controller;
-    MockERC20 internal _usdt;
+    TronUsdtLikeERC20 internal _usdt;
     MockERC20 internal _tokenX;
 
     address internal constant _LP = address(0xB0B);
 
     function setUp() public {
         _controller = new UntronController(0xff);
-        _usdt = new MockERC20("USDT", "USDT", 18);
+        _usdt = new TronUsdtLikeERC20("USDT", "USDT", 18);
         _tokenX = new MockERC20("TOKEN_X", "TKX", 18);
 
         _controller.setUsdt(address(_usdt));
@@ -186,8 +187,8 @@ contract UntronControllerPullFromReceiversNonUsdtTest is Test {
     function _lpDepositUsdt(uint256 amount) internal {
         _usdt.mint(_LP, amount);
         vm.prank(_LP);
-        bool ok = _usdt.transfer(address(_controller), amount);
-        require(ok, "USDT transfer failed");
+        (bool success) = _usdt.transfer(address(_controller), amount);
+        success;
     }
 
     function _findSingleControllerLog(Vm.Log[] memory logs, bytes32 sig) internal returns (Vm.Log memory found) {

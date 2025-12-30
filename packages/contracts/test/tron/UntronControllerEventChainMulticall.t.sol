@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {UntronController} from "../../src/tron/UntronController.sol";
 import {EventChainGenesis} from "../../src/utils/EventChainGenesis.sol";
 
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {TronUsdtLikeERC20} from "./mocks/TronUsdtLikeERC20.sol";
 
 contract UntronControllerEventChainMulticallTest is Test {
     address internal constant _LP = address(0xB0B);
@@ -23,7 +23,7 @@ contract UntronControllerEventChainMulticallTest is Test {
 
     function test_tip_updatesOnlyWhenEventsEmit() public {
         UntronController controller = new UntronController(0xff);
-        MockERC20 usdt = new MockERC20("USDT", "USDT", 18);
+        TronUsdtLikeERC20 usdt = new TronUsdtLikeERC20("USDT", "USDT", 18);
         controller.setUsdt(address(usdt));
         controller.setLp(_LP);
 
@@ -122,7 +122,7 @@ contract UntronControllerEventChainMulticallTest is Test {
         vm.roll(11);
         vm.warp(456);
 
-        MockERC20 usdt = new MockERC20("USDT", "USDT", 18);
+        TronUsdtLikeERC20 usdt = new TronUsdtLikeERC20("USDT", "USDT", 18);
 
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(controller.setExecutor, (address(0xE0)));

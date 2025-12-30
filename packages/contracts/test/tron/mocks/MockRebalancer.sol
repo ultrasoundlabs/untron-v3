@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {IRebalancer} from "../../../src/tron/rebalancers/interfaces/IRebalancer.sol";
-import {TokenUtils} from "../../../src/utils/TokenUtils.sol";
+import {TronTokenUtils as TokenUtils} from "../../../src/utils/TronTokenUtils.sol";
 
 contract MockRebalancer is IRebalancer {
     error RebalanceReverted();

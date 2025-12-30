@@ -6,7 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {UntronController} from "../../src/tron/UntronController.sol";
 
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {TronUsdtLikeERC20} from "./mocks/TronUsdtLikeERC20.sol";
 
 contract UntronControllerPullFromReceiversUsdtTest is Test {
     bytes32 private constant _SIG_RECEIVER_DEPLOYED = keccak256("ReceiverDeployed(address,bytes32)");
@@ -14,11 +14,11 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
 
     UntronController internal _controller;
-    MockERC20 internal _usdt;
+    TronUsdtLikeERC20 internal _usdt;
 
     function setUp() public {
         _controller = new UntronController(0xff);
-        _usdt = new MockERC20("USDT", "USDT", 18);
+        _usdt = new TronUsdtLikeERC20("USDT", "USDT", 18);
         _controller.setUsdt(address(_usdt));
     }
 

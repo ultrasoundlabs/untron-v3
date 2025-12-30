@@ -51,6 +51,12 @@ contract UntronControllerAccessControlTest is Test {
         _controller.setOwner(address(0xA11CE));
     }
 
+    function test_onlyOwner_approveUsdt() public {
+        vm.prank(address(0xBEEF));
+        vm.expectRevert(UntronController.OnlyOwner.selector);
+        _controller.approveUsdt(address(0xCAFE), 1);
+    }
+
     function test_setOwner_rejectsZero() public {
         vm.expectRevert(UntronController.ZeroOwnerAddress.selector);
         _controller.setOwner(address(0));

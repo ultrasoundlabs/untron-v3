@@ -6,21 +6,21 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {UntronController} from "../../src/tron/UntronController.sol";
 
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {TronUsdtLikeERC20} from "./mocks/TronUsdtLikeERC20.sol";
 import {MockRebalancer} from "./mocks/MockRebalancer.sol";
 
 contract UntronControllerRebalanceTest is Test {
     bytes32 private constant _SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
 
     UntronController internal _controller;
-    MockERC20 internal _usdt;
+    TronUsdtLikeERC20 internal _usdt;
     MockRebalancer internal _rebalancer;
 
     address internal constant _SINK = address(0xBEEF);
 
     function setUp() public {
         _controller = new UntronController(0xff);
-        _usdt = new MockERC20("USDT", "USDT", 18);
+        _usdt = new TronUsdtLikeERC20("USDT", "USDT", 18);
         _rebalancer = new MockRebalancer();
 
         _controller.setUsdt(address(_usdt));

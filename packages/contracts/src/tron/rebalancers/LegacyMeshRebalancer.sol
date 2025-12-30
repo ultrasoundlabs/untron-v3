@@ -4,7 +4,6 @@ pragma solidity ^0.8.27;
 import {IRebalancer} from "./interfaces/IRebalancer.sol";
 import {IOFT, SendParam} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
-import {TronTokenUtils as TokenUtils} from "../../utils/TronTokenUtils.sol";
 
 /// @title Interface for The Legacy Mesh OFT
 /// @notice Minimal OFT interface with Legacy Mesh-specific functions.
@@ -22,12 +21,14 @@ interface ILegacyMeshOFT is IOFT {
 
 /// @title LegacyMeshRebalancer
 /// @notice Rebalancer implementation for OFT-based Legacy Mesh bridge.
+/// @dev It does not approve tokens itself. UntronController has approveUsdt function
+///      that must be used when enabling LegacyMeshRebalancer as an allowed rebalancer.
 /// @author Ultrasound Labs
 contract LegacyMeshRebalancer is IRebalancer {
     /// @notice Bridge tokens via LayerZero OFT.
     /// @dev Payload must be ABI-encoded: (address oft, uint32 dstEid, bytes32 to)
     ///      Runs via DELEGATECALL in the controller context; controller holds funds.
-    /// @param token Token address to bridge.
+    /// @param token Unused. OFT address is taken from `payload`.
     /// @param inAmount Amount to bridge.
     /// @param payload ABI-encoded (address oft, uint32 dstEid, bytes32 to).
     /// @return outAmount Expected amount of tokens to be rebalanced (after Legacy Mesh fee).
@@ -36,6 +37,7 @@ contract LegacyMeshRebalancer is IRebalancer {
         payable
         returns (uint256 outAmount)
     {
+        token;
         (ILegacyMeshOFT oft, uint32 dstEid, bytes32 to) = abi.decode(payload, (ILegacyMeshOFT, uint32, bytes32));
 
         // Fetch the Legacy Mesh's fee in basis points
@@ -65,8 +67,6 @@ contract LegacyMeshRebalancer is IRebalancer {
             composeMsg: "",
             oftCmd: ""
         });
-        // Approve the token to be spent by the Legacy Mesh
-        TokenUtils.approve(token, address(oft), inAmount);
 
         // Quote the fee for the bridge
         MessagingFee memory msgFee = oft.quoteSend(sp, false);

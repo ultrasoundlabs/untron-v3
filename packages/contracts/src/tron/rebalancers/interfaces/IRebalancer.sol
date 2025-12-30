@@ -12,6 +12,7 @@ interface IRebalancer {
     ///      received on the destination chain, so that the caller can enforce invariants.
     ///      Implementations are expected to run via `DELEGATECALL` in the controller context,
     ///      and may need `msg.value` (native token) to pay bridging fees.
+    ///      SHOULD NOT approve tokens itself. UntronController has approveUsdt function for USDT rebalances.
     /// @param token Token address to bridge.
     /// @param inAmount Amount to bridge.
     /// @param payload Rebalancer-specific encoded parameters.

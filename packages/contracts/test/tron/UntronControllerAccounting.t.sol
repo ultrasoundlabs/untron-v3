@@ -5,11 +5,11 @@ import {Test} from "forge-std/Test.sol";
 
 import {UntronController} from "../../src/tron/UntronController.sol";
 
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {TronUsdtLikeERC20} from "./mocks/TronUsdtLikeERC20.sol";
 
 contract UntronControllerAccountingTest is Test {
     UntronController internal _controller;
-    MockERC20 internal _usdt;
+    TronUsdtLikeERC20 internal _usdt;
 
     address internal constant _EXECUTOR = address(0xE0);
     address internal constant _LP = address(0xB0B);
@@ -17,7 +17,7 @@ contract UntronControllerAccountingTest is Test {
 
     function setUp() public {
         _controller = new UntronController(0xff);
-        _usdt = new MockERC20("USDT", "USDT", 18);
+        _usdt = new TronUsdtLikeERC20("USDT", "USDT", 18);
 
         _controller.setUsdt(address(_usdt));
         _controller.setExecutor(_EXECUTOR);
@@ -49,8 +49,8 @@ contract UntronControllerAccountingTest is Test {
         // Add surplus USDT and ensure LP can withdraw exactly the surplus.
         _usdt.mint(_LP, 25);
         vm.prank(_LP);
-        bool ok = _usdt.transfer(address(_controller), 25);
-        require(ok, "USDT transfer failed");
+        (bool success) = _usdt.transfer(address(_controller), 25);
+        success;
 
         uint256 surplus = _usdt.balanceOf(address(_controller)) - _controller.pulledUsdt();
         assertEq(surplus, 25, "unexpected surplus");
