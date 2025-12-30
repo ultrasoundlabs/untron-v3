@@ -315,7 +315,9 @@ export const handleTrc20Transfer = ({
         args,
       });
 
-      yield* MainnetRelayer.sendUserOperation({ calls: [{ to: untronV3Address, data }] });
+      yield* MainnetRelayer.sendUserOperation({ calls: [{ to: untronV3Address, data }] }).pipe(
+        Effect.annotateLogs({ jobKind: "trc20_transfer" })
+      );
       return;
     }
   });

@@ -116,19 +116,21 @@ const processControllerEventsIfBacklog = (ctx: RelayJobHandlerContext) =>
     if (attemptRows.length === 0) return;
 
     const relayer = yield* MainnetRelayer;
-    yield* relayer.sendUserOperation({
-      calls: [
-        {
-          to: untronV3Address,
-          value: 0n,
-          data: encodeFunctionData({
-            abi: untronV3Abi,
-            functionName: "processControllerEvents",
-            args: [toProcess],
-          }),
-        },
-      ],
-    });
+    yield* relayer
+      .sendUserOperation({
+        calls: [
+          {
+            to: untronV3Address,
+            value: 0n,
+            data: encodeFunctionData({
+              abi: untronV3Abi,
+              functionName: "processControllerEvents",
+              args: [toProcess],
+            }),
+          },
+        ],
+      })
+      .pipe(Effect.annotateLogs({ heartbeatHandler: "process_controller_events" }));
   });
 
 const fillClaimsFromUntronBalance = (ctx: RelayJobHandlerContext) =>
@@ -136,7 +138,9 @@ const fillClaimsFromUntronBalance = (ctx: RelayJobHandlerContext) =>
     const relayer = yield* MainnetRelayer;
     const calls = yield* buildMainnetFillCalls(ctx);
     if (calls.length === 0) return;
-    yield* relayer.sendUserOperation({ calls });
+    yield* relayer
+      .sendUserOperation({ calls })
+      .pipe(Effect.annotateLogs({ heartbeatHandler: "fill_claims_from_untron_balance" }));
   });
 
 const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =>

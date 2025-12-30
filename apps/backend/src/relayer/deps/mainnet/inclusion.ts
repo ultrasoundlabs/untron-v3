@@ -42,11 +42,13 @@ export const makeUserOperationInclusionChecker = (args: {
         const log = logs[0];
         if (!log) continue;
 
+        const success = Boolean((log as any).args?.success);
         return {
           bundlerUrl: attempt.bundlerUrl,
           userOpHash: attempt.userOpHash,
           transactionHash: log.transactionHash,
           blockNumber: log.blockNumber,
+          success,
         } satisfies SendMainnetUserOperationResult;
       }
 

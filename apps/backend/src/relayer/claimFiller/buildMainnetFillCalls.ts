@@ -8,7 +8,9 @@ import { untronV3Abi } from "@untron/v3-contracts";
 import { AppConfig } from "../../effect/config";
 import { tryPromise } from "../../effect/tryPromise";
 import { MainnetRelayer } from "../deps/mainnet";
+import { PublicClients } from "../deps/publicClients";
 import type { MainnetUserOperationCall } from "../deps/types";
+import { MAINNET_CHAIN_ID } from "../../env";
 import { expectBigint, type RelayJobHandlerContext } from "../jobs/types";
 import { getRows } from "../sqlRows";
 import { selectNonEmptyClaimQueuesSql } from "./claimQueueQueries";
@@ -21,15 +23,18 @@ const minBigint = (a: bigint, b: bigint) => (a < b ? a : b);
 
 export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
   Effect.gen(function* () {
-    const chainId = ctx.ponderContext.chain.id;
+    const chainId = MAINNET_CHAIN_ID;
     const untronV3Address = ctx.ponderContext.contracts.UntronV3.address as Address;
     const untronV3AddressDb = untronV3Address.toLowerCase() as Address;
 
     const runtime = yield* AppConfig.relayerRuntime();
     const maxClaimsPerQueue = BigInt(runtime.fillMaxClaimsPerQueue);
 
+    const publicClients = yield* PublicClients;
+    const mainnetClient = yield* publicClients.get("mainnet");
+
     const usdt = (yield* tryPromise(() =>
-      ctx.ponderContext.client.readContract({
+      mainnetClient.readContract({
         address: untronV3Address,
         abi: untronV3Abi,
         functionName: "usdt",
@@ -37,17 +42,15 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
     )) as Address;
 
     const untronUsdtBalance = (yield* tryPromise(() =>
-      ctx.ponderContext.client.readContract({
+      mainnetClient.readContract({
         address: untronV3Address,
         abi: untronV3Abi,
         functionName: "usdtBalance",
       })
     )) as bigint;
 
-    if (untronUsdtBalance === 0n) return [] as const;
-
     const swapExecutor = (yield* tryPromise(() =>
-      ctx.ponderContext.client.readContract({
+      mainnetClient.readContract({
         address: untronV3Address,
         abi: untronV3Abi,
         functionName: "SWAP_EXECUTOR",
@@ -60,11 +63,22 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
       contractAddress: untronV3AddressDb,
     });
     if (queues.length === 0) return [] as const;
+    if (untronUsdtBalance === 0n) {
+      yield* Effect.logInfo("[claim_filler] no fill calls (untron usdtBalance is 0)").pipe(
+        Effect.annotateLogs({
+          chainId,
+          contractAddress: untronV3AddressDb,
+          usdt: usdt.toLowerCase(),
+          queueCount: queues.length,
+        })
+      );
+      return [] as const;
+    }
 
     const withHeads = yield* Effect.forEach(queues, (queue) =>
       Effect.gen(function* () {
         const nextIndex = (yield* tryPromise(() =>
-          ctx.ponderContext.client.readContract({
+          mainnetClient.readContract({
             address: untronV3Address,
             abi: untronV3Abi,
             functionName: "nextIndexByTargetToken",
@@ -122,7 +136,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
           const relayer = yield* MainnetRelayer;
           const address = yield* relayer.getAddress();
           const balance = (yield* tryPromise(() =>
-            ctx.ponderContext.client.readContract({
+            mainnetClient.readContract({
               address: usdt,
               abi: ERC20Abi,
               functionName: "balanceOf",
@@ -217,6 +231,23 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
       });
 
       remainingUsdt -= totalUsdt;
+    }
+
+    if (calls.length === 0 && sortedQueues.length > 0) {
+      const minHead = sortedQueues[0]!;
+      yield* Effect.logInfo("[claim_filler] no fill calls (planner produced 0 calls)").pipe(
+        Effect.annotateLogs({
+          chainId,
+          contractAddress: untronV3AddressDb,
+          usdt: usdt.toLowerCase(),
+          untronUsdtBalance: untronUsdtBalance.toString(),
+          queueCount: queues.length,
+          pendingQueueCount: sortedQueues.length,
+          minHeadTargetToken: minHead.targetToken,
+          minHeadPendingCount: minHead.pendingCount.toString(),
+          minHeadAmountUsdt: minHead.headClaimAmountUsdt.toString(),
+        })
+      );
     }
 
     return calls;

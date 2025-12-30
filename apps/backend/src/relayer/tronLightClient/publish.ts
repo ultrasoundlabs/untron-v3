@@ -373,7 +373,9 @@ export const publishTronLightClient = (ctx: RelayJobHandlerContext) =>
       })
     );
 
-    const included = yield* MainnetRelayer.sendUserOperation({ calls: [plan.call] });
+    const included = yield* MainnetRelayer.sendUserOperation({ calls: [plan.call] }).pipe(
+      Effect.annotateLogs({ jobKind: "tron_light_client_publish" })
+    );
 
     yield* Effect.logInfo("[tron_light_client] publish proveBlocks included").pipe(
       Effect.annotateLogs({

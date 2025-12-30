@@ -15,6 +15,7 @@ export type SendMainnetUserOperationResult = {
   userOpHash: Hash;
   transactionHash: Hash;
   blockNumber: bigint;
+  success: boolean;
 };
 
 export type TronReceiverMapEntry = {

@@ -407,5 +407,5 @@ export const handleRelayControllerEventChain = ({
     );
     yield* MainnetRelayer.sendUserOperation({
       calls: plannedCalls,
-    });
+    }).pipe(Effect.annotateLogs({ jobKind: "relay_controller_event_chain" }));
   });

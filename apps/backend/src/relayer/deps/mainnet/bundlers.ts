@@ -49,19 +49,43 @@ export const sendUserOperationViaBundlers = (args: {
     });
 
     const checkInclusionUpTo = (toBlock: bigint) =>
-      checker.checkUpTo(sent, toBlock).pipe(
-        Effect.tap((included) => {
-          if (!included) return Effect.void;
-          return Effect.logInfo("[mainnet] UserOperation included").pipe(
-            Effect.annotateLogs({
-              bundlerUrl: safeUrlForLogs(included.bundlerUrl),
-              userOpHash: included.userOpHash,
-              transactionHash: included.transactionHash,
-              blockNumber: included.blockNumber.toString(),
-            })
-          );
-        })
-      );
+      checker
+        .checkUpTo(sent, toBlock)
+        .pipe(
+          Effect.tap((included) => {
+            if (!included) return Effect.void;
+            if (!included.success) {
+              return Effect.logWarning("[mainnet] UserOperation included but failed").pipe(
+                Effect.annotateLogs({
+                  bundlerUrl: safeUrlForLogs(included.bundlerUrl),
+                  userOpHash: included.userOpHash,
+                  transactionHash: included.transactionHash,
+                  blockNumber: included.blockNumber.toString(),
+                })
+              );
+            }
+            return Effect.logInfo("[mainnet] UserOperation included").pipe(
+              Effect.annotateLogs({
+                bundlerUrl: safeUrlForLogs(included.bundlerUrl),
+                userOpHash: included.userOpHash,
+                transactionHash: included.transactionHash,
+                blockNumber: included.blockNumber.toString(),
+                success: String(included.success),
+              })
+            );
+          })
+        )
+        .pipe(
+          Effect.flatMap((included) => {
+            if (!included) return Effect.succeed(null);
+            if (included.success) return Effect.succeed(included);
+            return Effect.fail(
+              new Error(
+                `UserOperation was included but failed (userOpHash=${included.userOpHash}, tx=${included.transactionHash})`
+              )
+            );
+          })
+        );
 
     const errors: string[] = [];
 
