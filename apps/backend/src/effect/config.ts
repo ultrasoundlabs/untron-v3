@@ -12,6 +12,7 @@ export type RelayerRuntimeConfig = Readonly<{
   embeddedExecutorEnabled: boolean;
   dryRun: boolean;
   workerId: string;
+  maxLagBlocks: bigint;
   mainnetConfirmations: bigint;
   tronConfirmations: bigint;
   claimLimit: number;
@@ -157,6 +158,11 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             Config.withDefault(`embedded:${process.pid}`)
           );
 
+          const maxLagBlocks = yield* requiredNonNegativeBigintWithDefault(
+            "RELAYER_MAX_LAG_BLOCKS",
+            50n
+          );
+
           const mainnetConfirmations = yield* requiredBigint("RELAYER_MAINNET_CONFIRMATIONS").pipe(
             Config.withDefault(0n)
           );
@@ -196,6 +202,7 @@ export class AppConfig extends Effect.Tag("AppConfig")<
             embeddedExecutorEnabled,
             dryRun,
             workerId,
+            maxLagBlocks,
             mainnetConfirmations,
             tronConfirmations,
             claimLimit,

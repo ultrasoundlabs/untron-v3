@@ -75,7 +75,7 @@ export function registerRelayer({
   enabled,
   embeddedExecutorEnabled,
   dryRun,
-  maxLagBlocks = 50n,
+  maxLagBlocks,
 }: {
   ponder: PonderRegistry;
   enabled?: boolean;
@@ -119,13 +119,16 @@ export function registerRelayer({
           const resolvedEmbeddedExecutorEnabled =
             embeddedExecutorEnabled ?? runtime.embeddedExecutorEnabled;
           const resolvedDryRun = dryRun ?? runtime.dryRun;
+          const resolvedMaxLagBlocks = maxLagBlocks ?? runtime.maxLagBlocks;
 
           const blockNumber = event.block.number as bigint;
           const blockTimestamp = event.block.timestamp as bigint;
 
           const rpcHead = yield* getRpcHeadBlockNumber(context as PonderContext);
           const isLive =
-            rpcHead !== null && rpcHead >= blockNumber && rpcHead - blockNumber <= maxLagBlocks;
+            rpcHead !== null &&
+            rpcHead >= blockNumber &&
+            rpcHead - blockNumber <= resolvedMaxLagBlocks;
 
           yield* upsertRelayerStatus({
             context: context as PonderContext,
@@ -136,7 +139,19 @@ export function registerRelayer({
 
           if (!resolvedEnabled) return;
 
-          if (!isLive) return;
+          if (!isLive) {
+            const lag = rpcHead !== null && rpcHead >= blockNumber ? rpcHead - blockNumber : null;
+            yield* Effect.logDebug("[relayer] skipping enqueue (not live)").pipe(
+              Effect.annotateLogs({
+                chainId: context.chain.id,
+                blockNumber: blockNumber.toString(),
+                rpcHead: rpcHead?.toString() ?? "null",
+                lag: lag?.toString() ?? "null",
+                maxLagBlocks: resolvedMaxLagBlocks.toString(),
+              })
+            );
+            return;
+          }
 
           if (heartbeatKind === "mainnet_heartbeat" || heartbeatKind === "tron_heartbeat") {
             const outstanding = yield* hasOutstandingHeartbeatJob({
@@ -233,6 +248,7 @@ export function registerRelayer({
       Effect.gen(function* () {
         const runtime = yield* AppConfig.relayerRuntime();
         const resolvedEnabled = enabled ?? runtime.enabled;
+        const resolvedMaxLagBlocks = maxLagBlocks ?? runtime.maxLagBlocks;
 
         const chainId = context.chain.id;
         const blockNumber = event.block.number;
@@ -266,7 +282,7 @@ export function registerRelayer({
         const isLive = yield* isProbablyLiveEvent({
           context: context as PonderContext,
           eventBlockNumber: blockNumber,
-          maxLagBlocks,
+          maxLagBlocks: resolvedMaxLagBlocks,
         });
         if (!isLive) return;
 
