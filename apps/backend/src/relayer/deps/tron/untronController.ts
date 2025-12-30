@@ -295,10 +295,10 @@ export function makeUntronControllerOperations(args: {
           yield* Effect.logInfo("[tron] tx confirmed").pipe(Effect.annotateLogs({ txid }));
           return { txid };
         } catch (error) {
-          if (!isEventChainTipMismatchRevert(error)) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            return yield* Effect.fail(err);
-          }
+          // if (!isEventChainTipMismatchRevert(error)) {
+          //   const err = error instanceof Error ? error : new Error(String(error));
+          //   return yield* Effect.fail(err);
+          // }
         }
       }
 
