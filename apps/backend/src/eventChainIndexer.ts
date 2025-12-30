@@ -2,8 +2,12 @@ import { Cause, Effect } from "effect";
 import type { Context as PonderContext, Event as PonderEvent } from "ponder:registry";
 import { eventChainEvent, eventChainState } from "ponder:schema";
 import {
+  createPublicClient,
+  decodeFunctionResult,
   encodeAbiParameters,
+  encodeFunctionData,
   encodePacked,
+  http,
   sha256,
   type Abi,
   type AbiEvent,
@@ -38,6 +42,8 @@ const EVENT_CHAIN_TIP_ABI = [
     outputs: [{ type: "bytes32" }],
   },
 ] as const satisfies Abi;
+
+const TRON_CHAIN_ID = 728126428;
 
 function computeEventChainGenesis(indexName: string): Hex {
   return sha256(encodePacked(["string", "string"], [`${indexName}\n`, EVENT_CHAIN_DECLARATION]));
@@ -132,12 +138,72 @@ function makeEventId({
 
 const getHeadBlockNumber = (context: PonderContext): Effect.Effect<bigint | null, Error> =>
   tryPromise(async () => {
+    if (context.chain.id === TRON_CHAIN_ID) {
+      const rpcUrl = process.env.TRON_JSON_RPC_URL;
+      if (!rpcUrl) return null;
+      return await getTronLatestOnlyClient(rpcUrl).getBlockNumber();
+    }
+
     const hex = (await context.client.request({
       method: "eth_blockNumber",
     } as any)) as unknown;
 
     if (typeof hex !== "string") return null;
     return BigInt(hex);
+  });
+
+let tronLatestOnlyClient:
+  | ReturnType<typeof createPublicClient<ReturnType<typeof http>>>
+  | undefined;
+
+function getTronLatestOnlyClient(rpcUrl: string) {
+  tronLatestOnlyClient ??= createPublicClient({ transport: http(rpcUrl) });
+  return tronLatestOnlyClient;
+}
+
+const readEventChainTip = (args: {
+  context: PonderContext;
+  contractAddress: Hex;
+  blockNumber?: bigint;
+}): Effect.Effect<Hex, Error> =>
+  tryPromise(async () => {
+    if (args.context.chain.id === TRON_CHAIN_ID) {
+      if (args.blockNumber !== undefined) {
+        throw new Error(
+          "Tron JSON-RPC does not support historical eth_call (QUANTITY block parameter). Use onchainTipValidation='head' or 'disabled'."
+        );
+      }
+
+      const rpcUrl = process.env.TRON_JSON_RPC_URL;
+      if (!rpcUrl) throw new Error("Missing TRON_JSON_RPC_URL");
+
+      const data = encodeFunctionData({ abi: EVENT_CHAIN_TIP_ABI, functionName: "eventChainTip" });
+      const result = (await getTronLatestOnlyClient(rpcUrl).request({
+        method: "eth_call",
+        params: [{ to: args.contractAddress, data }, "latest"],
+      })) as Hex;
+
+      return decodeFunctionResult({
+        abi: EVENT_CHAIN_TIP_ABI,
+        functionName: "eventChainTip",
+        data: result,
+      }) as Hex;
+    }
+
+    if (args.blockNumber !== undefined) {
+      return (await args.context.client.readContract({
+        abi: EVENT_CHAIN_TIP_ABI,
+        address: args.contractAddress,
+        functionName: "eventChainTip",
+        blockNumber: args.blockNumber,
+      })) as Hex;
+    }
+
+    return (await args.context.client.readContract({
+      abi: EVENT_CHAIN_TIP_ABI,
+      address: args.contractAddress,
+      functionName: "eventChainTip",
+    })) as Hex;
   });
 
 export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
@@ -188,14 +254,11 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
 
         const resolvedInitialTip =
           onchainTipValidation === "blockTag" && args.event.block.number > deploymentBlock
-            ? ((yield* tryPromise(() =>
-                args.context.client.readContract({
-                  abi: EVENT_CHAIN_TIP_ABI,
-                  address: contractAddress,
-                  functionName: "eventChainTip",
-                  blockNumber: priorBlockNumber,
-                })
-              )) as Hex)
+            ? yield* readEventChainTip({
+                context: args.context,
+                contractAddress,
+                blockNumber: priorBlockNumber,
+              })
             : genesisTip;
 
         yield* tryPromise(() =>
@@ -218,14 +281,11 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
         onchainTipValidation === "blockTag" &&
         args.event.block.number > state.lastEventBlockNumber
       ) {
-        const onchainTip = (yield* tryPromise(() =>
-          args.context.client.readContract({
-            abi: EVENT_CHAIN_TIP_ABI,
-            address: contractAddress,
-            functionName: "eventChainTip",
-            blockNumber: state.lastEventBlockNumber,
-          })
-        )) as Hex;
+        const onchainTip = yield* readEventChainTip({
+          context: args.context,
+          contractAddress,
+          blockNumber: state.lastEventBlockNumber,
+        });
 
         if (onchainTip.toLowerCase() !== state.eventChainTip.toLowerCase()) {
           throw new Error(
@@ -304,13 +364,10 @@ export function registerEventChainIndexer<TAbi extends readonly unknown[]>({
       if (onchainTipValidation === "head") {
         const head = yield* getHeadBlockNumber(args.context);
         if (head !== null && args.event.block.number === head) {
-          const onchainTip = (yield* tryPromise(() =>
-            args.context.client.readContract({
-              abi: EVENT_CHAIN_TIP_ABI,
-              address: contractAddress,
-              functionName: "eventChainTip",
-            })
-          )) as Hex;
+          const onchainTip = yield* readEventChainTip({
+            context: args.context,
+            contractAddress,
+          });
 
           if (onchainTip.toLowerCase() !== nextTip.toLowerCase()) {
             throw new Error(

@@ -224,6 +224,13 @@ Inside the Effect program in `apps/backend/src/eventChainIndexer.ts`:
 
 If a tip mismatch is detected, the handler fails the Effect on purpose: this is treated as a correctness invariant.
 
+### Tron JSON-RPC limitation (important)
+
+Some Tron JSON-RPC endpoints reject `eth_call` when the 2nd parameter is a QUANTITY block number (they only accept the TAG `"latest"`). This means:
+
+- `onchainTipValidation: "blockTag"` (historical block reads) is not supported on Tron with those endpoints.
+- `onchainTipValidation: "head"` is supported; the code forces an explicit `"latest"` call for Tron to avoid Ponder/viem emitting QUANTITY block parameters.
+
 ---
 
 # 6) The Relayer: job-queue + optional embedded executor
