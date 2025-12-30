@@ -7,3 +7,10 @@ TRON_GRPC_HOST=... ANVIL_PRIVATE_KEY=0x... pnpm research tlcStream --start 78000
 ```
 
 Also some scripts like genTronFixture or genTrc20TxFixture are needed for reproducibility of artifacts inside the test folder in @untron/v3-contracts.
+
+Fetch full on-chain details for a transaction (raw tx + receipt/status + return data):
+
+```
+TRON_GRPC_HOST=... TRON_API_KEY=... pnpm research fetchTronTx 0x<txid>
+TRON_GRPC_HOST=... TRON_API_KEY=... pnpm research fetchTronTx 0x<txid> --summary
+```
