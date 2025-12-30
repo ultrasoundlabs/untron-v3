@@ -49,6 +49,14 @@ const getRpcHeadBlockNumber = (context: PonderContext): Effect.Effect<bigint | n
     catch: (error) => (error instanceof Error ? error : new Error(String(error))),
   });
 
+const toBigint = (value: unknown, label: string): bigint => {
+  try {
+    return BigInt(value as any);
+  } catch {
+    throw new Error(`Invalid ${label} (expected bigint-compatible value)`);
+  }
+};
+
 const isProbablyLiveEvent = (args: {
   context: PonderContext;
   eventBlockNumber: bigint;
@@ -121,8 +129,8 @@ export function registerRelayer({
           const resolvedDryRun = dryRun ?? runtime.dryRun;
           const resolvedMaxLagBlocks = maxLagBlocks ?? runtime.maxLagBlocks;
 
-          const blockNumber = event.block.number as bigint;
-          const blockTimestamp = event.block.timestamp as bigint;
+          const blockNumber = toBigint(event.block.number, "event.block.number");
+          const blockTimestamp = toBigint(event.block.timestamp, "event.block.timestamp");
 
           const rpcHead = yield* getRpcHeadBlockNumber(context as PonderContext);
           const isLive =
@@ -251,8 +259,8 @@ export function registerRelayer({
         const resolvedMaxLagBlocks = maxLagBlocks ?? runtime.maxLagBlocks;
 
         const chainId = context.chain.id;
-        const blockNumber = event.block.number;
-        const blockTimestamp = event.block.timestamp;
+        const blockNumber = toBigint(event.block.number, "event.block.number");
+        const blockTimestamp = toBigint(event.block.timestamp, "event.block.timestamp");
         const tokenAddress = event.log.address as `0x${string}`;
         const transactionHash = event.transaction.hash as `0x${string}`;
         const logIndex = event.log.logIndex as number;
