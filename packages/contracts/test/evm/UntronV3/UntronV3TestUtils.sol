@@ -159,12 +159,9 @@ contract UntronV3Harness is UntronV3 {
         claimIndex = _enqueueClaimForTargetToken(targetToken, amountUsdt, leaseId, targetChainId, beneficiary);
     }
 
-    function exposedProcessReceiverPulled(
-        bytes32 receiverSalt,
-        address token,
-        uint256 usdtAmount,
-        uint64 dumpTimestamp
-    ) external {
+    function exposedProcessReceiverPulled(bytes32 receiverSalt, address token, uint256 usdtAmount, uint64 dumpTimestamp)
+        external
+    {
         _processReceiverPulled(receiverSalt, token, usdtAmount, dumpTimestamp);
     }
 

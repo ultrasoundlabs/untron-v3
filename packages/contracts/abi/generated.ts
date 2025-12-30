@@ -5704,6 +5704,165 @@ export const tronLightClientHarnessAbi = [
   {
     type: 'function',
     inputs: [
+      { name: 'startingBlockId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchAdvanceAndHash',
+    outputs: [{ name: 'acc', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'data', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchDecode',
+    outputs: [{ name: 'acc', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'data', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchDecodeMinimal',
+    outputs: [{ name: 'acc', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'parentHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'txTrieRoot', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'timestampSec', internalType: 'uint32', type: 'uint32' },
+      { name: 'witness', internalType: 'bytes20', type: 'bytes20' },
+      { name: 'firstBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'iters', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchEncodeHeaderDirectNoSrLookup',
+    outputs: [
+      { name: 'usedTotal', internalType: 'uint256', type: 'uint256' },
+      { name: 'acc', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlockId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchEncodeHeaderFromMeta',
+    outputs: [
+      { name: 'usedTotal', internalType: 'uint256', type: 'uint256' },
+      { name: 'acc', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlockId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+      { name: 'witness', internalType: 'bytes20', type: 'bytes20' },
+    ],
+    name: 'benchEncodeHeaderFromMetaNoSrLookup',
+    outputs: [
+      { name: 'usedTotal', internalType: 'uint256', type: 'uint256' },
+      { name: 'acc', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlockId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'sigs', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchFullVerifyNoStore',
+    outputs: [{ name: 'acc', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlockId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'blockHash', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchMakeBlockId',
+    outputs: [{ name: 'acc', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'iters', internalType: 'uint256', type: 'uint256' }],
+    name: 'benchNoop',
+    outputs: [{ name: 'acc', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'digest', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'sigs', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchRecoverSigner',
+    outputs: [{ name: 'acc', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startingBlockId', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchSha256AfterEncode',
+    outputs: [{ name: 'acc', internalType: 'bytes32', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchSrAt',
+    outputs: [{ name: 'acc', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'witnessIndex', internalType: 'uint8', type: 'uint8' },
+      { name: 'iters', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchSrAtOnly',
+    outputs: [{ name: 'acc', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'meta', internalType: 'bytes', type: 'bytes' },
+      { name: 'numBlocks', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'benchWitnessDelegateeAt',
+    outputs: [{ name: 'acc', internalType: 'bytes20', type: 'bytes20' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
       { name: 'data', internalType: 'bytes', type: 'bytes' },
       { name: 'idx', internalType: 'uint256', type: 'uint256' },
     ],
