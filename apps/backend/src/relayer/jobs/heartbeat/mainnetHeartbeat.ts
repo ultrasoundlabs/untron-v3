@@ -143,10 +143,11 @@ const sweepTronReceiversIfPendingClaims = (ctx: RelayJobHandlerContext) =>
   Effect.gen(function* () {
     const chainId = ctx.ponderContext.chain.id;
     const untronV3Address = ctx.ponderContext.contracts.UntronV3.address as `0x${string}`;
+    const untronV3AddressDb = untronV3Address.toLowerCase() as `0x${string}`;
 
     const result = yield* tryPromise(() =>
       ctx.ponderContext.db.sql.execute(
-        selectNonEmptyClaimQueuesSql({ chainId, contractAddress: untronV3Address })
+        selectNonEmptyClaimQueuesSql({ chainId, contractAddress: untronV3AddressDb })
       )
     );
 

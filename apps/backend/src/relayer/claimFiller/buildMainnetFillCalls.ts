@@ -23,6 +23,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
   Effect.gen(function* () {
     const chainId = ctx.ponderContext.chain.id;
     const untronV3Address = ctx.ponderContext.contracts.UntronV3.address as Address;
+    const untronV3AddressDb = untronV3Address.toLowerCase() as Address;
 
     const runtime = yield* AppConfig.relayerRuntime();
     const maxClaimsPerQueue = BigInt(runtime.fillMaxClaimsPerQueue);
@@ -56,7 +57,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
     const queues = yield* ClaimFillerRepository.getNonEmptyClaimQueues({
       context: ctx.ponderContext,
       chainId,
-      contractAddress: untronV3Address,
+      contractAddress: untronV3AddressDb,
     });
     if (queues.length === 0) return [] as const;
 
@@ -77,7 +78,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
         const headClaim = yield* ClaimFillerRepository.getClaimAtIndex({
           context: ctx.ponderContext,
           chainId,
-          contractAddress: untronV3Address,
+          contractAddress: untronV3AddressDb,
           targetToken: queue.targetToken,
           claimIndex: nextIndex,
         });
@@ -146,7 +147,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
       const claims = yield* ClaimFillerRepository.getClaimsFromIndex({
         context: ctx.ponderContext,
         chainId,
-        contractAddress: untronV3Address,
+        contractAddress: untronV3AddressDb,
         targetToken: queue.targetToken,
         startIndex: queue.nextIndex,
         limit: maxClaims,
@@ -155,7 +156,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
       const bridgerRoutes = yield* ClaimFillerRepository.getBridgerRoutesForToken({
         context: ctx.ponderContext,
         chainId,
-        contractAddress: untronV3Address,
+        contractAddress: untronV3AddressDb,
         targetToken: queue.targetToken,
       }).pipe(Effect.map((rows) => new Map(rows.map((r) => [r.targetChainId, r.bridger]))));
 
@@ -165,7 +166,7 @@ export const buildMainnetFillCalls = (ctx: RelayJobHandlerContext) =>
         : yield* ClaimFillerRepository.getSwapRatePpm({
             context: ctx.ponderContext,
             chainId,
-            contractAddress: untronV3Address,
+            contractAddress: untronV3AddressDb,
             targetToken: queue.targetToken,
           });
 
