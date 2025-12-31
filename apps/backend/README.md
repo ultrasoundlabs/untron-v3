@@ -11,6 +11,33 @@ nano .env.local # configure whatever you need to configure
 pnpm run start
 ```
 
+## GraphQL scratchpad queries
+
+With `pnpm dev` running (Ponder HTTP API exposes `/graphql`), you can run a small demo script:
+
+```
+pnpm graphql:demo
+```
+
+## SQL scratchpad queries
+
+With `pnpm dev` running (Ponder HTTP API exposes `/sql/db`), you can run a small SQL demo script:
+
+```
+pnpm sql:demo
+```
+
+See `apps/backend/SQL.md` for frontend-oriented notes and query examples.
+
+Optional env vars (in your shell, or put them in `apps/backend/.env.local`):
+
+- `PONDER_GRAPHQL_URL` (default `http://localhost:42069/graphql`)
+- `PONDER_SQL_URL` (default `http://localhost:42069/sql/db`)
+- `DEMO_LESSEE`, `DEMO_BENEFICIARY`, `DEMO_LEASE_ID`
+- `DEMO_TARGET_TOKEN`, `DEMO_CLAIM_INDEX`, `DEMO_CLAIM_ID`, `DEMO_CLAIM_LEASE_ID`
+- `DEMO_CLAIM_STATUS` (`pending` or `filled`, default `pending`)
+- `DEMO_REALTOR`
+
 ## Important
 
 This app is the monolithic service you run to operate Untron V3. It includes both the onchain event indexer (Ponder) and the relayer logic.

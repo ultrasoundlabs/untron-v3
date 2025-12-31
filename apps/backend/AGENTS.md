@@ -21,6 +21,7 @@ Whenever you start a task inside apps/backend, you must read this file and follo
 - `pnpm typecheck` → `tsc`
 - `pnpm codegen` → `ponder codegen` (generates `ponder-env.d.ts`)
 - `pnpm db` → `ponder db …` (management commands like `list`, `prune`, `create-views`)
+- If you get stuck on a local PGlite migration (e.g. “relation already exists” after a failed migration), wipe local state with `rm -rf apps/backend/.ponder` and restart `pnpm dev`.
 
 Ponder manages the database for you. If you don’t point `DATABASE_URL` at an external Postgres, it will use its default local DB and store state under `apps/backend/.ponder/`.
 
@@ -487,11 +488,16 @@ If you start the app with `ponder start`:
 2. For each event on `UntronV3` / `TronLightClient` / `UntronController`:
    - `apps/backend/src/eventChainIndexer.ts` stores it into `event_chain_event` and updates `event_chain_state`.
    - For `UntronV3` events, `apps/backend/src/index.ts` wires `apps/backend/src/untronV3DerivedIndexer.ts` in as an `afterEvent` hook to maintain UntronV3-derived state tables like:
+     - `untron_v3_lease`
+     - `untron_v3_lease_nonce`
      - `untron_v3_lease_payout_config`
+     - `untron_v3_realtor`
+     - `untron_v3_protocol_lease_rate_limit`
+     - `untron_v3_lessee_payout_config_rate_limit`
      - `untron_v3_swap_rate`
      - `untron_v3_bridger_route`
      - `untron_v3_claim_queue`
-     - `untron_v3_claim`
+     - `untron_v3_claim` (including filled status fields)
    - For `TronLightClient` events, `apps/backend/src/index.ts` handles a small `afterEvent` hook inline to maintain:
      - `tron_light_client_checkpoint` (observability: which Tron blocks have stored txTrieRoots on mainnet)
    - For `UntronController:IsEventChainTipCalled`, `apps/backend/src/index.ts` handles a small `afterEvent` hook inline to:

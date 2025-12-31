@@ -10,7 +10,7 @@
     "fmt:sol": "pnpm --filter @untron/v3-contracts fmt:sol",
     "fmt:ts": "prettier -c '**/*.{ts,tsx,js,jsx}'",
     "format:sol": "pnpm --filter @untron/v3-contracts format:sol",
-    "format:ts": "prettier --write '**/*.{ts,tsx,js,jsx}'",
+    "format:ts": "prettier --write '**/*.{ts,tsx,js,jsx,mjs}'",
     "format": "run-s format:*",
     "test:ci": "pnpm --filter @untron/v3-contracts test:ci",
     "build:prod": "pnpm --filter @untron/v3-contracts build:prod",

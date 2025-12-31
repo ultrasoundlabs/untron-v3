@@ -51,3 +51,8 @@ export function expectBigint(value: unknown, label: string): bigint {
   }
   throw new Error(`Invalid ${label} (expected bigint-compatible value)`);
 }
+
+export function expectBoolean(value: unknown, label: string): boolean {
+  if (typeof value === "boolean") return value;
+  throw new Error(`Invalid ${label} (expected boolean)`);
+}

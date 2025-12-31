@@ -1,4 +1,4 @@
-import { desc, eq, index, onchainEnum, onchainTable, onchainView } from "ponder";
+import { and, desc, eq, index, onchainEnum, onchainTable, onchainView, sql } from "ponder";
 
 export const eventChainState = onchainTable(
   "event_chain_state",
@@ -335,6 +335,118 @@ export const untronV3LeasePayoutConfig = onchainTable(
   }),
   (table) => ({
     contractLeaseIdx: index().on(table.chainId, table.contractAddress, table.leaseId),
+    contractBeneficiaryIdx: index().on(table.chainId, table.contractAddress, table.beneficiary),
+    contractTargetTokenIdx: index().on(table.chainId, table.contractAddress, table.targetToken),
+    contractTargetChainIdx: index().on(table.chainId, table.contractAddress, table.targetChainId),
+  })
+);
+
+export const untronV3Lease = onchainTable(
+  "untron_v3_lease",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${leaseId}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    leaseId: t.bigint().notNull(),
+    receiverSalt: t.hex().notNull(), // bytes32
+    realtor: t.hex().notNull(),
+    lessee: t.hex().notNull(),
+    startTime: t.bigint().notNull(), // uint64
+    nukeableAfter: t.bigint().notNull(), // uint64
+    leaseFeePpm: t.bigint().notNull(), // uint32
+    flatFee: t.bigint().notNull(), // uint64
+    createdAtBlockNumber: t.bigint().notNull(),
+    createdAtBlockTimestamp: t.bigint().notNull(),
+    createdAtTransactionHash: t.hex().notNull(),
+    createdAtLogIndex: t.integer().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractLeaseIdx: index().on(table.chainId, table.contractAddress, table.leaseId),
+    contractReceiverSaltIdx: index().on(table.chainId, table.contractAddress, table.receiverSalt),
+    contractRealtorIdx: index().on(table.chainId, table.contractAddress, table.realtor),
+    contractLesseeIdx: index().on(table.chainId, table.contractAddress, table.lessee),
+    contractNukeableAfterIdx: index().on(table.chainId, table.contractAddress, table.nukeableAfter),
+  })
+);
+
+export const untronV3LeaseNonce = onchainTable(
+  "untron_v3_lease_nonce",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${leaseId}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    leaseId: t.bigint().notNull(),
+    nonce: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractLeaseIdx: index().on(table.chainId, table.contractAddress, table.leaseId),
+  })
+);
+
+export const untronV3ProtocolLeaseRateLimit = onchainTable(
+  "untron_v3_protocol_lease_rate_limit",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    maxLeases: t.bigint().notNull(),
+    windowSeconds: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+export const untronV3LesseePayoutConfigRateLimit = onchainTable(
+  "untron_v3_lessee_payout_config_rate_limit",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    maxUpdates: t.bigint().notNull(),
+    windowSeconds: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+export const untronV3Realtor = onchainTable(
+  "untron_v3_realtor",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${realtor}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    realtor: t.hex().notNull(),
+    allowed: t.boolean().notNull(),
+    minFeePpm: t.bigint().notNull(),
+    leaseRateLimitMode: t.integer().notNull(), // uint8 enum in contract
+    leaseRateLimitMaxLeases: t.bigint().notNull(),
+    leaseRateLimitWindowSeconds: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractRealtorIdx: index().on(table.chainId, table.contractAddress, table.realtor),
+    contractAllowedIdx: index().on(table.chainId, table.contractAddress, table.allowed),
   })
 );
 
@@ -426,6 +538,11 @@ export const untronV3Claim = onchainTable(
     createdAtBlockTimestamp: t.bigint().notNull(),
     createdAtTransactionHash: t.hex().notNull(),
     createdAtLogIndex: t.integer().notNull(),
+    isFilled: t.boolean(),
+    filledAtBlockNumber: t.bigint(),
+    filledAtBlockTimestamp: t.bigint(),
+    filledAtTransactionHash: t.hex(),
+    filledAtLogIndex: t.integer(),
   }),
   (table) => ({
     contractTokenClaimIdx: index().on(
@@ -435,6 +552,7 @@ export const untronV3Claim = onchainTable(
       table.claimIndex
     ),
     contractLeaseIdx: index().on(table.chainId, table.contractAddress, table.leaseId),
+    contractFilledIdx: index().on(table.chainId, table.contractAddress, table.isFilled),
   })
 );
 
@@ -460,6 +578,239 @@ export const untronV3BridgerRoute = onchainTable(
       table.targetChainId
     ),
   })
+);
+
+export const untronV3LeaseFull = onchainView("untron_v3_lease_full").as((qb) =>
+  qb
+    .select({
+      id: untronV3Lease.id,
+      chainId: untronV3Lease.chainId,
+      contractAddress: untronV3Lease.contractAddress,
+      leaseId: untronV3Lease.leaseId,
+      receiverSalt: untronV3Lease.receiverSalt,
+      realtor: untronV3Lease.realtor,
+      lessee: untronV3Lease.lessee,
+      startTime: untronV3Lease.startTime,
+      nukeableAfter: untronV3Lease.nukeableAfter,
+      leaseFeePpm: untronV3Lease.leaseFeePpm,
+      flatFee: untronV3Lease.flatFee,
+      leaseNonce: untronV3LeaseNonce.nonce,
+      payoutTargetChainId: untronV3LeasePayoutConfig.targetChainId,
+      payoutTargetToken: untronV3LeasePayoutConfig.targetToken,
+      payoutBeneficiary: untronV3LeasePayoutConfig.beneficiary,
+      realtorAllowed: untronV3Realtor.allowed,
+      realtorMinFeePpm: untronV3Realtor.minFeePpm,
+      realtorLeaseRateLimitMode: untronV3Realtor.leaseRateLimitMode,
+      realtorLeaseRateLimitMaxLeases: untronV3Realtor.leaseRateLimitMaxLeases,
+      realtorLeaseRateLimitWindowSeconds: untronV3Realtor.leaseRateLimitWindowSeconds,
+      protocolLeaseRateLimitMaxLeases: untronV3ProtocolLeaseRateLimit.maxLeases,
+      protocolLeaseRateLimitWindowSeconds:
+        sql<bigint>`${untronV3ProtocolLeaseRateLimit.windowSeconds}`.as(
+          "protocol_lease_rate_limit_window_seconds"
+        ),
+      lesseePayoutConfigRateLimitMaxUpdates: untronV3LesseePayoutConfigRateLimit.maxUpdates,
+      lesseePayoutConfigRateLimitWindowSeconds:
+        sql<bigint>`${untronV3LesseePayoutConfigRateLimit.windowSeconds}`.as(
+          "lessee_payout_config_rate_limit_window_seconds"
+        ),
+      isNukeableYet:
+        sql<boolean>`(${untronV3Lease.nukeableAfter} <= (EXTRACT(EPOCH FROM NOW())::bigint))`.as(
+          "is_nukeable_yet"
+        ),
+      isActive:
+        sql<boolean>`(${untronV3Lease.nukeableAfter} > (EXTRACT(EPOCH FROM NOW())::bigint))`.as(
+          "is_active"
+        ),
+      createdAtBlockNumber: untronV3Lease.createdAtBlockNumber,
+      createdAtBlockTimestamp: untronV3Lease.createdAtBlockTimestamp,
+      createdAtTransactionHash: untronV3Lease.createdAtTransactionHash,
+      createdAtLogIndex: untronV3Lease.createdAtLogIndex,
+      updatedAtBlockNumber: untronV3Lease.updatedAtBlockNumber,
+      updatedAtBlockTimestamp: untronV3Lease.updatedAtBlockTimestamp,
+      updatedAtTransactionHash: untronV3Lease.updatedAtTransactionHash,
+      updatedAtLogIndex: untronV3Lease.updatedAtLogIndex,
+    })
+    .from(untronV3Lease)
+    .leftJoin(
+      untronV3LeaseNonce,
+      and(
+        eq(untronV3LeaseNonce.chainId, untronV3Lease.chainId),
+        eq(untronV3LeaseNonce.contractAddress, untronV3Lease.contractAddress),
+        eq(untronV3LeaseNonce.leaseId, untronV3Lease.leaseId)
+      )
+    )
+    .leftJoin(
+      untronV3LeasePayoutConfig,
+      and(
+        eq(untronV3LeasePayoutConfig.chainId, untronV3Lease.chainId),
+        eq(untronV3LeasePayoutConfig.contractAddress, untronV3Lease.contractAddress),
+        eq(untronV3LeasePayoutConfig.leaseId, untronV3Lease.leaseId)
+      )
+    )
+    .leftJoin(
+      untronV3Realtor,
+      and(
+        eq(untronV3Realtor.chainId, untronV3Lease.chainId),
+        eq(untronV3Realtor.contractAddress, untronV3Lease.contractAddress),
+        eq(untronV3Realtor.realtor, untronV3Lease.realtor)
+      )
+    )
+    .leftJoin(
+      untronV3ProtocolLeaseRateLimit,
+      and(
+        eq(untronV3ProtocolLeaseRateLimit.chainId, untronV3Lease.chainId),
+        eq(untronV3ProtocolLeaseRateLimit.contractAddress, untronV3Lease.contractAddress)
+      )
+    )
+    .leftJoin(
+      untronV3LesseePayoutConfigRateLimit,
+      and(
+        eq(untronV3LesseePayoutConfigRateLimit.chainId, untronV3Lease.chainId),
+        eq(untronV3LesseePayoutConfigRateLimit.contractAddress, untronV3Lease.contractAddress)
+      )
+    )
+);
+
+export const untronV3ClaimFull = onchainView("untron_v3_claim_full").as((qb) =>
+  qb
+    .select({
+      id: untronV3Claim.id,
+      chainId: untronV3Claim.chainId,
+      contractAddress: untronV3Claim.contractAddress,
+      targetToken: untronV3Claim.targetToken,
+      claimIndex: untronV3Claim.claimIndex,
+      claimQueueId:
+        sql<string>`concat(${untronV3Claim.targetToken}, ':', ${untronV3Claim.claimIndex})`.as(
+          "claim_queue_id"
+        ),
+      leaseId: untronV3Claim.leaseId,
+      amountUsdt: untronV3Claim.amountUsdt,
+      targetChainId: untronV3Claim.targetChainId,
+      beneficiary: untronV3Claim.beneficiary,
+      status:
+        sql<string>`(CASE WHEN ${untronV3Claim.isFilled} THEN 'filled' ELSE 'pending' END)`.as(
+          "status"
+        ),
+      isFilled: untronV3Claim.isFilled,
+      createdAtBlockNumber: untronV3Claim.createdAtBlockNumber,
+      createdAtBlockTimestamp: untronV3Claim.createdAtBlockTimestamp,
+      createdAtTransactionHash: untronV3Claim.createdAtTransactionHash,
+      createdAtLogIndex: untronV3Claim.createdAtLogIndex,
+      filledAtBlockNumber: untronV3Claim.filledAtBlockNumber,
+      filledAtBlockTimestamp: untronV3Claim.filledAtBlockTimestamp,
+      filledAtTransactionHash: untronV3Claim.filledAtTransactionHash,
+      filledAtLogIndex: untronV3Claim.filledAtLogIndex,
+      leaseReceiverSalt: untronV3Lease.receiverSalt,
+      leaseRealtor: untronV3Lease.realtor,
+      leaseLessee: untronV3Lease.lessee,
+      leaseStartTime: untronV3Lease.startTime,
+      leaseNukeableAfter: untronV3Lease.nukeableAfter,
+      leaseIsActive:
+        sql<boolean>`(${untronV3Lease.nukeableAfter} > (EXTRACT(EPOCH FROM NOW())::bigint))`.as(
+          "lease_is_active"
+        ),
+      swapRatePpm: untronV3SwapRate.ratePpm,
+      bridger: untronV3BridgerRoute.bridger,
+      realtorAllowed: untronV3Realtor.allowed,
+      realtorMinFeePpm: untronV3Realtor.minFeePpm,
+      realtorLeaseRateLimitMode: untronV3Realtor.leaseRateLimitMode,
+      realtorLeaseRateLimitMaxLeases: untronV3Realtor.leaseRateLimitMaxLeases,
+      realtorLeaseRateLimitWindowSeconds: untronV3Realtor.leaseRateLimitWindowSeconds,
+      protocolLeaseRateLimitMaxLeases: untronV3ProtocolLeaseRateLimit.maxLeases,
+      protocolLeaseRateLimitWindowSeconds: untronV3ProtocolLeaseRateLimit.windowSeconds,
+    })
+    .from(untronV3Claim)
+    .leftJoin(
+      untronV3Lease,
+      and(
+        eq(untronV3Lease.chainId, untronV3Claim.chainId),
+        eq(untronV3Lease.contractAddress, untronV3Claim.contractAddress),
+        eq(untronV3Lease.leaseId, untronV3Claim.leaseId)
+      )
+    )
+    .leftJoin(
+      untronV3SwapRate,
+      and(
+        eq(untronV3SwapRate.chainId, untronV3Claim.chainId),
+        eq(untronV3SwapRate.contractAddress, untronV3Claim.contractAddress),
+        eq(untronV3SwapRate.targetToken, untronV3Claim.targetToken)
+      )
+    )
+    .leftJoin(
+      untronV3BridgerRoute,
+      and(
+        eq(untronV3BridgerRoute.chainId, untronV3Claim.chainId),
+        eq(untronV3BridgerRoute.contractAddress, untronV3Claim.contractAddress),
+        eq(untronV3BridgerRoute.targetToken, untronV3Claim.targetToken),
+        eq(untronV3BridgerRoute.targetChainId, untronV3Claim.targetChainId)
+      )
+    )
+    .leftJoin(
+      untronV3Realtor,
+      and(
+        eq(untronV3Realtor.chainId, untronV3Lease.chainId),
+        eq(untronV3Realtor.contractAddress, untronV3Lease.contractAddress),
+        eq(untronV3Realtor.realtor, untronV3Lease.realtor)
+      )
+    )
+    .leftJoin(
+      untronV3ProtocolLeaseRateLimit,
+      and(
+        eq(untronV3ProtocolLeaseRateLimit.chainId, untronV3Claim.chainId),
+        eq(untronV3ProtocolLeaseRateLimit.contractAddress, untronV3Claim.contractAddress)
+      )
+    )
+);
+
+export const untronV3RealtorLeaseStats = onchainView("untron_v3_realtor_lease_stats").as((qb) =>
+  qb
+    .select({
+      chainId: untronV3Lease.chainId,
+      contractAddress: untronV3Lease.contractAddress,
+      realtor: untronV3Lease.realtor,
+      totalLeases: sql<bigint>`count(*)::bigint`.as("total_leases"),
+      activeLeases:
+        sql<bigint>`count(*) FILTER (WHERE ${untronV3Lease.nukeableAfter} > (EXTRACT(EPOCH FROM NOW())::bigint))::bigint`.as(
+          "active_leases"
+        ),
+      nukeableLeases:
+        sql<bigint>`count(*) FILTER (WHERE ${untronV3Lease.nukeableAfter} <= (EXTRACT(EPOCH FROM NOW())::bigint))::bigint`.as(
+          "nukeable_leases"
+        ),
+    })
+    .from(untronV3Lease)
+    .groupBy(untronV3Lease.chainId, untronV3Lease.contractAddress, untronV3Lease.realtor)
+);
+
+export const untronV3RealtorFull = onchainView("untron_v3_realtor_full").as((qb) =>
+  qb
+    .select({
+      id: untronV3Realtor.id,
+      chainId: untronV3Realtor.chainId,
+      contractAddress: untronV3Realtor.contractAddress,
+      realtor: untronV3Realtor.realtor,
+      allowed: untronV3Realtor.allowed,
+      minFeePpm: untronV3Realtor.minFeePpm,
+      leaseRateLimitMode: untronV3Realtor.leaseRateLimitMode,
+      leaseRateLimitMaxLeases: untronV3Realtor.leaseRateLimitMaxLeases,
+      leaseRateLimitWindowSeconds: untronV3Realtor.leaseRateLimitWindowSeconds,
+      totalLeases: untronV3RealtorLeaseStats.totalLeases,
+      activeLeases: untronV3RealtorLeaseStats.activeLeases,
+      nukeableLeases: untronV3RealtorLeaseStats.nukeableLeases,
+      updatedAtBlockNumber: untronV3Realtor.updatedAtBlockNumber,
+      updatedAtBlockTimestamp: untronV3Realtor.updatedAtBlockTimestamp,
+      updatedAtTransactionHash: untronV3Realtor.updatedAtTransactionHash,
+      updatedAtLogIndex: untronV3Realtor.updatedAtLogIndex,
+    })
+    .from(untronV3Realtor)
+    .leftJoin(
+      untronV3RealtorLeaseStats,
+      and(
+        eq(untronV3RealtorLeaseStats.chainId, untronV3Realtor.chainId),
+        eq(untronV3RealtorLeaseStats.contractAddress, untronV3Realtor.contractAddress),
+        eq(untronV3RealtorLeaseStats.realtor, untronV3Realtor.realtor)
+      )
+    )
 );
 
 export const relayerStatus = onchainTable("relayer_status", (t) => ({

@@ -8,26 +8,50 @@ import {
   untronV3ClaimQueue,
   untronV3DepositPreEntitled,
   untronV3LastReceiverPull,
+  untronV3Lease,
+  untronV3LeaseNonce,
   untronV3LeasePayoutConfig,
+  untronV3LesseePayoutConfigRateLimit,
+  untronV3ProtocolLeaseRateLimit,
+  untronV3Realtor,
   untronV3SwapRate,
   untronV3TronUsdt,
 } from "ponder:schema";
 import { decodeAbiParameters, keccak256, stringToHex, type Hex } from "viem";
 
 import { tryPromise } from "./effect/tryPromise";
-import { expectBigint, expectHex, expectHexAddress, expectRecord, getArgValue } from "./parse";
+import {
+  expectBigint,
+  expectBoolean,
+  expectHex,
+  expectHexAddress,
+  expectRecord,
+  getArgValue,
+} from "./parse";
 
 type PonderLogEvent = Extract<PonderEvent, { log: unknown }>;
 
 type UntronV3DerivedEventName =
+  | "LeaseCreated"
+  | "LeaseNonceUpdated"
   | "PayoutConfigUpdated"
+  | "LesseePayoutConfigRateLimitSet"
   | "SwapRateSet"
   | "ClaimCreated"
+  | "ClaimFilled"
   | "BridgerSet"
   | "DepositPreEntitled"
   | "TronUsdtSet"
+  | "ProtocolLeaseRateLimitSet"
+  | "RealtorLeaseRateLimitSet"
+  | "RealtorMinFeeSet"
+  | "RealtorSet"
   | "ControllerEventChainTipUpdated"
   | "ControllerEventProcessed";
+
+function makeLeaseId(args: { chainId: number; contractAddress: string; leaseId: bigint }): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}:${args.leaseId.toString()}`;
+}
 
 function makeLeaseConfigId(args: {
   chainId: number;
@@ -79,6 +103,18 @@ function makeTronUsdtId(args: { chainId: number; contractAddress: string }): str
   return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
 }
 
+function makeRealtorId(args: {
+  chainId: number;
+  contractAddress: string;
+  realtor: string;
+}): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}:${args.realtor.toLowerCase()}`;
+}
+
+function makeSingletonConfigId(args: { chainId: number; contractAddress: string }): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
+}
+
 function makeLastReceiverPullId(args: {
   chainId: number;
   contractAddress: string;
@@ -91,6 +127,119 @@ function makeLastReceiverPullId(args: {
 const EVENT_SIG_PULLED_FROM_RECEIVER = keccak256(
   stringToHex("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)")
 ) as Hex;
+
+const handleLeaseCreated = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const leaseId = expectBigint(getArgValue(parsedArgs, 0, "leaseId"), "LeaseCreated.leaseId");
+    const receiverSalt = expectHex(
+      getArgValue(parsedArgs, 1, "receiverSalt"),
+      "LeaseCreated.receiverSalt"
+    );
+    const realtor = expectHexAddress(getArgValue(parsedArgs, 2, "realtor"), "LeaseCreated.realtor");
+    const lessee = expectHexAddress(getArgValue(parsedArgs, 3, "lessee"), "LeaseCreated.lessee");
+    const startTime = expectBigint(
+      getArgValue(parsedArgs, 4, "startTime"),
+      "LeaseCreated.startTime"
+    );
+    const nukeableAfter = expectBigint(
+      getArgValue(parsedArgs, 5, "nukeableAfter"),
+      "LeaseCreated.nukeableAfter"
+    );
+    const leaseFeePpm = expectBigint(
+      getArgValue(parsedArgs, 6, "leaseFeePpm"),
+      "LeaseCreated.leaseFeePpm"
+    );
+    const flatFee = expectBigint(getArgValue(parsedArgs, 7, "flatFee"), "LeaseCreated.flatFee");
+
+    const id = makeLeaseId({ chainId, contractAddress, leaseId });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3Lease)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          leaseId,
+          receiverSalt,
+          realtor,
+          lessee,
+          startTime,
+          nukeableAfter,
+          leaseFeePpm,
+          flatFee,
+          createdAtBlockNumber: event.block.number,
+          createdAtBlockTimestamp: event.block.timestamp,
+          createdAtTransactionHash: event.transaction.hash,
+          createdAtLogIndex: event.log.logIndex,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          receiverSalt,
+          realtor,
+          lessee,
+          startTime,
+          nukeableAfter,
+          leaseFeePpm,
+          flatFee,
+          createdAtBlockNumber: event.block.number,
+          createdAtBlockTimestamp: event.block.timestamp,
+          createdAtTransactionHash: event.transaction.hash,
+          createdAtLogIndex: event.log.logIndex,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleLeaseNonceUpdated = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const leaseId = expectBigint(
+      getArgValue(parsedArgs, 0, "leaseId"),
+      "LeaseNonceUpdated.leaseId"
+    );
+    const nonce = expectBigint(getArgValue(parsedArgs, 1, "nonce"), "LeaseNonceUpdated.nonce");
+
+    const id = makeLeaseId({ chainId, contractAddress, leaseId });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3LeaseNonce)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          leaseId,
+          nonce,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          nonce,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
 
 const handlePayoutConfigUpdated = (args: { event: PonderLogEvent; context: PonderContext }) =>
   Effect.gen(function* () {
@@ -278,6 +427,11 @@ const handleClaimCreated = (args: { event: PonderLogEvent; context: PonderContex
           createdAtBlockTimestamp: event.block.timestamp,
           createdAtTransactionHash: event.transaction.hash,
           createdAtLogIndex: event.log.logIndex,
+          isFilled: false,
+          filledAtBlockNumber: null,
+          filledAtBlockTimestamp: null,
+          filledAtTransactionHash: null,
+          filledAtLogIndex: null,
         })
         .onConflictDoNothing()
     );
@@ -312,6 +466,72 @@ const handleClaimCreated = (args: { event: PonderLogEvent; context: PonderContex
           updatedAtBlockTimestamp: event.block.timestamp,
           updatedAtTransactionHash: event.transaction.hash,
           updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleClaimFilled = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const claimIndex = expectBigint(
+      getArgValue(parsedArgs, 0, "claimIndex"),
+      "ClaimFilled.claimIndex"
+    );
+    const leaseId = expectBigint(getArgValue(parsedArgs, 1, "leaseId"), "ClaimFilled.leaseId");
+    const amountUsdt = expectBigint(
+      getArgValue(parsedArgs, 2, "amountUsdt"),
+      "ClaimFilled.amountUsdt"
+    );
+
+    const leaseConfigId = makeLeaseConfigId({ chainId, contractAddress, leaseId });
+    const leaseConfig = yield* tryPromise(() =>
+      context.db.find(untronV3LeasePayoutConfig, { id: leaseConfigId })
+    );
+    if (!leaseConfig) {
+      return yield* Effect.fail(
+        new Error(`Missing lease payout config for leaseId=${leaseId.toString()}`)
+      );
+    }
+
+    const targetToken = expectHexAddress(leaseConfig.targetToken, "leaseConfig.targetToken");
+    const targetChainId = expectBigint(leaseConfig.targetChainId, "leaseConfig.targetChainId");
+    const beneficiary = expectHexAddress(leaseConfig.beneficiary, "leaseConfig.beneficiary");
+
+    const claimId = makeClaimId({ chainId, contractAddress, targetToken, claimIndex });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3Claim)
+        .values({
+          id: claimId,
+          chainId,
+          contractAddress,
+          targetToken,
+          claimIndex,
+          leaseId,
+          amountUsdt,
+          targetChainId,
+          beneficiary,
+          createdAtBlockNumber: event.block.number,
+          createdAtBlockTimestamp: event.block.timestamp,
+          createdAtTransactionHash: event.transaction.hash,
+          createdAtLogIndex: event.log.logIndex,
+          isFilled: true,
+          filledAtBlockNumber: event.block.number,
+          filledAtBlockTimestamp: event.block.timestamp,
+          filledAtTransactionHash: event.transaction.hash,
+          filledAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          isFilled: true,
+          filledAtBlockNumber: event.block.number,
+          filledAtBlockTimestamp: event.block.timestamp,
+          filledAtTransactionHash: event.transaction.hash,
+          filledAtLogIndex: event.log.logIndex,
         })
     );
   });
@@ -570,24 +790,322 @@ const handleControllerEventProcessed = (args: { event: PonderLogEvent; context: 
     );
   });
 
+const DEFAULT_REALTOR_ROW = {
+  allowed: false,
+  minFeePpm: 0n,
+  leaseRateLimitMode: 0,
+  leaseRateLimitMaxLeases: 0n,
+  leaseRateLimitWindowSeconds: 0n,
+} as const;
+
+const handleRealtorSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const realtor = expectHexAddress(getArgValue(parsedArgs, 0, "realtor"), "RealtorSet.realtor");
+    const allowed = expectBoolean(getArgValue(parsedArgs, 1, "allowed"), "RealtorSet.allowed");
+
+    const id = makeRealtorId({ chainId, contractAddress, realtor });
+    const existing = yield* tryPromise(() => context.db.find(untronV3Realtor, { id }));
+
+    const previous = existing
+      ? {
+          allowed: expectBoolean(existing.allowed, "realtor.allowed"),
+          minFeePpm: expectBigint(existing.minFeePpm, "realtor.minFeePpm"),
+          leaseRateLimitMode: Number(existing.leaseRateLimitMode),
+          leaseRateLimitMaxLeases: expectBigint(
+            existing.leaseRateLimitMaxLeases,
+            "realtor.leaseRateLimitMaxLeases"
+          ),
+          leaseRateLimitWindowSeconds: expectBigint(
+            existing.leaseRateLimitWindowSeconds,
+            "realtor.leaseRateLimitWindowSeconds"
+          ),
+        }
+      : DEFAULT_REALTOR_ROW;
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3Realtor)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          realtor,
+          allowed,
+          minFeePpm: previous.minFeePpm,
+          leaseRateLimitMode: previous.leaseRateLimitMode,
+          leaseRateLimitMaxLeases: previous.leaseRateLimitMaxLeases,
+          leaseRateLimitWindowSeconds: previous.leaseRateLimitWindowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          allowed,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleRealtorMinFeeSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const realtor = expectHexAddress(
+      getArgValue(parsedArgs, 0, "realtor"),
+      "RealtorMinFeeSet.realtor"
+    );
+    const minFeePpm = expectBigint(
+      getArgValue(parsedArgs, 1, "minFeePpm"),
+      "RealtorMinFeeSet.minFeePpm"
+    );
+
+    const id = makeRealtorId({ chainId, contractAddress, realtor });
+    const existing = yield* tryPromise(() => context.db.find(untronV3Realtor, { id }));
+
+    const previous = existing
+      ? {
+          allowed: expectBoolean(existing.allowed, "realtor.allowed"),
+          leaseRateLimitMode: Number(existing.leaseRateLimitMode),
+          leaseRateLimitMaxLeases: expectBigint(
+            existing.leaseRateLimitMaxLeases,
+            "realtor.leaseRateLimitMaxLeases"
+          ),
+          leaseRateLimitWindowSeconds: expectBigint(
+            existing.leaseRateLimitWindowSeconds,
+            "realtor.leaseRateLimitWindowSeconds"
+          ),
+        }
+      : {
+          allowed: DEFAULT_REALTOR_ROW.allowed,
+          leaseRateLimitMode: DEFAULT_REALTOR_ROW.leaseRateLimitMode,
+          leaseRateLimitMaxLeases: DEFAULT_REALTOR_ROW.leaseRateLimitMaxLeases,
+          leaseRateLimitWindowSeconds: DEFAULT_REALTOR_ROW.leaseRateLimitWindowSeconds,
+        };
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3Realtor)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          realtor,
+          allowed: previous.allowed,
+          minFeePpm,
+          leaseRateLimitMode: previous.leaseRateLimitMode,
+          leaseRateLimitMaxLeases: previous.leaseRateLimitMaxLeases,
+          leaseRateLimitWindowSeconds: previous.leaseRateLimitWindowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          minFeePpm,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleRealtorLeaseRateLimitSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const realtor = expectHexAddress(
+      getArgValue(parsedArgs, 0, "realtor"),
+      "RealtorLeaseRateLimitSet.realtor"
+    );
+    const mode = expectBigint(getArgValue(parsedArgs, 1, "mode"), "RealtorLeaseRateLimitSet.mode");
+    const maxLeases = expectBigint(
+      getArgValue(parsedArgs, 2, "maxLeases"),
+      "RealtorLeaseRateLimitSet.maxLeases"
+    );
+    const windowSeconds = expectBigint(
+      getArgValue(parsedArgs, 3, "windowSeconds"),
+      "RealtorLeaseRateLimitSet.windowSeconds"
+    );
+
+    const id = makeRealtorId({ chainId, contractAddress, realtor });
+    const existing = yield* tryPromise(() => context.db.find(untronV3Realtor, { id }));
+
+    const previous = existing
+      ? {
+          allowed: expectBoolean(existing.allowed, "realtor.allowed"),
+          minFeePpm: expectBigint(existing.minFeePpm, "realtor.minFeePpm"),
+        }
+      : { allowed: DEFAULT_REALTOR_ROW.allowed, minFeePpm: DEFAULT_REALTOR_ROW.minFeePpm };
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3Realtor)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          realtor,
+          allowed: previous.allowed,
+          minFeePpm: previous.minFeePpm,
+          leaseRateLimitMode: Number(mode),
+          leaseRateLimitMaxLeases: maxLeases,
+          leaseRateLimitWindowSeconds: windowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          leaseRateLimitMode: Number(mode),
+          leaseRateLimitMaxLeases: maxLeases,
+          leaseRateLimitWindowSeconds: windowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleProtocolLeaseRateLimitSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const maxLeases = expectBigint(
+      getArgValue(parsedArgs, 0, "maxLeases"),
+      "ProtocolLeaseRateLimitSet.maxLeases"
+    );
+    const windowSeconds = expectBigint(
+      getArgValue(parsedArgs, 1, "windowSeconds"),
+      "ProtocolLeaseRateLimitSet.windowSeconds"
+    );
+
+    const id = makeSingletonConfigId({ chainId, contractAddress });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3ProtocolLeaseRateLimit)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          maxLeases,
+          windowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          maxLeases,
+          windowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleLesseePayoutConfigRateLimitSet = (args: {
+  event: PonderLogEvent;
+  context: PonderContext;
+}) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const maxUpdates = expectBigint(
+      getArgValue(parsedArgs, 0, "maxUpdates"),
+      "LesseePayoutConfigRateLimitSet.maxUpdates"
+    );
+    const windowSeconds = expectBigint(
+      getArgValue(parsedArgs, 1, "windowSeconds"),
+      "LesseePayoutConfigRateLimitSet.windowSeconds"
+    );
+
+    const id = makeSingletonConfigId({ chainId, contractAddress });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3LesseePayoutConfigRateLimit)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          maxUpdates,
+          windowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          maxUpdates,
+          windowSeconds,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
 export const handleUntronV3DerivedEvent = (args: {
   eventName: UntronV3DerivedEventName | (string & {});
   event: PonderLogEvent;
   context: PonderContext;
 }): Effect.Effect<void, Error> => {
   switch (args.eventName) {
+    case "LeaseCreated":
+      return handleLeaseCreated({ event: args.event, context: args.context });
+    case "LeaseNonceUpdated":
+      return handleLeaseNonceUpdated({ event: args.event, context: args.context });
     case "PayoutConfigUpdated":
       return handlePayoutConfigUpdated({ event: args.event, context: args.context });
+    case "LesseePayoutConfigRateLimitSet":
+      return handleLesseePayoutConfigRateLimitSet({ event: args.event, context: args.context });
     case "SwapRateSet":
       return handleSwapRateSet({ event: args.event, context: args.context });
     case "BridgerSet":
       return handleBridgerSet({ event: args.event, context: args.context });
     case "ClaimCreated":
       return handleClaimCreated({ event: args.event, context: args.context });
+    case "ClaimFilled":
+      return handleClaimFilled({ event: args.event, context: args.context });
     case "DepositPreEntitled":
       return handleDepositPreEntitled({ event: args.event, context: args.context });
     case "TronUsdtSet":
       return handleTronUsdtSet({ event: args.event, context: args.context });
+    case "ProtocolLeaseRateLimitSet":
+      return handleProtocolLeaseRateLimitSet({ event: args.event, context: args.context });
+    case "RealtorLeaseRateLimitSet":
+      return handleRealtorLeaseRateLimitSet({ event: args.event, context: args.context });
+    case "RealtorMinFeeSet":
+      return handleRealtorMinFeeSet({ event: args.event, context: args.context });
+    case "RealtorSet":
+      return handleRealtorSet({ event: args.event, context: args.context });
     case "ControllerEventChainTipUpdated":
       return handleControllerEventChainTipUpdated({ event: args.event, context: args.context });
     case "ControllerEventProcessed":
