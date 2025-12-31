@@ -10,10 +10,13 @@ This service exposes:
 
 ## Conventions
 
-- Addresses are EVM `0x…` hex strings; comparisons are case-insensitive but everything is normalized to lowercase.
+- EVM addresses are returned as EIP-55 checksums (`viem.getAddress`).
+- Tron addresses are returned as Base58Check strings (usually starting with `T`).
 - `uint256`/`uint64`/`int` values are encoded as **decimal strings** in JSON requests/responses.
 - Errors return JSON:
   - `{ "ok": false, "error": { "message": string, "details": any | null } }`
+
+Note: some endpoints return “raw DB rows” (snake_case). Those rows may contain additional address fields beyond the ones documented here; the API tries to checksum/convert key address fields but does not guarantee full normalization for every column.
 
 ## REST (UntronV3)
 
@@ -28,14 +31,26 @@ Response (200):
 ```json
 {
   "ok": true,
-  "chainId": 137,
-  "contractAddress": "0x…",
-  "protocol": { "...": "snake_case DB columns (untron_v3_protocol_full)" },
-  "deprecatedChains": [{ "...": "untron_v3_chain_deprecated rows" }],
-  "swapRates": [{ "...": "untron_v3_swap_rate rows" }],
-  "bridgerRoutes": [{ "...": "untron_v3_bridger_route rows" }]
+  "hub": {
+    "chainId": 137,
+    "contractAddress": "0x…",
+    "protocol": { "...": "untron_v3_protocol_full (snake_case), tron_usdt is Base58" },
+    "deprecatedChains": [{ "...": "untron_v3_chain_deprecated rows" }],
+    "swapRates": [{ "...": "untron_v3_swap_rate rows (target_token checksummed)" }],
+    "bridgerRoutes": [{ "...": "untron_v3_bridger_route rows (addresses checksummed)" }]
+  },
+  "controller": {
+    "chainId": 728126428,
+    "address": "T…",
+    "state": { "...": "untron_controller_state row" },
+    "latestIsEventChainTipCalled": { "...": "untron_controller_is_event_chain_tip_called row (caller is Base58)" }
+  }
 }
 ```
+
+Notes:
+- No top-level aliases are provided; read everything from `hub` and `controller`.
+- Rows returned inside `hub.*` and `controller.*` omit DB-only `id` as well as redundant `chain_id` and `contract_address` fields.
 
 ### Toy client
 
@@ -116,6 +131,7 @@ Body:
 
 Notes:
 - `receiverSalt` is optional. If omitted/empty, the backend picks the first “free” salt from `PREKNOWN_RECEIVER_SALTS` (first salt that has no lease yet, or whose latest lease is already nukeable).
+- Auto-picking uses the backend’s indexed DB state; if the indexer is behind the chain, it may temporarily fail with “not yet nukeable” until the latest `LeaseCreated` is indexed.
 
 Behavior:
 - Checks the backend relayer address is a realtor onchain (`isRealtor(relayerAddress)`), returning HTTP 403 if not.

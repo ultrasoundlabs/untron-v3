@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Hono } from "hono";
 import { db } from "ponder:api";
 import { sql } from "ponder";
-import { parseEventLogs, encodeFunctionData, type Address, type Hex } from "viem";
+import { parseEventLogs, encodeFunctionData, getAddress, type Address, type Hex } from "viem";
 
 import { untronV3Abi } from "@untron/v3-contracts";
 
@@ -14,14 +14,70 @@ import { expectAddress, expectBigint, expectHex, expectHexBytes32, expectRecord 
 import { PublicClients } from "../relayer/deps/publicClients";
 import { MainnetRelayer } from "../relayer/deps/mainnet";
 import { getRows } from "../relayer/sqlRows";
+import {
+  tronBase58ToEvmAddress,
+  tronBytes21ToBase58,
+  tronEvmAddressToBytes21,
+} from "../relayer/deps/tron/protocol";
 
-const untronV3Address = getUntronV3Address().toLowerCase() as Address;
+const untronV3AddressLower = getUntronV3Address().toLowerCase() as Address;
+const untronV3Address = getAddress(untronV3AddressLower) as Address;
 const chainId = MAINNET_CHAIN_ID;
+const TRON_CHAIN_ID = 728126428;
 
 const jsonError = (args: { status: number; message: string; details?: unknown }) => ({
   ok: false as const,
   error: { message: args.message, details: args.details ?? null },
 });
+
+function toChecksumAddress(value: unknown): string | null {
+  if (typeof value !== "string" || !value.startsWith("0x")) return null;
+  try {
+    return getAddress(value) as string;
+  } catch {
+    return null;
+  }
+}
+
+function toTronBase58FromEvmAddress(value: unknown): string | null {
+  if (typeof value !== "string" || !value.startsWith("0x")) return null;
+  try {
+    const bytes21 = tronEvmAddressToBytes21(value as Address);
+    return tronBytes21ToBase58(bytes21);
+  } catch {
+    return null;
+  }
+}
+
+function formatRealtorRow(row: unknown): unknown {
+  if (!row || typeof row !== "object") return row;
+  const rec = row as Record<string, unknown>;
+  const contract = toChecksumAddress(rec.contract_address);
+  const realtor = toChecksumAddress(rec.realtor);
+  return {
+    ...rec,
+    contract_address: contract ?? rec.contract_address,
+    realtor: realtor ?? rec.realtor,
+  };
+}
+
+function stripDbId(row: unknown): unknown {
+  if (!row || typeof row !== "object") return row;
+  const rec = row as Record<string, unknown>;
+  if (!("id" in rec)) return row;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { id: _id, ...rest } = rec;
+  return rest;
+}
+
+function stripDbContractScope(row: unknown): unknown {
+  if (!row || typeof row !== "object") return row;
+  const rec = row as Record<string, unknown>;
+  // Many DB rows include `chain_id` + `contract_address` even when the endpoint is already scoped.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { chain_id: _chainId, contract_address: _contractAddress, ...rest } = rec;
+  return rest;
+}
 
 function toJsonSafe(value: unknown): unknown {
   if (typeof value === "bigint") return value.toString();
@@ -87,7 +143,7 @@ async function getRealtorRow(args: { realtor: Address }) {
     SELECT *
     FROM untron_v3_realtor_full
     WHERE chain_id = ${chainId}
-      AND contract_address = ${untronV3Address}
+      AND contract_address = ${untronV3AddressLower}
       AND realtor = ${args.realtor.toLowerCase()}
     LIMIT 1
   `);
@@ -103,7 +159,7 @@ export const untronV3Api = new Hono()
         SELECT *
         FROM untron_v3_protocol_full
         WHERE chain_id = ${chainId}
-          AND contract_address = ${untronV3Address}
+          AND contract_address = ${untronV3AddressLower}
         LIMIT 1
       `);
       const protocol = getRows(protocolResult)[0] ?? null;
@@ -112,7 +168,7 @@ export const untronV3Api = new Hono()
         SELECT *
         FROM untron_v3_chain_deprecated
         WHERE chain_id = ${chainId}
-          AND contract_address = ${untronV3Address}
+          AND contract_address = ${untronV3AddressLower}
         ORDER BY target_chain_id ASC
       `);
       const deprecatedChains = getRows(deprecatedResult);
@@ -121,7 +177,7 @@ export const untronV3Api = new Hono()
         SELECT *
         FROM untron_v3_swap_rate
         WHERE chain_id = ${chainId}
-          AND contract_address = ${untronV3Address}
+          AND contract_address = ${untronV3AddressLower}
         ORDER BY target_token ASC
       `);
       const swapRates = getRows(swapRatesResult);
@@ -130,20 +186,115 @@ export const untronV3Api = new Hono()
         SELECT *
         FROM untron_v3_bridger_route
         WHERE chain_id = ${chainId}
-          AND contract_address = ${untronV3Address}
+          AND contract_address = ${untronV3AddressLower}
         ORDER BY target_token ASC, target_chain_id ASC
       `);
       const bridgerRoutes = getRows(bridgerRoutesResult);
 
+      const controllerBase58 =
+        typeof process.env.UNTRON_CONTROLLER_ADDRESS === "string"
+          ? process.env.UNTRON_CONTROLLER_ADDRESS.trim()
+          : "";
+      const controllerEvmLower =
+        controllerBase58 && controllerBase58.startsWith("T")
+          ? (tronBase58ToEvmAddress(controllerBase58).toLowerCase() as Address)
+          : null;
+
+      const controllerState = controllerEvmLower
+        ? (getRows(
+            await db.execute(sql`
+              SELECT *
+              FROM untron_controller_state
+              WHERE chain_id = ${TRON_CHAIN_ID}
+                AND contract_address = ${controllerEvmLower}
+              LIMIT 1
+            `)
+          )[0] ?? null)
+        : null;
+
+      const controllerLatestIsEventChainTipCalled = controllerEvmLower
+        ? (getRows(
+            await db.execute(sql`
+              SELECT *
+              FROM untron_controller_is_event_chain_tip_called
+              WHERE chain_id = ${TRON_CHAIN_ID}
+                AND contract_address = ${controllerEvmLower}
+              ORDER BY block_number DESC, log_index DESC
+              LIMIT 1
+            `)
+          )[0] ?? null)
+        : null;
+
+      const hub = {
+        chainId,
+        contractAddress: untronV3Address,
+        protocol: (() => {
+          if (!protocol || typeof protocol !== "object") return null;
+          const rec = stripDbContractScope(stripDbId(protocol)) as Record<string, unknown>;
+          const tronUsdtBase58 = toTronBase58FromEvmAddress(rec.tron_usdt);
+          return {
+            ...rec,
+            tron_usdt: tronUsdtBase58 ?? null,
+          };
+        })(),
+        deprecatedChains: deprecatedChains.map(stripDbId).map(stripDbContractScope),
+        swapRates: swapRates
+          .map(stripDbId)
+          .map(stripDbContractScope)
+          .map((row) => {
+            if (!row || typeof row !== "object") return row;
+            const rec = row as Record<string, unknown>;
+            const token = toChecksumAddress(rec.target_token);
+            return { ...rec, target_token: token ?? rec.target_token };
+          }),
+        bridgerRoutes: bridgerRoutes
+          .map(stripDbId)
+          .map(stripDbContractScope)
+          .map((row) => {
+            if (!row || typeof row !== "object") return row;
+            const rec = row as Record<string, unknown>;
+            const token = toChecksumAddress(rec.target_token);
+            const bridger = toChecksumAddress(rec.bridger);
+            return {
+              ...rec,
+              target_token: token ?? rec.target_token,
+              bridger: bridger ?? rec.bridger,
+            };
+          }),
+      };
+
+      const controller = {
+        chainId: TRON_CHAIN_ID,
+        address: controllerBase58 || null,
+        state: (() => {
+          if (!controllerState || typeof controllerState !== "object") return controllerState;
+          const rec = stripDbContractScope(stripDbId(controllerState)) as Record<string, unknown>;
+          return rec;
+        })(),
+        latestIsEventChainTipCalled: (() => {
+          if (
+            !controllerLatestIsEventChainTipCalled ||
+            typeof controllerLatestIsEventChainTipCalled !== "object"
+          ) {
+            return controllerLatestIsEventChainTipCalled;
+          }
+          const rec = stripDbContractScope(
+            stripDbId(controllerLatestIsEventChainTipCalled)
+          ) as Record<string, unknown>;
+          const callerTron = toTronBase58FromEvmAddress(rec.caller);
+          const out: Record<string, unknown> = {
+            ...rec,
+            caller: callerTron ?? null,
+          };
+          return out;
+        })(),
+      };
+
       return c.json(
         toJsonSafe({
           ok: true,
-          chainId,
-          contractAddress: untronV3Address,
-          protocol,
-          deprecatedChains,
-          swapRates,
-          bridgerRoutes,
+          hub,
+          controller,
         })
       );
     } catch (error) {
@@ -160,8 +311,8 @@ export const untronV3Api = new Hono()
           ok: true,
           chainId,
           contractAddress: untronV3Address,
-          relayerAddress,
-          realtor: row,
+          relayerAddress: getAddress(relayerAddress) as Address,
+          realtor: formatRealtorRow(row),
         })
       );
     } catch (error) {
@@ -171,10 +322,20 @@ export const untronV3Api = new Hono()
   })
   .get("/realtors/:address", async (c) => {
     try {
-      const realtor = expectAddress(c.req.param("address"), "realtor").toLowerCase() as Address;
+      const realtorLower = expectAddress(
+        c.req.param("address"),
+        "realtor"
+      ).toLowerCase() as Address;
+      const realtor = getAddress(realtorLower) as Address;
       const row = await getRealtorRow({ realtor });
       return c.json(
-        toJsonSafe({ ok: true, chainId, contractAddress: untronV3Address, realtor, result: row })
+        toJsonSafe({
+          ok: true,
+          chainId,
+          contractAddress: untronV3Address,
+          realtor,
+          result: formatRealtorRow(row),
+        })
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -242,7 +403,7 @@ export const untronV3Api = new Hono()
                       nukeable_after
                     FROM untron_v3_lease
                     WHERE chain_id = ${chainId}
-                      AND contract_address = ${untronV3Address}
+                      AND contract_address = ${untronV3AddressLower}
                       AND receiver_salt IN (${inList})
                     ORDER BY receiver_salt ASC, lease_id DESC
                   `)
@@ -367,6 +528,16 @@ export const untronV3Api = new Hono()
         );
       }
       const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("LeaseNotNukeableYet")) {
+        return c.json(
+          jsonError({
+            status: 409,
+            message:
+              "receiverSalt is not yet nukeable (previous lease still active). Pick a different receiverSalt, or omit receiverSalt and ensure PREKNOWN_RECEIVER_SALTS is configured and the indexer is caught up.",
+          }),
+          409
+        );
+      }
       return c.json(jsonError({ status: 400, message }), 400);
     }
   })

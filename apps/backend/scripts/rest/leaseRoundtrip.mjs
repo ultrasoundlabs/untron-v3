@@ -120,7 +120,9 @@ async function main() {
   })();
 
   const isChainDeprecated = (() => {
-    const rows = Array.isArray(protocol.deprecatedChains) ? protocol.deprecatedChains : [];
+    const rows = Array.isArray(protocol?.hub?.deprecatedChains)
+      ? protocol.hub.deprecatedChains
+      : [];
     const target = BigInt(chainId);
     for (const row of rows) {
       try {
