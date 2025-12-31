@@ -296,6 +296,44 @@ export const untronV3TronUsdt = onchainTable(
   })
 );
 
+// Derived state for the protocol-wide minimum fee floor (ppm).
+export const untronV3ProtocolFloor = onchainTable(
+  "untron_v3_protocol_floor",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    floorPpm: t.bigint().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.chainId, table.contractAddress),
+  })
+);
+
+// Derived state for chain deprecation toggles.
+export const untronV3ChainDeprecated = onchainTable(
+  "untron_v3_chain_deprecated",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${contractAddress}:${targetChainId}`
+    chainId: t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    targetChainId: t.bigint().notNull(),
+    deprecated: t.boolean().notNull(),
+    updatedAtBlockNumber: t.bigint().notNull(),
+    updatedAtBlockTimestamp: t.bigint().notNull(),
+    updatedAtTransactionHash: t.hex().notNull(),
+    updatedAtLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    contractChainIdx: index().on(table.chainId, table.contractAddress, table.targetChainId),
+    contractDeprecatedIdx: index().on(table.chainId, table.contractAddress, table.deprecated),
+  })
+);
+
 // Singleton config/state row for each TronLightClient instance, derived from TronLightClientConfigured.
 // Used by the publisher to derive the SR-owner -> witnessIndex mapping without onchain calls.
 export const tronLightClientConfig = onchainTable(
@@ -790,7 +828,14 @@ export const untronV3RealtorFull = onchainView("untron_v3_realtor_full").as((qb)
       contractAddress: untronV3Realtor.contractAddress,
       realtor: untronV3Realtor.realtor,
       allowed: untronV3Realtor.allowed,
+      protocolFloorPpm: sql<bigint>`coalesce(${untronV3ProtocolFloor.floorPpm}, 0::bigint)`.as(
+        "protocol_floor_ppm"
+      ),
       minFeePpm: untronV3Realtor.minFeePpm,
+      effectiveMinFeePpm:
+        sql<bigint>`GREATEST(${untronV3Realtor.minFeePpm}, coalesce(${untronV3ProtocolFloor.floorPpm}, 0::bigint))`.as(
+          "effective_min_fee_ppm"
+        ),
       leaseRateLimitMode: untronV3Realtor.leaseRateLimitMode,
       leaseRateLimitMaxLeases: untronV3Realtor.leaseRateLimitMaxLeases,
       leaseRateLimitWindowSeconds: untronV3Realtor.leaseRateLimitWindowSeconds,
@@ -804,11 +849,75 @@ export const untronV3RealtorFull = onchainView("untron_v3_realtor_full").as((qb)
     })
     .from(untronV3Realtor)
     .leftJoin(
+      untronV3ProtocolFloor,
+      and(
+        eq(untronV3ProtocolFloor.chainId, untronV3Realtor.chainId),
+        eq(untronV3ProtocolFloor.contractAddress, untronV3Realtor.contractAddress)
+      )
+    )
+    .leftJoin(
       untronV3RealtorLeaseStats,
       and(
         eq(untronV3RealtorLeaseStats.chainId, untronV3Realtor.chainId),
         eq(untronV3RealtorLeaseStats.contractAddress, untronV3Realtor.contractAddress),
         eq(untronV3RealtorLeaseStats.realtor, untronV3Realtor.realtor)
+      )
+    )
+);
+
+export const untronV3ProtocolFull = onchainView("untron_v3_protocol_full").as((qb) =>
+  qb
+    .select({
+      id: sql<string>`concat(${untronV3State.chainId}, ':', ${untronV3State.contractAddress})`.as(
+        "id"
+      ),
+      chainId: untronV3State.chainId,
+      contractAddress: untronV3State.contractAddress,
+      eventChainTip: untronV3State.eventChainTip,
+      lastEventBlockNumber: untronV3State.lastEventBlockNumber,
+      lastEventSequence: untronV3State.sequence,
+      tronUsdt: untronV3TronUsdt.tronUsdt,
+      protocolFloorPpm: sql<bigint>`coalesce(${untronV3ProtocolFloor.floorPpm}, 0::bigint)`.as(
+        "protocol_floor_ppm"
+      ),
+      protocolLeaseRateLimitMaxLeases: untronV3ProtocolLeaseRateLimit.maxLeases,
+      protocolLeaseRateLimitWindowSeconds:
+        sql<bigint>`${untronV3ProtocolLeaseRateLimit.windowSeconds}`.as(
+          "protocol_lease_rate_limit_window_seconds"
+        ),
+      lesseePayoutConfigRateLimitMaxUpdates: untronV3LesseePayoutConfigRateLimit.maxUpdates,
+      lesseePayoutConfigRateLimitWindowSeconds:
+        sql<bigint>`${untronV3LesseePayoutConfigRateLimit.windowSeconds}`.as(
+          "lessee_payout_config_rate_limit_window_seconds"
+        ),
+    })
+    .from(untronV3State)
+    .leftJoin(
+      untronV3TronUsdt,
+      and(
+        eq(untronV3TronUsdt.chainId, untronV3State.chainId),
+        eq(untronV3TronUsdt.contractAddress, untronV3State.contractAddress)
+      )
+    )
+    .leftJoin(
+      untronV3ProtocolFloor,
+      and(
+        eq(untronV3ProtocolFloor.chainId, untronV3State.chainId),
+        eq(untronV3ProtocolFloor.contractAddress, untronV3State.contractAddress)
+      )
+    )
+    .leftJoin(
+      untronV3ProtocolLeaseRateLimit,
+      and(
+        eq(untronV3ProtocolLeaseRateLimit.chainId, untronV3State.chainId),
+        eq(untronV3ProtocolLeaseRateLimit.contractAddress, untronV3State.contractAddress)
+      )
+    )
+    .leftJoin(
+      untronV3LesseePayoutConfigRateLimit,
+      and(
+        eq(untronV3LesseePayoutConfigRateLimit.chainId, untronV3State.chainId),
+        eq(untronV3LesseePayoutConfigRateLimit.contractAddress, untronV3State.contractAddress)
       )
     )
 );

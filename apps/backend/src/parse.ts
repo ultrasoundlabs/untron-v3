@@ -26,6 +26,14 @@ export function expectHex(value: unknown, label: string): Hex {
   return raw as Hex;
 }
 
+export function expectHexBytes32(value: unknown, label: string): Hex {
+  const raw = expectString(value, label).toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(raw)) {
+    throw new Error(`Invalid ${label} (expected bytes32 hex)`);
+  }
+  return raw as Hex;
+}
+
 export function expectHexAddress(value: unknown, label: string): `0x${string}` {
   const raw = expectString(value, label).toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(raw))

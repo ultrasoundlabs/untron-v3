@@ -12,7 +12,9 @@ import {
   untronV3LeaseNonce,
   untronV3LeasePayoutConfig,
   untronV3LesseePayoutConfigRateLimit,
+  untronV3ProtocolFloor,
   untronV3ProtocolLeaseRateLimit,
+  untronV3ChainDeprecated,
   untronV3Realtor,
   untronV3SwapRate,
   untronV3TronUsdt,
@@ -42,6 +44,8 @@ type UntronV3DerivedEventName =
   | "BridgerSet"
   | "DepositPreEntitled"
   | "TronUsdtSet"
+  | "ProtocolFloorSet"
+  | "ChainDeprecatedSet"
   | "ProtocolLeaseRateLimitSet"
   | "RealtorLeaseRateLimitSet"
   | "RealtorMinFeeSet"
@@ -113,6 +117,14 @@ function makeRealtorId(args: {
 
 function makeSingletonConfigId(args: { chainId: number; contractAddress: string }): string {
   return `${args.chainId}:${args.contractAddress.toLowerCase()}`;
+}
+
+function makeChainDeprecatedId(args: {
+  chainId: number;
+  contractAddress: string;
+  targetChainId: bigint;
+}): string {
+  return `${args.chainId}:${args.contractAddress.toLowerCase()}:${args.targetChainId.toString()}`;
 }
 
 function makeLastReceiverPullId(args: {
@@ -620,6 +632,85 @@ const handleTronUsdtSet = (args: { event: PonderLogEvent; context: PonderContext
     );
   });
 
+const handleProtocolFloorSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const floorPpm = expectBigint(
+      getArgValue(parsedArgs, 0, "floorPpm"),
+      "ProtocolFloorSet.floorPpm"
+    );
+
+    const id = makeSingletonConfigId({ chainId, contractAddress });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3ProtocolFloor)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          floorPpm,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          floorPpm,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
+const handleChainDeprecatedSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
+  Effect.gen(function* () {
+    const { event, context } = args;
+    const parsedArgs = expectRecord(event.args, "event.args");
+    const chainId = context.chain.id;
+    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
+
+    const targetChainId = expectBigint(
+      getArgValue(parsedArgs, 0, "targetChainId"),
+      "ChainDeprecatedSet.targetChainId"
+    );
+    const deprecated = expectBoolean(
+      getArgValue(parsedArgs, 1, "deprecated"),
+      "ChainDeprecatedSet.deprecated"
+    );
+
+    const id = makeChainDeprecatedId({ chainId, contractAddress, targetChainId });
+
+    yield* tryPromise(() =>
+      context.db
+        .insert(untronV3ChainDeprecated)
+        .values({
+          id,
+          chainId,
+          contractAddress,
+          targetChainId,
+          deprecated,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+        .onConflictDoUpdate({
+          deprecated,
+          updatedAtBlockNumber: event.block.number,
+          updatedAtBlockTimestamp: event.block.timestamp,
+          updatedAtTransactionHash: event.transaction.hash,
+          updatedAtLogIndex: event.log.logIndex,
+        })
+    );
+  });
+
 const handleControllerEventChainTipUpdated = (args: {
   event: PonderLogEvent;
   context: PonderContext;
@@ -1098,6 +1189,10 @@ export const handleUntronV3DerivedEvent = (args: {
       return handleDepositPreEntitled({ event: args.event, context: args.context });
     case "TronUsdtSet":
       return handleTronUsdtSet({ event: args.event, context: args.context });
+    case "ProtocolFloorSet":
+      return handleProtocolFloorSet({ event: args.event, context: args.context });
+    case "ChainDeprecatedSet":
+      return handleChainDeprecatedSet({ event: args.event, context: args.context });
     case "ProtocolLeaseRateLimitSet":
       return handleProtocolLeaseRateLimitSet({ event: args.event, context: args.context });
     case "RealtorLeaseRateLimitSet":

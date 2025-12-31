@@ -10,6 +10,7 @@
     "db:reset": "node -e \"require('fs').rmSync('.ponder', { recursive: true, force: true })\"",
     "graphql:demo": "node scripts/graphql/demo.mjs",
     "sql:demo": "node scripts/sql/demo.mjs",
+    "rest:lease:toy": "node scripts/rest/leaseRoundtrip.mjs",
     "codegen": "ponder codegen",
     "test": "vitest run",
     "test:watch": "vitest",

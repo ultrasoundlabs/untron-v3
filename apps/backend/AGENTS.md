@@ -50,7 +50,7 @@ Ponder manages the database for you. If you don’t point `DATABASE_URL` at an e
 
 - `apps/backend/src/api/index.ts` is a small Hono app:
   - `/sql/*` exposes Ponder SQL.
-  - `/` and `/graphql` expose a GraphQL API for the schema.
+  - `/graphql` exposes a GraphQL API for the schema.
 
 ---
 

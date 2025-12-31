@@ -19,6 +19,17 @@ With `pnpm dev` running (Ponder HTTP API exposes `/graphql`), you can run a smal
 pnpm graphql:demo
 ```
 
+## REST (UntronV3)
+
+This backend also exposes a small REST surface for “backend-relayed” UntronV3 actions:
+
+- `GET /realtors` → returns the backend relayer address (Safe) and its realtor row (if any).
+- `GET /realtors/:address` → returns the realtor row for an address.
+- `POST /leases` → relays `UntronV3.createLease(...)` from the backend relayer (must be a realtor).
+- `PUT /leases/:leaseId` → relays `UntronV3.setPayoutConfigWithSig(...)` (anyone can relay; requires lessee signature).
+
+See `apps/backend/API.md` for the explicit request/response schemas.
+
 ## SQL scratchpad queries
 
 With `pnpm dev` running (Ponder HTTP API exposes `/sql/db`), you can run a small SQL demo script:
