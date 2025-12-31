@@ -89,8 +89,9 @@ export const sendUserOperationViaBundlers = (args: {
 
     const errors: string[] = [];
 
-    for (const bundlerUrl of args.bundlerUrls) {
+    for (const [bundlerIndex, bundlerUrl] of args.bundlerUrls.entries()) {
       const bundlerUrlForLogs = safeUrlForLogs(bundlerUrl);
+      const bundlerLabel = `bundler#${bundlerIndex + 1}`;
 
       const includedBeforeSend = yield* checkInclusionUpTo(
         yield* Effect.tryPromise({
@@ -165,7 +166,7 @@ export const sendUserOperationViaBundlers = (args: {
         if (includedAfterError) return includedAfterError;
 
         const errorMessage = summarizeError(error);
-        errors.push(`${bundlerUrlForLogs}: ${errorMessage}`);
+        errors.push(`${bundlerLabel}: ${errorMessage}`);
 
         const log = isProbablyBundler429(error)
           ? Effect.logWarning("[mainnet] bundler rate-limited (429), trying next bundler")
@@ -176,11 +177,11 @@ export const sendUserOperationViaBundlers = (args: {
       }
     }
 
-    const sentHashes = sent.map((s) => `${s.bundlerUrlForLogs} => ${s.userOpHash}`).join(", ");
+    const sentHashes = sent.map((s) => s.userOpHash).join(", ");
     const errorsJoined = errors.length > 0 ? ` Errors: ${errors.join(" | ")}` : "";
     return yield* Effect.fail(
       new Error(
-        `UserOperation not included after trying ${args.bundlerUrls.length} bundler(s). Sent: ${sentHashes}.${errorsJoined}`
+        `UserOperation not included after trying ${args.bundlerUrls.length} bundler(s). Sent userOpHash(es): ${sentHashes}.${errorsJoined}`
       )
     );
   });

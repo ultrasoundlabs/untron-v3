@@ -44,7 +44,8 @@ export const makeUserOperationInclusionChecker = (args: {
 
         const success = Boolean((log as any).args?.success);
         return {
-          bundlerUrl: attempt.bundlerUrl,
+          // Never leak query params (e.g. bundler API keys) beyond logs.
+          bundlerUrl: attempt.bundlerUrlForLogs,
           userOpHash: attempt.userOpHash,
           transactionHash: log.transactionHash,
           blockNumber: log.blockNumber,

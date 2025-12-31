@@ -150,7 +150,6 @@ Response (200):
   "receiverSalt": "0x…",
   "leaseId": "1",
   "userOperation": {
-    "bundlerUrl": "…",
     "userOpHash": "0x…",
     "transactionHash": "0x…",
     "blockNumber": "…",
@@ -198,7 +197,6 @@ Response (200):
   "leaseId": "1",
   "updated": true,
   "userOperation": {
-    "bundlerUrl": "…",
     "userOpHash": "0x…",
     "transactionHash": "0x…",
     "blockNumber": "…",

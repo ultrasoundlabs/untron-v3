@@ -14,6 +14,7 @@ import { expectAddress, expectBigint, expectHex, expectHexBytes32, expectRecord 
 import { PublicClients } from "../relayer/deps/publicClients";
 import { MainnetRelayer } from "../relayer/deps/mainnet";
 import { getRows } from "../relayer/sqlRows";
+import { toApiUserOperation } from "./userOperation";
 import {
   tronBase58ToEvmAddress,
   tronBytes21ToBase58,
@@ -510,7 +511,7 @@ export const untronV3Api = new Hono()
           contractAddress: untronV3Address,
           receiverSalt: result.receiverSalt,
           leaseId: result.leaseId?.toString() ?? null,
-          userOperation: result.sent,
+          userOperation: toApiUserOperation(result.sent),
         })
       );
     } catch (error) {
@@ -622,7 +623,7 @@ export const untronV3Api = new Hono()
           contractAddress: untronV3Address,
           leaseId: leaseId.toString(),
           updated: Boolean(result.updated),
-          userOperation: result.sent,
+          userOperation: toApiUserOperation(result.sent),
         })
       );
     } catch (error) {
