@@ -42,6 +42,7 @@ Response (200):
   "controller": {
     "chainId": 728126428,
     "address": "T…",
+    "receiverBytecodeHash": "0x…",
     "state": { "...": "untron_controller_state row" },
     "latestIsEventChainTipCalled": { "...": "untron_controller_is_event_chain_tip_called row (caller is Base58)" }
   }

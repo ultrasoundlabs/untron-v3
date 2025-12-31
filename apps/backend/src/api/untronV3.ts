@@ -15,6 +15,7 @@ import { PublicClients } from "../relayer/deps/publicClients";
 import { MainnetRelayer } from "../relayer/deps/mainnet";
 import { getRows } from "../relayer/sqlRows";
 import { toApiUserOperation } from "./userOperation";
+import { computeReceiverBytecodeHash } from "./receiverBytecodeHash";
 import {
   tronBase58ToEvmAddress,
   tronBytes21ToBase58,
@@ -25,6 +26,50 @@ const untronV3AddressLower = getUntronV3Address().toLowerCase() as Address;
 const untronV3Address = getAddress(untronV3AddressLower) as Address;
 const chainId = MAINNET_CHAIN_ID;
 const TRON_CHAIN_ID = 728126428;
+
+let cachedControllerReceiverBytecodeHash: Hex | null | undefined;
+let controllerReceiverBytecodeHashInFlight: Promise<Hex | null> | null = null;
+
+async function getControllerReceiverBytecodeHashCached(): Promise<Hex | null> {
+  if (cachedControllerReceiverBytecodeHash !== undefined)
+    return cachedControllerReceiverBytecodeHash;
+  if (controllerReceiverBytecodeHashInFlight) return controllerReceiverBytecodeHashInFlight;
+
+  controllerReceiverBytecodeHashInFlight = (async () => {
+    try {
+      const env = process.env.UNTRON_RECEIVER_INIT_CODE_HASH;
+      if (typeof env === "string" && env.trim().length > 0) {
+        const hash = expectHexBytes32(env.trim(), "UNTRON_RECEIVER_INIT_CODE_HASH") as Hex;
+        cachedControllerReceiverBytecodeHash = hash;
+        return hash;
+      }
+
+      const receiverImpl = await BackendRuntime.runPromise(
+        Effect.gen(function* () {
+          const publicClients = yield* PublicClients;
+          const mainnetClient = yield* publicClients.get("mainnet");
+          return (yield* tryPromise(() =>
+            mainnetClient.readContract({
+              address: untronV3Address,
+              abi: untronV3Abi,
+              functionName: "RECEIVER_IMPL",
+            })
+          )) as Address;
+        })
+      );
+
+      const hash = computeReceiverBytecodeHash(receiverImpl);
+      cachedControllerReceiverBytecodeHash = hash;
+      return hash;
+    } catch {
+      return null;
+    } finally {
+      controllerReceiverBytecodeHashInFlight = null;
+    }
+  })();
+
+  return controllerReceiverBytecodeHashInFlight;
+}
 
 const jsonError = (args: { status: number; message: string; details?: unknown }) => ({
   ok: false as const,
@@ -267,6 +312,7 @@ export const untronV3Api = new Hono()
       const controller = {
         chainId: TRON_CHAIN_ID,
         address: controllerBase58 || null,
+        receiverBytecodeHash: await getControllerReceiverBytecodeHashCached(),
         state: (() => {
           if (!controllerState || typeof controllerState !== "object") return controllerState;
           const rec = stripDbContractScope(stripDbId(controllerState)) as Record<string, unknown>;
