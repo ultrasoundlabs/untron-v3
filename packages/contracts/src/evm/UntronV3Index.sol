@@ -18,6 +18,55 @@ contract UntronV3Index {
         DEPOSIT // positive
     }
 
+    /// @notice Claim origin codes for {ClaimCreated} indexing.
+    /// @dev These origins are intentionally coarse; detailed parameters are carried in `ClaimCreated`'s origin fields.
+    enum ClaimOrigin {
+        /// @notice Claim created by `subjectivePreEntitle(...)` (LP-sponsored speculation on a future `preEntitle`).
+        /// @dev In {ClaimCreated}:
+        /// - `originId` = anticipated `txId`
+        /// - `originActor` = sponsor (LP that had principal debited)
+        /// - `originToken` = 0
+        /// - `originTimestamp` = 0
+        /// - `originRawAmount` = sponsor-provided raw amount guess (before lease fees)
+        SUBJECTIVE_PRE_ENTITLE,
+
+        /// @notice Claim created by `preEntitle(...)` from a proven Tron USDT TRC-20 deposit tx.
+        /// @dev In {ClaimCreated}:
+        /// - `originId` = `txId` (Tron tx id = sha256(raw_data))
+        /// - `originActor` = 0
+        /// - `originToken` = 0
+        /// - `originTimestamp` = Tron block timestamp of the proved tx (seconds)
+        /// - `originRawAmount` = raw TRC-20 amount recognized (before lease fees)
+        PRE_ENTITLE,
+
+        /// @notice Claim created when processing a controller `PulledFromReceiver` event with remaining profit volume.
+        /// @dev In {ClaimCreated}:
+        /// - `originId` = `receiverSalt`
+        /// - `originActor` = 0
+        /// - `originToken` = `token` from the controller event (may be `tronUsdt` or another token)
+        /// - `originTimestamp` = controller event `dumpTimestamp` (Tron seconds)
+        /// - `originRawAmount` = raw USDT-equivalent amount attributed as profit volume (before lease fees)
+        RECEIVER_PULL
+    }
+
+    /// @notice Canonical argument bundle for emitting {ClaimCreated}.
+    /// @dev We pass a struct to avoid stack-too-deep issues and to make it explicit which fields are meaningful per origin.
+    struct ClaimCreatedArgs {
+        uint256 leaseId;
+        uint256 claimId;
+        address targetToken;
+        uint256 queueIndex;
+        uint256 amountUsdt;
+        uint256 targetChainId;
+        address beneficiary;
+        ClaimOrigin origin;
+        bytes32 originId;
+        address originActor;
+        address originToken;
+        uint64 originTimestamp;
+        uint256 originRawAmount;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 INDEXES
     //////////////////////////////////////////////////////////////*/
@@ -134,6 +183,16 @@ contract UntronV3Index {
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emitted when a claim is created.
+    /// @dev Claim semantics (important):
+    /// - The claim amount `amountUsdt` is ALWAYS denominated in the protocol's accounting token unit (USDT),
+    ///   even if the claim will later be paid in another token via swap/bridge.
+    /// - The queue key `targetToken` indicates what token `fill()` will produce and pay/bridge for this claim.
+    /// - `targetChainId` indicates whether the claim is locally transferred (`== block.chainid`) or bridged.
+    ///
+    /// Origin fields:
+    /// - `origin` indicates which onchain pathway created the claim.
+    /// - The remaining origin fields (`originId`, `originActor`, `originToken`, `originTimestamp`, `originRawAmount`)
+    ///   are "best-effort canonical metadata" whose meaning depends on `origin` (see {ClaimOrigin} docs).
     /// @param leaseId The lease id.
     /// @param claimId The per-lease claim identifier (0-indexed).
     /// @param targetToken The target token used for settlement of the claim queue.
@@ -141,6 +200,12 @@ contract UntronV3Index {
     /// @param amountUsdt The claim amount in USDT units.
     /// @param targetChainId Destination chain for this claim's payout.
     /// @param beneficiary Recipient of the payout (either local transfer or bridged recipient).
+    /// @param origin Origin type for how this claim was created.
+    /// @param originId Origin identifier (e.g. `txId` for pre-entitles, `receiverSalt` for receiver pulls).
+    /// @param originActor Origin actor (e.g. sponsor for subjective pre-entitles).
+    /// @param originToken Origin token (e.g. pulled token for receiver pulls).
+    /// @param originTimestamp Origin timestamp (e.g. receiver pull timestamp; 0 if not applicable).
+    /// @param originRawAmount Origin raw amount before fees (e.g. deposit raw amount or pulled amount).
     event ClaimCreated(
         uint256 indexed leaseId,
         uint256 indexed claimId,
@@ -148,7 +213,13 @@ contract UntronV3Index {
         uint256 queueIndex,
         uint256 amountUsdt,
         uint256 targetChainId,
-        address beneficiary
+        address beneficiary,
+        ClaimOrigin origin,
+        bytes32 originId,
+        address originActor,
+        address originToken,
+        uint64 originTimestamp,
+        uint256 originRawAmount
     );
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emitted when a claim is filled.
@@ -168,13 +239,6 @@ contract UntronV3Index {
         uint256 targetChainId,
         address beneficiary
     );
-
-    /// @notice Emitted when a deposit is pre-entitled to a lease.
-    /// @param txId The deposit transaction id.
-    /// @param leaseId The lease id.
-    /// @param rawAmount The raw deposit amount (before fees).
-    /// @param netOut The net amount out (after fees).
-    event DepositPreEntitled(bytes32 indexed txId, uint256 indexed leaseId, uint256 rawAmount, uint256 netOut);
 
     /// @notice Emitted when an LP deposits funds.
     /// @param lp The LP address.
@@ -470,27 +534,24 @@ contract UntronV3Index {
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emits {ClaimCreated} and appends it to the event chain.
-    /// @param leaseId The lease id.
-    /// @param claimId The per-lease claim identifier (0-indexed).
-    /// @param targetToken The target token used for settlement of the claim queue.
-    /// @param queueIndex The claim index within the per-`targetToken` queue.
-    /// @param amountUsdt The claim amount in USDT units.
-    /// @param targetChainId Destination chain for this claim's payout.
-    /// @param beneficiary Recipient of the payout (either local transfer or bridged recipient).
-    function _emitClaimCreated(
-        uint256 leaseId,
-        uint256 claimId,
-        address targetToken,
-        uint256 queueIndex,
-        uint256 amountUsdt,
-        uint256 targetChainId,
-        address beneficiary
-    ) internal {
-        _appendEventChain(
-            ClaimCreated.selector,
-            abi.encode(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary)
+    /// @param args ClaimCreated fields (see {ClaimCreatedArgs}).
+    function _emitClaimCreated(ClaimCreatedArgs memory args) internal {
+        _appendEventChain(ClaimCreated.selector, abi.encode(args));
+        emit ClaimCreated(
+            args.leaseId,
+            args.claimId,
+            args.targetToken,
+            args.queueIndex,
+            args.amountUsdt,
+            args.targetChainId,
+            args.beneficiary,
+            args.origin,
+            args.originId,
+            args.originActor,
+            args.originToken,
+            args.originTimestamp,
+            args.originRawAmount
         );
-        emit ClaimCreated(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary);
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
@@ -516,16 +577,6 @@ contract UntronV3Index {
             abi.encode(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary)
         );
         emit ClaimFilled(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary);
-    }
-
-    /// @notice Emits {DepositPreEntitled} and appends it to the event chain.
-    /// @param txId The deposit transaction id.
-    /// @param leaseId The lease id.
-    /// @param rawAmount The raw deposit amount (before fees).
-    /// @param netOut The net amount out (after fees).
-    function _emitDepositPreEntitled(bytes32 txId, uint256 leaseId, uint256 rawAmount, uint256 netOut) internal {
-        _appendEventChain(DepositPreEntitled.selector, abi.encode(txId, leaseId, rawAmount, netOut));
-        emit DepositPreEntitled(txId, leaseId, rawAmount, netOut);
     }
 
     /// @notice Emits {LpDeposited} and appends it to the event chain.

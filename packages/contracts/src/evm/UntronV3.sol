@@ -146,7 +146,11 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         /// @dev Increments monotonically per `leaseId`. `(leaseId, claimId)` uniquely identifies a claim.
         uint256 claimId;
         /// @notice USDT-denominated claim amount.
-        /// @dev Slots are deleted when filled.
+        /// @dev
+        /// - This is ALWAYS denominated in the protocol's USDT accounting unit, regardless of how the claim is paid.
+        /// - For `targetToken == usdt`, this is the exact token amount transferred.
+        /// - For `targetToken != usdt`, this is converted into `targetToken` via `swapRatePpm` at fill time.
+        /// - Slots are deleted when filled.
         // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountUsdt;
         /// @notice Lease that produced this claim (for indexing/analytics).
@@ -164,6 +168,16 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     struct ClaimLocator {
         address targetToken;
         uint256 queueIndex;
+    }
+
+    /// @notice Subjective pre-entitlement record (LP-sponsored early payout) keyed by anticipated Tron `txId`.
+    /// @dev Reimbursed only if a later `preEntitle` proves the exact same `(txId, leaseId, rawAmount)`.
+    struct SubjectivePreEntitlement {
+        address sponsor;
+        uint256 leaseId;
+        uint256 rawAmount;
+        uint256 queueIndex;
+        uint256 claimId;
     }
 
     /// @notice Raw controller event reconstructed from the Tron event chain.
@@ -367,6 +381,9 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @dev Keyed by the Tron transaction ID as computed by `TronTxReader` (sha256 of `raw_data` bytes).
     mapping(bytes32 => bool) public depositProcessed;
 
+    /// @notice Lookup from `txId` to a subjective pre-entitlement record, if any.
+    mapping(bytes32 => SubjectivePreEntitlement) public subjectivePreEntitlementByTxId;
+
     /// @notice Latest processed Tron timestamp of a `PulledFromReceiver` event for a receiver salt and token.
     /// @dev Used to enforce that `preEntitle` cannot recognize deposits that occurred at/before the latest known pull
     ///      for the deposit token (currently `tronUsdt`).
@@ -414,6 +431,12 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     error WithdrawExceedsPrincipal();
     /// @notice Thrown when the contract does not have enough USDT balance for a withdrawal or fill.
     error InsufficientUsdtBalance();
+    /// @notice Thrown when attempting to subjectively pre-entitle a tx id that already has a record.
+    error SubjectivePreEntitlementAlreadyExists();
+    /// @notice Thrown when an LP does not have enough principal to fund a subjective pre-entitlement.
+    error InsufficientLpPrincipal();
+    /// @notice Thrown when a subjective pre-entitlement would pay `netOut == 0`.
+    error SubjectiveNetOutZero();
     /// @notice Thrown when `preEntitle` is called for a TRC-20 transfer that is not Tron USDT.
     error NotTronUsdt();
     /// @notice Thrown when `relayControllerEventChain` is not proving an `isEventChainTip` call to the controller.
@@ -949,33 +972,20 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         // Verify inclusion + success and decode into a generic TriggerSmartContract view.
         TronTxReader.TriggerSmartContract memory callData =
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
+        bytes32 txId = callData.txId;
 
         // Prevent double-processing of the same recognizable tx.
-        if (depositProcessed[callData.txId]) revert DepositAlreadyProcessed();
-        depositProcessed[callData.txId] = true;
+        if (depositProcessed[txId]) revert DepositAlreadyProcessed();
+        depositProcessed[txId] = true;
 
-        // Enforce that the TRC-20 contract called is exactly Tron USDT.
-        uint256 amountQ;
+        // Enforce that the TRC-20 contract called is exactly Tron USDT and decode the transfer amount.
         address tronUsdt_ = tronUsdt;
-        {
-            if (callData.toTron != TronCalldataUtils.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
+        uint256 amountQ = _decodeRecognizableTronUsdtDepositAmount(
+            receiverSalt, callData.toTron, callData.senderTron, callData.data, tronUsdt_
+        );
 
-            // Sanity-check that the TRC-20 transfer goes into the expected receiver.
-            address predictedReceiver = predictReceiverAddress(CONTROLLER_ADDRESS, receiverSalt);
-            bytes21 expectedToTron = TronCalldataUtils.evmToTronAddress(predictedReceiver);
-            (, bytes21 toTron, uint256 decodedAmountQ) =
-                TronCalldataUtils.decodeTrc20FromCalldata(callData.data, callData.senderTron);
-            if (toTron != expectedToTron) revert InvalidReceiverForSalt();
-            amountQ = decodedAmountQ;
-        }
-
-        // Enforce proof ordering against receiver pulls: do not recognize deposits that occurred at/before
-        // the latest known `PulledFromReceiver` timestamp for this receiver salt and token.
-        uint64 lastPullTs = lastReceiverPullTimestampByToken[receiverSalt][tronUsdt_];
-        // solhint-disable-next-line gas-strict-inequalities
-        if (lastPullTs != 0 && uint64(callData.tronBlockTimestamp) <= lastPullTs) {
-            revert DepositNotAfterLastReceiverPull();
-        }
+        // Enforce proof ordering against receiver pulls.
+        _enforceDepositNotAfterLastReceiverPull(receiverSalt, tronUsdt_, callData.tronBlockTimestamp);
 
         // Token is no longer part of lease uniqueness; use receiver salt only.
         // Attribute to the lease that was active at the Tron tx timestamp.
@@ -993,17 +1003,99 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         // Book protocol fee revenue immediately as PnL (raw - netOut).
         _bookFee(amountQ, netOut);
 
+        // If an LP previously paid out this exact tx subjectively (matching lease + raw amount),
+        // reimburse their principal and skip creating a beneficiary claim.
+        SubjectivePreEntitlement storage subjective = subjectivePreEntitlementByTxId[txId];
+        if (subjective.sponsor != address(0)) {
+            address sponsor = subjective.sponsor;
+            bool matches = (subjective.leaseId == leaseId && subjective.rawAmount == amountQ);
+            uint256 subjectiveQueueIndex = subjective.queueIndex;
+
+            // Clear record (txId is now proven; regardless of match, it should not be reusable).
+            delete subjectivePreEntitlementByTxId[txId];
+
+            if (matches) {
+                if (netOut != 0) {
+                    lpPrincipal[sponsor] += netOut;
+                }
+            }
+
+            if (matches) {
+                // Return without creating a claim: the subjective pre-entitlement already created the claim.
+                return (subjectiveQueueIndex, leaseId, netOut);
+            }
+        }
+
         // Enqueue a claim for later settlement if there is a positive net payout.
         if (netOut > 0) {
             PayoutConfig storage p = lease.payout;
             uint256 claimId;
             (queueIndex, claimId) =
                 _enqueueClaimForTargetToken(p.targetToken, netOut, leaseId, p.targetChainId, p.beneficiary);
-            _emitClaimCreated(leaseId, claimId, p.targetToken, queueIndex, netOut, p.targetChainId, p.beneficiary);
+            _emitPreEntitleClaimCreated(
+                leaseId, claimId, p, queueIndex, netOut, txId, callData.tronBlockTimestamp, amountQ
+            );
         }
+    }
 
-        // Emit pre-entitlement event for offchain reconciliation.
-        _emitDepositPreEntitled(callData.txId, leaseId, amountQ, netOut);
+    /*//////////////////////////////////////////////////////////////
+                      SUBJECTIVE PRE-ENTITLEMENT (LP SPONSORED)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Pay a lease beneficiary early for an anticipated Tron deposit, funded by the caller's LP principal.
+    /// @dev This does NOT prove any Tron tx. The sponsor is reimbursed only if a later `preEntitle` proves the exact
+    ///      same `(txId, leaseId, rawAmount)`. Otherwise, the sponsor's payment is effectively a gift.
+    ///
+    /// Important invariants:
+    /// - This debits `lpPrincipal[msg.sender]` immediately by `netOut`, so the sponsor cannot withdraw those funds
+    ///   before reimbursement.
+    /// - This enqueues a normal claim for the lease's current payout config (same as `preEntitle`), and relies on
+    ///   the normal `fill()` path to settle it.
+    ///
+    /// @param txId Anticipated Tron transaction id (`sha256(raw_data)`).
+    /// @param leaseId Lease expected to be active at the Tron tx timestamp.
+    /// @param rawAmount Expected raw TRC-20 amount (before fees).
+    /// @return queueIndex Index in `claimsByTargetToken[payout.targetToken]` where the claim was appended.
+    /// @return netOut USDT-denominated claim amount after fees.
+    function subjectivePreEntitle(bytes32 txId, uint256 leaseId, uint256 rawAmount)
+        external
+        whenNotPaused
+        returns (uint256 queueIndex, uint256 netOut)
+    {
+        if (depositProcessed[txId]) revert DepositAlreadyProcessed();
+
+        if (subjectivePreEntitlementByTxId[txId].sponsor != address(0)) revert SubjectivePreEntitlementAlreadyExists();
+
+        if (rawAmount == 0) revert ZeroAmount();
+
+        // Validate lease exists and compute net payout under that lease's fixed fee schedule.
+        Lease storage lease = _leaseStorage(leaseId);
+        netOut = _computeNetOut(lease, rawAmount);
+        if (netOut == 0) revert SubjectiveNetOutZero();
+
+        // Snapshot payout config (as of sponsor action) for claim creation.
+        PayoutConfig storage p = lease.payout;
+
+        // Validate that this payout route is currently supported/configured.
+        _enforcePayoutConfigRoutable(p.targetChainId, p.targetToken);
+
+        // Enforce sponsor principal availability.
+        uint256 principal = lpPrincipal[msg.sender];
+        if (principal < netOut) revert InsufficientLpPrincipal();
+
+        // Debit principal before creating a claim.
+        lpPrincipal[msg.sender] = principal - netOut;
+
+        uint256 claimId;
+        (queueIndex, claimId) =
+            _enqueueClaimForTargetToken(p.targetToken, netOut, leaseId, p.targetChainId, p.beneficiary);
+
+        // Record subjective intent and the created claim location for later reimbursement.
+        subjectivePreEntitlementByTxId[txId] = SubjectivePreEntitlement({
+            sponsor: msg.sender, leaseId: leaseId, rawAmount: rawAmount, queueIndex: queueIndex, claimId: claimId
+        });
+
+        _emitSubjectivePreEntitleClaimCreated(leaseId, claimId, p, queueIndex, netOut, txId, msg.sender, rawAmount);
     }
 
     /* solhint-enable function-max-lines */
@@ -1679,6 +1771,126 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         return (queueIndex, claimId);
     }
 
+    /// @notice Emit a `ClaimCreated` event for a claim created by `preEntitle`.
+    /// @param leaseId Lease id producing the claim.
+    /// @param claimId Per-lease claim id assigned to the new claim.
+    /// @param p Payout config used at claim creation time (lease-local config snapshot).
+    /// @param queueIndex Index in `claimsByTargetToken[p.targetToken]` where the claim was appended.
+    /// @param amountUsdt Claim amount in USDT units (net after lease fees).
+    /// @param txId Proven Tron tx id (sha256(raw_data)).
+    /// @param tronBlockTimestamp Tron block timestamp for the proved tx.
+    /// @param rawAmount Raw TRC-20 amount recognized (before fees).
+    function _emitPreEntitleClaimCreated(
+        uint256 leaseId,
+        uint256 claimId,
+        PayoutConfig storage p,
+        uint256 queueIndex,
+        uint256 amountUsdt,
+        bytes32 txId,
+        uint32 tronBlockTimestamp,
+        uint256 rawAmount
+    ) internal {
+        _emitClaimCreated(
+            ClaimCreatedArgs({
+                leaseId: leaseId,
+                claimId: claimId,
+                targetToken: p.targetToken,
+                queueIndex: queueIndex,
+                amountUsdt: amountUsdt,
+                targetChainId: p.targetChainId,
+                beneficiary: p.beneficiary,
+                origin: ClaimOrigin.PRE_ENTITLE,
+                originId: txId,
+                originActor: address(0),
+                originToken: address(0),
+                originTimestamp: uint64(tronBlockTimestamp),
+                originRawAmount: rawAmount
+            })
+        );
+    }
+
+    /// @notice Emit a `ClaimCreated` event for a claim created by `subjectivePreEntitle`.
+    /// @dev This claim is indistinguishable to the `fill()` pipeline from any other claim; only the `origin` metadata differs.
+    /// @param leaseId Lease id producing the claim.
+    /// @param claimId Per-lease claim id assigned to the new claim.
+    /// @param p Payout config used at claim creation time (lease-local config snapshot).
+    /// @param queueIndex Index in `claimsByTargetToken[p.targetToken]` where the claim was appended.
+    /// @param amountUsdt Claim amount in USDT units (net after lease fees).
+    /// @param txId Anticipated Tron tx id (sha256(raw_data)).
+    /// @param sponsor LP address whose principal was debited to create this claim.
+    /// @param rawAmount Sponsor-provided raw amount guess (before fees).
+    function _emitSubjectivePreEntitleClaimCreated(
+        uint256 leaseId,
+        uint256 claimId,
+        PayoutConfig storage p,
+        uint256 queueIndex,
+        uint256 amountUsdt,
+        bytes32 txId,
+        address sponsor,
+        uint256 rawAmount
+    ) internal {
+        _emitClaimCreated(
+            ClaimCreatedArgs({
+                leaseId: leaseId,
+                claimId: claimId,
+                targetToken: p.targetToken,
+                queueIndex: queueIndex,
+                amountUsdt: amountUsdt,
+                targetChainId: p.targetChainId,
+                beneficiary: p.beneficiary,
+                origin: ClaimOrigin.SUBJECTIVE_PRE_ENTITLE,
+                originId: txId,
+                originActor: sponsor,
+                originToken: address(0),
+                originTimestamp: 0,
+                originRawAmount: rawAmount
+            })
+        );
+    }
+
+    /* solhint-enable function-max-lines */
+
+    /// @notice Enqueue and emit a claim created when processing a `PulledFromReceiver` event's remaining profit volume.
+    /// @dev This is only used for the "remaining" (profit) part, not for backing repayments.
+    /// @param leaseId Lease id active at `dumpTimestamp`.
+    /// @param cur Lease storage pointer (same as `_leaseStorage(leaseId)` but already loaded by caller).
+    /// @param amountUsdt Net claim amount in USDT units (after lease fees).
+    /// @param receiverSalt Receiver salt affected by the pull.
+    /// @param token Token address reported by the controller event.
+    /// @param dumpTimestamp Tron timestamp at which the pull occurred (seconds since epoch).
+    /// @param rawAmount Raw USDT-equivalent amount being treated as newly recognized profit volume (before fees).
+    function _enqueueReceiverPullClaim(
+        uint256 leaseId,
+        Lease storage cur,
+        uint256 amountUsdt,
+        bytes32 receiverSalt,
+        address token,
+        uint64 dumpTimestamp,
+        uint256 rawAmount
+    ) internal {
+        // Enqueue claim using the current payout config.
+        PayoutConfig storage p = cur.payout;
+        (uint256 queueIndex, uint256 claimId) =
+            _enqueueClaimForTargetToken(p.targetToken, amountUsdt, leaseId, p.targetChainId, p.beneficiary);
+        _emitClaimCreated(
+            ClaimCreatedArgs({
+                leaseId: leaseId,
+                claimId: claimId,
+                targetToken: p.targetToken,
+                queueIndex: queueIndex,
+                amountUsdt: amountUsdt,
+                targetChainId: p.targetChainId,
+                beneficiary: p.beneficiary,
+                origin: ClaimOrigin.RECEIVER_PULL,
+                originId: receiverSalt,
+                originActor: address(0),
+                originToken: token,
+                originTimestamp: dumpTimestamp,
+                originRawAmount: rawAmount
+            })
+        );
+    }
+
     /* solhint-disable function-max-lines */
 
     /// @notice The internal function for processing PulledFromReceiver controller events.
@@ -1753,13 +1965,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
             uint256 netOut = _computeNetOut(cur, remaining);
             _bookFee(remaining, netOut);
             if (netOut > 0) {
-                // Enqueue claim using the current payout config.
-                PayoutConfig storage p = cur.payout;
-                (uint256 queueIndex, uint256 claimId) =
-                    _enqueueClaimForTargetToken(p.targetToken, netOut, currentLeaseId, p.targetChainId, p.beneficiary);
-                _emitClaimCreated(
-                    currentLeaseId, claimId, p.targetToken, queueIndex, netOut, p.targetChainId, p.beneficiary
-                );
+                _enqueueReceiverPullClaim(currentLeaseId, cur, netOut, receiverSalt, token, dumpTimestamp, remaining);
             }
         }
     }
@@ -1829,6 +2035,52 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     function _leaseStartTime() internal view returns (uint64 startTime) {
         // Record the lease start time as the EVM chain timestamp.
         startTime = uint64(block.timestamp);
+    }
+
+    /// @notice Decode a proved Tron `TriggerSmartContract` call as a recognizable TRC-20 USDT deposit into a receiver.
+    /// @dev This is used by `preEntitle` to:
+    /// - enforce the called contract is `tronUsdt_`,
+    /// - enforce the decoded recipient matches the deterministic receiver for `receiverSalt`,
+    /// - and extract the raw transferred amount (`amountQ`) in USDT units (6 decimals expected, but treated as raw).
+    /// @param receiverSalt CREATE2 salt used to derive the receiver address on Tron.
+    /// @param toTron Tron contract address being called (must match `tronUsdt_`).
+    /// @param senderTron Tron sender address for calldata decoding context.
+    /// @param data Tron calldata for the `TriggerSmartContract` call.
+    /// @param tronUsdt_ Expected Tron USDT address (as an EVM address representation).
+    /// @return amountQ Decoded raw TRC-20 transfer amount (before fees).
+    function _decodeRecognizableTronUsdtDepositAmount(
+        bytes32 receiverSalt,
+        bytes21 toTron,
+        bytes21 senderTron,
+        bytes memory data,
+        address tronUsdt_
+    ) internal view returns (uint256 amountQ) {
+        if (toTron != TronCalldataUtils.evmToTronAddress(tronUsdt_)) revert NotTronUsdt();
+
+        // Sanity-check that the TRC-20 transfer goes into the expected receiver.
+        address predictedReceiver = predictReceiverAddress(CONTROLLER_ADDRESS, receiverSalt);
+        bytes21 expectedToTron = TronCalldataUtils.evmToTronAddress(predictedReceiver);
+        (, bytes21 decodedToTron, uint256 decodedAmountQ) = TronCalldataUtils.decodeTrc20FromCalldata(data, senderTron);
+        if (decodedToTron != expectedToTron) revert InvalidReceiverForSalt();
+        return decodedAmountQ;
+    }
+
+    /// @notice Enforce that a proved deposit timestamp is strictly after the latest observed receiver pull for this receiver+token.
+    /// @dev Prevents recognizing deposits that occurred at/before a known pull, which would break backing ordering assumptions.
+    /// @param receiverSalt CREATE2 salt used to derive the receiver address on Tron.
+    /// @param tronUsdt_ Expected Tron USDT token address (as an EVM address representation).
+    /// @param tronBlockTimestamp Tron block timestamp for the proved tx.
+    function _enforceDepositNotAfterLastReceiverPull(bytes32 receiverSalt, address tronUsdt_, uint32 tronBlockTimestamp)
+        internal
+        view
+    {
+        // Do not recognize deposits that occurred at/before the latest known `PulledFromReceiver` timestamp
+        // for this receiver salt and token.
+        uint64 lastPullTs = lastReceiverPullTimestampByToken[receiverSalt][tronUsdt_];
+        // solhint-disable-next-line gas-strict-inequalities
+        if (lastPullTs != 0 && uint64(tronBlockTimestamp) <= lastPullTs) {
+            revert DepositNotAfterLastReceiverPull();
+        }
     }
 
     /// @notice Enforce that a payout config is valid to set (not deprecated + routable).
