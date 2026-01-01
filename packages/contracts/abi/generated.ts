@@ -8877,6 +8877,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'effectiveMaxLeaseDurationSeconds',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'eip712Domain',
     outputs: [
@@ -9149,7 +9156,21 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [],
+    name: 'protocolFloorFlatFee',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'protocolFloorPpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'protocolMaxLeaseDurationSeconds',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -9173,7 +9194,21 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'realtorMaxLeaseDurationSeconds',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
     name: 'realtorMinFeePpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'realtorMinFlatFee',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -9290,8 +9325,28 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'floorFlatFee', internalType: 'uint64', type: 'uint64' }],
+    name: 'setProtocolFloorFlatFee',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'floorPpm', internalType: 'uint256', type: 'uint256' }],
     name: 'setProtocolFloorPpm',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+      },
+    ],
+    name: 'setProtocolMaxLeaseDurationSeconds',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -9320,9 +9375,33 @@ export const untronV3Abi = [
     type: 'function',
     inputs: [
       { name: 'realtor', internalType: 'address', type: 'address' },
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+      },
+    ],
+    name: 'setRealtorMaxLeaseDurationSeconds',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
       { name: 'minFeePpm', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'setRealtorMinFeePpm',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'minFlatFee', internalType: 'uint64', type: 'uint64' },
+    ],
+    name: 'setRealtorMinFlatFee',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -9846,6 +9925,19 @@ export const untronV3Abi = [
     anonymous: false,
     inputs: [
       {
+        name: 'floorFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolFlatFeeFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'floorPpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -9853,6 +9945,19 @@ export const untronV3Abi = [
       },
     ],
     name: 'ProtocolFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolMaxLeaseDurationSet',
   },
   {
     type: 'event',
@@ -9905,6 +10010,25 @@ export const untronV3Abi = [
         indexed: true,
       },
       {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMaxLeaseDurationSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
         name: 'minFeePpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -9912,6 +10036,25 @@ export const untronV3Abi = [
       },
     ],
     name: 'RealtorMinFeeSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'minFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMinFlatFeeSet',
   },
   {
     type: 'event',
@@ -10029,7 +10172,9 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'InvalidReceiverForSalt' },
   { type: 'error', inputs: [], name: 'InvalidSignature' },
   { type: 'error', inputs: [], name: 'InvalidTargetToken' },
+  { type: 'error', inputs: [], name: 'LeaseDurationTooLong' },
   { type: 'error', inputs: [], name: 'LeaseFeeTooLow' },
+  { type: 'error', inputs: [], name: 'LeaseFlatFeeTooLow' },
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitConfigInvalid' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitExceeded' },
@@ -10207,6 +10352,13 @@ export const untronV3HarnessAbi = [
       { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
       { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
     ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'effectiveMaxLeaseDurationSeconds',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -10541,7 +10693,21 @@ export const untronV3HarnessAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'protocolFloorFlatFee',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'protocolFloorPpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'protocolMaxLeaseDurationSeconds',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -10577,7 +10743,21 @@ export const untronV3HarnessAbi = [
   {
     type: 'function',
     inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'realtorMaxLeaseDurationSeconds',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
     name: 'realtorMinFeePpm',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
+    name: 'realtorMinFlatFee',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -10694,8 +10874,28 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'floorFlatFee', internalType: 'uint64', type: 'uint64' }],
+    name: 'setProtocolFloorFlatFee',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'floorPpm', internalType: 'uint256', type: 'uint256' }],
     name: 'setProtocolFloorPpm',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+      },
+    ],
+    name: 'setProtocolMaxLeaseDurationSeconds',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -10724,9 +10924,33 @@ export const untronV3HarnessAbi = [
     type: 'function',
     inputs: [
       { name: 'realtor', internalType: 'address', type: 'address' },
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+      },
+    ],
+    name: 'setRealtorMaxLeaseDurationSeconds',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
       { name: 'minFeePpm', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'setRealtorMinFeePpm',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'minFlatFee', internalType: 'uint64', type: 'uint64' },
+    ],
+    name: 'setRealtorMinFlatFee',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -11250,6 +11474,19 @@ export const untronV3HarnessAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'floorFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolFlatFeeFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'floorPpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -11257,6 +11494,19 @@ export const untronV3HarnessAbi = [
       },
     ],
     name: 'ProtocolFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolMaxLeaseDurationSet',
   },
   {
     type: 'event',
@@ -11309,6 +11559,25 @@ export const untronV3HarnessAbi = [
         indexed: true,
       },
       {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMaxLeaseDurationSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
         name: 'minFeePpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -11316,6 +11585,25 @@ export const untronV3HarnessAbi = [
       },
     ],
     name: 'RealtorMinFeeSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'minFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMinFlatFeeSet',
   },
   {
     type: 'event',
@@ -11433,7 +11721,9 @@ export const untronV3HarnessAbi = [
   { type: 'error', inputs: [], name: 'InvalidReceiverForSalt' },
   { type: 'error', inputs: [], name: 'InvalidSignature' },
   { type: 'error', inputs: [], name: 'InvalidTargetToken' },
+  { type: 'error', inputs: [], name: 'LeaseDurationTooLong' },
   { type: 'error', inputs: [], name: 'LeaseFeeTooLow' },
+  { type: 'error', inputs: [], name: 'LeaseFlatFeeTooLow' },
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitConfigInvalid' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitExceeded' },
@@ -11896,6 +12186,19 @@ export const untronV3IndexAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'floorFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolFlatFeeFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'floorPpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -11903,6 +12206,19 @@ export const untronV3IndexAbi = [
       },
     ],
     name: 'ProtocolFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolMaxLeaseDurationSet',
   },
   {
     type: 'event',
@@ -11955,6 +12271,25 @@ export const untronV3IndexAbi = [
         indexed: true,
       },
       {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMaxLeaseDurationSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
         name: 'minFeePpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -11962,6 +12297,25 @@ export const untronV3IndexAbi = [
       },
     ],
     name: 'RealtorMinFeeSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'minFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMinFlatFeeSet',
   },
   {
     type: 'event',
@@ -12509,6 +12863,19 @@ export const untronV3IndexedOwnableAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'floorFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolFlatFeeFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'floorPpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -12516,6 +12883,19 @@ export const untronV3IndexedOwnableAbi = [
       },
     ],
     name: 'ProtocolFloorSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'ProtocolMaxLeaseDurationSet',
   },
   {
     type: 'event',
@@ -12568,6 +12948,25 @@ export const untronV3IndexedOwnableAbi = [
         indexed: true,
       },
       {
+        name: 'maxLeaseDurationSeconds',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMaxLeaseDurationSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
         name: 'minFeePpm',
         internalType: 'uint256',
         type: 'uint256',
@@ -12575,6 +12974,25 @@ export const untronV3IndexedOwnableAbi = [
       },
     ],
     name: 'RealtorMinFeeSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'realtor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'minFlatFee',
+        internalType: 'uint64',
+        type: 'uint64',
+        indexed: false,
+      },
+    ],
+    name: 'RealtorMinFlatFeeSet',
   },
   {
     type: 'event',

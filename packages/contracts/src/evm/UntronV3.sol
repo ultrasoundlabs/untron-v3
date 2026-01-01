@@ -52,7 +52,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Protocol-wide configuration set by the owner.
-    /// @dev Stored as `uint32` to reduce storage and because values are naturally bounded.
+    /// @dev Stored as small ints to reduce storage and because values are naturally bounded.
     struct ProtocolConfig {
         /// @notice Protocol-wide minimum fee, in parts-per-million (ppm) of recognized raw volume.
         /// @dev Applied as a floor for every lease; realtor-specific `minFeePpm` can raise it.
@@ -61,6 +61,12 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint32 payoutConfigRateLimitMaxUpdates;
         /// @notice Sliding window length (seconds) for payout-config update rate limiting.
         uint32 payoutConfigRateLimitWindowSeconds;
+        /// @notice Protocol-wide minimum flat fee (in USDT units) applied as a floor for every lease.
+        /// @dev Realtor-specific `minFlatFee` can raise it.
+        uint64 floorFlatFee;
+        /// @notice Protocol-wide maximum lease duration (seconds), measured as `nukeableAfter - startTime`.
+        /// @dev If 0, max duration is disabled at protocol level.
+        uint32 maxLeaseDurationSeconds;
     }
 
     /// @notice Realtor-specific configuration set by the owner.
@@ -71,6 +77,11 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint32 leaseRateLimitMaxLeases;
         /// @notice Realtor-specific lease creation window seconds.
         uint32 leaseRateLimitWindowSeconds;
+        /// @notice Realtor-specific minimum flat fee (in USDT units). Effective minimum is `max(protocolFloorFlatFee, minFlatFee)`.
+        uint64 minFlatFee;
+        /// @notice Realtor-specific maximum lease duration (seconds), measured as `nukeableAfter - startTime`.
+        /// @dev If 0, no realtor-specific max is applied.
+        uint32 maxLeaseDurationSeconds;
     }
 
     /// @notice Per-lease payout configuration, mutable by the lessee.
@@ -379,8 +390,12 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     error NotRealtor();
     /// @notice Thrown when a proposed lease fee is outside the allowed bounds or below configured floors.
     error LeaseFeeTooLow();
+    /// @notice Thrown when a proposed lease flat fee is below configured floors.
+    error LeaseFlatFeeTooLow();
     /// @notice Thrown when a proposed lease timeframe is invalid (e.g. nukeableAfter in the past).
     error InvalidLeaseTimeframe();
+    /// @notice Thrown when a proposed lease duration exceeds configured maximums.
+    error LeaseDurationTooLong();
     /// @notice Thrown when trying to create a new lease for a receiver before the previous one is nukeable.
     error LeaseNotNukeableYet();
     /// @notice Thrown when referencing a lease id that does not exist.
@@ -522,6 +537,22 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         _emitProtocolFloorSet(floorPpm);
     }
 
+    /// @notice Set the protocol-wide minimum flat fee floor, in USDT units.
+    /// @dev Effective minimum for a given realtor is `max(protocolFloorFlatFee, realtorMinFlatFee(realtor))`.
+    /// @param floorFlatFee Fee floor in USDT units.
+    function setProtocolFloorFlatFee(uint64 floorFlatFee) external onlyOwner {
+        _protocolConfig.floorFlatFee = floorFlatFee;
+        _emitProtocolFlatFeeFloorSet(floorFlatFee);
+    }
+
+    /// @notice Set the protocol-wide maximum lease duration in seconds.
+    /// @dev Duration is measured as `nukeableAfter - startTime`. If set to 0, max duration is disabled.
+    /// @param maxLeaseDurationSeconds Maximum allowed duration in seconds (0 disables).
+    function setProtocolMaxLeaseDurationSeconds(uint32 maxLeaseDurationSeconds) external onlyOwner {
+        _protocolConfig.maxLeaseDurationSeconds = maxLeaseDurationSeconds;
+        _emitProtocolMaxLeaseDurationSet(maxLeaseDurationSeconds);
+    }
+
     /// @notice Set the realtor-specific minimum fee floor, in parts-per-million (ppm).
     /// @dev This can only increase the effective minimum fee for leases created by `realtor`.
     /// @param realtor Realtor whose override is being set.
@@ -535,6 +566,24 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
         // Emit via UntronV3Index (and append to event chain).
         _emitRealtorMinFeeSet(realtor, minFeePpm);
+    }
+
+    /// @notice Set the realtor-specific minimum flat fee floor, in USDT units.
+    /// @dev This can only increase the effective minimum flat fee for leases created by `realtor`.
+    /// @param realtor Realtor whose override is being set.
+    /// @param minFlatFee Fee floor in USDT units.
+    function setRealtorMinFlatFee(address realtor, uint64 minFlatFee) external onlyOwner {
+        _realtorConfig[realtor].minFlatFee = minFlatFee;
+        _emitRealtorMinFlatFeeSet(realtor, minFlatFee);
+    }
+
+    /// @notice Set the realtor-specific maximum lease duration in seconds.
+    /// @dev Duration is measured as `nukeableAfter - startTime`. If set to 0, no realtor-specific max is applied.
+    /// @param realtor Realtor whose override is being set.
+    /// @param maxLeaseDurationSeconds Maximum allowed duration in seconds (0 disables realtor-specific max).
+    function setRealtorMaxLeaseDurationSeconds(address realtor, uint32 maxLeaseDurationSeconds) external onlyOwner {
+        _realtorConfig[realtor].maxLeaseDurationSeconds = maxLeaseDurationSeconds;
+        _emitRealtorMaxLeaseDurationSet(realtor, maxLeaseDurationSeconds);
     }
 
     /// @notice Configure the protocol-wide lessee payout-config update rate limit.
@@ -697,8 +746,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// - Caller must be a whitelisted realtor (`isRealtor[msg.sender] == true`).
     /// - Realtor must satisfy the effective lease creation rate limit.
     /// - `leaseFeePpm` must be within `[minFee, 1_000_000]`, where `minFee = max(protocol floor, realtor min)`.
+    /// - `flatFee` must be within `[minFlatFee, type(uint64).max]`, where `minFlatFee = max(protocol floor, realtor min)`.
     /// - `targetChainId` must not be deprecated.
     /// - `nukeableAfter` must be >= current timestamp.
+    /// - Lease duration (`nukeableAfter - startTime`) must not exceed the effective configured maximum.
     /// - For a reused `receiverSalt`, the previous lease must already be nukeable.
     /// - The payout config must be routable (rate set if `targetToken != usdt`; bridger set if `targetChainId != block.chainid`).
     ///
@@ -724,7 +775,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         address beneficiary
     ) external whenNotPaused returns (uint256 leaseId) {
         address realtor = msg.sender;
-        _enforceCreateLeasePreconditions(realtor, receiverSalt, nukeableAfter, leaseFeePpm, targetChainId);
+        _enforceCreateLeasePreconditions(realtor, receiverSalt, nukeableAfter, leaseFeePpm, flatFee, targetChainId);
 
         // Validate that the payout route is currently supported/configured.
         // This makes lease creation fail fast if rate/bridger isn't configured yet.
@@ -1290,12 +1341,48 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         return uint256(_protocolConfig.floorPpm);
     }
 
+    /// @notice Returns the protocol-wide minimum flat fee in USDT units.
+    /// @return floorFlatFee Protocol-wide flat fee floor in USDT units.
+    function protocolFloorFlatFee() public view returns (uint256) {
+        return uint256(_protocolConfig.floorFlatFee);
+    }
+
+    /// @notice Returns the protocol-wide maximum lease duration in seconds.
+    /// @dev 0 means no protocol-level duration cap.
+    /// @return maxLeaseDurationSeconds Protocol-wide max lease duration in seconds (0 disables).
+    function protocolMaxLeaseDurationSeconds() public view returns (uint256) {
+        return uint256(_protocolConfig.maxLeaseDurationSeconds);
+    }
+
     /// @notice Returns the realtor-specific minimum fee override in parts per million.
     /// @dev Preserves the legacy public getter name.
     /// @param realtor Realtor to query.
     /// @return minFeePpm Realtor-specific fee floor in ppm.
     function realtorMinFeePpm(address realtor) public view returns (uint256) {
         return uint256(_realtorConfig[realtor].minFeePpm);
+    }
+
+    /// @notice Returns the realtor-specific minimum flat fee override in USDT units.
+    /// @param realtor Realtor to query.
+    /// @return minFlatFee Realtor-specific flat fee floor in USDT units.
+    function realtorMinFlatFee(address realtor) public view returns (uint256) {
+        return uint256(_realtorConfig[realtor].minFlatFee);
+    }
+
+    /// @notice Returns the realtor-specific maximum lease duration in seconds.
+    /// @dev 0 means no realtor-specific duration cap.
+    /// @param realtor Realtor to query.
+    /// @return maxLeaseDurationSeconds Realtor-specific max lease duration in seconds (0 disables).
+    function realtorMaxLeaseDurationSeconds(address realtor) public view returns (uint256) {
+        return uint256(_realtorConfig[realtor].maxLeaseDurationSeconds);
+    }
+
+    /// @notice Returns the effective maximum lease duration in seconds for a given realtor.
+    /// @dev 0 means max duration is disabled.
+    /// @param realtor Realtor to query.
+    /// @return maxLeaseDurationSeconds Effective max lease duration in seconds (0 disables).
+    function effectiveMaxLeaseDurationSeconds(address realtor) public view returns (uint256) {
+        return _maxLeaseDurationSeconds(realtor);
     }
 
     /// @notice Returns the current USDT balance held by this contract.
@@ -1379,12 +1466,14 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @param receiverSalt CREATE2 receiver salt for the deterministic Tron receiver.
     /// @param nukeableAfter Earliest time at which a subsequent lease for this receiver may be created.
     /// @param leaseFeePpm Lease fee in ppm to validate against configured floors/bounds.
+    /// @param flatFee Lease flat fee in USDT units to validate against configured floors.
     /// @param targetChainId Destination chain id to validate against deprecations.
     function _enforceCreateLeasePreconditions(
         address realtor,
         bytes32 receiverSalt,
         uint64 nukeableAfter,
         uint32 leaseFeePpm,
+        uint64 flatFee,
         uint256 targetChainId
     ) internal {
         // Realtors are the only actors allowed to create leases.
@@ -1397,11 +1486,22 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint256 minFee = _minLeaseFeePpm(realtor);
         if (leaseFeePpm < minFee || leaseFeePpm > _PPM_DENOMINATOR) revert LeaseFeeTooLow();
 
+        // Enforce flat fee floors.
+        uint256 minFlatFee = _minLeaseFlatFee(realtor);
+        if (uint256(flatFee) < minFlatFee) revert LeaseFlatFeeTooLow();
+
         // Disallow creating leases that immediately target a deprecated chain.
         if (isChainDeprecated[targetChainId]) revert ChainDeprecated();
 
+        uint64 startTime = _leaseStartTime();
         // Prevent leases that are already nukeable (nukeableAfter must be in the future/present).
-        if (nukeableAfter < _leaseStartTime()) revert InvalidLeaseTimeframe();
+        if (nukeableAfter < startTime) revert InvalidLeaseTimeframe();
+
+        uint256 maxDuration = _maxLeaseDurationSeconds(realtor);
+        if (maxDuration != 0) {
+            uint256 duration = uint256(nukeableAfter) - uint256(startTime);
+            if (duration > maxDuration) revert LeaseDurationTooLong();
+        }
 
         // Uniqueness is enforced per receiver salt regardless of token.
         uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
@@ -1817,6 +1917,29 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint256 realtorMin = uint256(_realtorConfig[realtor].minFeePpm);
         if (realtorMin > minFee) minFee = realtorMin;
         return minFee;
+    }
+
+    /// @notice Compute the effective minimum lease flat fee for a given realtor.
+    /// @param realtor Realtor to compute minimum for.
+    /// @return minFlatFee The maximum of protocol-wide and realtor-specific flat fee floors.
+    function _minLeaseFlatFee(address realtor) internal view returns (uint256) {
+        uint256 minFlatFee = uint256(_protocolConfig.floorFlatFee);
+        uint256 realtorMin = uint256(_realtorConfig[realtor].minFlatFee);
+        if (realtorMin > minFlatFee) minFlatFee = realtorMin;
+        return minFlatFee;
+    }
+
+    /// @notice Compute the effective maximum lease duration for a given realtor.
+    /// @dev If both protocol and realtor configs are 0, max duration is disabled (returns 0).
+    /// @param realtor Realtor to compute max duration for.
+    /// @return maxDurationSeconds Effective max duration in seconds (0 disables).
+    function _maxLeaseDurationSeconds(address realtor) internal view returns (uint256) {
+        uint256 protocolMax = uint256(_protocolConfig.maxLeaseDurationSeconds);
+        uint256 realtorMax = uint256(_realtorConfig[realtor].maxLeaseDurationSeconds);
+
+        if (protocolMax == 0) return realtorMax;
+        if (realtorMax == 0) return protocolMax;
+        return (realtorMax < protocolMax) ? realtorMax : protocolMax;
     }
 
     /// @notice Find the lease that was active for `receiverSalt` at timestamp `ts`.

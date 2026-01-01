@@ -260,4 +260,77 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         );
         assertEq(leaseId, 2);
     }
+
+    function testCreateLeaseEnforcesFlatFeeFloors() public {
+        _untron.setProtocolFloorFlatFee(uint64(10));
+        _untron.setRealtorMinFlatFee(address(this), uint64(20));
+
+        assertEq(_untron.protocolFloorFlatFee(), 10);
+        assertEq(_untron.realtorMinFlatFee(address(this)), 20);
+
+        vm.expectRevert(UntronV3.LeaseFlatFeeTooLow.selector);
+        _untron.createLease(
+            keccak256("salt_flat_fee_too_low"),
+            address(0xBEEF),
+            uint64(block.timestamp + 1 days),
+            0,
+            uint64(19),
+            block.chainid,
+            address(_usdt),
+            address(0xB0B)
+        );
+
+        uint256 leaseId = _untron.createLease(
+            keccak256("salt_flat_fee_ok"),
+            address(0xBEEF),
+            uint64(block.timestamp + 1 days),
+            0,
+            uint64(20),
+            block.chainid,
+            address(_usdt),
+            address(0xB0B)
+        );
+        assertEq(leaseId, 1);
+    }
+
+    function testCreateLeaseEnforcesMaxDuration() public {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        _untron.setProtocolMaxLeaseDurationSeconds(uint32(1 days));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        assertEq(_untron.protocolMaxLeaseDurationSeconds(), uint32(1 days));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        assertEq(_untron.effectiveMaxLeaseDurationSeconds(address(this)), uint32(1 days));
+
+        vm.expectRevert(UntronV3.LeaseDurationTooLong.selector);
+        _untron.createLease(
+            keccak256("salt_duration_too_long"),
+            address(0xBEEF),
+            uint64(block.timestamp + 1 days + 1),
+            0,
+            0,
+            block.chainid,
+            address(_usdt),
+            address(0xB0B)
+        );
+
+        // Realtor-specific max duration combines with protocol max as the stricter of the two.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        _untron.setRealtorMaxLeaseDurationSeconds(address(this), uint32(6 hours));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        assertEq(_untron.realtorMaxLeaseDurationSeconds(address(this)), uint32(6 hours));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        assertEq(_untron.effectiveMaxLeaseDurationSeconds(address(this)), uint32(6 hours));
+
+        vm.expectRevert(UntronV3.LeaseDurationTooLong.selector);
+        _untron.createLease(
+            keccak256("salt_duration_realtor_too_long"),
+            address(0xBEEF),
+            uint64(block.timestamp + 6 hours + 1),
+            0,
+            0,
+            block.chainid,
+            address(_usdt),
+            address(0xB0B)
+        );
+    }
 }

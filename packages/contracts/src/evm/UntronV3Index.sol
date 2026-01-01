@@ -54,10 +54,28 @@ contract UntronV3Index {
     /// @param floorPpm The floor in parts-per-million.
     event ProtocolFloorSet(uint256 floorPpm);
 
+    /// @notice Emitted when the protocol flat fee floor is set.
+    /// @param floorFlatFee The floor flat fee in USDT units.
+    event ProtocolFlatFeeFloorSet(uint64 floorFlatFee);
+
+    /// @notice Emitted when the protocol max lease duration is set.
+    /// @param maxLeaseDurationSeconds The max lease duration in seconds (0 disables).
+    event ProtocolMaxLeaseDurationSet(uint32 maxLeaseDurationSeconds);
+
     /// @notice Emitted when a realtor minimum fee (in PPM) is set.
     /// @param realtor The realtor address.
     /// @param minFeePpm The minimum fee in parts-per-million.
     event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
+
+    /// @notice Emitted when a realtor minimum flat fee (in USDT units) is set.
+    /// @param realtor The realtor address.
+    /// @param minFlatFee The minimum flat fee in USDT units.
+    event RealtorMinFlatFeeSet(address indexed realtor, uint64 minFlatFee);
+
+    /// @notice Emitted when a realtor max lease duration is set.
+    /// @param realtor The realtor address.
+    /// @param maxLeaseDurationSeconds The max lease duration in seconds (0 disables).
+    event RealtorMaxLeaseDurationSet(address indexed realtor, uint32 maxLeaseDurationSeconds);
 
     /// @notice Emitted when a realtor-specific lease rate limit is set.
     /// @param realtor The realtor address.
@@ -276,12 +294,42 @@ contract UntronV3Index {
         emit ProtocolFloorSet(floorPpm);
     }
 
+    /// @notice Emits {ProtocolFlatFeeFloorSet} and appends it to the event chain.
+    /// @param floorFlatFee The floor flat fee in USDT units.
+    function _emitProtocolFlatFeeFloorSet(uint64 floorFlatFee) internal {
+        _appendEventChain(ProtocolFlatFeeFloorSet.selector, abi.encode(floorFlatFee));
+        emit ProtocolFlatFeeFloorSet(floorFlatFee);
+    }
+
+    /// @notice Emits {ProtocolMaxLeaseDurationSet} and appends it to the event chain.
+    /// @param maxLeaseDurationSeconds The max lease duration in seconds (0 disables).
+    function _emitProtocolMaxLeaseDurationSet(uint32 maxLeaseDurationSeconds) internal {
+        _appendEventChain(ProtocolMaxLeaseDurationSet.selector, abi.encode(maxLeaseDurationSeconds));
+        emit ProtocolMaxLeaseDurationSet(maxLeaseDurationSeconds);
+    }
+
     /// @notice Emits {RealtorMinFeeSet} and appends it to the event chain.
     /// @param realtor The realtor address.
     /// @param minFeePpm The minimum fee in parts-per-million.
     function _emitRealtorMinFeeSet(address realtor, uint256 minFeePpm) internal {
         _appendEventChain(RealtorMinFeeSet.selector, abi.encode(realtor, minFeePpm));
         emit RealtorMinFeeSet(realtor, minFeePpm);
+    }
+
+    /// @notice Emits {RealtorMinFlatFeeSet} and appends it to the event chain.
+    /// @param realtor The realtor address.
+    /// @param minFlatFee The minimum flat fee in USDT units.
+    function _emitRealtorMinFlatFeeSet(address realtor, uint64 minFlatFee) internal {
+        _appendEventChain(RealtorMinFlatFeeSet.selector, abi.encode(realtor, minFlatFee));
+        emit RealtorMinFlatFeeSet(realtor, minFlatFee);
+    }
+
+    /// @notice Emits {RealtorMaxLeaseDurationSet} and appends it to the event chain.
+    /// @param realtor The realtor address.
+    /// @param maxLeaseDurationSeconds The max lease duration in seconds (0 disables).
+    function _emitRealtorMaxLeaseDurationSet(address realtor, uint32 maxLeaseDurationSeconds) internal {
+        _appendEventChain(RealtorMaxLeaseDurationSet.selector, abi.encode(realtor, maxLeaseDurationSeconds));
+        emit RealtorMaxLeaseDurationSet(realtor, maxLeaseDurationSeconds);
     }
 
     /// @notice Emits {LesseePayoutConfigRateLimitSet} and appends it to the event chain.
