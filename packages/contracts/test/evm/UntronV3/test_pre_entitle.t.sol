@@ -49,8 +49,9 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
 
         // Claim created for netOut.
         assertEq(_untron.claimQueueLength(address(_usdt)), 1);
-        (uint256 amountUsdt, uint256 claimLeaseId, uint256 targetChainId, address beneficiary) =
+        (uint256 claimId, uint256 amountUsdt, uint256 claimLeaseId, uint256 targetChainId, address beneficiary) =
             _untron.claimsByTargetToken(address(_usdt), claimIndex);
+        assertEq(claimId, 0);
         assertEq(amountUsdt, 99);
         assertEq(claimLeaseId, leaseId);
         assertEq(targetChainId, block.chainid);

@@ -25,8 +25,8 @@ contract UntronV3FillTest is UntronV3TestBase {
         assertEq(_usdt.balanceOf(beneficiary2), 20);
 
         assertEq(_untron.nextIndexByTargetToken(address(_usdt)), 2);
-        (uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), 0);
-        (uint256 a1,,,) = _untron.claimsByTargetToken(address(_usdt), 1);
+        (, uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), 0);
+        (, uint256 a1,,,) = _untron.claimsByTargetToken(address(_usdt), 1);
         assertEq(a0, 0);
         assertEq(a1, 0);
 
@@ -42,7 +42,7 @@ contract UntronV3FillTest is UntronV3TestBase {
         _untron.fill(address(_usdt), 0, noCalls);
 
         assertEq(_untron.nextIndexByTargetToken(address(_usdt)), 0);
-        (uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), 0);
+        (, uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), 0);
         assertEq(a0, 10);
     }
 
@@ -62,8 +62,8 @@ contract UntronV3FillTest is UntronV3TestBase {
         assertEq(_usdt.balanceOf(beneficiary2), 0);
         assertEq(_untron.nextIndexByTargetToken(address(_usdt)), 1);
 
-        (uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), 0);
-        (uint256 a1,,,) = _untron.claimsByTargetToken(address(_usdt), 1);
+        (, uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), 0);
+        (, uint256 a1,,,) = _untron.claimsByTargetToken(address(_usdt), 1);
         assertEq(a0, 0);
         assertEq(a1, 20);
     }
@@ -189,7 +189,7 @@ contract UntronV3FillTest is UntronV3TestBase {
 
         assertTrue(bridger.didCheckDeletion());
         assertTrue(bridger.didReenter());
-        (uint256 a0,,,) = _untron.claimsByTargetToken(address(_tokenX), 0);
+        (, uint256 a0,,,) = _untron.claimsByTargetToken(address(_tokenX), 0);
         assertEq(a0, 0);
     }
 

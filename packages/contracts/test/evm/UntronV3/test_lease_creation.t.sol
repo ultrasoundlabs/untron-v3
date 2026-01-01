@@ -164,17 +164,21 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
 
         // Claims should retain lease ids and beneficiaries.
         assertEq(_untron.claimQueueLength(address(_usdt)), 2);
-        (uint256 amt0, uint256 id0, uint256 chain0, address ben0) = _untron.claimsByTargetToken(address(_usdt), 0);
-        assertEq(amt0, 100);
-        assertEq(id0, lease1);
-        assertEq(chain0, block.chainid);
-        assertEq(ben0, address(0xAAA1));
+        {
+            (, uint256 amt0, uint256 id0, uint256 chain0, address ben0) = _untron.claimsByTargetToken(address(_usdt), 0);
+            assertEq(amt0, 100);
+            assertEq(id0, lease1);
+            assertEq(chain0, block.chainid);
+            assertEq(ben0, address(0xAAA1));
+        }
 
-        (uint256 amt1, uint256 id1, uint256 chain1, address ben1) = _untron.claimsByTargetToken(address(_usdt), 1);
-        assertEq(amt1, 100);
-        assertEq(id1, lease2);
-        assertEq(chain1, block.chainid);
-        assertEq(ben1, address(0xAAA2));
+        {
+            (, uint256 amt1, uint256 id1, uint256 chain1, address ben1) = _untron.claimsByTargetToken(address(_usdt), 1);
+            assertEq(amt1, 100);
+            assertEq(id1, lease2);
+            assertEq(chain1, block.chainid);
+            assertEq(ben1, address(0xAAA2));
+        }
     }
 
     function testCreateLeaseRoutabilityChecks() public {

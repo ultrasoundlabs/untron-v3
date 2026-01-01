@@ -8029,6 +8029,13 @@ export const untronControllerAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'eventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'executor',
     outputs: [{ name: '', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
@@ -8455,6 +8462,13 @@ export const untronControllerIndexAbi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'eventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'eventChainTip_', internalType: 'bytes32', type: 'bytes32' },
     ],
@@ -8787,11 +8801,25 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [
+      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'claimLocatorByLease',
+    outputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'queueIndex', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
       { name: '', internalType: 'address', type: 'address' },
       { name: '', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'claimsByTargetToken',
     outputs: [
+      { name: 'claimId', internalType: 'uint256', type: 'uint256' },
       { name: 'amountUsdt', internalType: 'uint256', type: 'uint256' },
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
@@ -8864,6 +8892,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'eventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [
       { name: 'targetToken', internalType: 'address', type: 'address' },
       { name: 'maxClaims', internalType: 'uint256', type: 'uint256' },
@@ -8894,6 +8929,13 @@ export const untronV3Abi = [
     inputs: [{ name: '', internalType: 'address', type: 'address' }],
     name: 'isRealtor',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'lastControllerEventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -8967,6 +9009,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'nextClaimIdByLease',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'nextControllerEventIndex',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -9018,7 +9067,7 @@ export const untronV3Abi = [
     ],
     name: 'preEntitle',
     outputs: [
-      { name: 'claimIndex', internalType: 'uint256', type: 'uint256' },
+      { name: 'queueIndex', internalType: 'uint256', type: 'uint256' },
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
       { name: 'netOut', internalType: 'uint256', type: 'uint256' },
     ],
@@ -9396,21 +9445,45 @@ export const untronV3Abi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -9421,21 +9494,45 @@ export const untronV3Abi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -10012,6 +10109,19 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'claimLocatorByLease',
+    outputs: [
+      { name: 'targetToken', internalType: 'address', type: 'address' },
+      { name: 'queueIndex', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'targetToken', internalType: 'address', type: 'address' }],
     name: 'claimQueueLength',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -10025,6 +10135,7 @@ export const untronV3HarnessAbi = [
     ],
     name: 'claimsByTargetToken',
     outputs: [
+      { name: 'claimId', internalType: 'uint256', type: 'uint256' },
       { name: 'amountUsdt', internalType: 'uint256', type: 'uint256' },
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
@@ -10129,6 +10240,13 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'eventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'a', internalType: 'address', type: 'address' }],
     name: 'evmToTron',
     outputs: [{ name: 'tron', internalType: 'bytes21', type: 'bytes21' }],
@@ -10185,6 +10303,13 @@ export const untronV3HarnessAbi = [
     inputs: [{ name: '', internalType: 'address', type: 'address' }],
     name: 'isRealtor',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'lastControllerEventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -10267,6 +10392,13 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'nextClaimIdByLease',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'nextControllerEventIndex',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -10318,7 +10450,7 @@ export const untronV3HarnessAbi = [
     ],
     name: 'preEntitle',
     outputs: [
-      { name: 'claimIndex', internalType: 'uint256', type: 'uint256' },
+      { name: 'queueIndex', internalType: 'uint256', type: 'uint256' },
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
       { name: 'netOut', internalType: 'uint256', type: 'uint256' },
     ],
@@ -10708,21 +10840,45 @@ export const untronV3HarnessAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -10733,21 +10889,45 @@ export const untronV3HarnessAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -11284,6 +11464,13 @@ export const untronV3IndexAbi = [
     stateMutability: 'view',
   },
   {
+    type: 'function',
+    inputs: [],
+    name: 'eventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
     type: 'event',
     anonymous: false,
     inputs: [
@@ -11332,21 +11519,45 @@ export const untronV3IndexAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -11357,21 +11568,45 @@ export const untronV3IndexAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -11843,6 +12078,13 @@ export const untronV3IndexedOwnableAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'eventSeq',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'owner',
     outputs: [{ name: 'result', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
@@ -11910,21 +12152,45 @@ export const untronV3IndexedOwnableAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],
@@ -11935,21 +12201,45 @@ export const untronV3IndexedOwnableAbi = [
     anonymous: false,
     inputs: [
       {
-        name: 'claimIndex',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: true,
-      },
-      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
         indexed: true,
       },
       {
+        name: 'claimId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'targetToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: false,
+      },
+      {
+        name: 'queueIndex',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
         name: 'amountUsdt',
         internalType: 'uint256',
         type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'targetChainId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'beneficiary',
+        internalType: 'address',
+        type: 'address',
         indexed: false,
       },
     ],

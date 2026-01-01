@@ -53,6 +53,7 @@ contract UntronControllerEventChainMulticallTest is Test {
         bytes32 expected = sha256(
             abi.encodePacked(
                 EventChainGenesis.UntronControllerIndex,
+                uint256(1),
                 block.number,
                 block.timestamp,
                 keccak256("OwnerChanged(address)"),
@@ -69,6 +70,7 @@ contract UntronControllerEventChainMulticallTest is Test {
         bytes32 expected2 = sha256(
             abi.encodePacked(
                 expected,
+                uint256(2),
                 block.number,
                 block.timestamp,
                 keccak256("ExecutorChanged(address)"),
@@ -111,6 +113,7 @@ contract UntronControllerEventChainMulticallTest is Test {
         bytes32 tip0 = sha256(
             abi.encodePacked(
                 EventChainGenesis.UntronControllerIndex,
+                uint256(1),
                 block.number,
                 block.timestamp,
                 keccak256("OwnerChanged(address)"),
@@ -132,12 +135,22 @@ contract UntronControllerEventChainMulticallTest is Test {
 
         bytes32 tip1 = sha256(
             abi.encodePacked(
-                tip0, block.number, block.timestamp, keccak256("ExecutorChanged(address)"), abi.encode(address(0xE0))
+                tip0,
+                uint256(2),
+                block.number,
+                block.timestamp,
+                keccak256("ExecutorChanged(address)"),
+                abi.encode(address(0xE0))
             )
         );
         bytes32 tip2 = sha256(
             abi.encodePacked(
-                tip1, block.number, block.timestamp, keccak256("UsdtSet(address)"), abi.encode(address(usdt))
+                tip1,
+                uint256(3),
+                block.number,
+                block.timestamp,
+                keccak256("UsdtSet(address)"),
+                abi.encode(address(usdt))
             )
         );
 

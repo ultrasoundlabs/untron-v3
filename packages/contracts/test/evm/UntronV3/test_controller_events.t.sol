@@ -88,6 +88,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
 
     function testRelayControllerEventChainProgressAndHashLinking() public {
         bytes32 tipOld = _untron.lastControllerEventTip();
+        uint256 seqOld = _untron.lastControllerEventSeq();
         bytes21 controllerTron = _untron.evmToTron(_untron.CONTROLLER_ADDRESS());
 
         // tipNew != tipOld but events don't hash-link => mismatch.
@@ -120,14 +121,27 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         });
 
         bytes32 tip = tipOld;
+        uint256 seq = seqOld;
+        seq += 1;
         tip = sha256(
             abi.encodePacked(
-                tip, uint256(events[0].blockNumber), uint256(events[0].blockTimestamp), events[0].sig, events[0].data
+                tip,
+                seq,
+                uint256(events[0].blockNumber),
+                uint256(events[0].blockTimestamp),
+                events[0].sig,
+                events[0].data
             )
         );
+        seq += 1;
         tip = sha256(
             abi.encodePacked(
-                tip, uint256(events[1].blockNumber), uint256(events[1].blockTimestamp), events[1].sig, events[1].data
+                tip,
+                seq,
+                uint256(events[1].blockNumber),
+                uint256(events[1].blockTimestamp),
+                events[1].sig,
+                events[1].data
             )
         );
 
@@ -144,6 +158,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         bytes32 gotTip = _untron.relayControllerEventChain(2, hex"", new bytes32[](0), 0, events);
         assertEq(gotTip, tip);
         assertEq(_untron.lastControllerEventTip(), tip);
+        assertEq(_untron.lastControllerEventSeq(), seqOld + 2);
 
         assertEq(_untron.controllerEventsLength(), 2);
         (bytes32 sig0, bytes memory data0, uint64 bn0, uint64 ts0) = _untron.controllerEventAt(0);
@@ -248,7 +263,8 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
 
         assertEq(_untron.protocolPnl(), 1);
         assertEq(_untron.claimQueueLength(address(_usdt)), 1);
-        (uint256 amountUsdt, uint256 gotLeaseId,,) = _untron.claimsByTargetToken(address(_usdt), 0);
+        (uint256 claimId, uint256 amountUsdt, uint256 gotLeaseId,,) = _untron.claimsByTargetToken(address(_usdt), 0);
+        assertEq(claimId, 0);
         assertEq(amountUsdt, 99);
         assertEq(gotLeaseId, leaseId);
 

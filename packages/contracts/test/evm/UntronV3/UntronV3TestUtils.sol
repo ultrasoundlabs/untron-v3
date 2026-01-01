@@ -105,7 +105,7 @@ contract ReentrantBridger is IBridger {
     }
 
     function bridge(address, uint256, uint256, address) external override {
-        (uint256 amountUsdt,,,) = UNTRON.claimsByTargetToken(TARGET_TOKEN, EXPECTED_CLAIM_IDX);
+        (, uint256 amountUsdt,,,) = UNTRON.claimsByTargetToken(TARGET_TOKEN, EXPECTED_CLAIM_IDX);
         if (amountUsdt != 0) revert ClaimNotDeleted();
         didCheckDeletion = true;
 
@@ -156,7 +156,7 @@ contract UntronV3Harness is UntronV3 {
         uint256 targetChainId,
         address beneficiary
     ) external returns (uint256 claimIndex) {
-        claimIndex = _enqueueClaimForTargetToken(targetToken, amountUsdt, leaseId, targetChainId, beneficiary);
+        (claimIndex,) = _enqueueClaimForTargetToken(targetToken, amountUsdt, leaseId, targetChainId, beneficiary);
     }
 
     function exposedProcessReceiverPulled(bytes32 receiverSalt, address token, uint256 usdtAmount, uint64 dumpTimestamp)

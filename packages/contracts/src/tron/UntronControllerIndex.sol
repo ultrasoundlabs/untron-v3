@@ -15,6 +15,10 @@ contract UntronControllerIndex {
     /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
     bytes32 public eventChainTip = EventChainGenesis.UntronControllerIndex;
 
+    /// @notice Monotonically increasing sequence number for appended events.
+    /// @dev    Increments exactly once per `_appendEventChain` call.
+    uint256 public eventSeq;
+
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -116,8 +120,14 @@ contract UntronControllerIndex {
     function _appendEventChain(bytes32 eventSignature, bytes memory abiEncodedEventData) internal {
         // we use sha256 here instead of keccak256 for future-proofness
         // in case we ZK prove this smart contract. sha256 is cheaper to prove than keccak256.
-        eventChainTip =
-            sha256(abi.encodePacked(eventChainTip, block.number, block.timestamp, eventSignature, abiEncodedEventData));
+        unchecked {
+            ++eventSeq;
+        }
+        eventChainTip = sha256(
+            abi.encodePacked(
+                eventChainTip, eventSeq, block.number, block.timestamp, eventSignature, abiEncodedEventData
+            )
+        );
     }
 
     /*//////////////////////////////////////////////////////////////

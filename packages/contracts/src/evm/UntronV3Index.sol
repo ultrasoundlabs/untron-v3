@@ -25,6 +25,10 @@ contract UntronV3Index {
     /// @dev    This is used to reconstruct all events that have ever been emitted through this contract.
     bytes32 public eventChainTip = EventChainGenesis.UntronV3Index;
 
+    /// @notice Monotonically increasing sequence number for appended events.
+    /// @dev    Increments exactly once per `_appendEventChain` call.
+    uint256 public eventSeq;
+
     // TODO: make per-event sig or per-object event chains
 
     /*//////////////////////////////////////////////////////////////
@@ -115,16 +119,40 @@ contract UntronV3Index {
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emitted when a claim is created.
-    /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
+    /// @param claimId The per-lease claim identifier (0-indexed).
+    /// @param targetToken The target token used for settlement of the claim queue.
+    /// @param queueIndex The claim index within the per-`targetToken` queue.
     /// @param amountUsdt The claim amount in USDT units.
-    event ClaimCreated(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUsdt);
+    /// @param targetChainId Destination chain for this claim's payout.
+    /// @param beneficiary Recipient of the payout (either local transfer or bridged recipient).
+    event ClaimCreated(
+        uint256 indexed leaseId,
+        uint256 indexed claimId,
+        address targetToken,
+        uint256 queueIndex,
+        uint256 amountUsdt,
+        uint256 targetChainId,
+        address beneficiary
+    );
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emitted when a claim is filled.
-    /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
+    /// @param claimId The per-lease claim identifier (0-indexed).
+    /// @param targetToken The target token used for settlement of the claim queue.
+    /// @param queueIndex The claim index within the per-`targetToken` queue.
     /// @param amountUsdt The filled amount in USDT units.
-    event ClaimFilled(uint256 indexed claimIndex, uint256 indexed leaseId, uint256 amountUsdt);
+    /// @param targetChainId Destination chain for this claim's payout.
+    /// @param beneficiary Recipient of the payout (either local transfer or bridged recipient).
+    event ClaimFilled(
+        uint256 indexed leaseId,
+        uint256 indexed claimId,
+        address targetToken,
+        uint256 queueIndex,
+        uint256 amountUsdt,
+        uint256 targetChainId,
+        address beneficiary
+    );
 
     /// @notice Emitted when a deposit is pre-entitled to a lease.
     /// @param txId The deposit transaction id.
@@ -209,8 +237,14 @@ contract UntronV3Index {
     /// @param eventSignature The signature of the event.
     /// @param abiEncodedEventData The ABI-encoded data of the event.
     function _appendEventChain(bytes32 eventSignature, bytes memory abiEncodedEventData) internal {
-        eventChainTip =
-            sha256(abi.encodePacked(eventChainTip, block.number, block.timestamp, eventSignature, abiEncodedEventData));
+        unchecked {
+            ++eventSeq;
+        }
+        eventChainTip = sha256(
+            abi.encodePacked(
+                eventChainTip, eventSeq, block.number, block.timestamp, eventSignature, abiEncodedEventData
+            )
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -396,22 +430,52 @@ contract UntronV3Index {
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emits {ClaimCreated} and appends it to the event chain.
-    /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
+    /// @param claimId The per-lease claim identifier (0-indexed).
+    /// @param targetToken The target token used for settlement of the claim queue.
+    /// @param queueIndex The claim index within the per-`targetToken` queue.
     /// @param amountUsdt The claim amount in USDT units.
-    function _emitClaimCreated(uint256 claimIndex, uint256 leaseId, uint256 amountUsdt) internal {
-        _appendEventChain(ClaimCreated.selector, abi.encode(claimIndex, leaseId, amountUsdt));
-        emit ClaimCreated(claimIndex, leaseId, amountUsdt);
+    /// @param targetChainId Destination chain for this claim's payout.
+    /// @param beneficiary Recipient of the payout (either local transfer or bridged recipient).
+    function _emitClaimCreated(
+        uint256 leaseId,
+        uint256 claimId,
+        address targetToken,
+        uint256 queueIndex,
+        uint256 amountUsdt,
+        uint256 targetChainId,
+        address beneficiary
+    ) internal {
+        _appendEventChain(
+            ClaimCreated.selector,
+            abi.encode(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary)
+        );
+        emit ClaimCreated(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary);
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emits {ClaimFilled} and appends it to the event chain.
-    /// @param claimIndex The claim index.
     /// @param leaseId The lease id.
+    /// @param claimId The per-lease claim identifier (0-indexed).
+    /// @param targetToken The target token used for settlement of the claim queue.
+    /// @param queueIndex The claim index within the per-`targetToken` queue.
     /// @param amountUsdt The filled amount in USDT units.
-    function _emitClaimFilled(uint256 claimIndex, uint256 leaseId, uint256 amountUsdt) internal {
-        _appendEventChain(ClaimFilled.selector, abi.encode(claimIndex, leaseId, amountUsdt));
-        emit ClaimFilled(claimIndex, leaseId, amountUsdt);
+    /// @param targetChainId Destination chain for this claim's payout.
+    /// @param beneficiary Recipient of the payout (either local transfer or bridged recipient).
+    function _emitClaimFilled(
+        uint256 leaseId,
+        uint256 claimId,
+        address targetToken,
+        uint256 queueIndex,
+        uint256 amountUsdt,
+        uint256 targetChainId,
+        address beneficiary
+    ) internal {
+        _appendEventChain(
+            ClaimFilled.selector,
+            abi.encode(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary)
+        );
+        emit ClaimFilled(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary);
     }
 
     /// @notice Emits {DepositPreEntitled} and appends it to the event chain.

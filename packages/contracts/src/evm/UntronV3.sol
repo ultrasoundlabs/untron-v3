@@ -140,6 +140,9 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @notice FIFO claim queue element.
     /// @dev Claim amounts are denominated in USDT; settlement may pay USDT or `targetToken` depending on route.
     struct Claim {
+        /// @notice Per-lease claim identifier (0-indexed).
+        /// @dev Increments monotonically per `leaseId`. `(leaseId, claimId)` uniquely identifies a claim.
+        uint256 claimId;
         /// @notice USDT-denominated claim amount.
         /// @dev Slots are deleted when filled.
         // forge-lint: disable-next-line(mixed-case-variable)
@@ -152,6 +155,13 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint256 targetChainId;
         /// @notice Recipient of the payout (either local transfer or bridged recipient).
         address beneficiary;
+    }
+
+    /// @notice Location of a claim within a per-`targetToken` queue.
+    /// @dev Used to map `(leaseId, claimId)` -> `(targetToken, queueIndex)` for lookup/indexing.
+    struct ClaimLocator {
+        address targetToken;
+        uint256 queueIndex;
     }
 
     /// @notice Raw controller event reconstructed from the Tron event chain.
@@ -313,6 +323,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @dev Updated by `relayControllerEventChain` after validating a hash chain of provided events.
     bytes32 public lastControllerEventTip = EventChainGenesis.UntronControllerIndex;
 
+    /// @notice Last processed controller event-chain sequence number (starts at 0 at controller genesis).
+    /// @dev Needed because the controller tip hash includes a monotonically increasing `eventSeq`.
+    uint256 public lastControllerEventSeq;
+
     /// @notice Queue of controller events awaiting processing on EVM.
     /// @dev Events are appended by `relayControllerEventChain` and consumed by `processControllerEvents`.
     ControllerEvent[] internal _controllerEvents;
@@ -335,6 +349,13 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @notice Per-target-token head index (cursor) for grouped queues.
     /// @dev We do not pop from arrays; instead we advance this cursor and delete filled claim slots.
     mapping(address => uint256) public nextIndexByTargetToken;
+
+    /// @notice Next per-lease claim identifier to assign.
+    mapping(uint256 => uint256) public nextClaimIdByLease;
+
+    /// @notice Lookup from `(leaseId, claimId)` to the claim's current queue location.
+    /// @dev `targetToken == address(0)` indicates missing / already filled.
+    mapping(uint256 => mapping(uint256 => ClaimLocator)) public claimLocatorByLease;
 
     /// @notice Guard against double-processing of recognizable Tron deposits.
     /// @dev Keyed by the Tron transaction ID as computed by `TronTxReader` (sha256 of `raw_data` bytes).
@@ -898,7 +919,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @param encodedTx Raw protobuf-encoded Tron transaction bytes.
     /// @param proof Merkle proof for tx inclusion in the Tron block's tx trie.
     /// @param index Merkle leaf index for the tx within the block.
-    /// @return claimIndex Index in `claimsByTargetToken[payout.targetToken]` where the claim was appended (0 if none).
+    /// @return queueIndex Index in `claimsByTargetToken[payout.targetToken]` where the claim was appended (0 if none).
     /// @return leaseId Lease id that the deposit was attributed to.
     /// @return netOut USDT-denominated net payout after fees (0 if fees exceed the amount).
     function preEntitle(
@@ -907,7 +928,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
-    ) external whenNotPaused returns (uint256 claimIndex, uint256 leaseId, uint256 netOut) {
+    ) external whenNotPaused returns (uint256 queueIndex, uint256 leaseId, uint256 netOut) {
         // Verify inclusion + success and decode into a generic TriggerSmartContract view.
         TronTxReader.TriggerSmartContract memory callData =
             tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
@@ -958,8 +979,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         // Enqueue a claim for later settlement if there is a positive net payout.
         if (netOut > 0) {
             PayoutConfig storage p = lease.payout;
-            claimIndex = _enqueueClaimForTargetToken(p.targetToken, netOut, leaseId, p.targetChainId, p.beneficiary);
-            _emitClaimCreated(claimIndex, leaseId, netOut);
+            uint256 claimId;
+            (queueIndex, claimId) =
+                _enqueueClaimForTargetToken(p.targetToken, netOut, leaseId, p.targetChainId, p.beneficiary);
+            _emitClaimCreated(leaseId, claimId, p.targetToken, queueIndex, netOut, p.targetChainId, p.beneficiary);
         }
 
         // Emit pre-entitlement event for offchain reconciliation.
@@ -1018,11 +1041,13 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         bytes32 tip = lastControllerEventTip;
         if (tipNew == tip) revert EventRelayNoProgress();
 
-        bytes32 computedTip = _hashLinkControllerEventsAndEmit(tip, events);
+        uint256 seq = lastControllerEventSeq;
+        (bytes32 computedTip, uint256 seqNew) = _hashLinkControllerEventsAndEmit(tip, seq, events);
         if (computedTip != tipNew) revert EventTipMismatch();
 
         // Commit the new tip.
         lastControllerEventTip = tipNew;
+        lastControllerEventSeq = seqNew;
 
         // Enqueue raw events for later processing (separated to allow partial processing/batching).
         _enqueueControllerEvents(events);
@@ -1416,11 +1441,13 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
     /// @notice Hash-link a list of controller events starting from `tip`, emitting an index event per hop.
     /// @param tip Starting tip (current `lastControllerEventTip`).
+    /// @param seq Starting sequence number (current `lastControllerEventSeq`).
     /// @param events Controller events to hash-link.
     /// @return New tip after hashing all events.
-    function _hashLinkControllerEventsAndEmit(bytes32 tip, ControllerEvent[] calldata events)
+    /// @return New sequence number after hashing all events.
+    function _hashLinkControllerEventsAndEmit(bytes32 tip, uint256 seq, ControllerEvent[] calldata events)
         internal
-        returns (bytes32)
+        returns (bytes32, uint256)
     {
         uint256 n = events.length;
         for (uint256 i = 0; i < n; ++i) {
@@ -1430,9 +1457,14 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
             _emitControllerEventChainTipUpdated(
                 tip, uint256(ev.blockNumber), uint256(ev.blockTimestamp), ev.sig, ev.data
             );
-            tip = sha256(abi.encodePacked(tip, uint256(ev.blockNumber), uint256(ev.blockTimestamp), ev.sig, ev.data));
+            unchecked {
+                ++seq;
+            }
+            tip = sha256(
+                abi.encodePacked(tip, seq, uint256(ev.blockNumber), uint256(ev.blockTimestamp), ev.sig, ev.data)
+            );
         }
-        return tip;
+        return (tip, seq);
     }
 
     /// @notice Enqueue controller events for later processing.
@@ -1471,21 +1503,32 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @param leaseId Lease that produced the claim.
     /// @param targetChainId Destination chain id for the claim payout.
     /// @param beneficiary Recipient of the claim payout.
-    /// @return claimIndex Index of the appended claim within the queue.
+    /// @return queueIndex Index of the appended claim within the queue.
+    /// @return claimId Per-lease claim identifier.
     function _enqueueClaimForTargetToken(
         address targetToken,
         uint256 amountUsdt,
         uint256 leaseId,
         uint256 targetChainId,
         address beneficiary
-    ) internal returns (uint256 claimIndex) {
+    ) internal returns (uint256 queueIndex, uint256 claimId) {
+        // solhint-disable-next-line gas-increment-by-one
+        claimId = nextClaimIdByLease[leaseId]++;
         // Append claim to the per-token queue.
         Claim[] storage queue = claimsByTargetToken[targetToken];
         queue.push(
-            Claim({amountUsdt: amountUsdt, leaseId: leaseId, targetChainId: targetChainId, beneficiary: beneficiary})
+            Claim({
+                claimId: claimId,
+                amountUsdt: amountUsdt,
+                leaseId: leaseId,
+                targetChainId: targetChainId,
+                beneficiary: beneficiary
+            })
         );
         // Claim index is the array index of the appended element.
-        return queue.length - 1;
+        queueIndex = queue.length - 1;
+        claimLocatorByLease[leaseId][claimId] = ClaimLocator({targetToken: targetToken, queueIndex: queueIndex});
+        return (queueIndex, claimId);
     }
 
     /* solhint-disable function-max-lines */
@@ -1556,9 +1599,11 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
             if (netOut > 0) {
                 // Enqueue claim using the current payout config.
                 PayoutConfig storage p = cur.payout;
-                uint256 claimIndex =
+                (uint256 queueIndex, uint256 claimId) =
                     _enqueueClaimForTargetToken(p.targetToken, netOut, currentLeaseId, p.targetChainId, p.beneficiary);
-                _emitClaimCreated(claimIndex, currentLeaseId, netOut);
+                _emitClaimCreated(
+                    currentLeaseId, claimId, p.targetToken, queueIndex, netOut, p.targetChainId, p.beneficiary
+                );
             }
         }
     }
@@ -1593,36 +1638,29 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         internal
     {
         for (uint256 idx = start; idx < end; ++idx) {
-            Claim storage c = queue[idx];
+            Claim memory c = queue[idx];
             uint256 amountUsdt = c.amountUsdt;
 
-            uint256 leaseId = c.leaseId;
-            uint256 targetChainId = c.targetChainId;
-            address beneficiary = c.beneficiary;
-            bool needsBridge = targetChainId != block.chainid;
+            // Delete before any external interaction.
+            delete queue[idx];
+            delete claimLocatorByLease[c.leaseId][c.claimId];
 
             uint256 outAmount =
                 targetToken == usdt ? amountUsdt : TokenUtils.mulDiv(amountUsdt, ratePpm, _RATE_DENOMINATOR);
 
-            IBridger bridger;
-            if (needsBridge) {
-                bridger = bridgers[targetToken][targetChainId];
-                if (address(bridger) == address(0)) revert NoBridger();
-            }
-
-            // Delete before any external interaction.
-            delete queue[idx];
-
             if (outAmount != 0) {
-                if (needsBridge) {
+                if (c.targetChainId != block.chainid) {
+                    IBridger bridger = bridgers[targetToken][c.targetChainId];
+                    if (address(bridger) == address(0)) revert NoBridger();
+
                     TokenUtils.transfer(targetToken, payable(address(bridger)), outAmount);
-                    bridger.bridge(targetToken, outAmount, targetChainId, beneficiary);
+                    bridger.bridge(targetToken, outAmount, c.targetChainId, c.beneficiary);
                 } else {
-                    TokenUtils.transfer(targetToken, payable(beneficiary), outAmount);
+                    TokenUtils.transfer(targetToken, payable(c.beneficiary), outAmount);
                 }
             }
 
-            _emitClaimFilled(idx, leaseId, amountUsdt);
+            _emitClaimFilled(c.leaseId, c.claimId, targetToken, idx, amountUsdt, c.targetChainId, c.beneficiary);
         }
     }
 

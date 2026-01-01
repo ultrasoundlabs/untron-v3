@@ -16,6 +16,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         address newUsdt = address(new MockERC20("USDT2", "USDT2", 6));
 
         bytes32 tipBefore = _untron.eventChainTip();
+        uint256 seqBefore = _untron.eventSeq();
         vm.roll(100);
         vm.warp(1_700_000_000);
 
@@ -27,7 +28,12 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
 
         bytes32 expectedTip = sha256(
             abi.encodePacked(
-                tipBefore, uint256(100), uint256(1_700_000_000), UntronV3Index.UsdtSet.selector, abi.encode(newUsdt)
+                tipBefore,
+                seqBefore + 1,
+                uint256(100),
+                uint256(1_700_000_000),
+                UntronV3Index.UsdtSet.selector,
+                abi.encode(newUsdt)
             )
         );
         assertEq(_untron.eventChainTip(), expectedTip);

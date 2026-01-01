@@ -53,7 +53,9 @@ contract UntronV3ProtocolPnlTest is Test {
         assertEq(netOut, 99);
         assertEq(_untron.protocolPnl(), 1);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 1);
-        (uint256 claimAmount, uint256 claimLeaseId,,) = _untron.claimsByTargetToken(_DUMMY_USDT, claimIndex);
+        (uint256 claimId, uint256 claimAmount, uint256 claimLeaseId,,) =
+            _untron.claimsByTargetToken(_DUMMY_USDT, claimIndex);
+        assertEq(claimId, 0);
         assertEq(claimAmount, 99);
         assertEq(claimLeaseId, leaseId);
     }
@@ -171,7 +173,8 @@ contract UntronV3ProtocolPnlTest is Test {
 
         assertEq(_untron.protocolPnl(), 1);
         assertEq(_untron.claimQueueLength(_DUMMY_USDT), 1);
-        (uint256 claimAmount, uint256 claimLeaseId,,) = _untron.claimsByTargetToken(_DUMMY_USDT, 0);
+        (uint256 claimId, uint256 claimAmount, uint256 claimLeaseId,,) = _untron.claimsByTargetToken(_DUMMY_USDT, 0);
+        assertEq(claimId, 0);
         assertEq(claimAmount, 99);
         assertEq(claimLeaseId, leaseId);
     }

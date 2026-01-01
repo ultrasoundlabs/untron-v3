@@ -42,8 +42,8 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
 
         assertEq(_usdt.balanceOf(beneficiary), 99);
         assertEq(_untron.nextIndexByTargetToken(address(_usdt)), claimIndex + 1);
-        (uint256 a0,,,) = _untron.claimsByTargetToken(address(_usdt), claimIndex);
-        assertEq(a0, 0);
+        (, uint256 amountUsdt,,,) = _untron.claimsByTargetToken(address(_usdt), claimIndex);
+        assertEq(amountUsdt, 0);
 
         (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3.PayoutConfig memory p) =
             _untron.leases(leaseId);
