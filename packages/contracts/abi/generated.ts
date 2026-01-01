@@ -8859,6 +8859,13 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'amount', internalType: 'uint256', type: 'uint256' }],
+    name: 'depositToPnl',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
     name: 'effectiveLeaseRateLimit',
     outputs: [
@@ -10191,6 +10198,13 @@ export const untronV3HarnessAbi = [
     name: 'depositProcessed',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'amount', internalType: 'uint256', type: 'uint256' }],
+    name: 'depositToPnl',
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',

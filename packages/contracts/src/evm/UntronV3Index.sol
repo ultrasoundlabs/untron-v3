@@ -14,7 +14,8 @@ contract UntronV3Index {
         REBALANCE, // positive if rebalanced at <0 bps fee, negative otherwise
         WITHDRAWAL, // negative
         RECEIVER_PULL_NO_LEASE, // positive
-        CONTROLLER_USDT_TRANSFER // negative
+        CONTROLLER_USDT_TRANSFER, // negative
+        DEPOSIT // positive
     }
 
     /*//////////////////////////////////////////////////////////////

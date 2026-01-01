@@ -147,6 +147,49 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         assertEq(_usdt.balanceOf(address(this)), ownerBalBefore + 1);
     }
 
+    function testDepositToPnlIsPermissionlessAndUpdatesPnlAndTip() public {
+        address depositor = address(0xA11CE);
+        uint256 amount = 5;
+
+        _usdt.mint(depositor, amount);
+        vm.prank(depositor);
+        _usdt.approve(address(_untron), amount);
+
+        vm.roll(123);
+        vm.warp(1_700_000_123);
+        bytes32 tipBefore = _untron.eventChainTip();
+        uint256 seqBefore = _untron.eventSeq();
+
+        vm.prank(depositor);
+        vm.expectEmit(false, false, false, false, address(_untron));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        emit UntronV3Index.ProtocolPnlUpdated(int256(amount), int256(amount), UntronV3Index.PnlReason.DEPOSIT);
+        _untron.depositToPnl(amount);
+
+        // forge-lint: disable-next-line(unsafe-typecast)
+        assertEq(_untron.protocolPnl(), int256(amount));
+        assertEq(_usdt.balanceOf(address(_untron)), amount);
+        assertEq(_usdt.balanceOf(depositor), 0);
+
+        bytes32 expectedTip = sha256(
+            abi.encodePacked(
+                tipBefore,
+                seqBefore + 1,
+                uint256(123),
+                uint256(1_700_000_123),
+                UntronV3Index.ProtocolPnlUpdated.selector,
+                // forge-lint: disable-next-line(unsafe-typecast)
+                abi.encode(int256(amount), int256(amount), UntronV3Index.PnlReason.DEPOSIT)
+            )
+        );
+        assertEq(_untron.eventChainTip(), expectedTip);
+    }
+
+    function testDepositToPnlRevertsOnZeroAmount() public {
+        vm.expectRevert(UntronV3.ZeroAmount.selector);
+        _untron.depositToPnl(0);
+    }
+
     function testChainDeprecatedBlocksCreateLeaseAndPayoutConfigUpdate() public {
         bytes32 salt = keccak256("salt_chain_deprecated");
         uint256 leaseId = _createLease(

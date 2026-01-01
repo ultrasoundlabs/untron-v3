@@ -691,6 +691,19 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         _unpause();
     }
 
+    /// @notice Permissionlessly deposit USDT into the protocol PnL accounting.
+    /// @dev This transfers `usdt` from `msg.sender` and increases `protocolPnl` by `amount`.
+    ///      This is intentionally "irreversible" from the caller's perspective: only the owner can
+    ///      withdraw USDT profit tracked by `protocolPnl` via `withdrawProtocolProfit`.
+    /// @param amount Amount of USDT to deposit (must be > 0).
+    function depositToPnl(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        if (usdt == address(0)) revert InvalidTargetToken();
+
+        TokenUtils.transferFrom(usdt, msg.sender, payable(address(this)), amount);
+        _applyPnlDelta(_toInt(amount), PnlReason.DEPOSIT);
+    }
+
     /// @notice Withdraw positive protocol PnL (profit) to the owner.
     /// @dev This transfers `usdt` from the contract and decreases `protocolPnl` by `amount`.
     /// @param amount Amount of profit to withdraw (must be > 0 and <= current `protocolPnl`).
