@@ -145,6 +145,13 @@ contract UntronV3Harness is UntronV3 {
         ids = _leaseIdsByReceiver[receiverSalt];
     }
 
+    function leaseLocatorById(uint256 leaseId) external view returns (bytes32 receiverSalt, uint256 leaseNumber) {
+        LeaseLocator storage loc = _leaseLocatorById[leaseId];
+        uint256 leaseNumberPlusOne = loc.leaseNumberPlusOne;
+        if (leaseNumberPlusOne == 0) return (bytes32(0), 0);
+        return (loc.receiverSalt, leaseNumberPlusOne - 1);
+    }
+
     function claimQueueLength(address targetToken) external view returns (uint256) {
         return claimsByTargetToken[targetToken].length;
     }

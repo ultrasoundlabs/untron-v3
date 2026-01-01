@@ -121,6 +121,13 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         PayoutConfig payout;
     }
 
+    /// @notice Internal lease identifier: receiver salt + sequential lease number.
+    /// @dev `leaseNumberPlusOne == 0` indicates that a given external `leaseId` does not exist.
+    struct LeaseLocator {
+        bytes32 receiverSalt;
+        uint256 leaseNumberPlusOne;
+    }
+
     /// @notice FIFO claim queue element.
     /// @dev Claim amounts are denominated in USDT; settlement may pay USDT or `targetToken` depending on route.
     struct Claim {
@@ -230,9 +237,13 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @notice Next lease identifier.
     uint256 public nextLeaseId = 0;
 
-    /// @notice Mapping from lease id to lease data.
-    /// @dev `leaseId` is assigned monotonically starting from 1.
-    mapping(uint256 => Lease) public leases;
+    /// @notice Lease storage, keyed by receiver salt and sequential lease number.
+    /// @dev The lease number is the index of the lease within `leasesByReceiver[receiverSalt]`.
+    mapping(bytes32 => Lease[]) public leasesByReceiver;
+
+    /// @notice Mapping from external lease id to internal lease locator.
+    /// @dev External `leaseId` is assigned monotonically starting from 1.
+    mapping(uint256 => LeaseLocator) internal _leaseLocatorById;
 
     // Slither may misdetect that _leaseIdsByReceiver is never initialized.
     // This is not true: in createLease, the storage element is taken as an "ids"
@@ -762,8 +773,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         whenNotPaused
     {
         // Load and validate lease.
-        Lease storage lease = leases[leaseId];
-        if (lease.lessee == address(0)) revert InvalidLeaseId();
+        Lease storage lease = _leaseStorage(leaseId);
         // Only the current lessee can update payout config.
         if (msg.sender != lease.lessee) revert NotLessee();
 
@@ -813,8 +823,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         if (block.timestamp > deadline) revert SignatureExpired();
 
         // Load and validate lease existence.
-        Lease storage lease = leases[leaseId];
-        if (lease.lessee == address(0)) revert InvalidLeaseId();
+        Lease storage lease = _leaseStorage(leaseId);
 
         // Apply per-lessee rate limiting (based on the signer/lessee, not the relayer).
         _enforcePayoutConfigRateLimit(lease.lessee);
@@ -919,7 +928,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         // Attribute to the lease that was active at the Tron tx timestamp.
         leaseId = _findActiveLeaseId(receiverSalt, callData.tronBlockTimestamp);
         if (leaseId == 0) revert NoActiveLease();
-        Lease storage lease = leases[leaseId];
+        Lease storage lease = _leaseStorage(leaseId);
 
         // Recognize raw volume and mark it as unbacked until the controller reports receiver pulls.
         lease.recognizedRaw += amountQ;
@@ -1227,9 +1236,82 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         return TokenUtils.getBalanceOf(usdt_, address(this));
     }
 
+    /// @notice Return lease data for an external `leaseId`.
+    /// @param leaseId The ID of the lease to retrieve.
+    /// @return receiverSalt The salt used to generate the receiver address.
+    /// @return realtor The address of the realtor.
+    /// @return lessee The address of the lessee.
+    /// @return startTime The start time of the lease.
+    /// @return nukeableAfter The time after which the lease can be nuked.
+    /// @return leaseFeePpm The fee in parts per million.
+    /// @return flatFee The flat fee.
+    /// @return recognizedRaw The recognized raw amount.
+    /// @return backedRaw The backed raw amount.
+    /// @return unbackedRaw The unbacked raw amount.
+    /// @return payout The payout configuration.
+    function leases(uint256 leaseId)
+        external
+        view
+        returns (
+            bytes32 receiverSalt,
+            address realtor,
+            address lessee,
+            uint64 startTime,
+            uint64 nukeableAfter,
+            uint32 leaseFeePpm,
+            uint64 flatFee,
+            uint256 recognizedRaw,
+            uint256 backedRaw,
+            uint256 unbackedRaw,
+            PayoutConfig memory payout
+        )
+    {
+        LeaseLocator storage loc = _leaseLocatorById[leaseId];
+        uint256 leaseNumberPlusOne = loc.leaseNumberPlusOne;
+        if (leaseNumberPlusOne == 0) {
+            return (
+                receiverSalt,
+                realtor,
+                lessee,
+                startTime,
+                nukeableAfter,
+                leaseFeePpm,
+                flatFee,
+                recognizedRaw,
+                backedRaw,
+                unbackedRaw,
+                payout
+            );
+        }
+
+        Lease storage lease = leasesByReceiver[loc.receiverSalt][leaseNumberPlusOne - 1];
+        receiverSalt = lease.receiverSalt;
+        realtor = lease.realtor;
+        lessee = lease.lessee;
+        startTime = lease.startTime;
+        nukeableAfter = lease.nukeableAfter;
+        leaseFeePpm = lease.leaseFeePpm;
+        flatFee = lease.flatFee;
+        recognizedRaw = lease.recognizedRaw;
+        backedRaw = lease.backedRaw;
+        unbackedRaw = lease.unbackedRaw;
+        payout = lease.payout;
+    }
+
     /*//////////////////////////////////////////////////////////////
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Load a lease by external `leaseId` as a storage pointer.
+    /// @param leaseId The external lease ID.
+    /// @return lease The lease storage pointer.
+    /// @dev Reverts with `InvalidLeaseId()` if the lease does not exist.
+    function _leaseStorage(uint256 leaseId) internal view returns (Lease storage lease) {
+        LeaseLocator storage loc = _leaseLocatorById[leaseId];
+        uint256 leaseNumberPlusOne = loc.leaseNumberPlusOne;
+        if (leaseNumberPlusOne == 0) revert InvalidLeaseId();
+        lease = leasesByReceiver[loc.receiverSalt][leaseNumberPlusOne - 1];
+    }
 
     /// @notice Enforces the effective lease creation rate limit for `realtor`, if enabled.
     /// @dev Uses an append-only timestamp array per realtor and checks the timestamp at index `len - maxLeases`
@@ -1315,7 +1397,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         // Uniqueness is enforced per receiver salt regardless of token.
         uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
         if (ids.length != 0) {
-            Lease storage last = leases[ids[ids.length - 1]];
+            Lease storage last = leasesByReceiver[receiverSalt][ids.length - 1];
             // Disallow nuking before previous lease becomes nukeable.
             if (block.timestamp < last.nukeableAfter) revert LeaseNotNukeableYet();
         }
@@ -1346,18 +1428,28 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         address targetToken,
         address beneficiary
     ) internal {
-        Lease storage lease = leases[leaseId];
-        lease.receiverSalt = receiverSalt;
-        lease.realtor = realtor;
-        lease.lessee = lessee;
-        lease.startTime = startTime;
-        lease.nukeableAfter = nukeableAfter;
-        lease.leaseFeePpm = leaseFeePpm;
-        lease.flatFee = flatFee;
+        // Lease number is "how many leases this receiver has had so far".
+        uint256 leaseNumber = leasesByReceiver[receiverSalt].length;
 
-        // Store payout configuration so that target chain configuration is
-        // available for owner-recommended bridging or direct payouts.
-        lease.payout = PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary});
+        // Store locator by external id (plus-one encodes existence).
+        _leaseLocatorById[leaseId] = LeaseLocator({receiverSalt: receiverSalt, leaseNumberPlusOne: leaseNumber + 1});
+
+        // Persist the lease under (receiverSalt, leaseNumber).
+        leasesByReceiver[receiverSalt].push(
+            Lease({
+                receiverSalt: receiverSalt,
+                realtor: realtor,
+                lessee: lessee,
+                startTime: startTime,
+                nukeableAfter: nukeableAfter,
+                leaseFeePpm: leaseFeePpm,
+                flatFee: flatFee,
+                recognizedRaw: 0,
+                backedRaw: 0,
+                unbackedRaw: 0,
+                payout: PayoutConfig({targetChainId: targetChainId, targetToken: targetToken, beneficiary: beneficiary})
+            })
+        );
 
         // Append to the receiver's lease timeline.
         _leaseIdsByReceiver[receiverSalt].push(leaseId);
@@ -1517,7 +1609,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
             uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
             uint256 len = ids.length;
             for (uint256 j = 0; j < len && remaining != 0; ++j) {
-                Lease storage oldL = leases[ids[j]];
+                Lease storage oldL = leasesByReceiver[receiverSalt][j];
                 // Stop if we reached leases that start after the pull timestamp.
                 if (oldL.startTime > dumpTimestamp) break;
                 uint256 unbacked = oldL.unbackedRaw;
@@ -1540,7 +1632,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
                 return;
             }
 
-            Lease storage cur = leases[currentLeaseId];
+            Lease storage cur = _leaseStorage(currentLeaseId);
             // Treat remainder as newly recognized & backed volume for the current lease.
             cur.recognizedRaw += remaining;
             cur.backedRaw += remaining;
@@ -1733,7 +1825,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
             unchecked {
                 --i;
             }
-            Lease storage lease = leases[ids[i]];
+            Lease storage lease = leasesByReceiver[receiverSalt][i];
             // solhint-disable-next-line gas-strict-inequalities
             if (lease.startTime <= ts) {
                 leaseId = ids[i];

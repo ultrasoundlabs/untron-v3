@@ -8971,8 +8971,39 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    inputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
     name: 'leases',
+    outputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'lessee', internalType: 'address', type: 'address' },
+      { name: 'startTime', internalType: 'uint64', type: 'uint64' },
+      { name: 'nukeableAfter', internalType: 'uint64', type: 'uint64' },
+      { name: 'leaseFeePpm', internalType: 'uint32', type: 'uint32' },
+      { name: 'flatFee', internalType: 'uint64', type: 'uint64' },
+      { name: 'recognizedRaw', internalType: 'uint256', type: 'uint256' },
+      { name: 'backedRaw', internalType: 'uint256', type: 'uint256' },
+      { name: 'unbackedRaw', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'payout',
+        internalType: 'struct UntronV3.PayoutConfig',
+        type: 'tuple',
+        components: [
+          { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+          { name: 'targetToken', internalType: 'address', type: 'address' },
+          { name: 'beneficiary', internalType: 'address', type: 'address' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'bytes32', type: 'bytes32' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'leasesByReceiver',
     outputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
       { name: 'realtor', internalType: 'address', type: 'address' },
@@ -10304,6 +10335,16 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
+    inputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
+    name: 'leaseLocatorById',
+    outputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'leaseNumber', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     name: 'leaseNonces',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -10311,8 +10352,39 @@ export const untronV3HarnessAbi = [
   },
   {
     type: 'function',
-    inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    inputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
     name: 'leases',
+    outputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'realtor', internalType: 'address', type: 'address' },
+      { name: 'lessee', internalType: 'address', type: 'address' },
+      { name: 'startTime', internalType: 'uint64', type: 'uint64' },
+      { name: 'nukeableAfter', internalType: 'uint64', type: 'uint64' },
+      { name: 'leaseFeePpm', internalType: 'uint32', type: 'uint32' },
+      { name: 'flatFee', internalType: 'uint64', type: 'uint64' },
+      { name: 'recognizedRaw', internalType: 'uint256', type: 'uint256' },
+      { name: 'backedRaw', internalType: 'uint256', type: 'uint256' },
+      { name: 'unbackedRaw', internalType: 'uint256', type: 'uint256' },
+      {
+        name: 'payout',
+        internalType: 'struct UntronV3.PayoutConfig',
+        type: 'tuple',
+        components: [
+          { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
+          { name: 'targetToken', internalType: 'address', type: 'address' },
+          { name: 'beneficiary', internalType: 'address', type: 'address' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'bytes32', type: 'bytes32' },
+      { name: '', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'leasesByReceiver',
     outputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
       { name: 'realtor', internalType: 'address', type: 'address' },

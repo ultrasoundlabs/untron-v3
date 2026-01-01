@@ -92,6 +92,9 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             salt, address(0xBEEF), nukeableAfter1, 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
         assertEq(lease1, 1);
+        (bytes32 locSalt1, uint256 leaseNum1) = _untron.leaseLocatorById(lease1);
+        assertEq(locSalt1, salt);
+        assertEq(leaseNum1, 0);
 
         vm.warp(t0 + 500);
         vm.expectRevert(UntronV3.LeaseNotNukeableYet.selector);
@@ -104,6 +107,9 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
         assertEq(lease2, 2);
+        (bytes32 locSalt2, uint256 leaseNum2) = _untron.leaseLocatorById(lease2);
+        assertEq(locSalt2, salt);
+        assertEq(leaseNum2, 1);
 
         uint256[] memory ids = _untron.leaseIdsByReceiver(salt);
         assertEq(ids.length, 2);
