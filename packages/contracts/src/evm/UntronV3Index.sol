@@ -94,6 +94,13 @@ contract UntronV3Index {
     /// @param allowed Whether the realtor is allowed.
     event RealtorSet(address indexed realtor, bool allowed);
 
+    /// @notice Emitted when an LP is added/removed from the LP allowlist.
+    /// @dev LP allowlisting gates `UntronV3.deposit(...)` only.
+    ///      LP de-listing MUST NOT prevent an existing LP from withdrawing its principal via `UntronV3.withdraw(...)`.
+    /// @param lp The LP address.
+    /// @param allowed Whether the address is allowed to deposit into the LP vault.
+    event LpSet(address indexed lp, bool allowed);
+
     /// @notice Emitted when a target chain is marked (or unmarked) as deprecated.
     /// @param targetChainId The target chain id.
     /// @param deprecated Whether the chain is deprecated.
@@ -343,6 +350,16 @@ contract UntronV3Index {
     function _emitRealtorSet(address realtor, bool allowed) internal {
         _appendEventChain(RealtorSet.selector, abi.encode(realtor, allowed));
         emit RealtorSet(realtor, allowed);
+    }
+
+    /// @notice Emits {LpSet} and appends it to the event chain.
+    /// @dev This is the canonical indexing signal for LP allowlist changes.
+    ///      Offchain indexers should treat `allowed == true` as "allowlisted" and `allowed == false` as "delisted".
+    /// @param lp The LP address.
+    /// @param allowed Whether the address is allowed to deposit into the LP vault.
+    function _emitLpSet(address lp, bool allowed) internal {
+        _appendEventChain(LpSet.selector, abi.encode(lp, allowed));
+        emit LpSet(lp, allowed);
     }
 
     /// @notice Emits {ChainDeprecatedSet} and appends it to the event chain.

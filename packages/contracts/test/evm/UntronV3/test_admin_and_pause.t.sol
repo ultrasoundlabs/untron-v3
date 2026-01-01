@@ -39,6 +39,33 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         assertEq(_untron.eventChainTip(), expectedTip);
     }
 
+    function testSetLpUpdatesAllowlistAndTip() public {
+        address lp = address(0xA11CE);
+
+        bytes32 tipBefore = _untron.eventChainTip();
+        uint256 seqBefore = _untron.eventSeq();
+        vm.roll(100);
+        vm.warp(1_700_000_000);
+
+        vm.expectEmit(true, false, false, false, address(_untron));
+        emit UntronV3Index.LpSet(lp, true);
+        _untron.setLp(lp, true);
+
+        assertTrue(_untron.isLpAllowed(lp));
+
+        bytes32 expectedTip = sha256(
+            abi.encodePacked(
+                tipBefore,
+                seqBefore + 1,
+                uint256(100),
+                uint256(1_700_000_000),
+                UntronV3Index.LpSet.selector,
+                abi.encode(lp, true)
+            )
+        );
+        assertEq(_untron.eventChainTip(), expectedTip);
+    }
+
     function testPauseGatesEntrypointsAndUnpauseRestores() public {
         _untron.pause();
 
@@ -92,8 +119,37 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
 
         _usdt.mint(address(this), 10);
         _usdt.approve(address(_untron), 10);
+        _untron.setLp(address(this), true);
         _untron.deposit(10);
         assertEq(_untron.lpPrincipal(address(this)), 10);
+    }
+
+    function testDepositRequiresLpAllowlistButDelistedLpCanWithdrawPrincipal() public {
+        address lp = address(0xA11CE);
+        uint256 amount = 10;
+
+        _usdt.mint(lp, amount);
+        vm.startPrank(lp);
+        _usdt.approve(address(_untron), amount);
+
+        vm.expectRevert(UntronV3.LpNotAllowlisted.selector);
+        _untron.deposit(amount);
+        vm.stopPrank();
+
+        _untron.setLp(lp, true);
+
+        vm.startPrank(lp);
+        _untron.deposit(amount);
+        assertEq(_untron.lpPrincipal(lp), amount);
+        vm.stopPrank();
+
+        _untron.setLp(lp, false);
+        assertFalse(_untron.isLpAllowed(lp));
+
+        vm.prank(lp);
+        _untron.withdraw(amount);
+        assertEq(_untron.lpPrincipal(lp), 0);
+        assertEq(_usdt.balanceOf(lp), amount);
     }
 
     function testRescueTokensCannotRescueUsdt() public {

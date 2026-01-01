@@ -287,6 +287,16 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @notice Whitelisted realtors.
     mapping(address => bool) public isRealtor;
 
+    /// @notice LP allowlist used to permission deposits into the fast-fill vault.
+    /// @dev This mapping gates `deposit(...)` only:
+    /// - If `isLpAllowed[lp] == false`, `deposit(...)` MUST revert for `lp`.
+    /// - `withdraw(...)` MUST NOT check this mapping so that delisted LPs can still exit.
+    ///
+    /// Rationale:
+    /// - The protocol may want to restrict who can provide fast-fill liquidity (e.g. compliance, KYC, risk).
+    /// - Once principal has been deposited, the protocol must not "trap" LP funds by delisting them.
+    mapping(address => bool) public isLpAllowed;
+
     /// @notice Protocol-wide configuration, managed by the owner.
     /// @dev Includes global fee floor and rate limit parameters.
     ProtocolConfig internal _protocolConfig;
@@ -405,6 +415,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     error CannotRescueUSDT();
     /// @notice Thrown when a non-whitelisted address attempts a realtor-only operation.
     error NotRealtor();
+    /// @notice Thrown when a caller attempts to deposit into the LP vault without being allowlisted.
+    /// @dev LP allowlisting is an explicit owner-managed permission gate for `deposit(...)` only.
+    ///      Even if an LP is later delisted, it MUST still be able to withdraw any remaining principal.
+    error LpNotAllowlisted();
     /// @notice Thrown when a proposed lease fee is outside the allowed bounds or below configured floors.
     error LeaseFeeTooLow();
     /// @notice Thrown when a proposed lease flat fee is below configured floors.
@@ -532,6 +546,24 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
         // Emit via UntronV3Index (and append to event chain).
         _emitRealtorSet(realtor, allowed);
+    }
+
+    /// @notice Add or remove an address from the LP allowlist.
+    /// @dev This permission gates `deposit(...)` only.
+    ///
+    /// Safety invariant:
+    /// - Delisting an LP MUST NOT prevent them from withdrawing already-deposited principal.
+    ///   (Accordingly, `withdraw(...)` never checks `isLpAllowed`.)
+    ///
+    /// Operational notes:
+    /// - Allowlisting is checked at call-time: an address can deposit while allowlisted, then later be delisted,
+    ///   and it can still withdraw any remaining `lpPrincipal[lp]`.
+    /// - This function does not attempt to infer or validate "LP-ness" from balances; it is purely a permission flag.
+    /// @param lp Address whose LP deposit permission is being updated.
+    /// @param allowed Whether the address is allowed to deposit into the LP vault.
+    function setLp(address lp, bool allowed) external onlyOwner {
+        isLpAllowed[lp] = allowed;
+        _emitLpSet(lp, allowed);
     }
 
     /// @notice Mark a destination chain as deprecated or not.
@@ -1222,11 +1254,20 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Deposit USDT into the fast-fill vault.
-    /// @dev fast-fill vaults are 0% APY by design. All incentivized LPing logic
-    ///      must be handled by external contracts.
-    /// Funds deposited here increase `usdtBalance()` and can be used to fill claims.
+    /// @dev Permissioning:
+    /// - Caller MUST be allowlisted (`isLpAllowed[msg.sender] == true`), otherwise this reverts.
+    ///
+    /// Economics:
+    /// - Fast-fill vaults are 0% APY by design; any incentive program must be implemented externally.
+    ///
+    /// Accounting:
+    /// - On success, `lpPrincipal[msg.sender]` increases by `amount`.
+    /// - These funds increase `usdtBalance()` and can be used to fill claims.
     /// @param amount Amount of `usdt` to transfer from the caller into the contract.
     function deposit(uint256 amount) external whenNotPaused {
+        // Enforce LP allowlist. (Delisting does not affect `withdraw(...)`.)
+        if (!isLpAllowed[msg.sender]) revert LpNotAllowlisted();
+
         // Disallow no-op deposits.
         if (amount == 0) revert ZeroAmount();
 
@@ -1243,6 +1284,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// - `amount` must be > 0.
     /// - `amount` must be <= caller's `lpPrincipal`.
     /// - Contract must currently hold at least `amount` USDT.
+    ///
+    /// Permissioning:
+    /// - This function is intentionally NOT gated by `isLpAllowed`. LPs must always be able to withdraw
+    ///   already-deposited principal, even if later delisted.
     /// @param amount Amount of `usdt` to withdraw.
     function withdraw(uint256 amount) external whenNotPaused {
         // Disallow no-op withdrawals.

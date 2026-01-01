@@ -15,6 +15,7 @@ contract UntronV3SubjectivePreEntitleTest is UntronV3TestBase {
         );
 
         address lp = address(0xA11CE);
+        _untron.setLp(lp, true);
         _usdt.mint(lp, 10_000);
         vm.startPrank(lp);
         _usdt.approve(address(_untron), type(uint256).max);
@@ -76,6 +77,7 @@ contract UntronV3SubjectivePreEntitleTest is UntronV3TestBase {
         );
 
         address lp = address(0xA11CE);
+        _untron.setLp(lp, true);
         _usdt.mint(lp, 10_000);
         vm.startPrank(lp);
         _usdt.approve(address(_untron), type(uint256).max);
@@ -128,6 +130,7 @@ contract UntronV3SubjectivePreEntitleTest is UntronV3TestBase {
         );
 
         address lp = address(0xA11CE);
+        _untron.setLp(lp, true);
         _usdt.mint(lp, 1_000);
         vm.startPrank(lp);
         _usdt.approve(address(_untron), type(uint256).max);

@@ -8944,6 +8944,13 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'isLpAllowed',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
     name: 'isRealtor',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'view',
@@ -9290,6 +9297,16 @@ export const untronV3Abi = [
       { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
     ],
     name: 'setLesseePayoutConfigRateLimit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address' },
+      { name: 'allowed', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setLp',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -9894,6 +9911,15 @@ export const untronV3Abi = [
     anonymous: false,
     inputs: [
       { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'LpSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
       {
         name: 'amount',
         internalType: 'uint256',
@@ -10225,6 +10251,7 @@ export const untronV3Abi = [
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitConfigInvalid' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitExceeded' },
+  { type: 'error', inputs: [], name: 'LpNotAllowlisted' },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
   { type: 'error', inputs: [], name: 'NoActiveLease' },
   { type: 'error', inputs: [], name: 'NoBridger' },
@@ -10505,6 +10532,13 @@ export const untronV3HarnessAbi = [
     type: 'function',
     inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     name: 'isChainDeprecated',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'isLpAllowed',
     outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
     stateMutability: 'view',
   },
@@ -10894,6 +10928,16 @@ export const untronV3HarnessAbi = [
   {
     type: 'function',
     inputs: [
+      { name: 'lp', internalType: 'address', type: 'address' },
+      { name: 'allowed', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'setLp',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
       { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetChainId', internalType: 'uint256', type: 'uint256' },
       { name: 'targetToken', internalType: 'address', type: 'address' },
@@ -11492,6 +11536,15 @@ export const untronV3HarnessAbi = [
     anonymous: false,
     inputs: [
       { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'LpSet',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
       {
         name: 'amount',
         internalType: 'uint256',
@@ -11823,6 +11876,7 @@ export const untronV3HarnessAbi = [
   { type: 'error', inputs: [], name: 'LeaseNotNukeableYet' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitConfigInvalid' },
   { type: 'error', inputs: [], name: 'LeaseRateLimitExceeded' },
+  { type: 'error', inputs: [], name: 'LpNotAllowlisted' },
   { type: 'error', inputs: [], name: 'NewOwnerIsZeroAddress' },
   { type: 'error', inputs: [], name: 'NoActiveLease' },
   { type: 'error', inputs: [], name: 'NoBridger' },
@@ -12230,6 +12284,15 @@ export const untronV3IndexAbi = [
       },
     ],
     name: 'LpDeposited',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'LpSet',
   },
   {
     type: 'event',
@@ -12923,6 +12986,15 @@ export const untronV3IndexedOwnableAbi = [
       },
     ],
     name: 'LpDeposited',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'lp', internalType: 'address', type: 'address', indexed: true },
+      { name: 'allowed', internalType: 'bool', type: 'bool', indexed: false },
+    ],
+    name: 'LpSet',
   },
   {
     type: 'event',
