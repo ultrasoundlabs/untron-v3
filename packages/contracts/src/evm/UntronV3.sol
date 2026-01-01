@@ -51,26 +51,12 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
                                   TYPES
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice How the lease creation rate limit is chosen for a given realtor.
-    enum LeaseRateLimitMode {
-        /// @dev Use the protocol-wide config stored in `_protocolConfig`.
-        Inherit,
-        /// @dev Use the realtor-specific override stored in `_realtorConfig[realtor]`.
-        Override,
-        /// @dev Disable rate limiting for this realtor.
-        Disabled
-    }
-
     /// @notice Protocol-wide configuration set by the owner.
     /// @dev Stored as `uint32` to reduce storage and because values are naturally bounded.
     struct ProtocolConfig {
         /// @notice Protocol-wide minimum fee, in parts-per-million (ppm) of recognized raw volume.
         /// @dev Applied as a floor for every lease; realtor-specific `minFeePpm` can raise it.
         uint32 floorPpm;
-        /// @notice Max number of lease creations allowed per window for all realtors (unless overridden).
-        uint32 leaseRateLimitMaxLeases;
-        /// @notice Sliding window length (seconds) for protocol-wide lease creation rate limiting.
-        uint32 leaseRateLimitWindowSeconds;
         /// @notice Max number of payout-config updates allowed per window per lessee.
         uint32 payoutConfigRateLimitMaxUpdates;
         /// @notice Sliding window length (seconds) for payout-config update rate limiting.
@@ -81,12 +67,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     struct RealtorConfig {
         /// @notice Realtor-specific minimum fee floor (ppm). Effective minimum is `max(protocolFloorPpm, minFeePpm)`.
         uint32 minFeePpm;
-        /// @notice Realtor-specific lease creation max leases (used only when mode == Override).
+        /// @notice Realtor-specific lease creation max leases.
         uint32 leaseRateLimitMaxLeases;
-        /// @notice Realtor-specific lease creation window seconds (used only when mode == Override).
+        /// @notice Realtor-specific lease creation window seconds.
         uint32 leaseRateLimitWindowSeconds;
-        /// @notice How to interpret the rate limit fields for this realtor.
-        LeaseRateLimitMode leaseRateLimitMode;
     }
 
     /// @notice Per-lease payout configuration, mutable by the lessee.
@@ -542,31 +526,6 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         _emitRealtorMinFeeSet(realtor, minFeePpm);
     }
 
-    /// @notice Configure the protocol-wide lease creation rate limit for all realtors.
-    /// @dev The effective rate limit for a given realtor is computed by `_effectiveLeaseRateLimit` which can:
-    /// - inherit from this config,
-    /// - override per realtor,
-    /// - or be disabled for a realtor.
-    ///
-    /// Setting both values to 0 disables the protocol-wide rate limit (but realtor overrides can still apply).
-    /// @param maxLeases Maximum number of leases allowed per realtor per window.
-    /// @param windowSeconds Window size in seconds.
-    function setProtocolLeaseRateLimit(uint256 maxLeases, uint256 windowSeconds) external onlyOwner {
-        // Ensure values fit into storage types.
-        if (maxLeases > type(uint32).max || windowSeconds > type(uint32).max) revert LeaseRateLimitConfigInvalid();
-        // Either both are 0 (disabled) or both are non-zero (enabled).
-        if ((maxLeases == 0) != (windowSeconds == 0)) revert LeaseRateLimitConfigInvalid();
-        // Casting to 'uint32' is safe because we capped to type(uint32).max above.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        _protocolConfig.leaseRateLimitMaxLeases = uint32(maxLeases);
-        // Casting to 'uint32' is safe because we capped to type(uint32).max above.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        _protocolConfig.leaseRateLimitWindowSeconds = uint32(windowSeconds);
-
-        // Emit via UntronV3Index (and append to event chain).
-        _emitProtocolLeaseRateLimitSet(maxLeases, windowSeconds);
-    }
-
     /// @notice Configure the protocol-wide lessee payout-config update rate limit.
     /// @dev Rate limiting applies to both `setPayoutConfig` and `setPayoutConfigWithSig`.
     /// Setting both values to 0 disables the rate limit.
@@ -590,45 +549,28 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         _emitLesseePayoutConfigRateLimitSet(maxUpdates, windowSeconds);
     }
 
-    /// @notice Configure lease creation rate limiting behavior for a specific realtor.
-    /// @dev Modes:
-    /// - `Inherit`: use protocol-wide parameters from `_protocolConfig`.
-    /// - `Override`: use the provided `maxLeases` and `windowSeconds` for this realtor (must be non-zero).
-    /// - `Disabled`: skip rate limiting for this realtor entirely (provided values must be 0).
+    /// @notice Configure lease creation rate limiting for a specific realtor.
+    /// @dev Setting both values to 0 disables rate limiting for this realtor.
     /// @param realtor Realtor whose lease rate limit settings are being updated.
-    /// @param mode Rate limiting mode.
-    /// @param maxLeases Maximum number of lease creations allowed per window (only if mode == Override).
-    /// @param windowSeconds Window size in seconds (only if mode == Override).
-    function setRealtorLeaseRateLimit(
-        address realtor,
-        LeaseRateLimitMode mode,
-        uint256 maxLeases,
-        uint256 windowSeconds
-    ) external onlyOwner {
+    /// @param maxLeases Maximum number of lease creations allowed per window.
+    /// @param windowSeconds Window size in seconds.
+    function setRealtorLeaseRateLimit(address realtor, uint256 maxLeases, uint256 windowSeconds) external onlyOwner {
+        // Ensure values fit into storage types.
+        if (maxLeases > type(uint32).max || windowSeconds > type(uint32).max) revert LeaseRateLimitConfigInvalid();
+        // Either both are 0 (disabled) or both are non-zero (enabled).
+        if ((maxLeases == 0) != (windowSeconds == 0)) revert LeaseRateLimitConfigInvalid();
+
         RealtorConfig storage cfg = _realtorConfig[realtor];
 
-        // Store the mode regardless of branch.
-        cfg.leaseRateLimitMode = mode;
-
-        if (mode == LeaseRateLimitMode.Override) {
-            // Override mode requires explicit, non-zero parameters that fit into uint32.
-            if (maxLeases > type(uint32).max || windowSeconds > type(uint32).max) revert LeaseRateLimitConfigInvalid();
-            if (maxLeases == 0 || windowSeconds == 0) revert LeaseRateLimitConfigInvalid();
-            // Casting to 'uint32' is safe because we capped to type(uint32).max above.
-            // forge-lint: disable-next-line(unsafe-typecast)
-            cfg.leaseRateLimitMaxLeases = uint32(maxLeases);
-            // Casting to 'uint32' is safe because we capped to type(uint32).max above.
-            // forge-lint: disable-next-line(unsafe-typecast)
-            cfg.leaseRateLimitWindowSeconds = uint32(windowSeconds);
-        } else {
-            // Inherit/Disabled modes require zero parameters to avoid ambiguous configuration.
-            if (maxLeases != 0 || windowSeconds != 0) revert LeaseRateLimitConfigInvalid();
-            cfg.leaseRateLimitMaxLeases = 0;
-            cfg.leaseRateLimitWindowSeconds = 0;
-        }
+        // Casting to 'uint32' is safe because we capped to type(uint32).max above.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        cfg.leaseRateLimitMaxLeases = uint32(maxLeases);
+        // Casting to 'uint32' is safe because we capped to type(uint32).max above.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        cfg.leaseRateLimitWindowSeconds = uint32(windowSeconds);
 
         // Emit via UntronV3Index (and append to event chain).
-        _emitRealtorLeaseRateLimitSet(realtor, uint8(mode), maxLeases, windowSeconds);
+        _emitRealtorLeaseRateLimitSet(realtor, maxLeases, windowSeconds);
     }
 
     /// @notice Set or update the external Tron tx reader contract address.
@@ -1223,15 +1165,6 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
                              EXTERNAL VIEW
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the protocol-wide lease rate limit config.
-    /// @dev If either returned value is 0, the protocol-wide limit is effectively disabled.
-    /// @return maxLeases Max number of leases allowed per window.
-    /// @return windowSeconds Window size in seconds.
-    function protocolLeaseRateLimit() external view returns (uint256 maxLeases, uint256 windowSeconds) {
-        ProtocolConfig storage cfg = _protocolConfig;
-        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
-    }
-
     /// @notice Returns the protocol-wide payout config update rate limit for lessees.
     /// @dev If either returned value is 0, the payout-config update rate limit is disabled.
     /// @return maxUpdates Max number of payout config updates allowed per window.
@@ -1241,32 +1174,29 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         return (cfg.payoutConfigRateLimitMaxUpdates, cfg.payoutConfigRateLimitWindowSeconds);
     }
 
-    /// @notice Returns the raw realtor lease rate limit config (mode + values).
-    /// @dev This returns the raw stored realtor config. Use `effectiveLeaseRateLimit` to get the applied config.
+    /// @notice Returns the raw realtor lease creation rate limit config.
     /// @param realtor Realtor to query.
-    /// @return mode The realtor's configured mode.
-    /// @return maxLeases The stored maxLeases (meaningful only if mode == Override).
-    /// @return windowSeconds The stored windowSeconds (meaningful only if mode == Override).
-    function realtorLeaseRateLimit(address realtor)
-        external
-        view
-        returns (LeaseRateLimitMode mode, uint256 maxLeases, uint256 windowSeconds)
-    {
+    /// @return maxLeases Maximum number of lease creations allowed per window.
+    /// @return windowSeconds Window size in seconds.
+    function realtorLeaseRateLimit(address realtor) external view returns (uint256 maxLeases, uint256 windowSeconds) {
         RealtorConfig storage cfg = _realtorConfig[realtor];
-        return (cfg.leaseRateLimitMode, cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
     }
 
-    /// @notice Returns the effective lease rate limit config for a realtor after applying overrides.
+    /// @notice Returns the lease rate limit config for a realtor.
     /// @param realtor Realtor to query.
-    /// @return enabled Whether the effective limit is enabled.
-    /// @return maxLeases Effective maxLeases.
-    /// @return windowSeconds Effective windowSeconds.
+    /// @return enabled Whether rate limiting is enabled for this realtor.
+    /// @return maxLeases Max leases allowed per window.
+    /// @return windowSeconds Window size in seconds.
     function effectiveLeaseRateLimit(address realtor)
         external
         view
         returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
     {
-        (enabled, maxLeases, windowSeconds) = _effectiveLeaseRateLimit(realtor);
+        RealtorConfig storage cfg = _realtorConfig[realtor];
+        maxLeases = cfg.leaseRateLimitMaxLeases;
+        windowSeconds = cfg.leaseRateLimitWindowSeconds;
+        enabled = (maxLeases != 0 && windowSeconds != 0);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1306,9 +1236,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     ///      to determine whether the oldest of the last `maxLeases` creations is outside the window.
     /// @param realtor Realtor whose lease creation is being rate-limited.
     function _enforceLeaseRateLimit(address realtor) internal {
-        // Resolve effective config after applying mode/overrides.
-        (bool enabled, uint256 maxLeases, uint256 windowSeconds) = _effectiveLeaseRateLimit(realtor);
-        if (!enabled) return;
+        RealtorConfig storage cfg = _realtorConfig[realtor];
+        uint256 maxLeases = cfg.leaseRateLimitMaxLeases;
+        uint256 windowSeconds = cfg.leaseRateLimitWindowSeconds;
+        if (maxLeases == 0 || windowSeconds == 0) return;
 
         // Record current timestamp (fits into uint64 for the foreseeable future).
         uint64 nowTs = uint64(block.timestamp);
@@ -1785,35 +1716,6 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint256 realtorMin = uint256(_realtorConfig[realtor].minFeePpm);
         if (realtorMin > minFee) minFee = realtorMin;
         return minFee;
-    }
-
-    /// @notice Compute the effective lease creation rate limit for `realtor` after applying `LeaseRateLimitMode`.
-    /// @param realtor Realtor to query.
-    /// @return enabled Whether rate limiting is enabled.
-    /// @return maxLeases Effective max leases allowed per window.
-    /// @return windowSeconds Effective window size in seconds.
-    function _effectiveLeaseRateLimit(address realtor)
-        internal
-        view
-        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
-    {
-        RealtorConfig storage rcfg = _realtorConfig[realtor];
-        LeaseRateLimitMode mode = rcfg.leaseRateLimitMode;
-        if (mode == LeaseRateLimitMode.Disabled) return (false, 0, 0);
-
-        if (mode == LeaseRateLimitMode.Override) {
-            // Realtor explicitly overrides protocol-wide config.
-            maxLeases = rcfg.leaseRateLimitMaxLeases;
-            windowSeconds = rcfg.leaseRateLimitWindowSeconds;
-        } else {
-            // Default behavior: inherit protocol-wide config.
-            ProtocolConfig storage pcfg = _protocolConfig;
-            maxLeases = pcfg.leaseRateLimitMaxLeases;
-            windowSeconds = pcfg.leaseRateLimitWindowSeconds;
-        }
-
-        // Enabled iff both parameters are non-zero.
-        enabled = (maxLeases != 0 && windowSeconds != 0);
     }
 
     /// @notice Find the lease that was active for `receiverSalt` at timestamp `ts`.

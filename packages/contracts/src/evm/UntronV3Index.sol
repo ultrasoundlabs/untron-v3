@@ -59,17 +59,11 @@ contract UntronV3Index {
     /// @param minFeePpm The minimum fee in parts-per-million.
     event RealtorMinFeeSet(address indexed realtor, uint256 minFeePpm);
 
-    /// @notice Emitted when the protocol-wide lease rate limit is set.
-    /// @param maxLeases The maximum number of leases allowed in the window.
-    /// @param windowSeconds The size of the rolling window in seconds.
-    event ProtocolLeaseRateLimitSet(uint256 maxLeases, uint256 windowSeconds);
-
     /// @notice Emitted when a realtor-specific lease rate limit is set.
     /// @param realtor The realtor address.
-    /// @param mode The rate limit mode.
     /// @param maxLeases The maximum number of leases allowed in the window.
     /// @param windowSeconds The size of the rolling window in seconds.
-    event RealtorLeaseRateLimitSet(address indexed realtor, uint8 mode, uint256 maxLeases, uint256 windowSeconds);
+    event RealtorLeaseRateLimitSet(address indexed realtor, uint256 maxLeases, uint256 windowSeconds);
 
     /// @notice Emitted when the lessee payout config update rate limit is set.
     /// @param maxUpdates The maximum number of updates allowed in the window.
@@ -290,14 +284,6 @@ contract UntronV3Index {
         emit RealtorMinFeeSet(realtor, minFeePpm);
     }
 
-    /// @notice Emits {ProtocolLeaseRateLimitSet} and appends it to the event chain.
-    /// @param maxLeases The maximum number of leases allowed in the window.
-    /// @param windowSeconds The size of the rolling window in seconds.
-    function _emitProtocolLeaseRateLimitSet(uint256 maxLeases, uint256 windowSeconds) internal {
-        _appendEventChain(ProtocolLeaseRateLimitSet.selector, abi.encode(maxLeases, windowSeconds));
-        emit ProtocolLeaseRateLimitSet(maxLeases, windowSeconds);
-    }
-
     /// @notice Emits {LesseePayoutConfigRateLimitSet} and appends it to the event chain.
     /// @param maxUpdates The maximum number of updates allowed in the window.
     /// @param windowSeconds The size of the rolling window in seconds.
@@ -308,14 +294,11 @@ contract UntronV3Index {
 
     /// @notice Emits {RealtorLeaseRateLimitSet} and appends it to the event chain.
     /// @param realtor The realtor address.
-    /// @param mode The rate limit mode.
     /// @param maxLeases The maximum number of leases allowed in the window.
     /// @param windowSeconds The size of the rolling window in seconds.
-    function _emitRealtorLeaseRateLimitSet(address realtor, uint8 mode, uint256 maxLeases, uint256 windowSeconds)
-        internal
-    {
-        _appendEventChain(RealtorLeaseRateLimitSet.selector, abi.encode(realtor, mode, maxLeases, windowSeconds));
-        emit RealtorLeaseRateLimitSet(realtor, mode, maxLeases, windowSeconds);
+    function _emitRealtorLeaseRateLimitSet(address realtor, uint256 maxLeases, uint256 windowSeconds) internal {
+        _appendEventChain(RealtorLeaseRateLimitSet.selector, abi.encode(realtor, maxLeases, windowSeconds));
+        emit RealtorLeaseRateLimitSet(realtor, maxLeases, windowSeconds);
     }
 
     /// @notice Emits {TronReaderSet} and appends it to the event chain.

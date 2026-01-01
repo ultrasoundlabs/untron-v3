@@ -9114,16 +9114,6 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [],
-    name: 'protocolLeaseRateLimit',
-    outputs: [
-      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
-      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
     name: 'protocolPnl',
     outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
     stateMutability: 'view',
@@ -9133,11 +9123,6 @@ export const untronV3Abi = [
     inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
     name: 'realtorLeaseRateLimit',
     outputs: [
-      {
-        name: 'mode',
-        internalType: 'enum UntronV3.LeaseRateLimitMode',
-        type: 'uint8',
-      },
       { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
       { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
     ],
@@ -9271,16 +9256,6 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [
-      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
-      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'setProtocolLeaseRateLimit',
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [
       { name: 'realtor', internalType: 'address', type: 'address' },
       { name: 'allowed', internalType: 'bool', type: 'bool' },
     ],
@@ -9292,11 +9267,6 @@ export const untronV3Abi = [
     type: 'function',
     inputs: [
       { name: 'realtor', internalType: 'address', type: 'address' },
-      {
-        name: 'mode',
-        internalType: 'enum UntronV3.LeaseRateLimitMode',
-        type: 'uint8',
-      },
       { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
       { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
     ],
@@ -9846,25 +9816,6 @@ export const untronV3Abi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'maxLeases',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-      {
-        name: 'windowSeconds',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'ProtocolLeaseRateLimitSet',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
       { name: 'pnl', internalType: 'int256', type: 'int256', indexed: false },
       { name: 'delta', internalType: 'int256', type: 'int256', indexed: false },
       {
@@ -9886,7 +9837,6 @@ export const untronV3Abi = [
         type: 'address',
         indexed: true,
       },
-      { name: 'mode', internalType: 'uint8', type: 'uint8', indexed: false },
       {
         name: 'maxLeases',
         internalType: 'uint256',
@@ -10504,16 +10454,6 @@ export const untronV3HarnessAbi = [
   {
     type: 'function',
     inputs: [],
-    name: 'protocolLeaseRateLimit',
-    outputs: [
-      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
-      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
     name: 'protocolPnl',
     outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
     stateMutability: 'view',
@@ -10535,11 +10475,6 @@ export const untronV3HarnessAbi = [
     inputs: [{ name: 'realtor', internalType: 'address', type: 'address' }],
     name: 'realtorLeaseRateLimit',
     outputs: [
-      {
-        name: 'mode',
-        internalType: 'enum UntronV3.LeaseRateLimitMode',
-        type: 'uint8',
-      },
       { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
       { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
     ],
@@ -10673,16 +10608,6 @@ export const untronV3HarnessAbi = [
   {
     type: 'function',
     inputs: [
-      { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
-      { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
-    ],
-    name: 'setProtocolLeaseRateLimit',
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [
       { name: 'realtor', internalType: 'address', type: 'address' },
       { name: 'allowed', internalType: 'bool', type: 'bool' },
     ],
@@ -10694,11 +10619,6 @@ export const untronV3HarnessAbi = [
     type: 'function',
     inputs: [
       { name: 'realtor', internalType: 'address', type: 'address' },
-      {
-        name: 'mode',
-        internalType: 'enum UntronV3.LeaseRateLimitMode',
-        type: 'uint8',
-      },
       { name: 'maxLeases', internalType: 'uint256', type: 'uint256' },
       { name: 'windowSeconds', internalType: 'uint256', type: 'uint256' },
     ],
@@ -11248,25 +11168,6 @@ export const untronV3HarnessAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'maxLeases',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-      {
-        name: 'windowSeconds',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'ProtocolLeaseRateLimitSet',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
       { name: 'pnl', internalType: 'int256', type: 'int256', indexed: false },
       { name: 'delta', internalType: 'int256', type: 'int256', indexed: false },
       {
@@ -11288,7 +11189,6 @@ export const untronV3HarnessAbi = [
         type: 'address',
         indexed: true,
       },
-      { name: 'mode', internalType: 'uint8', type: 'uint8', indexed: false },
       {
         name: 'maxLeases',
         internalType: 'uint256',
@@ -11914,25 +11814,6 @@ export const untronV3IndexAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'maxLeases',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-      {
-        name: 'windowSeconds',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'ProtocolLeaseRateLimitSet',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
       { name: 'pnl', internalType: 'int256', type: 'int256', indexed: false },
       { name: 'delta', internalType: 'int256', type: 'int256', indexed: false },
       {
@@ -11954,7 +11835,6 @@ export const untronV3IndexAbi = [
         type: 'address',
         indexed: true,
       },
-      { name: 'mode', internalType: 'uint8', type: 'uint8', indexed: false },
       {
         name: 'maxLeases',
         internalType: 'uint256',
@@ -12547,25 +12427,6 @@ export const untronV3IndexedOwnableAbi = [
     type: 'event',
     anonymous: false,
     inputs: [
-      {
-        name: 'maxLeases',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-      {
-        name: 'windowSeconds',
-        internalType: 'uint256',
-        type: 'uint256',
-        indexed: false,
-      },
-    ],
-    name: 'ProtocolLeaseRateLimitSet',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
       { name: 'pnl', internalType: 'int256', type: 'int256', indexed: false },
       { name: 'delta', internalType: 'int256', type: 'int256', indexed: false },
       {
@@ -12587,7 +12448,6 @@ export const untronV3IndexedOwnableAbi = [
         type: 'address',
         indexed: true,
       },
-      { name: 'mode', internalType: 'uint8', type: 'uint8', indexed: false },
       {
         name: 'maxLeases',
         internalType: 'uint256',

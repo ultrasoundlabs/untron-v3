@@ -13,7 +13,6 @@ import {
   untronV3LeasePayoutConfig,
   untronV3LesseePayoutConfigRateLimit,
   untronV3ProtocolFloor,
-  untronV3ProtocolLeaseRateLimit,
   untronV3ChainDeprecated,
   untronV3Realtor,
   untronV3SwapRate,
@@ -46,7 +45,6 @@ type UntronV3DerivedEventName =
   | "TronUsdtSet"
   | "ProtocolFloorSet"
   | "ChainDeprecatedSet"
-  | "ProtocolLeaseRateLimitSet"
   | "RealtorLeaseRateLimitSet"
   | "RealtorMinFeeSet"
   | "RealtorSet"
@@ -884,7 +882,6 @@ const handleControllerEventProcessed = (args: { event: PonderLogEvent; context: 
 const DEFAULT_REALTOR_ROW = {
   allowed: false,
   minFeePpm: 0n,
-  leaseRateLimitMode: 0,
   leaseRateLimitMaxLeases: 0n,
   leaseRateLimitWindowSeconds: 0n,
 } as const;
@@ -906,7 +903,6 @@ const handleRealtorSet = (args: { event: PonderLogEvent; context: PonderContext 
       ? {
           allowed: expectBoolean(existing.allowed, "realtor.allowed"),
           minFeePpm: expectBigint(existing.minFeePpm, "realtor.minFeePpm"),
-          leaseRateLimitMode: Number(existing.leaseRateLimitMode),
           leaseRateLimitMaxLeases: expectBigint(
             existing.leaseRateLimitMaxLeases,
             "realtor.leaseRateLimitMaxLeases"
@@ -928,7 +924,6 @@ const handleRealtorSet = (args: { event: PonderLogEvent; context: PonderContext 
           realtor,
           allowed,
           minFeePpm: previous.minFeePpm,
-          leaseRateLimitMode: previous.leaseRateLimitMode,
           leaseRateLimitMaxLeases: previous.leaseRateLimitMaxLeases,
           leaseRateLimitWindowSeconds: previous.leaseRateLimitWindowSeconds,
           updatedAtBlockNumber: event.block.number,
@@ -968,7 +963,6 @@ const handleRealtorMinFeeSet = (args: { event: PonderLogEvent; context: PonderCo
     const previous = existing
       ? {
           allowed: expectBoolean(existing.allowed, "realtor.allowed"),
-          leaseRateLimitMode: Number(existing.leaseRateLimitMode),
           leaseRateLimitMaxLeases: expectBigint(
             existing.leaseRateLimitMaxLeases,
             "realtor.leaseRateLimitMaxLeases"
@@ -980,7 +974,6 @@ const handleRealtorMinFeeSet = (args: { event: PonderLogEvent; context: PonderCo
         }
       : {
           allowed: DEFAULT_REALTOR_ROW.allowed,
-          leaseRateLimitMode: DEFAULT_REALTOR_ROW.leaseRateLimitMode,
           leaseRateLimitMaxLeases: DEFAULT_REALTOR_ROW.leaseRateLimitMaxLeases,
           leaseRateLimitWindowSeconds: DEFAULT_REALTOR_ROW.leaseRateLimitWindowSeconds,
         };
@@ -995,7 +988,6 @@ const handleRealtorMinFeeSet = (args: { event: PonderLogEvent; context: PonderCo
           realtor,
           allowed: previous.allowed,
           minFeePpm,
-          leaseRateLimitMode: previous.leaseRateLimitMode,
           leaseRateLimitMaxLeases: previous.leaseRateLimitMaxLeases,
           leaseRateLimitWindowSeconds: previous.leaseRateLimitWindowSeconds,
           updatedAtBlockNumber: event.block.number,
@@ -1024,13 +1016,12 @@ const handleRealtorLeaseRateLimitSet = (args: { event: PonderLogEvent; context: 
       getArgValue(parsedArgs, 0, "realtor"),
       "RealtorLeaseRateLimitSet.realtor"
     );
-    const mode = expectBigint(getArgValue(parsedArgs, 1, "mode"), "RealtorLeaseRateLimitSet.mode");
     const maxLeases = expectBigint(
-      getArgValue(parsedArgs, 2, "maxLeases"),
+      getArgValue(parsedArgs, 1, "maxLeases"),
       "RealtorLeaseRateLimitSet.maxLeases"
     );
     const windowSeconds = expectBigint(
-      getArgValue(parsedArgs, 3, "windowSeconds"),
+      getArgValue(parsedArgs, 2, "windowSeconds"),
       "RealtorLeaseRateLimitSet.windowSeconds"
     );
 
@@ -1054,7 +1045,6 @@ const handleRealtorLeaseRateLimitSet = (args: { event: PonderLogEvent; context: 
           realtor,
           allowed: previous.allowed,
           minFeePpm: previous.minFeePpm,
-          leaseRateLimitMode: Number(mode),
           leaseRateLimitMaxLeases: maxLeases,
           leaseRateLimitWindowSeconds: windowSeconds,
           updatedAtBlockNumber: event.block.number,
@@ -1063,52 +1053,8 @@ const handleRealtorLeaseRateLimitSet = (args: { event: PonderLogEvent; context: 
           updatedAtLogIndex: event.log.logIndex,
         })
         .onConflictDoUpdate({
-          leaseRateLimitMode: Number(mode),
           leaseRateLimitMaxLeases: maxLeases,
           leaseRateLimitWindowSeconds: windowSeconds,
-          updatedAtBlockNumber: event.block.number,
-          updatedAtBlockTimestamp: event.block.timestamp,
-          updatedAtTransactionHash: event.transaction.hash,
-          updatedAtLogIndex: event.log.logIndex,
-        })
-    );
-  });
-
-const handleProtocolLeaseRateLimitSet = (args: { event: PonderLogEvent; context: PonderContext }) =>
-  Effect.gen(function* () {
-    const { event, context } = args;
-    const parsedArgs = expectRecord(event.args, "event.args");
-    const chainId = context.chain.id;
-    const contractAddress = expectHexAddress(event.log.address, "event.log.address");
-
-    const maxLeases = expectBigint(
-      getArgValue(parsedArgs, 0, "maxLeases"),
-      "ProtocolLeaseRateLimitSet.maxLeases"
-    );
-    const windowSeconds = expectBigint(
-      getArgValue(parsedArgs, 1, "windowSeconds"),
-      "ProtocolLeaseRateLimitSet.windowSeconds"
-    );
-
-    const id = makeSingletonConfigId({ chainId, contractAddress });
-
-    yield* tryPromise(() =>
-      context.db
-        .insert(untronV3ProtocolLeaseRateLimit)
-        .values({
-          id,
-          chainId,
-          contractAddress,
-          maxLeases,
-          windowSeconds,
-          updatedAtBlockNumber: event.block.number,
-          updatedAtBlockTimestamp: event.block.timestamp,
-          updatedAtTransactionHash: event.transaction.hash,
-          updatedAtLogIndex: event.log.logIndex,
-        })
-        .onConflictDoUpdate({
-          maxLeases,
-          windowSeconds,
           updatedAtBlockNumber: event.block.number,
           updatedAtBlockTimestamp: event.block.timestamp,
           updatedAtTransactionHash: event.transaction.hash,
@@ -1193,8 +1139,6 @@ export const handleUntronV3DerivedEvent = (args: {
       return handleProtocolFloorSet({ event: args.event, context: args.context });
     case "ChainDeprecatedSet":
       return handleChainDeprecatedSet({ event: args.event, context: args.context });
-    case "ProtocolLeaseRateLimitSet":
-      return handleProtocolLeaseRateLimitSet({ event: args.event, context: args.context });
     case "RealtorLeaseRateLimitSet":
       return handleRealtorLeaseRateLimitSet({ event: args.event, context: args.context });
     case "RealtorMinFeeSet":
