@@ -1537,7 +1537,12 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @dev Handle a `PulledFromReceiver` controller event by reconciling unbacked volume and/or creating new claims.
     ///
     /// The controller reports a USDT amount pulled out of the receiver(s) for a given `receiverSalt`.
-    /// We treat this as "backing" previously recognized but unbacked volume, oldest-first across the lease timeline.
+    ///
+    /// If `token == tronUsdt`, we treat this as "backing" previously recognized but unbacked pre-entitled volume,
+    /// oldest-first across the lease timeline.
+    ///
+    /// If `token != tronUsdt`, the pull is treated as additional USDT-equivalent "profit volume" and does NOT back
+    /// any pre-entitled volume (to avoid mixing accounting between USDT deposits and non-USDT sweeps).
     ///
     /// If the pulled amount exceeds total unbacked volume at/through `dumpTimestamp`, the remaining amount is treated
     /// as new recognized volume for the lease active at `dumpTimestamp` ("profit volume") and is subject to fees and
@@ -1562,20 +1567,23 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         // Remaining amount to allocate between backing repayment and (possibly) new profit volume.
         uint256 remaining = usdtAmount;
 
-        // Repay historical unbacked volume across leases for receiverSalt.
-        uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
-        uint256 len = ids.length;
-        for (uint256 j = 0; j < len && remaining != 0; ++j) {
-            Lease storage oldL = leases[ids[j]];
-            // Stop if we reached leases that start after the pull timestamp.
-            if (oldL.startTime > dumpTimestamp) break;
-            uint256 unbacked = oldL.unbackedRaw;
-            if (unbacked == 0) continue;
-            // Repay up to the unbacked amount for this lease.
-            uint256 repay = remaining < unbacked ? remaining : unbacked;
-            oldL.backedRaw += repay;
-            oldL.unbackedRaw = unbacked - repay;
-            remaining -= repay;
+        // Only canonical USDT pulls can back pre-entitled (USDT-denominated) unbacked volume.
+        if (token == tronUsdt) {
+            // Repay historical unbacked volume across leases for receiverSalt.
+            uint256[] storage ids = _leaseIdsByReceiver[receiverSalt];
+            uint256 len = ids.length;
+            for (uint256 j = 0; j < len && remaining != 0; ++j) {
+                Lease storage oldL = leases[ids[j]];
+                // Stop if we reached leases that start after the pull timestamp.
+                if (oldL.startTime > dumpTimestamp) break;
+                uint256 unbacked = oldL.unbackedRaw;
+                if (unbacked == 0) continue;
+                // Repay up to the unbacked amount for this lease.
+                uint256 repay = remaining < unbacked ? remaining : unbacked;
+                oldL.backedRaw += repay;
+                oldL.unbackedRaw = unbacked - repay;
+                remaining -= repay;
+            }
         }
 
         // Any remaining volume becomes profit for the lease active at dump time.

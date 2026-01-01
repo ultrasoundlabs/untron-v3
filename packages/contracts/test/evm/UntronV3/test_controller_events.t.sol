@@ -222,11 +222,11 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
 
         // Pull backs 150 USDT at t2: covers lease1 fully (100) then lease2 (50).
         bytes32 pulledSig = keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
-        bytes memory pulledData = abi.encode(salt, address(0), uint256(0), uint256(0), uint256(150));
+        bytes memory pulledData = abi.encode(salt, _untron.tronUsdt(), uint256(0), uint256(0), uint256(150));
         _untron.pushControllerEvent(pulledSig, pulledData, 3, t2);
         _untron.processControllerEvents(1);
 
-        assertEq(_untron.lastReceiverPullTimestampByToken(salt, address(0)), t2);
+        assertEq(_untron.lastReceiverPullTimestampByToken(salt, _untron.tronUsdt()), t2);
 
         (,,,,,,, uint256 r1, uint256 b1, uint256 u1, UntronV3.PayoutConfig memory p1) = _untron.leases(lease1);
         (,,,,,,, uint256 r2, uint256 b2, uint256 u2, UntronV3.PayoutConfig memory p2) = _untron.leases(lease2);
@@ -257,7 +257,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         );
 
         bytes32 pulledSig = keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
-        bytes memory pulledData = abi.encode(salt, address(0), uint256(0), uint256(0), uint256(100));
+        bytes memory pulledData = abi.encode(salt, _untron.tronUsdt(), uint256(0), uint256(0), uint256(100));
         _untron.pushControllerEvent(pulledSig, pulledData, 1, t0);
         _untron.processControllerEvents(1);
 
@@ -277,6 +277,49 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         assertEq(p.targetChainId, block.chainid);
         assertEq(p.targetToken, address(_usdt));
         assertEq(p.beneficiary, address(0xB0B));
+    }
+
+    function testPulledFromReceiverNonUsdtDoesNotBackPreEntitledVolume() public {
+        bytes32 salt = keccak256("salt_non_usdt_pull");
+        uint64 t0 = uint64(block.timestamp);
+
+        uint256 leaseId = _untron.createLease(
+            salt, address(0xBEEF), t0 + 1 days, 0, 0, block.chainid, address(_usdt), address(0xB0B)
+        );
+
+        // Pre-entitle 100 USDT into the receiver => recognized=100, unbacked=100.
+        address receiver = _predictedReceiver(salt);
+        bytes memory trc20Data = _trc20TransferCalldata(receiver, 100);
+        _reader.setNextCallData(
+            keccak256("tx_preentitle"),
+            1,
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint32(t0),
+            TronCalldataUtils.evmToTronAddress(address(0x1111)),
+            TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
+            trc20Data
+        );
+        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+
+        // Non-USDT pull: should NOT back pre-entitled unbacked volume; entire amount is treated as profit volume.
+        address tokenX = address(0x1234);
+        bytes32 pulledSig = keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
+        bytes memory pulledData = abi.encode(salt, tokenX, uint256(0), uint256(0), uint256(50));
+        _untron.pushControllerEvent(pulledSig, pulledData, 2, t0);
+        _untron.processControllerEvents(1);
+
+        assertEq(_untron.protocolPnl(), 0);
+        assertEq(_untron.claimQueueLength(address(_usdt)), 2);
+        (uint256 claimId, uint256 amountUsdt, uint256 gotLeaseId,,) = _untron.claimsByTargetToken(address(_usdt), 1);
+        assertEq(claimId, 1);
+        assertEq(amountUsdt, 50);
+        assertEq(gotLeaseId, leaseId);
+
+        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw,) = _untron.leases(leaseId);
+        assertEq(recognizedRaw, 150);
+        assertEq(backedRaw, 50);
+        assertEq(unbackedRaw, 100);
+        assertEq(recognizedRaw, backedRaw + unbackedRaw);
     }
 
     function testUsdtSetUpdatesTronUsdt() public {
