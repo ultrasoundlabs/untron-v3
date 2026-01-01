@@ -1174,68 +1174,6 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
                              EXTERNAL VIEW
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the protocol-wide payout config update rate limit for lessees.
-    /// @dev If either returned value is 0, the payout-config update rate limit is disabled.
-    /// @return maxUpdates Max number of payout config updates allowed per window.
-    /// @return windowSeconds Window size in seconds.
-    function lesseePayoutConfigRateLimit() external view returns (uint256 maxUpdates, uint256 windowSeconds) {
-        ProtocolConfig storage cfg = _protocolConfig;
-        return (cfg.payoutConfigRateLimitMaxUpdates, cfg.payoutConfigRateLimitWindowSeconds);
-    }
-
-    /// @notice Returns the raw realtor lease creation rate limit config.
-    /// @param realtor Realtor to query.
-    /// @return maxLeases Maximum number of lease creations allowed per window.
-    /// @return windowSeconds Window size in seconds.
-    function realtorLeaseRateLimit(address realtor) external view returns (uint256 maxLeases, uint256 windowSeconds) {
-        RealtorConfig storage cfg = _realtorConfig[realtor];
-        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
-    }
-
-    /// @notice Returns the lease rate limit config for a realtor.
-    /// @param realtor Realtor to query.
-    /// @return enabled Whether rate limiting is enabled for this realtor.
-    /// @return maxLeases Max leases allowed per window.
-    /// @return windowSeconds Window size in seconds.
-    function effectiveLeaseRateLimit(address realtor)
-        external
-        view
-        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
-    {
-        RealtorConfig storage cfg = _realtorConfig[realtor];
-        maxLeases = cfg.leaseRateLimitMaxLeases;
-        windowSeconds = cfg.leaseRateLimitWindowSeconds;
-        enabled = (maxLeases != 0 && windowSeconds != 0);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                              PUBLIC VIEW
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Returns the protocol-wide minimum fee in parts per million.
-    /// @dev Preserves the legacy public getter name.
-    /// @return floorPpm Protocol-wide fee floor in ppm.
-    function protocolFloorPpm() public view returns (uint256) {
-        return uint256(_protocolConfig.floorPpm);
-    }
-
-    /// @notice Returns the realtor-specific minimum fee override in parts per million.
-    /// @dev Preserves the legacy public getter name.
-    /// @param realtor Realtor to query.
-    /// @return minFeePpm Realtor-specific fee floor in ppm.
-    function realtorMinFeePpm(address realtor) public view returns (uint256) {
-        return uint256(_realtorConfig[realtor].minFeePpm);
-    }
-
-    /// @notice Returns the current USDT balance held by this contract.
-    /// @return The USDT balance held by this contract.
-    /// @dev Returns 0 if `usdt` is not set.
-    function usdtBalance() public view returns (uint256) {
-        address usdt_ = usdt; // not sure if the compiler would optimize it into this anyway
-        if (usdt_ == address(0)) return 0;
-        return TokenUtils.getBalanceOf(usdt_, address(this));
-    }
-
     /// @notice Return lease data for an external `leaseId`.
     /// @param leaseId The ID of the lease to retrieve.
     /// @return receiverSalt The salt used to generate the receiver address.
@@ -1296,6 +1234,77 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         backedRaw = lease.backedRaw;
         unbackedRaw = lease.unbackedRaw;
         payout = lease.payout;
+    }
+
+    /// @notice Returns the protocol-wide payout config update rate limit for lessees.
+    /// @dev If either returned value is 0, the payout-config update rate limit is disabled.
+    /// @return maxUpdates Max number of payout config updates allowed per window.
+    /// @return windowSeconds Window size in seconds.
+    function lesseePayoutConfigRateLimit() external view returns (uint256 maxUpdates, uint256 windowSeconds) {
+        ProtocolConfig storage cfg = _protocolConfig;
+        return (cfg.payoutConfigRateLimitMaxUpdates, cfg.payoutConfigRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the raw realtor lease creation rate limit config.
+    /// @param realtor Realtor to query.
+    /// @return maxLeases Maximum number of lease creations allowed per window.
+    /// @return windowSeconds Window size in seconds.
+    function realtorLeaseRateLimit(address realtor) external view returns (uint256 maxLeases, uint256 windowSeconds) {
+        RealtorConfig storage cfg = _realtorConfig[realtor];
+        return (cfg.leaseRateLimitMaxLeases, cfg.leaseRateLimitWindowSeconds);
+    }
+
+    /// @notice Returns the lease rate limit config for a realtor.
+    /// @param realtor Realtor to query.
+    /// @return enabled Whether rate limiting is enabled for this realtor.
+    /// @return maxLeases Max leases allowed per window.
+    /// @return windowSeconds Window size in seconds.
+    function effectiveLeaseRateLimit(address realtor)
+        external
+        view
+        returns (bool enabled, uint256 maxLeases, uint256 windowSeconds)
+    {
+        RealtorConfig storage cfg = _realtorConfig[realtor];
+        maxLeases = cfg.leaseRateLimitMaxLeases;
+        windowSeconds = cfg.leaseRateLimitWindowSeconds;
+        enabled = (maxLeases != 0 && windowSeconds != 0);
+    }
+
+    /// @notice Return the next lease index for a receiver.
+    /// @dev This is equal to the number of leases ever created for `receiverSalt` (i.e., the array length).
+    ///      If you want the latest lease index, use `nextLeaseIndexAtReceiver(receiverSalt) - 1` (when non-zero).
+    /// @param receiverSalt Receiver salt whose lease array is queried.
+    /// @return nextLeaseIndex The next lease index within `leasesByReceiver[receiverSalt]`.
+    function nextLeaseIndexAtReceiver(bytes32 receiverSalt) external view returns (uint256 nextLeaseIndex) {
+        return leasesByReceiver[receiverSalt].length;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                              PUBLIC VIEW
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Returns the protocol-wide minimum fee in parts per million.
+    /// @dev Preserves the legacy public getter name.
+    /// @return floorPpm Protocol-wide fee floor in ppm.
+    function protocolFloorPpm() public view returns (uint256) {
+        return uint256(_protocolConfig.floorPpm);
+    }
+
+    /// @notice Returns the realtor-specific minimum fee override in parts per million.
+    /// @dev Preserves the legacy public getter name.
+    /// @param realtor Realtor to query.
+    /// @return minFeePpm Realtor-specific fee floor in ppm.
+    function realtorMinFeePpm(address realtor) public view returns (uint256) {
+        return uint256(_realtorConfig[realtor].minFeePpm);
+    }
+
+    /// @notice Returns the current USDT balance held by this contract.
+    /// @return The USDT balance held by this contract.
+    /// @dev Returns 0 if `usdt` is not set.
+    function usdtBalance() public view returns (uint256) {
+        address usdt_ = usdt; // not sure if the compiler would optimize it into this anyway
+        if (usdt_ == address(0)) return 0;
+        return TokenUtils.getBalanceOf(usdt_, address(this));
     }
 
     /*//////////////////////////////////////////////////////////////

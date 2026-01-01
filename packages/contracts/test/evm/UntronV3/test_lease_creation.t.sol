@@ -8,6 +8,23 @@ import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 import {MockBridger} from "./UntronV3TestUtils.sol";
 
 contract UntronV3LeaseCreationTest is UntronV3TestBase {
+    function testNextLeaseIndexAtReceiverReportsLength() public {
+        bytes32 salt = keccak256("salt_latest_lease");
+
+        assertEq(_untron.nextLeaseIndexAtReceiver(salt), 0);
+
+        _untron.createLease(
+            salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
+        );
+        assertEq(_untron.nextLeaseIndexAtReceiver(salt), 1);
+
+        vm.warp(block.timestamp + 1 days);
+        _untron.createLease(
+            salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
+        );
+        assertEq(_untron.nextLeaseIndexAtReceiver(salt), 2);
+    }
+
     function testCreateLeaseRevertsForNonRealtor() public {
         vm.prank(address(0x1234));
         vm.expectRevert(UntronV3.NotRealtor.selector);

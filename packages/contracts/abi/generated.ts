@@ -9075,6 +9075,17 @@ export const untronV3Abi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'nextLeaseIndexAtReceiver',
+    outputs: [
+      { name: 'nextLeaseIndex', internalType: 'uint256', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'owner',
     outputs: [{ name: 'result', internalType: 'address', type: 'address' }],
@@ -10452,6 +10463,17 @@ export const untronV3HarnessAbi = [
     inputs: [],
     name: 'nextLeaseId',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
+    ],
+    name: 'nextLeaseIndexAtReceiver',
+    outputs: [
+      { name: 'nextLeaseIndex', internalType: 'uint256', type: 'uint256' },
+    ],
     stateMutability: 'view',
   },
   {
