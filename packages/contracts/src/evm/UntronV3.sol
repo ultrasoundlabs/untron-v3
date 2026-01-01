@@ -763,7 +763,8 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @param targetChainId Destination chain for payouts for claims created by this lease.
     /// @param targetToken Token on THIS chain used for settlement of claims created by this lease.
     /// @param beneficiary Recipient address for payouts for claims created by this lease.
-    /// @return leaseId Newly created lease identifier.
+    /// @return leaseId Newly created global lease identifier.
+    /// @return leaseNumber Position of the lease in the receiver's lease array.
     function createLease(
         bytes32 receiverSalt,
         address lessee,
@@ -773,9 +774,8 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint256 targetChainId,
         address targetToken,
         address beneficiary
-    ) external whenNotPaused returns (uint256 leaseId) {
-        address realtor = msg.sender;
-        _enforceCreateLeasePreconditions(realtor, receiverSalt, nukeableAfter, leaseFeePpm, flatFee, targetChainId);
+    ) external whenNotPaused returns (uint256 leaseId, uint256 leaseNumber) {
+        _enforceCreateLeasePreconditions(msg.sender, receiverSalt, nukeableAfter, leaseFeePpm, flatFee, targetChainId);
 
         // Validate that the payout route is currently supported/configured.
         // This makes lease creation fail fast if rate/bridger isn't configured yet.
@@ -786,10 +786,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint64 startTime = _leaseStartTime();
 
         // Populate lease storage and append to the receiver's lease timeline.
-        _storeLease(
+        leaseNumber = _storeLease(
             leaseId,
             receiverSalt,
-            realtor,
+            msg.sender,
             lessee,
             startTime,
             nukeableAfter,
@@ -801,7 +801,9 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         );
 
         // Emit lease creation and initial payout config via UntronV3Index.
-        _emitLeaseCreated(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
+        _emitLeaseCreated(
+            leaseId, receiverSalt, leaseNumber, msg.sender, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee
+        );
         // this is slightly crutchy because we technically enshrine the initial config
         // at creation time, but this simplifies indexing logic quite a bunch
         _emitPayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
@@ -1323,10 +1325,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
     /// @notice Return the next lease index for a receiver.
     /// @dev This is equal to the number of leases ever created for `receiverSalt` (i.e., the array length).
-    ///      If you want the latest lease index, use `nextLeaseIndexAtReceiver(receiverSalt) - 1` (when non-zero).
+    ///      If you want the latest lease index, use `nextLeaseNumberAtReceiver(receiverSalt) - 1` (when non-zero).
     /// @param receiverSalt Receiver salt whose lease array is queried.
-    /// @return nextLeaseIndex The next lease index within `leasesByReceiver[receiverSalt]`.
-    function nextLeaseIndexAtReceiver(bytes32 receiverSalt) external view returns (uint256 nextLeaseIndex) {
+    /// @return nextLeaseNumber The next lease index within `leasesByReceiver[receiverSalt]`.
+    function nextLeaseNumberAtReceiver(bytes32 receiverSalt) external view returns (uint256 nextLeaseNumber) {
         return leasesByReceiver[receiverSalt].length;
     }
 
@@ -1524,6 +1526,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @param targetChainId Destination chain for payouts.
     /// @param targetToken Settlement token on this chain.
     /// @param beneficiary Recipient of the payout.
+    /// @return leaseNumber Index of the newly created lease in the receiver's lease array.
     function _storeLease(
         uint256 leaseId,
         bytes32 receiverSalt,
@@ -1536,9 +1539,9 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
         uint256 targetChainId,
         address targetToken,
         address beneficiary
-    ) internal {
+    ) internal returns (uint256 leaseNumber) {
         // Lease number is "how many leases this receiver has had so far".
-        uint256 leaseNumber = leasesByReceiver[receiverSalt].length;
+        leaseNumber = leasesByReceiver[receiverSalt].length;
 
         // Store locator by external id (plus-one encodes existence).
         _leaseLocatorById[leaseId] = LeaseLocator({receiverSalt: receiverSalt, leaseNumberPlusOne: leaseNumber + 1});

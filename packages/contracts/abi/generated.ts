@@ -8840,7 +8840,10 @@ export const untronV3Abi = [
       { name: 'beneficiary', internalType: 'address', type: 'address' },
     ],
     name: 'createLease',
-    outputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
+    outputs: [
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      { name: 'leaseNumber', internalType: 'uint256', type: 'uint256' },
+    ],
     stateMutability: 'nonpayable',
   },
   {
@@ -9085,9 +9088,9 @@ export const untronV3Abi = [
     inputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
     ],
-    name: 'nextLeaseIndexAtReceiver',
+    name: 'nextLeaseNumberAtReceiver',
     outputs: [
-      { name: 'nextLeaseIndex', internalType: 'uint256', type: 'uint256' },
+      { name: 'nextLeaseNumber', internalType: 'uint256', type: 'uint256' },
     ],
     stateMutability: 'view',
   },
@@ -9753,6 +9756,12 @@ export const untronV3Abi = [
         indexed: true,
       },
       {
+        name: 'leaseNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
         name: 'realtor',
         internalType: 'address',
         type: 'address',
@@ -10319,7 +10328,10 @@ export const untronV3HarnessAbi = [
       { name: 'beneficiary', internalType: 'address', type: 'address' },
     ],
     name: 'createLease',
-    outputs: [{ name: 'leaseId', internalType: 'uint256', type: 'uint256' }],
+    outputs: [
+      { name: 'leaseId', internalType: 'uint256', type: 'uint256' },
+      { name: 'leaseNumber', internalType: 'uint256', type: 'uint256' },
+    ],
     stateMutability: 'nonpayable',
   },
   {
@@ -10622,9 +10634,9 @@ export const untronV3HarnessAbi = [
     inputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
     ],
-    name: 'nextLeaseIndexAtReceiver',
+    name: 'nextLeaseNumberAtReceiver',
     outputs: [
-      { name: 'nextLeaseIndex', internalType: 'uint256', type: 'uint256' },
+      { name: 'nextLeaseNumber', internalType: 'uint256', type: 'uint256' },
     ],
     stateMutability: 'view',
   },
@@ -11299,6 +11311,12 @@ export const untronV3HarnessAbi = [
         name: 'receiverSalt',
         internalType: 'bytes32',
         type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'leaseNumber',
+        internalType: 'uint256',
+        type: 'uint256',
         indexed: true,
       },
       {
@@ -12027,6 +12045,12 @@ export const untronV3IndexAbi = [
         indexed: true,
       },
       {
+        name: 'leaseNumber',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
         name: 'realtor',
         internalType: 'address',
         type: 'address',
@@ -12701,6 +12725,12 @@ export const untronV3IndexedOwnableAbi = [
         name: 'receiverSalt',
         internalType: 'bytes32',
         type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'leaseNumber',
+        internalType: 'uint256',
+        type: 'uint256',
         indexed: true,
       },
       {

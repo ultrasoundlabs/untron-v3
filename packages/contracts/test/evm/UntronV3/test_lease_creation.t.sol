@@ -8,21 +8,21 @@ import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 import {MockBridger} from "./UntronV3TestUtils.sol";
 
 contract UntronV3LeaseCreationTest is UntronV3TestBase {
-    function testNextLeaseIndexAtReceiverReportsLength() public {
+    function testNextLeaseNumberAtReceiverReportsLength() public {
         bytes32 salt = keccak256("salt_latest_lease");
 
-        assertEq(_untron.nextLeaseIndexAtReceiver(salt), 0);
+        assertEq(_untron.nextLeaseNumberAtReceiver(salt), 0);
 
         _untron.createLease(
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
-        assertEq(_untron.nextLeaseIndexAtReceiver(salt), 1);
+        assertEq(_untron.nextLeaseNumberAtReceiver(salt), 1);
 
         vm.warp(block.timestamp + 1 days);
         _untron.createLease(
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
-        assertEq(_untron.nextLeaseIndexAtReceiver(salt), 2);
+        assertEq(_untron.nextLeaseNumberAtReceiver(salt), 2);
     }
 
     function testCreateLeaseRevertsForNonRealtor() public {
@@ -59,7 +59,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             address(0xB0B)
         );
 
-        uint256 leaseId = _untron.createLease(
+        (uint256 leaseId,) = _untron.createLease(
             keccak256("salt_fee_ok"),
             address(0xBEEF),
             uint64(block.timestamp + 1 days),
@@ -105,11 +105,11 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         uint64 t0 = uint64(block.timestamp);
         uint64 nukeableAfter1 = t0 + 1000;
 
-        uint256 lease1 = _untron.createLease(
+        (uint256 lease1Id,) = _untron.createLease(
             salt, address(0xBEEF), nukeableAfter1, 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
-        assertEq(lease1, 1);
-        (bytes32 locSalt1, uint256 leaseNum1) = _untron.leaseLocatorById(lease1);
+        assertEq(lease1Id, 1);
+        (bytes32 locSalt1, uint256 leaseNum1) = _untron.leaseLocatorById(lease1Id);
         assertEq(locSalt1, salt);
         assertEq(leaseNum1, 0);
 
@@ -120,25 +120,25 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         );
 
         vm.warp(nukeableAfter1);
-        uint256 lease2 = _untron.createLease(
+        (uint256 lease2Id,) = _untron.createLease(
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
-        assertEq(lease2, 2);
-        (bytes32 locSalt2, uint256 leaseNum2) = _untron.leaseLocatorById(lease2);
+        assertEq(lease2Id, 2);
+        (bytes32 locSalt2, uint256 leaseNum2) = _untron.leaseLocatorById(lease2Id);
         assertEq(locSalt2, salt);
         assertEq(leaseNum2, 1);
 
         uint256[] memory ids = _untron.leaseIdsByReceiver(salt);
         assertEq(ids.length, 2);
-        assertEq(ids[0], lease1);
-        assertEq(ids[1], lease2);
+        assertEq(ids[0], lease1Id);
+        assertEq(ids[1], lease2Id);
     }
 
     function testActiveLeaseSelectionByTimestampUsesTimeline() public {
         bytes32 salt = keccak256("salt_timeline");
 
         uint64 t1 = uint64(block.timestamp);
-        uint256 lease1 = _untron.createLease(
+        (uint256 lease1Id,) = _untron.createLease(
             // Make the first lease immediately nukeable so we can create lease2 later for the same salt.
             salt,
             address(0x1111),
@@ -152,7 +152,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
 
         vm.warp(t1 + 100);
         uint64 t2 = uint64(block.timestamp);
-        uint256 lease2 = _untron.createLease(
+        (uint256 lease2Id,) = _untron.createLease(
             salt, address(0x2222), uint64(t2 + 1 days), 0, 0, block.chainid, address(_usdt), address(0xAAA2)
         );
 
@@ -170,7 +170,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             data
         );
         (, uint256 gotLeaseId1,) = _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
-        assertEq(gotLeaseId1, lease1);
+        assertEq(gotLeaseId1, lease1Id);
 
         // Timestamp >= t2 selects lease2.
         _reader.setNextCallData(
@@ -183,14 +183,14 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             data
         );
         (, uint256 gotLeaseId2,) = _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
-        assertEq(gotLeaseId2, lease2);
+        assertEq(gotLeaseId2, lease2Id);
 
         // Claims should retain lease ids and beneficiaries.
         assertEq(_untron.claimQueueLength(address(_usdt)), 2);
         {
             (, uint256 amt0, uint256 id0, uint256 chain0, address ben0) = _untron.claimsByTargetToken(address(_usdt), 0);
             assertEq(amt0, 100);
-            assertEq(id0, lease1);
+            assertEq(id0, lease1Id);
             assertEq(chain0, block.chainid);
             assertEq(ben0, address(0xAAA1));
         }
@@ -198,7 +198,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         {
             (, uint256 amt1, uint256 id1, uint256 chain1, address ben1) = _untron.claimsByTargetToken(address(_usdt), 1);
             assertEq(amt1, 100);
-            assertEq(id1, lease2);
+            assertEq(id1, lease2Id);
             assertEq(chain1, block.chainid);
             assertEq(ben1, address(0xAAA2));
         }
@@ -248,7 +248,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         _untron.setSwapRate(address(_tokenX), 2_000_000); // 2.0 tokenX per USDT
         _untron.setBridger(address(_tokenX), otherChainId, address(new MockBridger()));
 
-        uint256 leaseId = _untron.createLease(
+        (uint256 leaseId,) = _untron.createLease(
             keccak256("salt_route_ok"),
             address(0xBEEF),
             uint64(block.timestamp + 1 days),
@@ -280,7 +280,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             address(0xB0B)
         );
 
-        uint256 leaseId = _untron.createLease(
+        (uint256 leaseId,) = _untron.createLease(
             keccak256("salt_flat_fee_ok"),
             address(0xBEEF),
             uint64(block.timestamp + 1 days),

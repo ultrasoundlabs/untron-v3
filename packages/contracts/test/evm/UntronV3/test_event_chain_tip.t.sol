@@ -18,12 +18,9 @@ contract UntronV3EventChainTipTest is UntronV3TestBase {
         address lessee = address(0xBEEF);
         uint64 startTime = uint64(block.timestamp);
         uint64 nukeableAfter = startTime + 1 days;
-        uint32 feePpm = 10_000;
-        uint64 flatFee = 7;
 
-        uint256 leaseId = _untron.createLease(
-            salt, lessee, nukeableAfter, feePpm, flatFee, block.chainid, address(_usdt), address(0xB0B)
-        );
+        (uint256 leaseId, uint256 leaseNumber) =
+            _untron.createLease(salt, lessee, nukeableAfter, 10_000, 7, block.chainid, address(_usdt), address(0xB0B));
 
         bytes32 tip1 = sha256(
             abi.encodePacked(
@@ -32,7 +29,7 @@ contract UntronV3EventChainTipTest is UntronV3TestBase {
                 uint256(123),
                 uint256(1_700_000_000),
                 UntronV3Index.LeaseCreated.selector,
-                abi.encode(leaseId, salt, address(this), lessee, startTime, nukeableAfter, feePpm, flatFee)
+                abi.encode(leaseId, salt, leaseNumber, address(this), lessee, startTime, nukeableAfter, 10_000, 7)
             )
         );
         bytes32 expectedTip = sha256(

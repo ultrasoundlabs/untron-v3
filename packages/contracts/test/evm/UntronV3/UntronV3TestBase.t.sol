@@ -39,8 +39,8 @@ abstract contract UntronV3TestBase is Test {
         uint256 targetChainId,
         address targetToken,
         address beneficiary
-    ) internal returns (uint256 leaseId) {
-        leaseId = _untron.createLease(
+    ) internal returns (uint256 leaseId, uint256 leaseNumber) {
+        (leaseId, leaseNumber) = _untron.createLease(
             receiverSalt, lessee, nukeableAfter, leaseFeePpm, flatFee, targetChainId, targetToken, beneficiary
         );
     }

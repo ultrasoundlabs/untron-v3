@@ -15,7 +15,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
         assertEq(_untron.tronUsdt(), tronUsdt);
 
         bytes32 salt = keccak256("salt_pre_entitle");
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             salt,
             address(this),
             uint64(block.timestamp + 1 days),
@@ -163,7 +163,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
 
     function testPreEntitleNetOutZeroDoesNotCreateClaimButBooksFee() public {
         bytes32 salt = keccak256("salt_net_out_zero");
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             salt,
             address(this),
             uint64(block.timestamp + 1 days),
@@ -199,7 +199,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
 
     function testPreEntitleFlatFeeCanZeroNetOut() public {
         bytes32 salt = keccak256("salt_flat_fee_zero");
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             salt,
             address(this),
             uint64(block.timestamp + 1 days),

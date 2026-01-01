@@ -8,7 +8,7 @@ import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 contract UntronV3PayoutConfigTest is UntronV3TestBase {
     function testOnlyLesseeCanUpdatePayoutConfigDirectly() public {
         address lessee = address(0xBEEF);
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             keccak256("salt_payout_direct"),
             lessee,
             uint64(block.timestamp + 1 days),
@@ -28,7 +28,7 @@ contract UntronV3PayoutConfigTest is UntronV3TestBase {
         uint256 lesseeKey = 0xBEEF;
         address lessee = vm.addr(lesseeKey);
 
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             keccak256("salt_payout_sig"),
             lessee,
             uint64(block.timestamp + 1 days),
@@ -56,7 +56,7 @@ contract UntronV3PayoutConfigTest is UntronV3TestBase {
     function testPayoutConfigWithSigFailureModes() public {
         uint256 lesseeKey = 0xBEEF;
         address lessee = vm.addr(lesseeKey);
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             keccak256("salt_payout_sig_fail"),
             lessee,
             uint64(block.timestamp + 1 days),

@@ -104,8 +104,9 @@ contract UntronV3Index {
     event BridgerSet(address indexed targetToken, uint256 indexed targetChainId, address bridger);
 
     /// @notice Emitted when a lease is created.
-    /// @param leaseId The lease id.
+    /// @param leaseId The global lease id.
     /// @param receiverSalt The receiver salt used to derive a receiver address.
+    /// @param leaseNumber Position of the lease in the receiver's lease array.
     /// @param realtor The realtor address.
     /// @param lessee The lessee address.
     /// @param startTime The start timestamp for the lease.
@@ -115,6 +116,7 @@ contract UntronV3Index {
     event LeaseCreated(
         uint256 indexed leaseId,
         bytes32 indexed receiverSalt,
+        uint256 indexed leaseNumber,
         address realtor,
         address lessee,
         uint64 startTime,
@@ -383,6 +385,7 @@ contract UntronV3Index {
     /// @notice Emits {LeaseCreated} and appends it to the event chain.
     /// @param leaseId The lease id.
     /// @param receiverSalt The receiver salt used to derive a receiver address.
+    /// @param leaseNumber Position of the lease in the receiver's lease array.
     /// @param realtor The realtor address.
     /// @param lessee The lessee address.
     /// @param startTime The start timestamp for the lease.
@@ -392,6 +395,7 @@ contract UntronV3Index {
     function _emitLeaseCreated(
         uint256 leaseId,
         bytes32 receiverSalt,
+        uint256 leaseNumber,
         address realtor,
         address lessee,
         uint64 startTime,
@@ -401,9 +405,13 @@ contract UntronV3Index {
     ) internal {
         _appendEventChain(
             LeaseCreated.selector,
-            abi.encode(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee)
+            abi.encode(
+                leaseId, receiverSalt, leaseNumber, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee
+            )
         );
-        emit LeaseCreated(leaseId, receiverSalt, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee);
+        emit LeaseCreated(
+            leaseId, receiverSalt, leaseNumber, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee
+        );
     }
 
     /// @notice Emits {PayoutConfigUpdated} and appends it to the event chain.

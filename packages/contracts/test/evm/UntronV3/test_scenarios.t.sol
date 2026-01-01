@@ -12,7 +12,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
         bytes32 salt = keccak256("salt_scenario_1");
         address beneficiary = address(0xB0B);
 
-        uint256 leaseId = _createLease(
+        (uint256 leaseId,) = _createLease(
             salt, address(this), uint64(block.timestamp + 1 days), 10_000, 0, block.chainid, address(_usdt), beneficiary
         );
 
@@ -62,11 +62,11 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
         address ben2 = address(0xAAA2);
 
         uint64 t1 = uint64(block.timestamp);
-        uint256 lease1 = _untron.createLease(salt, address(0x1111), t1, 0, 0, block.chainid, address(_usdt), ben1);
+        (uint256 lease1Id,) = _untron.createLease(salt, address(0x1111), t1, 0, 0, block.chainid, address(_usdt), ben1);
 
         vm.warp(t1 + 100);
         uint64 t2 = uint64(block.timestamp);
-        uint256 lease2 = _untron.createLease(salt, address(0x2222), t2, 0, 0, block.chainid, address(_usdt), ben2);
+        (uint256 lease2Id,) = _untron.createLease(salt, address(0x2222), t2, 0, 0, block.chainid, address(_usdt), ben2);
 
         _usdt.mint(address(_untron), 200);
 
@@ -83,7 +83,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             trc20Data
         );
         (, uint256 gotLeaseId1,) = _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
-        assertEq(gotLeaseId1, lease1);
+        assertEq(gotLeaseId1, lease1Id);
 
         _reader.setNextCallData(
             keccak256("tx_after"),
@@ -95,7 +95,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             trc20Data
         );
         (, uint256 gotLeaseId2,) = _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
-        assertEq(gotLeaseId2, lease2);
+        assertEq(gotLeaseId2, lease2Id);
 
         Call[] memory noCalls = new Call[](0);
         _untron.fill(address(_usdt), 2, noCalls);
@@ -107,9 +107,8 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
     function testScenarioControllerPullOrderingProtectionAndBacking() public {
         bytes32 salt = keccak256("salt_scenario_pull");
         uint64 t1 = uint64(block.timestamp);
-        uint256 leaseId = _untron.createLease(
-            salt, address(0xBEEF), t1 + 1 days, 0, 0, block.chainid, address(_usdt), address(0xB0B)
-        );
+        (uint256 leaseId,) =
+            _untron.createLease(salt, address(0xBEEF), t1 + 1 days, 0, 0, block.chainid, address(_usdt), address(0xB0B));
 
         address receiver = _predictedReceiver(salt);
         bytes memory trc20Data = _trc20TransferCalldata(receiver, 100);

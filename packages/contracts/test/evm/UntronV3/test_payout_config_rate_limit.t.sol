@@ -25,7 +25,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
 
     function testSetPayoutConfigIsRateLimited() public {
         address lessee = address(0xBEEF);
-        uint256 leaseId = _createLeaseForLessee(lessee);
+        (uint256 leaseId,) = _createLeaseForLessee(lessee);
 
         _untron.setLesseePayoutConfigRateLimit(2, 1 hours);
 
@@ -45,7 +45,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
     function testSetPayoutConfigWithSigIsRateLimited() public {
         uint256 lesseeKey = 0xBEEF;
         address lessee = vm.addr(lesseeKey);
-        uint256 leaseId = _createLeaseForLessee(lessee);
+        (uint256 leaseId,) = _createLeaseForLessee(lessee);
 
         _untron.setLesseePayoutConfigRateLimit(2, 1 hours);
 
@@ -75,7 +75,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
 
     function testSetPayoutConfigRateLimitDisabledAllowsUnlimitedUpdates() public {
         address lessee = address(0xBEEF);
-        uint256 leaseId = _createLeaseForLessee(lessee);
+        (uint256 leaseId,) = _createLeaseForLessee(lessee);
 
         _untron.setLesseePayoutConfigRateLimit(0, 0);
 
@@ -86,13 +86,12 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
         vm.stopPrank();
     }
 
-    function _createLeaseForLessee(address lessee) internal returns (uint256 leaseId) {
+    function _createLeaseForLessee(address lessee) internal returns (uint256 leaseId, uint256 leaseNumber) {
         bytes32 salt = keccak256(abi.encodePacked("salt", lessee));
         uint32 leaseFeePpm = 0;
         uint64 flatFee = 0;
         uint64 nukeableAfter = uint64(block.timestamp + 1 days);
-
-        leaseId = _untron.createLease(
+        (leaseId, leaseNumber) = _untron.createLease(
             salt, lessee, nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
         );
     }

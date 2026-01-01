@@ -29,7 +29,7 @@ contract UntronV3ProtocolPnlTest is Test {
         uint64 flatFee = 0;
         uint64 nukeableAfter = uint64(block.timestamp + 1 days);
 
-        uint256 leaseId = _untron.createLease(
+        (uint256 leaseId,) = _untron.createLease(
             salt, address(this), nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
         );
 
@@ -165,7 +165,7 @@ contract UntronV3ProtocolPnlTest is Test {
         uint64 flatFee = 0;
         uint64 nukeableAfter = uint64(block.timestamp + 1 days);
 
-        uint256 leaseId = _untron.createLease(
+        (uint256 leaseId,) = _untron.createLease(
             salt, address(this), nukeableAfter, leaseFeePpm, flatFee, block.chainid, _DUMMY_USDT, address(0xB0B)
         );
 

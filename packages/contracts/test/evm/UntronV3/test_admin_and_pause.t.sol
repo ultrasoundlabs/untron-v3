@@ -83,7 +83,9 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
 
         _untron.unpause();
 
-        uint256 leaseId = _untron.createLease(
+        uint256 leaseId;
+        uint256 leaseNumber;
+        (leaseId, leaseNumber) = _untron.createLease(
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
         assertEq(leaseId, 1);
@@ -192,7 +194,9 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
 
     function testChainDeprecatedBlocksCreateLeaseAndPayoutConfigUpdate() public {
         bytes32 salt = keccak256("salt_chain_deprecated");
-        uint256 leaseId = _createLease(
+        uint256 leaseId;
+        uint256 leaseNumber;
+        (leaseId, leaseNumber) = _createLease(
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
 

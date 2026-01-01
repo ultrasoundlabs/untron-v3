@@ -7,7 +7,7 @@ import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 
 contract UntronV3ControllerEventsTest is UntronV3TestBase {
-    function testRelayControllerEventChainValidatesControllerTarget() public {
+    function testRelayControllerEventChainEventChainTip() public {
         bytes32 tipOld = _untron.lastControllerEventTip();
         bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("isEventChainTip(bytes32)")), tipOld);
 
@@ -185,12 +185,12 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         bytes32 salt = keccak256("salt_backing");
         uint64 t1 = uint64(block.timestamp);
 
-        uint256 lease1 =
+        (uint256 lease1Id,) =
             _untron.createLease(salt, address(0x1111), t1, 0, 0, block.chainid, address(_usdt), address(0xAAA1));
 
         vm.warp(t1 + 100);
         uint64 t2 = uint64(block.timestamp);
-        uint256 lease2 =
+        (uint256 lease2Id,) =
             _untron.createLease(salt, address(0x2222), t2, 0, 0, block.chainid, address(_usdt), address(0xAAA2));
 
         address receiver = _predictedReceiver(salt);
@@ -228,8 +228,8 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
 
         assertEq(_untron.lastReceiverPullTimestampByToken(salt, _untron.tronUsdt()), t2);
 
-        (,,,,,,, uint256 r1, uint256 b1, uint256 u1, UntronV3.PayoutConfig memory p1) = _untron.leases(lease1);
-        (,,,,,,, uint256 r2, uint256 b2, uint256 u2, UntronV3.PayoutConfig memory p2) = _untron.leases(lease2);
+        (,,,,,,, uint256 r1, uint256 b1, uint256 u1, UntronV3.PayoutConfig memory p1) = _untron.leases(lease1Id);
+        (,,,,,,, uint256 r2, uint256 b2, uint256 u2, UntronV3.PayoutConfig memory p2) = _untron.leases(lease2Id);
 
         assertEq(r1, 100);
         assertEq(b1, 100);
@@ -252,7 +252,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         bytes32 salt = keccak256("salt_profit_volume");
         uint64 t0 = uint64(block.timestamp);
 
-        uint256 leaseId = _untron.createLease(
+        (uint256 leaseId,) = _untron.createLease(
             salt, address(0xBEEF), t0 + 1 days, 10_000, 0, block.chainid, address(_usdt), address(0xB0B)
         );
 
@@ -283,9 +283,8 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         bytes32 salt = keccak256("salt_non_usdt_pull");
         uint64 t0 = uint64(block.timestamp);
 
-        uint256 leaseId = _untron.createLease(
-            salt, address(0xBEEF), t0 + 1 days, 0, 0, block.chainid, address(_usdt), address(0xB0B)
-        );
+        (uint256 leaseId,) =
+            _untron.createLease(salt, address(0xBEEF), t0 + 1 days, 0, 0, block.chainid, address(_usdt), address(0xB0B));
 
         // Pre-entitle 100 USDT into the receiver => recognized=100, unbacked=100.
         address receiver = _predictedReceiver(salt);
