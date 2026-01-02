@@ -8234,6 +8234,43 @@ export const untronControllerAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'eventSeq',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'prevTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'newTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'EventAppended',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'newExecutor',
         internalType: 'address',
         type: 'address',
@@ -8494,6 +8531,43 @@ export const untronControllerIndexAbi = [
       },
     ],
     name: 'ControllerUsdtTransfer',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'eventSeq',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'prevTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'newTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'EventAppended',
   },
   {
     type: 'event',
@@ -9792,6 +9866,43 @@ export const untronV3Abi = [
       },
     ],
     name: 'ControllerEventProcessed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'eventSeq',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'prevTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'newTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'EventAppended',
   },
   {
     type: 'event',
@@ -11423,6 +11534,43 @@ export const untronV3HarnessAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'eventSeq',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'prevTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'newTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'EventAppended',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
@@ -12177,6 +12325,43 @@ export const untronV3IndexAbi = [
     anonymous: false,
     inputs: [
       {
+        name: 'eventSeq',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'prevTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'newTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'EventAppended',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
         name: 'leaseId',
         internalType: 'uint256',
         type: 'uint256',
@@ -12873,6 +13058,43 @@ export const untronV3IndexedOwnableAbi = [
       },
     ],
     name: 'ControllerEventProcessed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'eventSeq',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'prevTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'newTip',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: true,
+      },
+      {
+        name: 'eventSignature',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+      {
+        name: 'abiEncodedEventData',
+        internalType: 'bytes',
+        type: 'bytes',
+        indexed: false,
+      },
+    ],
+    name: 'EventAppended',
   },
   {
     type: 'event',

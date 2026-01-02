@@ -41,10 +41,10 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         assertEq(_controller.pulledUsdt(), expectedSweep, "pulledUsdt should increase by swept amount");
 
         Vm.Log[] memory controllerLogs = _controllerLogs(logs);
-        assertEq(controllerLogs.length, 2, "expected exactly two controller logs");
+        assertEq(controllerLogs.length, 4, "expected exactly four controller logs");
 
         _assertReceiverDeployedLog(controllerLogs[0], predictedReceiver, salt);
-        _assertPulledFromReceiverLog(controllerLogs[1], salt, address(_usdt), expectedSweep, 1e18, expectedSweep);
+        _assertPulledFromReceiverLog(controllerLogs[2], salt, address(_usdt), expectedSweep, 1e18, expectedSweep);
     }
 
     function test_pullUsdt_zeroBalance_noDeploy_noEvents_noAccounting() public {
@@ -128,12 +128,12 @@ contract UntronControllerPullFromReceiversUsdtTest is Test {
         assertEq(_usdt.balanceOf(r3), 1, "r3 dust");
 
         Vm.Log[] memory controllerLogs = _controllerLogs(logs);
-        assertEq(controllerLogs.length, 4, "expected 2 events per non-zero receiver");
+        assertEq(controllerLogs.length, 8, "expected four events per non-zero receiver");
 
         _assertReceiverDeployedLog(controllerLogs[0], r1, s1);
-        _assertPulledFromReceiverLog(controllerLogs[1], s1, address(_usdt), 10, 1e18, 10);
-        _assertReceiverDeployedLog(controllerLogs[2], r3, s3);
-        _assertPulledFromReceiverLog(controllerLogs[3], s3, address(_usdt), 20, 1e18, 20);
+        _assertPulledFromReceiverLog(controllerLogs[2], s1, address(_usdt), 10, 1e18, 10);
+        _assertReceiverDeployedLog(controllerLogs[4], r3, s3);
+        _assertPulledFromReceiverLog(controllerLogs[6], s3, address(_usdt), 20, 1e18, 20);
     }
 
     function _controllerLogs(Vm.Log[] memory logs) internal view returns (Vm.Log[] memory filtered) {

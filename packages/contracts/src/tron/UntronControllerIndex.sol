@@ -19,6 +19,20 @@ contract UntronControllerIndex {
     /// @dev    Increments exactly once per `_appendEventChain` call.
     uint256 public eventSeq;
 
+    /// @notice Emitted when an event is appended to the event chain.
+    /// @param eventSeq The sequence number of the appended event.
+    /// @param prevTip The hash of the previous event in the chain.
+    /// @param newTip The hash of the newly appended event.
+    /// @param eventSignature The signature of the event.
+    /// @param abiEncodedEventData The ABI-encoded data of the event.
+    event EventAppended(
+        uint256 indexed eventSeq,
+        bytes32 indexed prevTip,
+        bytes32 indexed newTip,
+        bytes32 eventSignature,
+        bytes abiEncodedEventData
+    );
+
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -123,11 +137,13 @@ contract UntronControllerIndex {
         unchecked {
             ++eventSeq;
         }
+        bytes32 prevEventChainTip = eventChainTip;
         eventChainTip = sha256(
             abi.encodePacked(
                 eventChainTip, eventSeq, block.number, block.timestamp, eventSignature, abiEncodedEventData
             )
         );
+        emit EventAppended(eventSeq, prevEventChainTip, eventChainTip, eventSignature, abiEncodedEventData);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -137,31 +153,31 @@ contract UntronControllerIndex {
     /// @notice Emits {OwnerChanged} and appends it to the event chain.
     /// @param newOwner New owner address.
     function _emitOwnerChanged(address newOwner) internal {
-        _appendEventChain(OwnerChanged.selector, abi.encode(newOwner));
         emit OwnerChanged(newOwner);
+        _appendEventChain(OwnerChanged.selector, abi.encode(newOwner));
     }
 
     /// @notice Emits {ExecutorChanged} and appends it to the event chain.
     /// @param newExecutor New executor address.
     function _emitExecutorChanged(address newExecutor) internal {
-        _appendEventChain(ExecutorChanged.selector, abi.encode(newExecutor));
         emit ExecutorChanged(newExecutor);
+        _appendEventChain(ExecutorChanged.selector, abi.encode(newExecutor));
     }
 
     /// @notice Emits {PayloadSet} and appends it to the event chain.
     /// @param rebalancer Rebalancer address.
     /// @param payload Rebalancer-specific payload.
     function _emitPayloadSet(address rebalancer, bytes memory payload) internal {
-        _appendEventChain(PayloadSet.selector, abi.encode(rebalancer, payload));
         emit PayloadSet(rebalancer, payload);
+        _appendEventChain(PayloadSet.selector, abi.encode(rebalancer, payload));
     }
 
     /// @notice Emits {ReceiverDeployed} and appends it to the event chain.
     /// @param receiver Receiver address.
     /// @param salt Salt used for deterministic deployment (CREATE2).
     function _emitReceiverDeployed(address receiver, bytes32 salt) internal {
-        _appendEventChain(ReceiverDeployed.selector, abi.encode(receiver, salt));
         emit ReceiverDeployed(receiver, salt);
+        _appendEventChain(ReceiverDeployed.selector, abi.encode(receiver, salt));
     }
 
     /// @notice Emits {PulledFromReceiver} and appends it to the event chain.
@@ -177,10 +193,10 @@ contract UntronControllerIndex {
         uint256 exchangeRate,
         uint256 usdtAmount
     ) internal {
+        emit PulledFromReceiver(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount);
         _appendEventChain(
             PulledFromReceiver.selector, abi.encode(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount)
         );
-        emit PulledFromReceiver(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount);
     }
 
     /// @notice Emits {UsdtRebalanced} and appends it to the event chain.
@@ -188,45 +204,45 @@ contract UntronControllerIndex {
     /// @param outAmount Amount of USDT expected out (as asserted by the rebalancer).
     /// @param rebalancer Rebalancer used.
     function _emitUsdtRebalanced(uint256 inAmount, uint256 outAmount, address rebalancer) internal {
-        _appendEventChain(UsdtRebalanced.selector, abi.encode(inAmount, outAmount, rebalancer));
         emit UsdtRebalanced(inAmount, outAmount, rebalancer);
+        _appendEventChain(UsdtRebalanced.selector, abi.encode(inAmount, outAmount, rebalancer));
     }
 
     /// @notice Emits {ControllerUsdtTransfer} and appends it to the event chain.
     /// @param recipient Recipient address.
     /// @param amount Amount of USDT transferred.
     function _emitControllerUsdtTransfer(address recipient, uint256 amount) internal {
-        _appendEventChain(ControllerUsdtTransfer.selector, abi.encode(recipient, amount));
         emit ControllerUsdtTransfer(recipient, amount);
+        _appendEventChain(ControllerUsdtTransfer.selector, abi.encode(recipient, amount));
     }
 
     /// @notice Emits {UsdtSet} and appends it to the event chain.
     /// @param newUsdt New USDT token address.
     function _emitUsdtSet(address newUsdt) internal {
-        _appendEventChain(UsdtSet.selector, abi.encode(newUsdt));
         emit UsdtSet(newUsdt);
+        _appendEventChain(UsdtSet.selector, abi.encode(newUsdt));
     }
 
     /// @notice Emits {LpSet} and appends it to the event chain.
     /// @param newLp New LP address.
     function _emitLpSet(address newLp) internal {
-        _appendEventChain(LpSet.selector, abi.encode(newLp));
         emit LpSet(newLp);
+        _appendEventChain(LpSet.selector, abi.encode(newLp));
     }
 
     /// @notice Emits {LpExchangeRateSet} and appends it to the event chain.
     /// @param token Token address.
     /// @param exchangeRate Scaled exchange rate set by the LP.
     function _emitLpExchangeRateSet(address token, uint256 exchangeRate) internal {
-        _appendEventChain(LpExchangeRateSet.selector, abi.encode(token, exchangeRate));
         emit LpExchangeRateSet(token, exchangeRate);
+        _appendEventChain(LpExchangeRateSet.selector, abi.encode(token, exchangeRate));
     }
 
     /// @notice Emits {LpTokensWithdrawn} and appends it to the event chain.
     /// @param token Token withdrawn.
     /// @param amount Amount withdrawn.
     function _emitLpTokensWithdrawn(address token, uint256 amount) internal {
-        _appendEventChain(LpTokensWithdrawn.selector, abi.encode(token, amount));
         emit LpTokensWithdrawn(token, amount);
+        _appendEventChain(LpTokensWithdrawn.selector, abi.encode(token, amount));
     }
 }

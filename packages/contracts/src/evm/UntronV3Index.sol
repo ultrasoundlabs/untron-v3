@@ -79,7 +79,19 @@ contract UntronV3Index {
     /// @dev    Increments exactly once per `_appendEventChain` call.
     uint256 public eventSeq;
 
-    // TODO: make per-event sig or per-object event chains
+    /// @notice Emitted when an event is appended to the event chain.
+    /// @param eventSeq The sequence number of the appended event.
+    /// @param prevTip The hash of the previous event in the chain.
+    /// @param newTip The hash of the newly appended event.
+    /// @param eventSignature The signature of the event.
+    /// @param abiEncodedEventData The ABI-encoded data of the event.
+    event EventAppended(
+        uint256 indexed eventSeq,
+        bytes32 indexed prevTip,
+        bytes32 indexed newTip,
+        bytes32 eventSignature,
+        bytes abiEncodedEventData
+    );
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
@@ -326,11 +338,13 @@ contract UntronV3Index {
         unchecked {
             ++eventSeq;
         }
+        bytes32 prevEventChainTip = eventChainTip;
         eventChainTip = sha256(
             abi.encodePacked(
                 eventChainTip, eventSeq, block.number, block.timestamp, eventSignature, abiEncodedEventData
             )
         );
+        emit EventAppended(eventSeq, prevEventChainTip, eventChainTip, eventSignature, abiEncodedEventData);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -340,16 +354,16 @@ contract UntronV3Index {
     /// @notice Emits {UsdtSet} and appends it to the event chain.
     /// @param usdt_ The USDT token address.
     function _emitUsdtSet(address usdt_) internal {
-        _appendEventChain(UsdtSet.selector, abi.encode(usdt_));
         emit UsdtSet(usdt_);
+        _appendEventChain(UsdtSet.selector, abi.encode(usdt_));
     }
 
     /// @notice Emits {RealtorSet} and appends it to the event chain.
     /// @param realtor The realtor address.
     /// @param allowed Whether the realtor is allowed.
     function _emitRealtorSet(address realtor, bool allowed) internal {
-        _appendEventChain(RealtorSet.selector, abi.encode(realtor, allowed));
         emit RealtorSet(realtor, allowed);
+        _appendEventChain(RealtorSet.selector, abi.encode(realtor, allowed));
     }
 
     /// @notice Emits {LpSet} and appends it to the event chain.
@@ -358,69 +372,69 @@ contract UntronV3Index {
     /// @param lp The LP address.
     /// @param allowed Whether the address is allowed to deposit into the LP vault.
     function _emitLpSet(address lp, bool allowed) internal {
-        _appendEventChain(LpSet.selector, abi.encode(lp, allowed));
         emit LpSet(lp, allowed);
+        _appendEventChain(LpSet.selector, abi.encode(lp, allowed));
     }
 
     /// @notice Emits {ChainDeprecatedSet} and appends it to the event chain.
     /// @param targetChainId The target chain id.
     /// @param deprecated Whether the chain is deprecated.
     function _emitChainDeprecatedSet(uint256 targetChainId, bool deprecated) internal {
-        _appendEventChain(ChainDeprecatedSet.selector, abi.encode(targetChainId, deprecated));
         emit ChainDeprecatedSet(targetChainId, deprecated);
+        _appendEventChain(ChainDeprecatedSet.selector, abi.encode(targetChainId, deprecated));
     }
 
     /// @notice Emits {ProtocolFloorSet} and appends it to the event chain.
     /// @param floorPpm The floor in parts-per-million.
     function _emitProtocolFloorSet(uint256 floorPpm) internal {
-        _appendEventChain(ProtocolFloorSet.selector, abi.encode(floorPpm));
         emit ProtocolFloorSet(floorPpm);
+        _appendEventChain(ProtocolFloorSet.selector, abi.encode(floorPpm));
     }
 
     /// @notice Emits {ProtocolFlatFeeFloorSet} and appends it to the event chain.
     /// @param floorFlatFee The floor flat fee in USDT units.
     function _emitProtocolFlatFeeFloorSet(uint64 floorFlatFee) internal {
-        _appendEventChain(ProtocolFlatFeeFloorSet.selector, abi.encode(floorFlatFee));
         emit ProtocolFlatFeeFloorSet(floorFlatFee);
+        _appendEventChain(ProtocolFlatFeeFloorSet.selector, abi.encode(floorFlatFee));
     }
 
     /// @notice Emits {ProtocolMaxLeaseDurationSet} and appends it to the event chain.
     /// @param maxLeaseDurationSeconds The max lease duration in seconds (0 disables).
     function _emitProtocolMaxLeaseDurationSet(uint32 maxLeaseDurationSeconds) internal {
-        _appendEventChain(ProtocolMaxLeaseDurationSet.selector, abi.encode(maxLeaseDurationSeconds));
         emit ProtocolMaxLeaseDurationSet(maxLeaseDurationSeconds);
+        _appendEventChain(ProtocolMaxLeaseDurationSet.selector, abi.encode(maxLeaseDurationSeconds));
     }
 
     /// @notice Emits {RealtorMinFeeSet} and appends it to the event chain.
     /// @param realtor The realtor address.
     /// @param minFeePpm The minimum fee in parts-per-million.
     function _emitRealtorMinFeeSet(address realtor, uint256 minFeePpm) internal {
-        _appendEventChain(RealtorMinFeeSet.selector, abi.encode(realtor, minFeePpm));
         emit RealtorMinFeeSet(realtor, minFeePpm);
+        _appendEventChain(RealtorMinFeeSet.selector, abi.encode(realtor, minFeePpm));
     }
 
     /// @notice Emits {RealtorMinFlatFeeSet} and appends it to the event chain.
     /// @param realtor The realtor address.
     /// @param minFlatFee The minimum flat fee in USDT units.
     function _emitRealtorMinFlatFeeSet(address realtor, uint64 minFlatFee) internal {
-        _appendEventChain(RealtorMinFlatFeeSet.selector, abi.encode(realtor, minFlatFee));
         emit RealtorMinFlatFeeSet(realtor, minFlatFee);
+        _appendEventChain(RealtorMinFlatFeeSet.selector, abi.encode(realtor, minFlatFee));
     }
 
     /// @notice Emits {RealtorMaxLeaseDurationSet} and appends it to the event chain.
     /// @param realtor The realtor address.
     /// @param maxLeaseDurationSeconds The max lease duration in seconds (0 disables).
     function _emitRealtorMaxLeaseDurationSet(address realtor, uint32 maxLeaseDurationSeconds) internal {
-        _appendEventChain(RealtorMaxLeaseDurationSet.selector, abi.encode(realtor, maxLeaseDurationSeconds));
         emit RealtorMaxLeaseDurationSet(realtor, maxLeaseDurationSeconds);
+        _appendEventChain(RealtorMaxLeaseDurationSet.selector, abi.encode(realtor, maxLeaseDurationSeconds));
     }
 
     /// @notice Emits {LesseePayoutConfigRateLimitSet} and appends it to the event chain.
     /// @param maxUpdates The maximum number of updates allowed in the window.
     /// @param windowSeconds The size of the rolling window in seconds.
     function _emitLesseePayoutConfigRateLimitSet(uint256 maxUpdates, uint256 windowSeconds) internal {
-        _appendEventChain(LesseePayoutConfigRateLimitSet.selector, abi.encode(maxUpdates, windowSeconds));
         emit LesseePayoutConfigRateLimitSet(maxUpdates, windowSeconds);
+        _appendEventChain(LesseePayoutConfigRateLimitSet.selector, abi.encode(maxUpdates, windowSeconds));
     }
 
     /// @notice Emits {RealtorLeaseRateLimitSet} and appends it to the event chain.
@@ -428,30 +442,30 @@ contract UntronV3Index {
     /// @param maxLeases The maximum number of leases allowed in the window.
     /// @param windowSeconds The size of the rolling window in seconds.
     function _emitRealtorLeaseRateLimitSet(address realtor, uint256 maxLeases, uint256 windowSeconds) internal {
-        _appendEventChain(RealtorLeaseRateLimitSet.selector, abi.encode(realtor, maxLeases, windowSeconds));
         emit RealtorLeaseRateLimitSet(realtor, maxLeases, windowSeconds);
+        _appendEventChain(RealtorLeaseRateLimitSet.selector, abi.encode(realtor, maxLeases, windowSeconds));
     }
 
     /// @notice Emits {TronReaderSet} and appends it to the event chain.
     /// @param reader The Tron reader address.
     function _emitTronReaderSet(address reader) internal {
-        _appendEventChain(TronReaderSet.selector, abi.encode(reader));
         emit TronReaderSet(reader);
+        _appendEventChain(TronReaderSet.selector, abi.encode(reader));
     }
 
     /// @notice Emits {TronUsdtSet} and appends it to the event chain.
     /// @param tronUsdt The Tron USDT token address (as an EVM address representation).
     function _emitTronUsdtSet(address tronUsdt) internal {
-        _appendEventChain(TronUsdtSet.selector, abi.encode(tronUsdt));
         emit TronUsdtSet(tronUsdt);
+        _appendEventChain(TronUsdtSet.selector, abi.encode(tronUsdt));
     }
 
     /// @notice Emits {SwapRateSet} and appends it to the event chain.
     /// @param targetToken The target token address.
     /// @param ratePpm The swap rate in parts-per-million.
     function _emitSwapRateSet(address targetToken, uint256 ratePpm) internal {
-        _appendEventChain(SwapRateSet.selector, abi.encode(targetToken, ratePpm));
         emit SwapRateSet(targetToken, ratePpm);
+        _appendEventChain(SwapRateSet.selector, abi.encode(targetToken, ratePpm));
     }
 
     /// @notice Emits {BridgerSet} and appends it to the event chain.
@@ -459,8 +473,8 @@ contract UntronV3Index {
     /// @param targetChainId The target chain id.
     /// @param bridger The bridger address.
     function _emitBridgerSet(address targetToken, uint256 targetChainId, address bridger) internal {
-        _appendEventChain(BridgerSet.selector, abi.encode(targetToken, targetChainId, bridger));
         emit BridgerSet(targetToken, targetChainId, bridger);
+        _appendEventChain(BridgerSet.selector, abi.encode(targetToken, targetChainId, bridger));
     }
 
     /// @notice Emits {LeaseCreated} and appends it to the event chain.
@@ -484,14 +498,14 @@ contract UntronV3Index {
         uint32 leaseFeePpm,
         uint64 flatFee
     ) internal {
+        emit LeaseCreated(
+            leaseId, receiverSalt, leaseNumber, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee
+        );
         _appendEventChain(
             LeaseCreated.selector,
             abi.encode(
                 leaseId, receiverSalt, leaseNumber, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee
             )
-        );
-        emit LeaseCreated(
-            leaseId, receiverSalt, leaseNumber, realtor, lessee, startTime, nukeableAfter, leaseFeePpm, flatFee
         );
     }
 
@@ -503,8 +517,8 @@ contract UntronV3Index {
     function _emitPayoutConfigUpdated(uint256 leaseId, uint256 targetChainId, address targetToken, address beneficiary)
         internal
     {
-        _appendEventChain(PayoutConfigUpdated.selector, abi.encode(leaseId, targetChainId, targetToken, beneficiary));
         emit PayoutConfigUpdated(leaseId, targetChainId, targetToken, beneficiary);
+        _appendEventChain(PayoutConfigUpdated.selector, abi.encode(leaseId, targetChainId, targetToken, beneficiary));
     }
 
     /// @notice Emits {ControllerEventChainTipUpdated} and appends it to the event chain.
@@ -520,12 +534,12 @@ contract UntronV3Index {
         bytes32 eventSignature,
         bytes memory abiEncodedEventData
     ) internal {
+        emit ControllerEventChainTipUpdated(
+            previousTip, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData
+        );
         _appendEventChain(
             ControllerEventChainTipUpdated.selector,
             abi.encode(previousTip, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData)
-        );
-        emit ControllerEventChainTipUpdated(
-            previousTip, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData
         );
     }
 
@@ -542,18 +556,17 @@ contract UntronV3Index {
         bytes32 eventSignature,
         bytes memory abiEncodedEventData
     ) internal {
+        emit ControllerEventProcessed(eventIndex, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData);
         _appendEventChain(
             ControllerEventProcessed.selector,
             abi.encode(eventIndex, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData)
         );
-        emit ControllerEventProcessed(eventIndex, blockNumber, blockTimestamp, eventSignature, abiEncodedEventData);
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
     /// @notice Emits {ClaimCreated} and appends it to the event chain.
     /// @param args ClaimCreated fields (see {ClaimCreatedArgs}).
     function _emitClaimCreated(ClaimCreatedArgs memory args) internal {
-        _appendEventChain(ClaimCreated.selector, abi.encode(args));
         emit ClaimCreated(
             args.leaseId,
             args.claimId,
@@ -569,6 +582,7 @@ contract UntronV3Index {
             args.originTimestamp,
             args.originRawAmount
         );
+        _appendEventChain(ClaimCreated.selector, abi.encode(args));
     }
 
     // forge-lint: disable-next-line(mixed-case-variable)
@@ -589,27 +603,27 @@ contract UntronV3Index {
         uint256 targetChainId,
         address beneficiary
     ) internal {
+        emit ClaimFilled(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary);
         _appendEventChain(
             ClaimFilled.selector,
             abi.encode(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary)
         );
-        emit ClaimFilled(leaseId, claimId, targetToken, queueIndex, amountUsdt, targetChainId, beneficiary);
     }
 
     /// @notice Emits {LpDeposited} and appends it to the event chain.
     /// @param lp The LP address.
     /// @param amount The amount deposited.
     function _emitLpDeposited(address lp, uint256 amount) internal {
-        _appendEventChain(LpDeposited.selector, abi.encode(lp, amount));
         emit LpDeposited(lp, amount);
+        _appendEventChain(LpDeposited.selector, abi.encode(lp, amount));
     }
 
     /// @notice Emits {LpWithdrawn} and appends it to the event chain.
     /// @param lp The LP address.
     /// @param amount The amount withdrawn.
     function _emitLpWithdrawn(address lp, uint256 amount) internal {
-        _appendEventChain(LpWithdrawn.selector, abi.encode(lp, amount));
         emit LpWithdrawn(lp, amount);
+        _appendEventChain(LpWithdrawn.selector, abi.encode(lp, amount));
     }
 
     /// @notice Emits {ProtocolPnlUpdated} and appends it to the event chain.
@@ -617,31 +631,31 @@ contract UntronV3Index {
     /// @param delta The change applied to the PnL.
     /// @param reason The reason code for the update.
     function _emitProtocolPnlUpdated(int256 pnl, int256 delta, PnlReason reason) internal {
-        _appendEventChain(ProtocolPnlUpdated.selector, abi.encode(pnl, delta, reason));
         emit ProtocolPnlUpdated(pnl, delta, reason);
+        _appendEventChain(ProtocolPnlUpdated.selector, abi.encode(pnl, delta, reason));
     }
 
     /// @notice Emits {LeaseNonceUpdated} and appends it to the event chain.
     /// @param leaseId The lease id.
     /// @param nonce The new nonce.
     function _emitLeaseNonceUpdated(uint256 leaseId, uint256 nonce) internal {
-        _appendEventChain(LeaseNonceUpdated.selector, abi.encode(leaseId, nonce));
         emit LeaseNonceUpdated(leaseId, nonce);
+        _appendEventChain(LeaseNonceUpdated.selector, abi.encode(leaseId, nonce));
     }
 
     /// @notice Emits {TokensRescued} and appends it to the event chain.
     /// @param token The token address.
     /// @param amount The amount rescued.
     function _emitTokensRescued(address token, uint256 amount) internal {
-        _appendEventChain(TokensRescued.selector, abi.encode(token, amount));
         emit TokensRescued(token, amount);
+        _appendEventChain(TokensRescued.selector, abi.encode(token, amount));
     }
 
     /// @notice Emits {OwnershipTransferred} and appends it to the event chain.
     /// @param oldOwner The previous owner.
     /// @param newOwner The new owner.
     function _emitOwnershipTransferred(address oldOwner, address newOwner) internal {
-        _appendEventChain(OwnershipTransferred.selector, abi.encode(oldOwner, newOwner));
         emit OwnershipTransferred(oldOwner, newOwner);
+        _appendEventChain(OwnershipTransferred.selector, abi.encode(oldOwner, newOwner));
     }
 }
