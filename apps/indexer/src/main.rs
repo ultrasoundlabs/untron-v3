@@ -105,7 +105,7 @@ async fn shutdown_signal() -> Result<()> {
             _ = tokio::signal::ctrl_c() => {},
             _ = sigterm.recv() => {},
         }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(unix))]

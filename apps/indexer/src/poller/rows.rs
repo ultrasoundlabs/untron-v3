@@ -32,9 +32,9 @@ fn decode_hub_event_appended(state: &mut PollState, log: ValidatedLog) -> Result
 
     let ev = decoded.inner.data;
     let event_seq = u256_to_u64(ev.eventSeq)?;
-    let semantic_sig: alloy::primitives::B256 = ev.eventSignature.into();
-    let prev_tip: alloy::primitives::B256 = ev.prevTip.into();
-    let new_tip: alloy::primitives::B256 = ev.newTip.into();
+    let semantic_sig: alloy::primitives::B256 = ev.eventSignature;
+    let prev_tip: alloy::primitives::B256 = ev.prevTip;
+    let new_tip: alloy::primitives::B256 = ev.newTip;
 
     let semantic =
         decode::decode_semantic_event(Stream::Hub, semantic_sig, &ev.abiEncodedEventData)?;
@@ -75,9 +75,9 @@ fn decode_controller_event_appended(
 
     let ev = decoded.inner.data;
     let event_seq = u256_to_u64(ev.eventSeq)?;
-    let semantic_sig: alloy::primitives::B256 = ev.eventSignature.into();
-    let prev_tip: alloy::primitives::B256 = ev.prevTip.into();
-    let new_tip: alloy::primitives::B256 = ev.newTip.into();
+    let semantic_sig: alloy::primitives::B256 = ev.eventSignature;
+    let prev_tip: alloy::primitives::B256 = ev.prevTip;
+    let new_tip: alloy::primitives::B256 = ev.newTip;
 
     let semantic =
         decode::decode_semantic_event(Stream::Controller, semantic_sig, &ev.abiEncodedEventData)?;
@@ -136,7 +136,7 @@ pub(super) fn decode_tip_proof(
         tx_hash: log.tx_hash,
         log_index: i32::try_from(log.log_index).context("log_index out of range for int4")?,
         caller: domain::Caller(decoded.inner.data.caller),
-        proved_tip: domain::Tip(decoded.inner.data.eventChainTip.into()),
+        proved_tip: domain::Tip(decoded.inner.data.eventChainTip),
     })
 }
 
