@@ -20,7 +20,10 @@
     "abi:gen": "pnpm --filter @untron/v3-contracts codegen",
     "contracts:export": "pnpm --filter @untron/v3-contracts export",
     "prepare": "husky",
-    "research": "pnpm --filter @untron/research exec tsx src/run.ts"
+    "research": "pnpm --filter @untron/research exec tsx src/run.ts",
+    "contracts:build": "forge build --root packages/contracts",
+    "contracts:bind:rust": "forge bind --root packages/contracts --crate-name contracts_bindings --bindings-path crates/contracts-bindings --overwrite",
+    "indexer:build": "pnpm contracts:bind:rust && cargo build -p indexer"
   },
   "devDependencies": {
     "@wagmi/cli": "^2.5.1",

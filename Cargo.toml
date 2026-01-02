@@ -1,5 +1,6 @@
 [workspace]
 members = [
-  "apps/indexer"
+  "apps/indexer",
+  "crates/bindings",
 ]
 resolver = "2"
