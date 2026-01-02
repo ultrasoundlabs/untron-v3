@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod decode;
 mod domain;
+mod observability;
 mod poller;
 mod reorg;
 mod rpc;
@@ -11,12 +12,12 @@ use anyhow::{Context, Result};
 use dotenvy::dotenv;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    init_tracing();
+
+    let otel = observability::init("indexer")?;
 
     let config::AppConfig {
         database_url,
@@ -91,7 +92,10 @@ async fn main() -> Result<()> {
 
     match fatal {
         Some(e) => Err(e),
-        None => Ok(()),
+        None => {
+            otel.shutdown().await;
+            Ok(())
+        }
     }
 }
 
@@ -113,13 +117,4 @@ async fn shutdown_signal() -> Result<()> {
         tokio::signal::ctrl_c().await.context("ctrl-c")?;
         Ok(())
     }
-}
-
-fn init_tracing() {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .compact()
-        .init();
 }

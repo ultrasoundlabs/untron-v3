@@ -1,9 +1,14 @@
 use crate::{config::Stream, domain, util};
 use anyhow::{Context, Result};
 use sqlx::{
-    Encode, PgPool, Postgres, QueryBuilder, Transaction, Type, postgres::PgPoolOptions,
-    query_builder::Separated, query_scalar, types::Json,
+    ConnectOptions, Encode, PgPool, Postgres, QueryBuilder, Transaction, Type,
+    postgres::{PgConnectOptions, PgPoolOptions},
+    query_builder::Separated,
+    query_scalar,
+    types::Json,
 };
+use std::str::FromStr;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Db {
@@ -12,11 +17,17 @@ pub struct Db {
 
 impl Db {
     pub async fn connect(database_url: &str, max_connections: u32) -> Result<Self> {
+        let opts = PgConnectOptions::from_str(database_url)
+            .context("parse DATABASE_URL")?
+            .log_statements(tracing::log::LevelFilter::Trace)
+            .log_slow_statements(tracing::log::LevelFilter::Warn, Duration::from_millis(200));
+
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
-            .connect(database_url)
+            .connect_with(opts)
             .await
             .context("connect to database")?;
+
         Ok(Self { pool })
     }
 }
