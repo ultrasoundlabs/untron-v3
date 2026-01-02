@@ -20,3 +20,7 @@ broadcast
 !.env.example
 
 .idea
+
+# Rust
+/target
+**/target

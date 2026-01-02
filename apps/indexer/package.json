@@ -1,0 +1,10 @@
+{
+  "name": "@untron/v3-indexer",
+  "scripts": {
+    "dev": "cargo run -p indexer",
+    "test": "cargo test -p indexer",
+    "fmt": "cargo fmt",
+    "clippy": "cargo clippy -p indexer -- -D warnings",
+    "db:migrate": "sqlx migrate run --source db/migrations && psql \"$DATABASE_URL\" -c \"notify pgrst, 'reload schema';\""
+  }
+}

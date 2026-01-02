@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: untron
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ../apps/indexer/db/init:/docker-entrypoint-initdb.d:ro
+
+  postgrest:
+    image: postgrest/postgrest
+    depends_on: [db]
+    ports:
+      - "3001:3000"
+    environment:
+      PGRST_DB_URI: postgres://authenticator:authenticator_pw@db:5432/untron
+      PGRST_DB_SCHEMAS: api
+      PGRST_DB_ANON_ROLE: web_anon
+
+volumes:
+  db_data:
