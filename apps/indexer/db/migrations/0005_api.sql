@@ -169,6 +169,20 @@ create or replace view api.controller_lp_tokens_withdrawn as
 select * from ctl.lp_tokens_withdrawn_ledger;
 
 -- =========================
--- GRANTS
--- (done in 0001_foundation_and_roles.sql)
+-- POSTGREST GRANTS (optional)
+-- These are safe to run in all environments; they no-op if roles don't exist.
 -- =========================
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'web_anon') then
+    grant usage on schema api to web_anon;
+    grant select on all tables in schema api to web_anon;
+
+    revoke all on schema chain from web_anon;
+    revoke all on schema hub from web_anon;
+    revoke all on schema ctl from web_anon;
+
+    -- Make future api tables/views readable without extra GRANTs.
+    alter default privileges in schema api grant select on tables to web_anon;
+  end if;
+end $$;

@@ -3,7 +3,6 @@ Foundation:
 - Schemas: chain/hub/ctl are internal; api is exposed via PostgREST.
 - Domains/types: constrain addresses/hashes/bytes and large integers.
 - Helpers: JSON key presence enforcement.
-- PostgREST roles: authenticator (LOGIN) + web_anon (NOLOGIN).
 
 Design choice: store addresses/hashes as TEXT with strict regex constraints.
 This keeps data human-readable and PostgREST outputs friendly.
@@ -71,38 +70,5 @@ begin
   end loop;
 end $$;
 
--- =========================
--- POSTGREST ROLES
--- =========================
-/*
-PostgREST connects as authenticator, then SET ROLE web_anon.
-Only api schema should be exposed to web_anon.
-*/
-do $$
-declare
-  pw text := current_setting('app.authenticator_password', true);
-begin
-  if not exists (select 1 from pg_roles where rolname = 'authenticator') then
-    create role authenticator login;
-  end if;
-
-  -- Passwords are environment-specific; set out-of-band or via
-  -- `SET app.authenticator_password = '...'` before running migrations.
-  if pw is not null then
-    execute format('alter role authenticator password %L', pw);
-  end if;
-
-  if not exists (select 1 from pg_roles where rolname = 'web_anon') then
-    create role web_anon nologin;
-  end if;
-end $$;
-
-grant web_anon to authenticator;
-
-grant usage on schema api to web_anon;
-revoke all on schema chain from web_anon;
-revoke all on schema hub from web_anon;
-revoke all on schema ctl from web_anon;
-
--- Make future api tables/views readable without extra GRANTs
-alter default privileges in schema api grant select on tables to web_anon;
+-- Note: PostgREST roles/passwords/grants are intentionally managed out-of-band
+-- (e.g. via docker init scripts / IaC), not in migrations.

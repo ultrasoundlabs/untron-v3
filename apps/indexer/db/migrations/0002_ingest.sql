@@ -28,6 +28,8 @@ create table if not exists chain.instance (
     genesis_tip bytes32_hex not null,
 
     constraint instance_stream_chain_contract_unique
+    -- UNIQUE required for composite FKs.
+    -- (Stream PK still enforces one row per stream.)
     unique (stream, chain_id, contract_address)
 );
 
@@ -74,6 +76,9 @@ create table if not exists chain.event_appended (
     constraint event_appended_instance_fk
     foreign key (stream, chain_id, contract_address)
     references chain.instance (stream, chain_id, contract_address),
+
+    constraint event_appended_timestamp_seconds_range
+    check (block_timestamp >= 946684800 and block_timestamp < 20000000000),
 
     constraint event_appended_nonnegative
     check (
@@ -142,6 +147,9 @@ create table if not exists chain.controller_tip_proofs (
     constraint controller_tip_proofs_instance_fk
     foreign key (stream, chain_id, contract_address)
     references chain.instance (stream, chain_id, contract_address),
+
+    constraint controller_tip_proofs_timestamp_seconds_range
+    check (block_timestamp >= 946684800 and block_timestamp < 20000000000),
 
     constraint controller_tip_proofs_nonnegative
     check (block_number >= 0 and block_timestamp >= 0 and log_index >= 0)

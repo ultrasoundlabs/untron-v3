@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # This runs once when the Postgres container initializes an empty data dir.
 # Keep auth secrets out of git: provide `AUTHENTICATOR_PASSWORD` via env/secrets.
 
-: "${POSTGRES_USER:=postgres}"
-: "${POSTGRES_DB:=untron}"
-: "${AUTHENTICATOR_PASSWORD:?AUTHENTICATOR_PASSWORD must be set for PostgREST login}"
+POSTGRES_USER="${POSTGRES_USER:-postgres}"
+POSTGRES_DB="${POSTGRES_DB:-untron}"
+AUTHENTICATOR_PASSWORD="${AUTHENTICATOR_PASSWORD:-}"
+
+if [ -z "$AUTHENTICATOR_PASSWORD" ]; then
+  echo "AUTHENTICATOR_PASSWORD must be set for PostgREST login" >&2
+  exit 1
+fi
 
 psql -v ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \
   --dbname "$POSTGRES_DB" \
-  -v authenticator_password="$AUTHENTICATOR_PASSWORD" <<'EOSQL'
+  -v authenticator_password="$AUTHENTICATOR_PASSWORD" <<'EOSQL' || exit 1
 create schema if not exists api;
 
 do $$
@@ -34,9 +37,4 @@ begin
 end $$;
 
 grant web_anon to authenticator;
-grant usage on schema api to web_anon;
-
--- make future api tables/views readable without extra GRANTs
-alter default privileges in schema api grant select on tables to web_anon;
 EOSQL
-

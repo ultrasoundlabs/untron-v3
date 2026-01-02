@@ -344,7 +344,7 @@ begin
 end $$;
 
 -- =========================
--- UPGRADE TRIGGERS: handle BOTH streams
+-- INGEST TRIGGERS (both streams)
 -- =========================
 create or replace function chain.on_event_appended_insert()
 returns trigger language plpgsql as $$
@@ -402,3 +402,16 @@ begin
 
   return null;
 end $$;
+
+drop trigger if exists trg_event_appended_insert on chain.event_appended;
+create trigger trg_event_appended_insert
+after insert on chain.event_appended
+referencing new table as new_rows
+for each statement execute function chain.on_event_appended_insert();
+
+drop trigger if exists trg_event_appended_canonical_update
+on chain.event_appended;
+create trigger trg_event_appended_canonical_update
+after update of canonical on chain.event_appended
+referencing old table as old_rows new table as new_rows
+for each statement execute function chain.on_event_appended_canonical_update();
