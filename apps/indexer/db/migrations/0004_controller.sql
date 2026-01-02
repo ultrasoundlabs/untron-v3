@@ -20,7 +20,7 @@ Also upgrades the chain triggers created in 0003 to:
 create table if not exists ctl.owner_versions (
     valid_from_seq bigint primary key,
     valid_to_seq bigint null,
-    owner evm_address not null
+    owner tron_address not null
 );
 create unique index if not exists ctl_owner_current_unique
 on ctl.owner_versions ((1)) where valid_to_seq is null;
@@ -29,7 +29,7 @@ on ctl.owner_versions ((1)) where valid_to_seq is null;
 create table if not exists ctl.executor_versions (
     valid_from_seq bigint primary key,
     valid_to_seq bigint null,
-    executor evm_address not null
+    executor tron_address not null
 );
 create unique index if not exists ctl_executor_current_unique
 on ctl.executor_versions ((1)) where valid_to_seq is null;
@@ -38,7 +38,7 @@ on ctl.executor_versions ((1)) where valid_to_seq is null;
 create table if not exists ctl.usdt_versions (
     valid_from_seq bigint primary key,
     valid_to_seq bigint null,
-    usdt evm_address not null
+    usdt tron_address not null
 );
 create unique index if not exists ctl_usdt_current_unique
 on ctl.usdt_versions ((1)) where valid_to_seq is null;
@@ -47,14 +47,14 @@ on ctl.usdt_versions ((1)) where valid_to_seq is null;
 create table if not exists ctl.lp_versions (
     valid_from_seq bigint primary key,
     valid_to_seq bigint null,
-    lp evm_address not null
+    lp tron_address not null
 );
 create unique index if not exists ctl_lp_current_unique
 on ctl.lp_versions ((1)) where valid_to_seq is null;
 
 -- PayloadSet (KV by rebalancer)
 create table if not exists ctl.payload_versions (
-    rebalancer evm_address not null,
+    rebalancer tron_address not null,
     valid_from_seq bigint not null,
     valid_to_seq bigint null,
     payload bytes_hex not null,
@@ -68,7 +68,7 @@ create table if not exists ctl.receiver_versions (
     receiver_salt bytes32_hex not null,
     valid_from_seq bigint not null,
     valid_to_seq bigint null,
-    receiver evm_address not null,
+    receiver tron_address not null,
     primary key (receiver_salt, valid_from_seq)
 );
 create unique index if not exists ctl_receiver_current_unique
@@ -76,7 +76,7 @@ on ctl.receiver_versions (receiver_salt) where valid_to_seq is null;
 
 -- LpExchangeRateSet (KV by token)
 create table if not exists ctl.lp_exchange_rate_versions (
-    token evm_address not null,
+    token tron_address not null,
     valid_from_seq bigint not null,
     valid_to_seq bigint null,
     exchange_rate u256 not null,
@@ -123,7 +123,7 @@ check (valid_to_seq is null or valid_to_seq > valid_from_seq);
 create table if not exists ctl.pulled_from_receiver_ledger (
     event_seq bigint primary key,
     receiver_salt bytes32_hex not null,
-    token evm_address not null,
+    token tron_address not null,
     token_amount u256 not null,
     exchange_rate u256 not null,
     usdt_amount u256 not null
@@ -133,18 +133,18 @@ create table if not exists ctl.usdt_rebalanced_ledger (
     event_seq bigint primary key,
     in_amount u256 not null,
     out_amount u256 not null,
-    rebalancer evm_address not null
+    rebalancer tron_address not null
 );
 
 create table if not exists ctl.controller_usdt_transfer_ledger (
     event_seq bigint primary key,
-    recipient evm_address not null,
+    recipient tron_address not null,
     amount u256 not null
 );
 
 create table if not exists ctl.lp_tokens_withdrawn_ledger (
     event_seq bigint primary key,
-    token evm_address not null,
+    token tron_address not null,
     amount u256 not null
 );
 
@@ -162,46 +162,46 @@ begin
     perform chain.require_json_keys(p_args, array['new_owner']);
     update ctl.owner_versions set valid_to_seq = p_seq where valid_to_seq is null;
     insert into ctl.owner_versions(valid_from_seq, valid_to_seq, owner)
-    values (p_seq, null, (p_args->>'new_owner')::evm_address);
+    values (p_seq, null, chain.tron_address_from_text(p_args->>'new_owner'));
 
   elsif p_type = 'ExecutorChanged' then
     perform chain.require_json_keys(p_args, array['new_executor']);
     update ctl.executor_versions set valid_to_seq = p_seq where valid_to_seq is null;
     insert into ctl.executor_versions(valid_from_seq, valid_to_seq, executor)
-    values (p_seq, null, (p_args->>'new_executor')::evm_address);
+    values (p_seq, null, chain.tron_address_from_text(p_args->>'new_executor'));
 
   elsif p_type = 'UsdtSet' then
     perform chain.require_json_keys(p_args, array['new_usdt']);
     update ctl.usdt_versions set valid_to_seq = p_seq where valid_to_seq is null;
     insert into ctl.usdt_versions(valid_from_seq, valid_to_seq, usdt)
-    values (p_seq, null, (p_args->>'new_usdt')::evm_address);
+    values (p_seq, null, chain.tron_address_from_text(p_args->>'new_usdt'));
 
   elsif p_type = 'LpSet' then
     perform chain.require_json_keys(p_args, array['new_lp']);
     update ctl.lp_versions set valid_to_seq = p_seq where valid_to_seq is null;
     insert into ctl.lp_versions(valid_from_seq, valid_to_seq, lp)
-    values (p_seq, null, (p_args->>'new_lp')::evm_address);
+    values (p_seq, null, chain.tron_address_from_text(p_args->>'new_lp'));
 
   elsif p_type = 'PayloadSet' then
     perform chain.require_json_keys(p_args, array['rebalancer','payload']);
     update ctl.payload_versions set valid_to_seq = p_seq
-      where rebalancer = (p_args->>'rebalancer')::evm_address and valid_to_seq is null;
+      where rebalancer = chain.tron_address_from_text(p_args->>'rebalancer') and valid_to_seq is null;
     insert into ctl.payload_versions(rebalancer, valid_from_seq, valid_to_seq, payload)
-    values ((p_args->>'rebalancer')::evm_address, p_seq, null, (p_args->>'payload')::bytes_hex);
+    values (chain.tron_address_from_text(p_args->>'rebalancer'), p_seq, null, (p_args->>'payload')::bytes_hex);
 
   elsif p_type = 'ReceiverDeployed' then
     perform chain.require_json_keys(p_args, array['receiver','salt']);
     update ctl.receiver_versions set valid_to_seq = p_seq
       where receiver_salt = (p_args->>'salt')::bytes32_hex and valid_to_seq is null;
     insert into ctl.receiver_versions(receiver_salt, valid_from_seq, valid_to_seq, receiver)
-    values ((p_args->>'salt')::bytes32_hex, p_seq, null, (p_args->>'receiver')::evm_address);
+    values ((p_args->>'salt')::bytes32_hex, p_seq, null, chain.tron_address_from_text(p_args->>'receiver'));
 
   elsif p_type = 'LpExchangeRateSet' then
     perform chain.require_json_keys(p_args, array['token','exchange_rate']);
     update ctl.lp_exchange_rate_versions set valid_to_seq = p_seq
-      where token = (p_args->>'token')::evm_address and valid_to_seq is null;
+      where token = chain.tron_address_from_text(p_args->>'token') and valid_to_seq is null;
     insert into ctl.lp_exchange_rate_versions(token, valid_from_seq, valid_to_seq, exchange_rate)
-    values ((p_args->>'token')::evm_address, p_seq, null, (p_args->>'exchange_rate')::u256);
+    values (chain.tron_address_from_text(p_args->>'token'), p_seq, null, (p_args->>'exchange_rate')::u256);
 
   -- ledgers
   elsif p_type = 'PulledFromReceiver' then
@@ -210,7 +210,7 @@ begin
     values (
       p_seq,
       (p_args->>'receiver_salt')::bytes32_hex,
-      (p_args->>'token')::evm_address,
+      chain.tron_address_from_text(p_args->>'token'),
       (p_args->>'token_amount')::u256,
       (p_args->>'exchange_rate')::u256,
       (p_args->>'usdt_amount')::u256
@@ -223,18 +223,18 @@ begin
       p_seq,
       (p_args->>'in_amount')::u256,
       (p_args->>'out_amount')::u256,
-      (p_args->>'rebalancer')::evm_address
+      chain.tron_address_from_text(p_args->>'rebalancer')
     );
 
   elsif p_type = 'ControllerUsdtTransfer' then
     perform chain.require_json_keys(p_args, array['recipient','amount']);
     insert into ctl.controller_usdt_transfer_ledger(event_seq, recipient, amount)
-    values (p_seq, (p_args->>'recipient')::evm_address, (p_args->>'amount')::u256);
+    values (p_seq, chain.tron_address_from_text(p_args->>'recipient'), (p_args->>'amount')::u256);
 
   elsif p_type = 'LpTokensWithdrawn' then
     perform chain.require_json_keys(p_args, array['token','amount']);
     insert into ctl.lp_tokens_withdrawn_ledger(event_seq, token, amount)
-    values (p_seq, (p_args->>'token')::evm_address, (p_args->>'amount')::u256);
+    values (p_seq, chain.tron_address_from_text(p_args->>'token'), (p_args->>'amount')::u256);
 
   else
     null;

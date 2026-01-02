@@ -37,8 +37,8 @@ create table if not exists hub.protocol_config_versions (
     valid_to_seq bigint null,
 
     usdt evm_address null,
-    tron_usdt evm_address null,
-    tron_reader evm_address null,
+    tron_usdt tron_address null,
+    tron_reader tron_address null,
 
     floor_ppm bigint null,
     floor_flat_fee u256 null,
@@ -182,7 +182,7 @@ create table if not exists hub.claim_versions (
     origin smallint not null,
     origin_id bytes32_hex not null,
     origin_actor evm_address not null,
-    origin_token evm_address not null,
+    origin_token chain_address not null,
     origin_timestamp bigint not null,
     origin_raw_amount u256 not null,
 
@@ -262,6 +262,16 @@ alter table hub.claim_versions
 add constraint hub_claim_versions_valid_range_check
 check (valid_to_seq is null or valid_to_seq > valid_from_seq);
 
+alter table hub.claim_versions
+add constraint hub_claim_origin_token_format_check
+check (
+    (origin = 2 and origin_token ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$')
+    or (
+        origin <> 2
+        and origin_token = '0x0000000000000000000000000000000000000000'
+    )
+);
+
 alter table hub.lease_nonce_versions
 add constraint hub_lease_nonce_versions_valid_range_check
 check (valid_to_seq is null or valid_to_seq > valid_from_seq);
@@ -315,8 +325,8 @@ create table if not exists hub.controller_processed_ledger (
 create or replace function hub.protocol_config_apply(
     p_seq bigint,
     p_usdt evm_address,
-    p_tron_usdt evm_address,
-    p_tron_reader evm_address,
+    p_tron_usdt tron_address,
+    p_tron_reader tron_address,
     p_floor_ppm bigint,
     p_floor_flat_fee u256,
     p_max_lease_duration_seconds bigint,
@@ -553,7 +563,7 @@ create or replace function hub.claim_create(
     p_origin smallint,
     p_origin_id bytes32_hex,
     p_origin_actor evm_address,
-    p_origin_token evm_address,
+    p_origin_token chain_address,
     p_origin_timestamp bigint,
     p_origin_raw_amount u256
 ) returns void language plpgsql as $$
@@ -655,6 +665,8 @@ returns void language plpgsql as $$
 declare
   v_lp evm_address;
   v_amt u256;
+  v_origin smallint;
+  v_origin_token chain_address;
 begin
   -- OwnershipTransferred
   if p_type = 'OwnershipTransferred' then
@@ -670,11 +682,23 @@ begin
 
   elsif p_type = 'TronUsdtSet' then
     perform chain.require_json_keys(p_args, array['tron_usdt']);
-    perform hub.protocol_config_apply(p_seq, null, (p_args->>'tron_usdt')::evm_address, null, null, null, null, null, null);
+    perform hub.protocol_config_apply(
+      p_seq,
+      null,
+      chain.tron_address_from_text(p_args->>'tron_usdt'),
+      null,
+      null, null, null, null, null
+    );
 
   elsif p_type = 'TronReaderSet' then
     perform chain.require_json_keys(p_args, array['reader']);
-    perform hub.protocol_config_apply(p_seq, null, null, (p_args->>'reader')::evm_address, null, null, null, null, null);
+    perform hub.protocol_config_apply(
+      p_seq,
+      null,
+      null,
+      chain.tron_address_from_text(p_args->>'reader'),
+      null, null, null, null, null
+    );
 
   elsif p_type = 'ProtocolFloorSet' then
     perform chain.require_json_keys(p_args, array['floor_ppm']);
@@ -795,6 +819,13 @@ begin
       'lease_id','claim_id','target_token','queue_index','amount_usdt','target_chain_id','beneficiary',
       'origin','origin_id','origin_actor','origin_token','origin_timestamp','origin_raw_amount'
     ]);
+    v_origin := (p_args->>'origin')::smallint;
+    if v_origin = 2 then
+      v_origin_token := (chain.tron_address_from_text(p_args->>'origin_token'))::text::chain_address;
+    else
+      v_origin_token := ((p_args->>'origin_token')::evm_address)::text::chain_address;
+    end if;
+
     perform hub.claim_create(
       p_seq,
       (p_args->>'lease_id')::u256,
@@ -804,10 +835,10 @@ begin
       (p_args->>'amount_usdt')::u256,
       (p_args->>'target_chain_id')::bigint,
       (p_args->>'beneficiary')::evm_address,
-      (p_args->>'origin')::smallint,
+      v_origin,
       (p_args->>'origin_id')::bytes32_hex,
       (p_args->>'origin_actor')::evm_address,
-      (p_args->>'origin_token')::evm_address,
+      v_origin_token,
       (p_args->>'origin_timestamp')::bigint,
       (p_args->>'origin_raw_amount')::u256
     );

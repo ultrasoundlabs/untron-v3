@@ -22,7 +22,7 @@ create table if not exists chain.instance (
     chain_id bigint not null,
 
     -- deployed index contract address for that stream
-    contract_address evm_address not null,
+    contract_address chain_address not null,
 
     -- EventChainGenesis constant for that contract
     genesis_tip bytes32_hex not null,
@@ -31,6 +31,16 @@ create table if not exists chain.instance (
     -- UNIQUE required for composite FKs.
     -- (Stream PK still enforces one row per stream.)
     unique (stream, chain_id, contract_address)
+);
+
+alter table chain.instance
+add constraint instance_contract_address_format_matches_stream
+check (
+    (stream = 'hub' and contract_address ~ '^0x[0-9a-fA-F]{40}$')
+    or (
+        stream = 'controller'
+        and contract_address ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'
+    )
 );
 
 -- =========================
@@ -44,7 +54,7 @@ create table if not exists chain.event_appended (
 
     -- must match chain.instance for the given stream
     chain_id bigint not null,
-    contract_address evm_address not null,
+    contract_address chain_address not null,
 
     block_number bigint not null,
     block_timestamp bigint not null,
@@ -89,6 +99,16 @@ create table if not exists chain.event_appended (
     )
 );
 
+alter table chain.event_appended
+add constraint event_appended_contract_address_format_matches_stream
+check (
+    (stream = 'hub' and contract_address ~ '^0x[0-9a-fA-F]{40}$')
+    or (
+        stream = 'controller'
+        and contract_address ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'
+    )
+);
+
 -- idempotency: chain log identity
 create unique index if not exists event_appended_uid
 on chain.event_appended (chain_id, tx_hash, log_index);
@@ -125,7 +145,7 @@ create table if not exists chain.controller_tip_proofs (
     stream chain.stream not null default 'controller',
 
     chain_id bigint not null,
-    contract_address evm_address not null,
+    contract_address chain_address not null,
 
     block_number bigint not null,
     block_timestamp bigint not null,
@@ -136,13 +156,16 @@ create table if not exists chain.controller_tip_proofs (
 
     canonical boolean not null default true,
 
-    caller evm_address not null,
+    caller tron_address not null,
     proved_tip bytes32_hex not null,
 
     inserted_at timestamptz not null default now(),
 
     constraint controller_tip_proofs_stream_controller
     check (stream = 'controller'),
+
+    constraint controller_tip_proofs_contract_address_format_tron
+    check (contract_address ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'),
 
     constraint controller_tip_proofs_instance_fk
     foreign key (stream, chain_id, contract_address)
@@ -186,7 +209,7 @@ create table if not exists chain.stream_cursor (
 create or replace function chain.configure_instance(
     p_stream chain.stream,
     p_chain_id bigint,
-    p_contract_address evm_address,
+    p_contract_address chain_address,
     p_genesis_tip bytes32_hex
 ) returns void language plpgsql as $$
 declare
