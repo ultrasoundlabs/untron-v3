@@ -46,34 +46,23 @@ pub fn parse_b256_hex(value: &str) -> Result<B256> {
 }
 
 pub fn tron_base58_to_evm_address(addr: &str) -> Result<Address> {
-    // Tron base58check: payload = 0x41 || addr20 (21 bytes), checksum = first4(sha256(sha256(payload))).
-    let decoded = bs58::decode(addr).into_vec().context("base58 decode")?;
-    if decoded.len() != 25 {
+    // Tron base58check: payload = 0x41 || addr20 (21 bytes).
+    let payload = bs58::decode(addr)
+        .with_check(None)
+        .into_vec()
+        .context("base58check decode")?;
+    if payload.len() != 21 {
         anyhow::bail!(
-            "invalid Tron address length: expected 25 bytes, got {}",
-            decoded.len()
+            "invalid Tron address length: expected 21 bytes, got {}",
+            payload.len()
         );
     }
-
-    let payload = &decoded[..21];
-    let checksum: [u8; 4] = decoded[21..].try_into().expect("slice length checked");
-
-    let checksum_expected: [u8; 4] = {
-        let first: [u8; 32] = Sha256::digest(payload).into();
-        let second: [u8; 32] = Sha256::digest(first).into();
-        second[..4].try_into().expect("slice length checked")
-    };
-
-    if checksum != checksum_expected {
-        anyhow::bail!("invalid Tron address checksum");
-    }
-
     if payload[0] != 0x41 {
         anyhow::bail!(
             "unexpected Tron address prefix: expected 0x41, got 0x{:02x}",
-            payload[0]
+            payload[0],
         );
     }
 
-    Ok(Address::from_slice(&payload[1..21]))
+    Ok(Address::from_slice(&payload[1..]))
 }
