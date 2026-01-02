@@ -1,44 +1,25 @@
 use anyhow::{Context, Result};
+use clap::{ArgAction, Parser};
 use sqlx::Postgres;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 
-#[derive(Debug)]
+#[derive(Debug, Parser)]
+#[command(name = "migrate", disable_help_subcommand = true)]
 struct Args {
+    #[arg(long = "no-notify-pgrst", action = ArgAction::SetFalse, default_value_t = true)]
     notify_pgrst: bool,
+
+    #[arg(long, default_value = "pgrst")]
     pgrst_channel: String,
+
+    #[arg(long, default_value = "reload schema")]
     pgrst_payload: String,
-}
-
-fn parse_args() -> Result<Args> {
-    let mut notify_pgrst = true;
-    let mut pgrst_channel = "pgrst".to_string();
-    let mut pgrst_payload = "reload schema".to_string();
-
-    let mut it = env::args().skip(1);
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--no-notify-pgrst" => notify_pgrst = false,
-            "--pgrst-channel" => {
-                pgrst_channel = it.next().context("--pgrst-channel requires a value")?;
-            }
-            "--pgrst-payload" => {
-                pgrst_payload = it.next().context("--pgrst-payload requires a value")?;
-            }
-            _ => anyhow::bail!("unknown argument: {arg}"),
-        }
-    }
-
-    Ok(Args {
-        notify_pgrst,
-        pgrst_channel,
-        pgrst_payload,
-    })
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = parse_args()?;
+    let args = Args::parse();
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
 
     let pool = PgPoolOptions::new()
