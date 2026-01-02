@@ -30,6 +30,7 @@ select
     args,
     block_number,
     block_timestamp,
+    to_timestamp(block_timestamp) as block_time,
     block_hash,
     tx_hash,
     log_index
@@ -39,6 +40,7 @@ where canonical;
 create or replace view api.controller_tip_proofs as
 select
     block_number, block_timestamp, block_hash,
+    to_timestamp(block_timestamp) as block_time,
     tx_hash, log_index,
     caller, proved_tip
 from chain.controller_tip_proofs
@@ -168,7 +170,5 @@ select * from ctl.lp_tokens_withdrawn_ledger;
 
 -- =========================
 -- GRANTS
+-- (done in 0001_foundation_and_roles.sql)
 -- =========================
-grant usage on schema api to web_anon;
-grant select on all tables in schema api to web_anon;
-alter default privileges in schema api grant select on tables to web_anon ;

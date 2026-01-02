@@ -23,106 +23,139 @@ create table if not exists ctl.owner_versions (
     owner evm_address not null
 );
 create unique index if not exists ctl_owner_current_unique
-on ctl.owner_versions ((1)) where valid_to_seq is null ;
+on ctl.owner_versions ((1)) where valid_to_seq is null;
 
 -- ExecutorChanged (singleton)
 create table if not exists ctl.executor_versions (
-valid_from_seq bigint primary key,
-valid_to_seq bigint null,
-executor evm_address not null
-) ;
+    valid_from_seq bigint primary key,
+    valid_to_seq bigint null,
+    executor evm_address not null
+);
 create unique index if not exists ctl_executor_current_unique
-on ctl.executor_versions ((1)) where valid_to_seq is null ;
+on ctl.executor_versions ((1)) where valid_to_seq is null;
 
 -- UsdtSet (singleton)
 create table if not exists ctl.usdt_versions (
-valid_from_seq bigint primary key,
-valid_to_seq bigint null,
-usdt evm_address not null
-) ;
+    valid_from_seq bigint primary key,
+    valid_to_seq bigint null,
+    usdt evm_address not null
+);
 create unique index if not exists ctl_usdt_current_unique
-on ctl.usdt_versions ((1)) where valid_to_seq is null ;
+on ctl.usdt_versions ((1)) where valid_to_seq is null;
 
 -- LpSet (singleton)
 create table if not exists ctl.lp_versions (
-valid_from_seq bigint primary key,
-valid_to_seq bigint null,
-lp evm_address not null
-) ;
+    valid_from_seq bigint primary key,
+    valid_to_seq bigint null,
+    lp evm_address not null
+);
 create unique index if not exists ctl_lp_current_unique
-on ctl.lp_versions ((1)) where valid_to_seq is null ;
+on ctl.lp_versions ((1)) where valid_to_seq is null;
 
 -- PayloadSet (KV by rebalancer)
 create table if not exists ctl.payload_versions (
-rebalancer evm_address not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-payload bytes_hex not null,
-primary key (rebalancer, valid_from_seq)
-) ;
+    rebalancer evm_address not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    payload bytes_hex not null,
+    primary key (rebalancer, valid_from_seq)
+);
 create unique index if not exists ctl_payload_current_unique
-on ctl.payload_versions (rebalancer) where valid_to_seq is null ;
+on ctl.payload_versions (rebalancer) where valid_to_seq is null;
 
 -- ReceiverDeployed (KV by receiver_salt)
 create table if not exists ctl.receiver_versions (
-receiver_salt bytes32_hex not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-receiver evm_address not null,
-primary key (receiver_salt, valid_from_seq)
-) ;
+    receiver_salt bytes32_hex not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    receiver evm_address not null,
+    primary key (receiver_salt, valid_from_seq)
+);
 create unique index if not exists ctl_receiver_current_unique
-on ctl.receiver_versions (receiver_salt) where valid_to_seq is null ;
+on ctl.receiver_versions (receiver_salt) where valid_to_seq is null;
 
 -- LpExchangeRateSet (KV by token)
 create table if not exists ctl.lp_exchange_rate_versions (
-token evm_address not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-exchange_rate u256 not null,
-primary key (token, valid_from_seq)
-) ;
+    token evm_address not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    exchange_rate u256 not null,
+    primary key (token, valid_from_seq)
+);
 create unique index if not exists ctl_lp_exchange_rate_current_unique
-on ctl.lp_exchange_rate_versions (token) where valid_to_seq is null ;
+on ctl.lp_exchange_rate_versions (token) where valid_to_seq is null;
+
+-- =========================
+-- VERSION RANGE CHECKS
+-- =========================
+alter table ctl.owner_versions
+add constraint ctl_owner_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table ctl.executor_versions
+add constraint ctl_executor_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table ctl.usdt_versions
+add constraint ctl_usdt_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table ctl.lp_versions
+add constraint ctl_lp_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table ctl.payload_versions
+add constraint ctl_payload_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table ctl.receiver_versions
+add constraint ctl_receiver_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table ctl.lp_exchange_rate_versions
+add constraint ctl_lp_exchange_rate_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
 
 -- =========================
 -- CONTROLLER LEDGERS
 -- =========================
 
 create table if not exists ctl.pulled_from_receiver_ledger (
-event_seq bigint primary key,
-receiver_salt bytes32_hex not null,
-token evm_address not null,
-token_amount u256 not null,
-exchange_rate u256 not null,
-usdt_amount u256 not null
-) ;
+    event_seq bigint primary key,
+    receiver_salt bytes32_hex not null,
+    token evm_address not null,
+    token_amount u256 not null,
+    exchange_rate u256 not null,
+    usdt_amount u256 not null
+);
 
 create table if not exists ctl.usdt_rebalanced_ledger (
-event_seq bigint primary key,
-in_amount u256 not null,
-out_amount u256 not null,
-rebalancer evm_address not null
-) ;
+    event_seq bigint primary key,
+    in_amount u256 not null,
+    out_amount u256 not null,
+    rebalancer evm_address not null
+);
 
 create table if not exists ctl.controller_usdt_transfer_ledger (
-event_seq bigint primary key,
-recipient evm_address not null,
-amount u256 not null
-) ;
+    event_seq bigint primary key,
+    recipient evm_address not null,
+    amount u256 not null
+);
 
 create table if not exists ctl.lp_tokens_withdrawn_ledger (
-event_seq bigint primary key,
-token evm_address not null,
-amount u256 not null
-) ;
+    event_seq bigint primary key,
+    token evm_address not null,
+    amount u256 not null
+);
 
 -- =========================
 -- CONTROLLER APPLY ONE
 -- =========================
-create or replace function ctl.apply_one (p_seq bigint,
-p_type text,
-p_args jsonb)
+create or replace function ctl.apply_one(
+    p_seq bigint,
+    p_type text,
+    p_args jsonb
+)
 returns void language plpgsql as $$
 begin
   if p_type = 'OwnerChanged' then
@@ -206,12 +239,12 @@ begin
   else
     null;
   end if;
-end $$ ;
+end $$;
 
 -- =========================
 -- CONTROLLER ROLLBACK
 -- =========================
-create or replace function ctl.rollback_from (rollback_seq bigint)
+create or replace function ctl.rollback_from(rollback_seq bigint)
 returns void language plpgsql as $$
 begin
   -- ledgers
@@ -257,12 +290,12 @@ begin
                    limit 1)
        end
    where c.stream='controller';
-end $$ ;
+end $$;
 
 -- =========================
 -- CONTROLLER APPLY CATCHUP
 -- =========================
-create or replace function ctl.apply_catchup ()
+create or replace function ctl.apply_catchup()
 returns void language plpgsql as $$
 declare
   cur_seq bigint;
@@ -277,6 +310,10 @@ begin
     from chain.stream_cursor
    where stream='controller'
    for update;
+
+  if not found then
+    raise exception 'stream cursor not initialized for controller (call chain.configure_instance(''controller'', ...))';
+  end if;
 
   loop
     next_seq := cur_seq + 1;
@@ -304,12 +341,12 @@ begin
          tip = cur_tip,
          updated_at = now()
    where stream='controller';
-end $$ ;
+end $$;
 
 -- =========================
 -- UPGRADE TRIGGERS: handle BOTH streams
 -- =========================
-create or replace function chain.on_event_appended_insert ()
+create or replace function chain.on_event_appended_insert()
 returns trigger language plpgsql as $$
 begin
   if exists (select 1 from new_rows where stream='hub' and canonical) then
@@ -321,9 +358,9 @@ begin
   end if;
 
   return null;
-end $$ ;
+end $$;
 
-create or replace function chain.on_event_appended_canonical_update ()
+create or replace function chain.on_event_appended_canonical_update()
 returns trigger language plpgsql as $$
 declare
   hub_rollback bigint;
@@ -364,4 +401,4 @@ begin
   end if;
 
   return null;
-end $$ ;
+end $$;

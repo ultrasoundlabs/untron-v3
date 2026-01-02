@@ -15,7 +15,7 @@ Integrity:
 -- =========================
 -- HUB TYPES
 -- =========================
-create type hub.claim_status as enum ('created', 'filled') ;
+create type hub.claim_status as enum ('created', 'filled');
 
 -- =========================
 -- HUB VERSIONED TABLES (STATE)
@@ -23,248 +23,305 @@ create type hub.claim_status as enum ('created', 'filled') ;
 
 -- OwnershipTransferred (singleton)
 create table if not exists hub.ownership_versions (
-valid_from_seq bigint primary key,
-valid_to_seq bigint null,
-old_owner evm_address not null,
-new_owner evm_address not null
-) ;
+    valid_from_seq bigint primary key,
+    valid_to_seq bigint null,
+    old_owner evm_address not null,
+    new_owner evm_address not null
+);
 create unique index if not exists hub_ownership_current_unique
-on hub.ownership_versions ((1)) where valid_to_seq is null ;
+on hub.ownership_versions ((1)) where valid_to_seq is null;
 
 -- Protocol config snapshot (singleton)
 create table if not exists hub.protocol_config_versions (
-valid_from_seq bigint primary key,
-valid_to_seq bigint null,
+    valid_from_seq bigint primary key,
+    valid_to_seq bigint null,
 
-usdt evm_address null,
-tron_usdt evm_address null,
-tron_reader evm_address null,
+    usdt evm_address null,
+    tron_usdt evm_address null,
+    tron_reader evm_address null,
 
-floor_ppm bigint null,
-floor_flat_fee u256 null,
-max_lease_duration_seconds bigint null,
+    floor_ppm bigint null,
+    floor_flat_fee u256 null,
+    max_lease_duration_seconds bigint null,
 
-lessee_rate_max_updates u256 null,
-lessee_rate_window_seconds u256 null
-) ;
+    lessee_rate_max_updates u256 null,
+    lessee_rate_window_seconds u256 null
+);
 create unique index if not exists hub_protocol_config_current_unique
-on hub.protocol_config_versions ((1)) where valid_to_seq is null ;
+on hub.protocol_config_versions ((1)) where valid_to_seq is null;
 
 -- Realtor allowlist + per-realtor config (KV)
 create table if not exists hub.realtor_versions (
-realtor evm_address not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
+    realtor evm_address not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
 
-allowed boolean null,
+    allowed boolean null,
 
-min_fee_ppm bigint null,
-min_flat_fee u256 null,
-max_lease_duration_seconds bigint null,
-lease_rate_max_leases u256 null,
-lease_rate_window_seconds u256 null,
+    min_fee_ppm bigint null,
+    min_flat_fee u256 null,
+    max_lease_duration_seconds bigint null,
+    lease_rate_max_leases u256 null,
+    lease_rate_window_seconds u256 null,
 
-primary key (realtor, valid_from_seq)
-) ;
+    primary key (realtor, valid_from_seq)
+);
 create unique index if not exists hub_realtor_current_unique
-on hub.realtor_versions (realtor) where valid_to_seq is null ;
+on hub.realtor_versions (realtor) where valid_to_seq is null;
 
 -- LP allowlist (KV)
 create table if not exists hub.lp_allowlist_versions (
-lp evm_address not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-allowed boolean not null,
-primary key (lp, valid_from_seq)
-) ;
+    lp evm_address not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    allowed boolean not null,
+    primary key (lp, valid_from_seq)
+);
 create unique index if not exists hub_lp_allowlist_current_unique
-on hub.lp_allowlist_versions (lp) where valid_to_seq is null ;
+on hub.lp_allowlist_versions (lp) where valid_to_seq is null;
 
 -- LP balance snapshot derived from deposit/withdraw (KV)
 create table if not exists hub.lp_balance_versions (
-lp evm_address not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-balance u256 not null,
-primary key (lp, valid_from_seq)
-) ;
+    lp evm_address not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    balance u256 not null,
+    primary key (lp, valid_from_seq)
+);
 create unique index if not exists hub_lp_balance_current_unique
-on hub.lp_balance_versions (lp) where valid_to_seq is null ;
+on hub.lp_balance_versions (lp) where valid_to_seq is null;
 
 -- ChainDeprecatedSet (KV by target_chain_id)
 create table if not exists hub.chain_versions (
-target_chain_id bigint not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-deprecated boolean not null,
-primary key (target_chain_id, valid_from_seq)
-) ;
+    target_chain_id bigint not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    deprecated boolean not null,
+    primary key (target_chain_id, valid_from_seq)
+);
 create unique index if not exists hub_chain_current_unique
-on hub.chain_versions (target_chain_id) where valid_to_seq is null ;
+on hub.chain_versions (target_chain_id) where valid_to_seq is null;
 
 -- SwapRateSet (KV by target_token)
 create table if not exists hub.swap_rate_versions (
-target_token evm_address not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-rate_ppm bigint not null,
-primary key (target_token, valid_from_seq)
-) ;
+    target_token evm_address not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    rate_ppm bigint not null,
+    primary key (target_token, valid_from_seq)
+);
 create unique index if not exists hub_swap_rate_current_unique
-on hub.swap_rate_versions (target_token) where valid_to_seq is null ;
+on hub.swap_rate_versions (target_token) where valid_to_seq is null;
 
 -- BridgerSet (KV by (target_token, target_chain_id))
 create table if not exists hub.bridger_versions (
-target_token evm_address not null,
-target_chain_id bigint not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-bridger evm_address not null,
-primary key (target_token, target_chain_id, valid_from_seq)
-) ;
+    target_token evm_address not null,
+    target_chain_id bigint not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    bridger evm_address not null,
+    primary key (target_token, target_chain_id, valid_from_seq)
+);
 create unique index if not exists hub_bridger_current_unique
-on hub.bridger_versions (target_token,
-target_chain_id) where valid_to_seq is null ;
+on hub.bridger_versions (
+    target_token,
+    target_chain_id
+) where valid_to_seq is null;
 
 -- LeaseCreated (KV by lease_id)
 create table if not exists hub.lease_versions (
-lease_id u256 not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
+    lease_id u256 not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
 
-receiver_salt bytes32_hex not null,
-lease_number u256 not null,
+    receiver_salt bytes32_hex not null,
+    lease_number u256 not null,
 
-realtor evm_address not null,
-lessee evm_address not null,
+    realtor evm_address not null,
+    lessee evm_address not null,
 
-start_time bigint not null,
-nukeable_after bigint not null,
+    start_time bigint not null,
+    nukeable_after bigint not null,
 
-lease_fee_ppm bigint not null,
-flat_fee u256 not null,
+    lease_fee_ppm bigint not null,
+    flat_fee u256 not null,
 
-primary key (lease_id, valid_from_seq)
-) ;
+    primary key (lease_id, valid_from_seq)
+);
 create unique index if not exists hub_lease_current_unique
-on hub.lease_versions (lease_id) where valid_to_seq is null ;
+on hub.lease_versions (lease_id) where valid_to_seq is null;
 
 -- PayoutConfigUpdated (KV by lease_id)
 create table if not exists hub.payout_config_versions (
-lease_id u256 not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
+    lease_id u256 not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
 
-target_chain_id bigint not null,
-target_token evm_address not null,
-beneficiary evm_address not null,
+    target_chain_id bigint not null,
+    target_token evm_address not null,
+    beneficiary evm_address not null,
 
-primary key (lease_id, valid_from_seq)
-) ;
+    primary key (lease_id, valid_from_seq)
+);
 create unique index if not exists hub_payout_config_current_unique
-on hub.payout_config_versions (lease_id) where valid_to_seq is null ;
+on hub.payout_config_versions (lease_id) where valid_to_seq is null;
 
 -- Claim state (KV by (lease_id, claim_id))
 create table if not exists hub.claim_versions (
-lease_id u256 not null,
-claim_id u256 not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
+    lease_id u256 not null,
+    claim_id u256 not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
 
-target_token evm_address not null,
-queue_index u256 not null,
-amount_usdt u256 not null,
-target_chain_id bigint not null,
-beneficiary evm_address not null,
+    target_token evm_address not null,
+    queue_index u256 not null,
+    amount_usdt u256 not null,
+    target_chain_id bigint not null,
+    beneficiary evm_address not null,
 
-origin smallint not null,
-origin_id bytes32_hex not null,
-origin_actor evm_address not null,
-origin_token evm_address not null,
-origin_timestamp bigint not null,
-origin_raw_amount u256 not null,
+    origin smallint not null,
+    origin_id bytes32_hex not null,
+    origin_actor evm_address not null,
+    origin_token evm_address not null,
+    origin_timestamp bigint not null,
+    origin_raw_amount u256 not null,
 
-status hub.claim_status not null,
+    status hub.claim_status not null,
 
-primary key (lease_id, claim_id, valid_from_seq)
-) ;
+    primary key (lease_id, claim_id, valid_from_seq)
+);
 create unique index if not exists hub_claim_current_unique
-on hub.claim_versions (lease_id, claim_id) where valid_to_seq is null ;
+on hub.claim_versions (lease_id, claim_id) where valid_to_seq is null;
 
 -- LeaseNonceUpdated (KV by lease_id)
 create table if not exists hub.lease_nonce_versions (
-lease_id u256 not null,
-valid_from_seq bigint not null,
-valid_to_seq bigint null,
-nonce u256 not null,
-primary key (lease_id, valid_from_seq)
-) ;
+    lease_id u256 not null,
+    valid_from_seq bigint not null,
+    valid_to_seq bigint null,
+    nonce u256 not null,
+    primary key (lease_id, valid_from_seq)
+);
 create unique index if not exists hub_lease_nonce_current_unique
-on hub.lease_nonce_versions (lease_id) where valid_to_seq is null ;
+on hub.lease_nonce_versions (lease_id) where valid_to_seq is null;
 
 -- ProtocolPnlUpdated (singleton snapshot)
 create table if not exists hub.protocol_pnl_versions (
-valid_from_seq bigint primary key,
-valid_to_seq bigint null,
-pnl i256 not null,
-delta i256 not null,
-reason smallint not null
-) ;
+    valid_from_seq bigint primary key,
+    valid_to_seq bigint null,
+    pnl i256 not null,
+    delta i256 not null,
+    reason smallint not null
+);
 create unique index if not exists hub_protocol_pnl_current_unique
-on hub.protocol_pnl_versions ((1)) where valid_to_seq is null ;
+on hub.protocol_pnl_versions ((1)) where valid_to_seq is null;
+
+-- =========================
+-- VERSION RANGE CHECKS
+-- =========================
+alter table hub.ownership_versions
+add constraint hub_ownership_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.protocol_config_versions
+add constraint hub_protocol_config_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.realtor_versions
+add constraint hub_realtor_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.lp_allowlist_versions
+add constraint hub_lp_allowlist_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.lp_balance_versions
+add constraint hub_lp_balance_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.chain_versions
+add constraint hub_chain_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.swap_rate_versions
+add constraint hub_swap_rate_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.bridger_versions
+add constraint hub_bridger_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.lease_versions
+add constraint hub_lease_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.payout_config_versions
+add constraint hub_payout_config_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.claim_versions
+add constraint hub_claim_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.lease_nonce_versions
+add constraint hub_lease_nonce_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
+
+alter table hub.protocol_pnl_versions
+add constraint hub_protocol_pnl_versions_valid_range_check
+check (valid_to_seq is null or valid_to_seq > valid_from_seq);
 
 -- =========================
 -- HUB LEDGERS (append-only actions)
 -- =========================
 
 create table if not exists hub.lp_vault_events (
-event_seq bigint primary key,
-kind text not null check (kind in ('deposit', 'withdraw')),
-lp evm_address not null,
-amount u256 not null
-) ;
+    event_seq bigint primary key,
+    kind text not null check (kind in ('deposit', 'withdraw')),
+    lp evm_address not null,
+    amount u256 not null
+);
 
 create table if not exists hub.tokens_rescued_ledger (
-event_seq bigint primary key,
-token evm_address not null,
-amount u256 not null
-) ;
+    event_seq bigint primary key,
+    token evm_address not null,
+    amount u256 not null
+);
 
 -- Controller ingestion related
 -- (these are hub events carrying controller event bytes)
 create table if not exists hub.controller_tip_updates_ledger (
-event_seq bigint primary key,
-previous_tip bytes32_hex not null,
-block_number bigint not null,
-block_timestamp bigint not null,
-event_signature bytes32_hex not null,
-abi_encoded_event_data bytes_hex not null
-) ;
+    event_seq bigint primary key,
+    previous_tip bytes32_hex not null,
+    block_number bigint not null,
+    block_timestamp bigint not null,
+    event_signature bytes32_hex not null,
+    abi_encoded_event_data bytes_hex not null
+);
 
 create table if not exists hub.controller_processed_ledger (
-event_seq bigint primary key,
-event_index u256 not null,
-block_number bigint not null,
-block_timestamp bigint not null,
-event_signature bytes32_hex not null,
-abi_encoded_event_data bytes_hex not null
-) ;
+    event_seq bigint primary key,
+    event_index u256 not null,
+    block_number bigint not null,
+    block_timestamp bigint not null,
+    event_signature bytes32_hex not null,
+    abi_encoded_event_data bytes_hex not null
+);
 
 -- =========================
 -- HUB PATCH HELPERS (versioned updates)
 -- =========================
 
 -- Protocol config singleton patch
-create or replace function hub.protocol_config_apply (
-p_seq bigint,
-p_usdt evm_address,
-p_tron_usdt evm_address,
-p_tron_reader evm_address,
-p_floor_ppm bigint,
-p_floor_flat_fee u256,
-p_max_lease_duration_seconds bigint,
-p_lessee_rate_max_updates u256,
-p_lessee_rate_window_seconds u256
+create or replace function hub.protocol_config_apply(
+    p_seq bigint,
+    p_usdt evm_address,
+    p_tron_usdt evm_address,
+    p_tron_reader evm_address,
+    p_floor_ppm bigint,
+    p_floor_flat_fee u256,
+    p_max_lease_duration_seconds bigint,
+    p_lessee_rate_max_updates u256,
+    p_lessee_rate_window_seconds u256
 ) returns void language plpgsql as $$
 declare
   cur hub.protocol_config_versions%rowtype;
@@ -294,18 +351,18 @@ begin
     coalesce(p_lessee_rate_max_updates, cur.lessee_rate_max_updates),
     coalesce(p_lessee_rate_window_seconds, cur.lessee_rate_window_seconds)
   );
-end $$ ;
+end $$;
 
 -- Realtor KV patch
-create or replace function hub.realtor_apply (
-p_seq bigint,
-p_realtor evm_address,
-p_allowed boolean,
-p_min_fee_ppm bigint,
-p_min_flat_fee u256,
-p_max_lease_duration_seconds bigint,
-p_lease_rate_max_leases u256,
-p_lease_rate_window_seconds u256
+create or replace function hub.realtor_apply(
+    p_seq bigint,
+    p_realtor evm_address,
+    p_allowed boolean,
+    p_min_fee_ppm bigint,
+    p_min_flat_fee u256,
+    p_max_lease_duration_seconds bigint,
+    p_lease_rate_max_leases u256,
+    p_lease_rate_window_seconds u256
 ) returns void language plpgsql as $$
 declare
   cur hub.realtor_versions%rowtype;
@@ -332,12 +389,14 @@ begin
     coalesce(p_lease_rate_max_leases, cur.lease_rate_max_leases),
     coalesce(p_lease_rate_window_seconds, cur.lease_rate_window_seconds)
   );
-end $$ ;
+end $$;
 
 -- LP allowlist set
-create or replace function hub.lp_allowlist_set (p_seq bigint,
-p_lp evm_address,
-p_allowed boolean)
+create or replace function hub.lp_allowlist_set(
+    p_seq bigint,
+    p_lp evm_address,
+    p_allowed boolean
+)
 returns void language plpgsql as $$
 begin
   update hub.lp_allowlist_versions
@@ -346,12 +405,14 @@ begin
 
   insert into hub.lp_allowlist_versions(lp, valid_from_seq, valid_to_seq, allowed)
   values (p_lp, p_seq, null, p_allowed);
-end $$ ;
+end $$;
 
 -- LP balance delta apply (derived state)
-create or replace function hub.lp_balance_apply_delta (p_seq bigint,
-p_lp evm_address,
-p_delta i256)
+create or replace function hub.lp_balance_apply_delta(
+    p_seq bigint,
+    p_lp evm_address,
+    p_delta i256
+)
 returns void language plpgsql as $$
 declare
   cur_bal u256;
@@ -375,12 +436,14 @@ begin
 
   insert into hub.lp_balance_versions(lp, valid_from_seq, valid_to_seq, balance)
   values (p_lp, p_seq, null, new_bal::u256);
-end $$ ;
+end $$;
 
 -- Chain deprecated set
-create or replace function hub.chain_set (p_seq bigint,
-p_target_chain_id bigint,
-p_deprecated boolean)
+create or replace function hub.chain_set(
+    p_seq bigint,
+    p_target_chain_id bigint,
+    p_deprecated boolean
+)
 returns void language plpgsql as $$
 begin
   update hub.chain_versions
@@ -389,12 +452,14 @@ begin
 
   insert into hub.chain_versions(target_chain_id, valid_from_seq, valid_to_seq, deprecated)
   values (p_target_chain_id, p_seq, null, p_deprecated);
-end $$ ;
+end $$;
 
 -- Swap rate set
-create or replace function hub.swap_rate_set (p_seq bigint,
-p_target_token evm_address,
-p_rate_ppm bigint)
+create or replace function hub.swap_rate_set(
+    p_seq bigint,
+    p_target_token evm_address,
+    p_rate_ppm bigint
+)
 returns void language plpgsql as $$
 begin
   update hub.swap_rate_versions
@@ -403,14 +468,14 @@ begin
 
   insert into hub.swap_rate_versions(target_token, valid_from_seq, valid_to_seq, rate_ppm)
   values (p_target_token, p_seq, null, p_rate_ppm);
-end $$ ;
+end $$;
 
 -- Bridger set
-create or replace function hub.bridger_set (
-p_seq bigint,
-p_target_token evm_address,
-p_target_chain_id bigint,
-p_bridger evm_address
+create or replace function hub.bridger_set(
+    p_seq bigint,
+    p_target_token evm_address,
+    p_target_chain_id bigint,
+    p_bridger evm_address
 ) returns void language plpgsql as $$
 begin
   update hub.bridger_versions
@@ -421,20 +486,20 @@ begin
 
   insert into hub.bridger_versions(target_token, target_chain_id, valid_from_seq, valid_to_seq, bridger)
   values (p_target_token, p_target_chain_id, p_seq, null, p_bridger);
-end $$ ;
+end $$;
 
 -- Lease create (should be first creation of lease_id in a fork)
-create or replace function hub.lease_create (
-p_seq bigint,
-p_lease_id u256,
-p_receiver_salt bytes32_hex,
-p_lease_number u256,
-p_realtor evm_address,
-p_lessee evm_address,
-p_start_time bigint,
-p_nukeable_after bigint,
-p_lease_fee_ppm bigint,
-p_flat_fee u256
+create or replace function hub.lease_create(
+    p_seq bigint,
+    p_lease_id u256,
+    p_receiver_salt bytes32_hex,
+    p_lease_number u256,
+    p_realtor evm_address,
+    p_lessee evm_address,
+    p_start_time bigint,
+    p_nukeable_after bigint,
+    p_lease_fee_ppm bigint,
+    p_flat_fee u256
 ) returns void language plpgsql as $$
 begin
   -- close any current row (should not exist in a consistent canonical fork)
@@ -451,15 +516,15 @@ begin
     p_receiver_salt, p_lease_number, p_realtor, p_lessee,
     p_start_time, p_nukeable_after, p_lease_fee_ppm, p_flat_fee
   );
-end $$ ;
+end $$;
 
 -- Payout config set (versioned per lease)
-create or replace function hub.payout_config_set (
-p_seq bigint,
-p_lease_id u256,
-p_target_chain_id bigint,
-p_target_token evm_address,
-p_beneficiary evm_address
+create or replace function hub.payout_config_set(
+    p_seq bigint,
+    p_lease_id u256,
+    p_target_chain_id bigint,
+    p_target_token evm_address,
+    p_beneficiary evm_address
 ) returns void language plpgsql as $$
 begin
   update hub.payout_config_versions
@@ -473,24 +538,24 @@ begin
     p_lease_id, p_seq, null,
     p_target_chain_id, p_target_token, p_beneficiary
   );
-end $$ ;
+end $$;
 
 -- Claim created
-create or replace function hub.claim_create (
-p_seq bigint,
-p_lease_id u256,
-p_claim_id u256,
-p_target_token evm_address,
-p_queue_index u256,
-p_amount_usdt u256,
-p_target_chain_id bigint,
-p_beneficiary evm_address,
-p_origin smallint,
-p_origin_id bytes32_hex,
-p_origin_actor evm_address,
-p_origin_token evm_address,
-p_origin_timestamp bigint,
-p_origin_raw_amount u256
+create or replace function hub.claim_create(
+    p_seq bigint,
+    p_lease_id u256,
+    p_claim_id u256,
+    p_target_token evm_address,
+    p_queue_index u256,
+    p_amount_usdt u256,
+    p_target_chain_id bigint,
+    p_beneficiary evm_address,
+    p_origin smallint,
+    p_origin_id bytes32_hex,
+    p_origin_actor evm_address,
+    p_origin_token evm_address,
+    p_origin_timestamp bigint,
+    p_origin_raw_amount u256
 ) returns void language plpgsql as $$
 begin
   update hub.claim_versions
@@ -508,13 +573,13 @@ begin
     p_origin, p_origin_id, p_origin_actor, p_origin_token, p_origin_timestamp, p_origin_raw_amount,
     'created'
   );
-end $$ ;
+end $$;
 
 -- Claim filled (versioned status update)
-create or replace function hub.claim_fill (
-p_seq bigint,
-p_lease_id u256,
-p_claim_id u256
+create or replace function hub.claim_fill(
+    p_seq bigint,
+    p_lease_id u256,
+    p_claim_id u256
 ) returns void language plpgsql as $$
 declare
   cur hub.claim_versions%rowtype;
@@ -543,12 +608,14 @@ begin
     cur.origin, cur.origin_id, cur.origin_actor, cur.origin_token, cur.origin_timestamp, cur.origin_raw_amount,
     'filled'
   );
-end $$ ;
+end $$;
 
 -- Lease nonce set
-create or replace function hub.lease_nonce_set (p_seq bigint,
-p_lease_id u256,
-p_nonce u256)
+create or replace function hub.lease_nonce_set(
+    p_seq bigint,
+    p_lease_id u256,
+    p_nonce u256
+)
 returns void language plpgsql as $$
 begin
   update hub.lease_nonce_versions
@@ -557,13 +624,15 @@ begin
 
   insert into hub.lease_nonce_versions(lease_id, valid_from_seq, valid_to_seq, nonce)
   values (p_lease_id, p_seq, null, p_nonce);
-end $$ ;
+end $$;
 
 -- Protocol pnl set (singleton snapshot)
-create or replace function hub.protocol_pnl_set (p_seq bigint,
-p_pnl i256,
-p_delta i256,
-p_reason smallint)
+create or replace function hub.protocol_pnl_set(
+    p_seq bigint,
+    p_pnl i256,
+    p_delta i256,
+    p_reason smallint
+)
 returns void language plpgsql as $$
 begin
   update hub.protocol_pnl_versions
@@ -572,14 +641,16 @@ begin
 
   insert into hub.protocol_pnl_versions(valid_from_seq, valid_to_seq, pnl, delta, reason)
   values (p_seq, null, p_pnl, p_delta, p_reason);
-end $$ ;
+end $$;
 
 -- =========================
 -- HUB APPLY ONE (event interpreter)
 -- =========================
-create or replace function hub.apply_one (p_seq bigint,
-p_type text,
-p_args jsonb)
+create or replace function hub.apply_one(
+    p_seq bigint,
+    p_type text,
+    p_args jsonb
+)
 returns void language plpgsql as $$
 declare
   v_lp evm_address;
@@ -789,12 +860,12 @@ begin
     -- Forward-compatibility: ignore unknown event types.
     null;
   end if;
-end $$ ;
+end $$;
 
 -- =========================
 -- HUB ROLLBACK (suffix-only)
 -- =========================
-create or replace function hub.rollback_from (rollback_seq bigint)
+create or replace function hub.rollback_from(rollback_seq bigint)
 returns void language plpgsql as $$
 begin
   -- ledgers: delete suffix
@@ -859,12 +930,12 @@ begin
                    limit 1)
        end
    where c.stream='hub';
-end $$ ;
+end $$;
 
 -- =========================
 -- HUB APPLY CATCHUP (contiguous canonical apply)
 -- =========================
-create or replace function hub.apply_catchup ()
+create or replace function hub.apply_catchup()
 returns void language plpgsql as $$
 declare
   cur_seq bigint;
@@ -880,6 +951,10 @@ begin
     from chain.stream_cursor
    where stream='hub'
    for update;
+
+  if not found then
+    raise exception 'stream cursor not initialized for hub (call chain.configure_instance(''hub'', ...))';
+  end if;
 
   loop
     next_seq := cur_seq + 1;
@@ -908,28 +983,28 @@ begin
          tip = cur_tip,
          updated_at = now()
    where stream='hub';
-end $$ ;
+end $$;
 
 -- =========================
 -- INGEST TRIGGERS (hub-only in this migration)
 -- (controller stream is added in 0004 by CREATE OR REPLACE)
 -- =========================
-create or replace function chain.on_event_appended_insert ()
+create or replace function chain.on_event_appended_insert()
 returns trigger language plpgsql as $$
 begin
   if exists (select 1 from new_rows where stream='hub' and canonical) then
     perform hub.apply_catchup();
   end if;
   return null;
-end $$ ;
+end $$;
 
-drop trigger if exists trg_event_appended_insert on chain.event_appended ;
+drop trigger if exists trg_event_appended_insert on chain.event_appended;
 create trigger trg_event_appended_insert
 after insert on chain.event_appended
 referencing new table as new_rows
-for each statement execute function chain.on_event_appended_insert () ;
+for each statement execute function chain.on_event_appended_insert();
 
-create or replace function chain.on_event_appended_canonical_update ()
+create or replace function chain.on_event_appended_canonical_update()
 returns trigger language plpgsql as $$
 declare
   rollback_seq bigint;
@@ -954,12 +1029,12 @@ begin
   end if;
 
   return null;
-end $$ ;
+end $$;
 
 drop trigger if exists trg_event_appended_canonical_update
-on chain.event_appended ;
+on chain.event_appended;
 create trigger trg_event_appended_canonical_update
 after update of canonical on chain.event_appended
 referencing old table as old_rows new table as new_rows
 for each statement
-execute function chain.on_event_appended_canonical_update () ;
+execute function chain.on_event_appended_canonical_update();

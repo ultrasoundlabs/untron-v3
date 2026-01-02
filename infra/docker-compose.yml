@@ -4,6 +4,7 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: untron
+      AUTHENTICATOR_PASSWORD: ${AUTHENTICATOR_PASSWORD:?set AUTHENTICATOR_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
@@ -16,7 +17,8 @@ services:
     ports:
       - "3001:3000"
     environment:
-      PGRST_DB_URI: postgres://authenticator:authenticator_pw@db:5432/untron
+      AUTHENTICATOR_PASSWORD: ${AUTHENTICATOR_PASSWORD:?set AUTHENTICATOR_PASSWORD}
+      PGRST_DB_URI: postgres://authenticator:${AUTHENTICATOR_PASSWORD}@db:5432/untron
       PGRST_DB_SCHEMAS: api
       PGRST_DB_ANON_ROLE: web_anon
 
