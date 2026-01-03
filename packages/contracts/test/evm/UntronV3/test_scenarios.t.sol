@@ -32,7 +32,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
         );
 
         (uint256 claimIndex, uint256 gotLeaseId, uint256 netOut) =
-            _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+            _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId, leaseId);
         assertEq(netOut, 99);
         assertEq(_untron.protocolPnl(), 1);
@@ -82,7 +82,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        (, uint256 gotLeaseId1,) = _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        (, uint256 gotLeaseId1,) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId1, lease1Id);
 
         _reader.setNextCallData(
@@ -94,7 +94,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        (, uint256 gotLeaseId2,) = _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
+        (, uint256 gotLeaseId2,) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId2, lease2Id);
 
         Call[] memory noCalls = new Call[](0);
@@ -122,7 +122,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         uint64 t2 = t1 + 10;
         bytes32 pulledSig = keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
@@ -150,6 +150,6 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             trc20Data
         );
         vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
-        _untron.preEntitle(salt, 3, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 }

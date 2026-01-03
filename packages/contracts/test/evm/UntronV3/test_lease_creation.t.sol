@@ -169,7 +169,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             data
         );
-        (, uint256 gotLeaseId1,) = _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        (, uint256 gotLeaseId1,) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId1, lease1Id);
 
         // Timestamp >= t2 selects lease2.
@@ -182,7 +182,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             data
         );
-        (, uint256 gotLeaseId2,) = _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
+        (, uint256 gotLeaseId2,) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId2, lease2Id);
 
         // Claims should retain lease ids and beneficiaries.

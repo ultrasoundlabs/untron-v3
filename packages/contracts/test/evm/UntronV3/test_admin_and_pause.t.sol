@@ -9,7 +9,7 @@ import {UntronV3Index} from "../../../src/evm/UntronV3Index.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
-import {MockERC20} from "./UntronV3TestUtils.sol";
+import {MockERC20} from "../../tron/mocks/MockERC20.sol";
 
 contract UntronV3AdminAndPauseTest is UntronV3TestBase {
     function testSetUsdtUpdatesAccountingTokenAndTip() public {
@@ -78,7 +78,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         );
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
         _untron.fill(address(_usdt), 0, noCalls);
@@ -90,7 +90,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         _untron.withdraw(1);
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        _untron.relayControllerEventChain(1, hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
         _untron.processControllerEvents(1);
@@ -190,7 +190,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             data
         );
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(_untron.protocolPnl(), 1);
 
         vm.expectRevert(UntronV3.ZeroAmount.selector);

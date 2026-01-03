@@ -40,7 +40,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
         );
 
         (uint256 claimIndex, uint256 gotLeaseId, uint256 netOut) =
-            _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+            _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         assertTrue(_untron.depositProcessed(txId));
         assertEq(gotLeaseId, leaseId);
@@ -78,7 +78,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             data
         );
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         _reader.setNextCallData(
             txId,
@@ -89,7 +89,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             data
         );
         vm.expectRevert(UntronV3.DepositAlreadyProcessed.selector);
-        _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
     function testPreEntitleRevertsIfNotTronUsdt() public {
@@ -115,7 +115,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
         );
 
         vm.expectRevert(UntronV3.NotTronUsdt.selector);
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
     function testPreEntitleRevertsIfReceiverDoesNotMatchSalt() public {
@@ -136,7 +136,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
         );
 
         vm.expectRevert(UntronV3.InvalidReceiverForSalt.selector);
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
     function testPreEntitleRevertsWhenNoActiveLeaseAtTronTimestamp() public {
@@ -158,7 +158,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
         );
 
         vm.expectRevert(UntronV3.NoActiveLease.selector);
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
     function testPreEntitleNetOutZeroDoesNotCreateClaimButBooksFee() public {
@@ -186,7 +186,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             data
         );
 
-        (uint256 claimIndex,, uint256 netOut) = _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        (uint256 claimIndex,, uint256 netOut) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(netOut, 0);
         assertEq(claimIndex, 0);
         assertEq(_untron.claimQueueLength(address(_usdt)), 0);
@@ -222,7 +222,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             data
         );
 
-        (uint256 claimIndex,, uint256 netOut) = _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        (uint256 claimIndex,, uint256 netOut) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(netOut, 0);
         assertEq(claimIndex, 0);
         assertEq(_untron.claimQueueLength(address(_usdt)), 0);

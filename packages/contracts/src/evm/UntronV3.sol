@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {UntronV3IndexedOwnable} from "./UntronV3IndexedOwnable.sol";
-import {TronTxReader} from "./TronTxReader.sol";
+import {ITronTxReader} from "./interfaces/ITronTxReader.sol";
 import {SwapExecutor, Call} from "./SwapExecutor.sol";
 import {IBridger} from "./bridgers/interfaces/IBridger.sol";
 import {ReceiverUtils} from "../utils/ReceiverUtils.sol";
@@ -243,7 +243,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// - verify tx inclusion via Merkle proofs,
     /// - enforce tx success,
     /// - and expose sender / to / calldata for `TriggerSmartContract` transactions.
-    TronTxReader public tronReader;
+    ITronTxReader public tronReader;
 
     /// @notice Address of USDT on destination (EVM) chain used for all accounting.
     /// @dev    It's not immutable in case there's some crazy situation and we have
@@ -388,7 +388,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     mapping(uint256 => mapping(uint256 => ClaimLocator)) public claimLocatorByLease;
 
     /// @notice Guard against double-processing of recognizable Tron deposits.
-    /// @dev Keyed by the Tron transaction ID as computed by `TronTxReader` (sha256 of `raw_data` bytes).
+    /// @dev Keyed by the Tron transaction ID as computed by `ITronTxReader` (sha256 of `raw_data` bytes).
     mapping(bytes32 => bool) public depositProcessed;
 
     /// @notice Lookup from `txId` to a subjective pre-entitlement record, if any.
@@ -690,10 +690,10 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
     /// @notice Set or update the external Tron tx reader contract address.
     /// @dev This contract is trusted to verify and decode Tron transactions correctly.
-    /// @param reader Address of the new `TronTxReader`.
+    /// @param reader Address of the new `ITronTxReader` implementation.
     function setTronReader(address reader) external onlyOwner {
         // Update reader.
-        tronReader = TronTxReader(reader);
+        tronReader = ITronTxReader(reader);
 
         // Emit via UntronV3Index (and append to event chain).
         _emitTronReaderSet(reader);
@@ -962,7 +962,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
 
     /// @notice Prove and pre-entitle a recognizable TRC-20 deposit on Tron to a lease.
     /// @dev This wires together:
-    /// - `TronTxReader` (verifies inclusion + decodes a `TriggerSmartContract` tx),
+    /// - `ITronTxReader` (verifies inclusion + decodes a `TriggerSmartContract` tx),
     /// - `TronCalldataUtils` (parses recognizable TRC-20 transfer calldata),
     /// - and the lease timeline (`_findActiveLeaseId`) to attribute the deposit to the correct lease.
     ///
@@ -987,7 +987,7 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// - Enqueues a claim for `netOut` (if `netOut > 0`) under the lease's current `payout.targetToken`.
     ///
     /// @param receiverSalt CREATE2 salt used to derive the receiver address on Tron.
-    /// @param tronBlockNumber Tron block number where the tx is included (for light client verification).
+    /// @param blocks 20 Protobuf-encoded Tron block headers (first contains the tx).
     /// @param encodedTx Raw protobuf-encoded Tron transaction bytes.
     /// @param proof Merkle proof for tx inclusion in the Tron block's tx trie.
     /// @param index Merkle leaf index for the tx within the block.
@@ -996,14 +996,14 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// @return netOut USDT-denominated net payout after fees (0 if fees exceed the amount).
     function preEntitle(
         bytes32 receiverSalt,
-        uint256 tronBlockNumber,
+        bytes[20] calldata blocks,
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
     ) external whenNotPaused returns (uint256 queueIndex, uint256 leaseId, uint256 netOut) {
         // Verify inclusion + success and decode into a generic TriggerSmartContract view.
-        TronTxReader.TriggerSmartContract memory callData =
-            tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
+        ITronTxReader.TriggerSmartContract memory callData =
+            tronReader.readTriggerSmartContract(blocks, encodedTx, proof, index);
         bytes32 txId = callData.txId;
 
         // Prevent double-processing of the same recognizable tx.
@@ -1154,22 +1154,22 @@ contract UntronV3 is ReceiverUtils, EIP712, ReentrancyGuard, Pausable, UntronV3I
     /// - Appends each event into `_controllerEvents` for later processing via `processControllerEvents`.
     /// - Updates `lastControllerEventTip`.
     ///
-    /// @param tronBlockNumber Tron block number where the `isEventChainTip` tx is included (for light client verification).
+    /// @param blocks 20 Protobuf-encoded Tron block headers (first contains the tx).
     /// @param encodedTx Raw protobuf-encoded Tron transaction bytes.
     /// @param proof Merkle proof for tx inclusion in the Tron block's tx trie.
     /// @param index Merkle leaf index for the tx within the block.
     /// @param events Controller events that should extend the local tip to `tipNew`.
     /// @return tipNew The new controller event-chain tip proven by the Tron transaction.
     function relayControllerEventChain(
-        uint256 tronBlockNumber,
+        bytes[20] calldata blocks,
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index,
         ControllerEvent[] calldata events
     ) external whenNotPaused returns (bytes32 tipNew) {
         // Verify inclusion + success and decode into a generic TriggerSmartContract view.
-        TronTxReader.TriggerSmartContract memory callData =
-            tronReader.readTriggerSmartContract(tronBlockNumber, encodedTx, proof, index);
+        ITronTxReader.TriggerSmartContract memory callData =
+            tronReader.readTriggerSmartContract(blocks, encodedTx, proof, index);
 
         // Validate that the call is targeting the expected UntronController contract on Tron.
         bytes21 controllerTron = TronCalldataUtils.evmToTronAddress(CONTROLLER_ADDRESS);

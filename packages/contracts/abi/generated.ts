@@ -963,6 +963,23 @@ export const ierc20Abi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// IERC20Burnable
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const ierc20BurnableAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'from', internalType: 'address', type: 'address' },
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'burn',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // IERC20Errors
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3579,6 +3596,43 @@ export const iTokenMessengerV2Abi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ITronTxReader
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const iTronTxReaderAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'blocks', internalType: 'bytes[20]', type: 'bytes[20]' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'readTriggerSmartContract',
+    outputs: [
+      {
+        name: 'callData',
+        internalType: 'struct ITronTxReader.TriggerSmartContract',
+        type: 'tuple',
+        components: [
+          { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'senderTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // LegacyMeshRebalancer
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4104,16 +4158,8 @@ export const mockOftAbi = [
   {
     type: 'constructor',
     inputs: [
-      {
-        name: 'tokenSrc_',
-        internalType: 'contract MockERC20',
-        type: 'address',
-      },
-      {
-        name: 'tokenDst_',
-        internalType: 'contract MockERC20',
-        type: 'address',
-      },
+      { name: 'tokenSrc_', internalType: 'address', type: 'address' },
+      { name: 'tokenDst_', internalType: 'address', type: 'address' },
     ],
     stateMutability: 'nonpayable',
   },
@@ -4121,19 +4167,22 @@ export const mockOftAbi = [
     type: 'function',
     inputs: [],
     name: 'TOKEN_DST',
-    outputs: [
-      { name: '', internalType: 'contract MockERC20', type: 'address' },
-    ],
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
     stateMutability: 'view',
   },
   {
     type: 'function',
     inputs: [],
     name: 'TOKEN_SRC',
-    outputs: [
-      { name: '', internalType: 'contract MockERC20', type: 'address' },
-    ],
+    outputs: [{ name: '', internalType: 'contract IERC20', type: 'address' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'approvalRequired',
+    outputs: [{ name: '', internalType: 'bool', type: 'bool' }],
+    stateMutability: 'pure',
   },
   {
     type: 'function',
@@ -4152,14 +4201,17 @@ export const mockOftAbi = [
   {
     type: 'function',
     inputs: [],
-    name: 'lastMinAmountLD',
-    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    name: 'lastFee',
+    outputs: [
+      { name: 'nativeFee', internalType: 'uint256', type: 'uint256' },
+      { name: 'lzTokenFee', internalType: 'uint256', type: 'uint256' },
+    ],
     stateMutability: 'view',
   },
   {
     type: 'function',
     inputs: [],
-    name: 'lastMsgValue',
+    name: 'lastMinAmountLD',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -4180,9 +4232,34 @@ export const mockOftAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'lastSendParam',
+    outputs: [
+      { name: 'dstEid', internalType: 'uint32', type: 'uint32' },
+      { name: 'to', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'amountLD', internalType: 'uint256', type: 'uint256' },
+      { name: 'minAmountLD', internalType: 'uint256', type: 'uint256' },
+      { name: 'extraOptions', internalType: 'bytes', type: 'bytes' },
+      { name: 'composeMsg', internalType: 'bytes', type: 'bytes' },
+      { name: 'oftCmd', internalType: 'bytes', type: 'bytes' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'lastTo',
     outputs: [{ name: '', internalType: 'bytes32', type: 'bytes32' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'oftVersion',
+    outputs: [
+      { name: 'interfaceId', internalType: 'bytes4', type: 'bytes4' },
+      { name: 'version', internalType: 'uint64', type: 'uint64' },
+    ],
+    stateMutability: 'pure',
   },
   {
     type: 'function',
@@ -4202,7 +4279,7 @@ export const mockOftAbi = [
     type: 'function',
     inputs: [
       {
-        name: '',
+        name: 'sp',
         internalType: 'struct SendParam',
         type: 'tuple',
         components: [
@@ -4215,7 +4292,61 @@ export const mockOftAbi = [
           { name: 'oftCmd', internalType: 'bytes', type: 'bytes' },
         ],
       },
-      { name: '', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'quoteOFT',
+    outputs: [
+      {
+        name: 'limit',
+        internalType: 'struct OFTLimit',
+        type: 'tuple',
+        components: [
+          { name: 'minAmountLD', internalType: 'uint256', type: 'uint256' },
+          { name: 'maxAmountLD', internalType: 'uint256', type: 'uint256' },
+        ],
+      },
+      {
+        name: 'oftFeeDetails',
+        internalType: 'struct OFTFeeDetail[]',
+        type: 'tuple[]',
+        components: [
+          { name: 'feeAmountLD', internalType: 'int256', type: 'int256' },
+          { name: 'description', internalType: 'string', type: 'string' },
+        ],
+      },
+      {
+        name: 'receipt',
+        internalType: 'struct OFTReceipt',
+        type: 'tuple',
+        components: [
+          { name: 'amountSentLD', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'amountReceivedLD',
+            internalType: 'uint256',
+            type: 'uint256',
+          },
+        ],
+      },
+    ],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'sp',
+        internalType: 'struct SendParam',
+        type: 'tuple',
+        components: [
+          { name: 'dstEid', internalType: 'uint32', type: 'uint32' },
+          { name: 'to', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'amountLD', internalType: 'uint256', type: 'uint256' },
+          { name: 'minAmountLD', internalType: 'uint256', type: 'uint256' },
+          { name: 'extraOptions', internalType: 'bytes', type: 'bytes' },
+          { name: 'composeMsg', internalType: 'bytes', type: 'bytes' },
+          { name: 'oftCmd', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+      { name: 'payInLzToken', internalType: 'bool', type: 'bool' },
     ],
     name: 'quoteSend',
     outputs: [
@@ -4306,13 +4437,85 @@ export const mockOftAbi = [
     stateMutability: 'nonpayable',
   },
   {
+    type: 'function',
+    inputs: [],
+    name: 'sharedDecimals',
+    outputs: [{ name: '', internalType: 'uint8', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'token',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'guid', internalType: 'bytes32', type: 'bytes32', indexed: true },
+      {
+        name: 'srcEid',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+      {
+        name: 'toAddress',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amountReceivedLD',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'OFTReceived',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'guid', internalType: 'bytes32', type: 'bytes32', indexed: true },
+      {
+        name: 'dstEid',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+      {
+        name: 'fromAddress',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amountSentLD',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'amountReceivedLD',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'OFTSent',
+  },
+  {
     type: 'event',
     anonymous: false,
     inputs: [
       { name: 'from', internalType: 'address', type: 'address', indexed: true },
-      { name: 'to', internalType: 'address', type: 'address', indexed: true },
+      { name: 'to', internalType: 'bytes32', type: 'bytes32', indexed: true },
       {
-        name: 'amount',
+        name: 'amountLD',
         internalType: 'uint256',
         type: 'uint256',
         indexed: false,
@@ -4325,6 +4528,24 @@ export const mockOftAbi = [
       },
     ],
     name: 'Sent',
+  },
+  {
+    type: 'error',
+    inputs: [{ name: 'amountSD', internalType: 'uint256', type: 'uint256' }],
+    name: 'AmountSDOverflowed',
+  },
+  { type: 'error', inputs: [], name: 'InvalidLocalDecimals' },
+  { type: 'error', inputs: [], name: 'MockOFT_InsufficientNativeFee' },
+  { type: 'error', inputs: [], name: 'MockOFT_MintFailed' },
+  { type: 'error', inputs: [], name: 'MockOFT_RefundFailed' },
+  { type: 'error', inputs: [], name: 'MockOFT_TransferFromFailed' },
+  {
+    type: 'error',
+    inputs: [
+      { name: 'amountLD', internalType: 'uint256', type: 'uint256' },
+      { name: 'minAmountLD', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'SlippageExceeded',
   },
 ] as const
 
@@ -4352,6 +4573,80 @@ export const mockRebalancerAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MockStatefulTronTxReader
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mockStatefulTronTxReaderAbi = [
+  {
+    type: 'function',
+    inputs: [],
+    name: 'clearNext',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'blocks', internalType: 'bytes[20]', type: 'bytes[20]' },
+      { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
+      { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
+      { name: 'index', internalType: 'uint256', type: 'uint256' },
+    ],
+    name: 'readTriggerSmartContract',
+    outputs: [
+      {
+        name: 'callData',
+        internalType: 'struct ITronTxReader.TriggerSmartContract',
+        type: 'tuple',
+        components: [
+          { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'senderTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'next_',
+        internalType: 'struct ITronTxReader.TriggerSmartContract',
+        type: 'tuple',
+        components: [
+          { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
+          { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+          {
+            name: 'tronBlockTimestamp',
+            internalType: 'uint32',
+            type: 'uint32',
+          },
+          { name: 'senderTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'toTron', internalType: 'bytes21', type: 'bytes21' },
+          { name: 'data', internalType: 'bytes', type: 'bytes' },
+        ],
+      },
+    ],
+    name: 'setNext',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'error',
+    inputs: [],
+    name: 'MockStatefulTronTxReader_TimestampTooLarge',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MockSwapRouter
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4372,6 +4667,70 @@ export const mockSwapRouterAbi = [
     name: 'noop',
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MockTokenMessengerV2
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mockTokenMessengerV2Abi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'amount', internalType: 'uint256', type: 'uint256' },
+      { name: 'destinationDomain', internalType: 'uint32', type: 'uint32' },
+      { name: 'mintRecipient', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'burnToken', internalType: 'address', type: 'address' },
+      { name: 'destinationCaller', internalType: 'bytes32', type: 'bytes32' },
+      { name: 'maxFee', internalType: 'uint256', type: 'uint256' },
+      { name: 'minFinalityThreshold', internalType: 'uint32', type: 'uint32' },
+    ],
+    name: 'depositForBurn',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'caller',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'burnToken',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'destinationDomain',
+        internalType: 'uint32',
+        type: 'uint32',
+        indexed: false,
+      },
+      {
+        name: 'mintRecipient',
+        internalType: 'bytes32',
+        type: 'bytes32',
+        indexed: false,
+      },
+    ],
+    name: 'DepositForBurn',
+  },
+  {
+    type: 'error',
+    inputs: [],
+    name: 'MockTokenMessengerV2_TransferFromFailed',
   },
 ] as const
 
@@ -4424,7 +4783,7 @@ export const mockTronTxReaderAbi = [
   {
     type: 'function',
     inputs: [
-      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'bytes[20]', type: 'bytes[20]' },
       { name: '', internalType: 'bytes', type: 'bytes' },
       { name: '', internalType: 'bytes32[]', type: 'bytes32[]' },
       { name: '', internalType: 'uint256', type: 'uint256' },
@@ -4433,7 +4792,7 @@ export const mockTronTxReaderAbi = [
     outputs: [
       {
         name: 'callData',
-        internalType: 'struct TronTxReader.TriggerSmartContract',
+        internalType: 'struct ITronTxReader.TriggerSmartContract',
         type: 'tuple',
         components: [
           { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
@@ -5489,7 +5848,7 @@ export const statefulTronTxReaderAbi = [
     outputs: [
       {
         name: 'callData',
-        internalType: 'struct StatefulTronTxReader.TriggerSmartContract',
+        internalType: 'struct ITronTxReader.TriggerSmartContract',
         type: 'tuple',
         components: [
           { name: 'txId', internalType: 'bytes32', type: 'bytes32' },
@@ -9312,7 +9671,7 @@ export const untronV3Abi = [
     type: 'function',
     inputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
-      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'blocks', internalType: 'bytes[20]', type: 'bytes[20]' },
       { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
       { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
       { name: 'index', internalType: 'uint256', type: 'uint256' },
@@ -9418,7 +9777,7 @@ export const untronV3Abi = [
   {
     type: 'function',
     inputs: [
-      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'blocks', internalType: 'bytes[20]', type: 'bytes[20]' },
       { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
       { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
       { name: 'index', internalType: 'uint256', type: 'uint256' },
@@ -9681,7 +10040,7 @@ export const untronV3Abi = [
     inputs: [],
     name: 'tronReader',
     outputs: [
-      { name: '', internalType: 'contract TronTxReader', type: 'address' },
+      { name: '', internalType: 'contract ITronTxReader', type: 'address' },
     ],
     stateMutability: 'view',
   },
@@ -10962,7 +11321,7 @@ export const untronV3HarnessAbi = [
     type: 'function',
     inputs: [
       { name: 'receiverSalt', internalType: 'bytes32', type: 'bytes32' },
-      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'blocks', internalType: 'bytes[20]', type: 'bytes[20]' },
       { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
       { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
       { name: 'index', internalType: 'uint256', type: 'uint256' },
@@ -11080,7 +11439,7 @@ export const untronV3HarnessAbi = [
   {
     type: 'function',
     inputs: [
-      { name: 'tronBlockNumber', internalType: 'uint256', type: 'uint256' },
+      { name: 'blocks', internalType: 'bytes[20]', type: 'bytes[20]' },
       { name: 'encodedTx', internalType: 'bytes', type: 'bytes' },
       { name: 'proof', internalType: 'bytes32[]', type: 'bytes32[]' },
       { name: 'index', internalType: 'uint256', type: 'uint256' },
@@ -11343,7 +11702,7 @@ export const untronV3HarnessAbi = [
     inputs: [],
     name: 'tronReader',
     outputs: [
-      { name: '', internalType: 'contract TronTxReader', type: 'address' },
+      { name: '', internalType: 'contract ITronTxReader', type: 'address' },
     ],
     stateMutability: 'view',
   },

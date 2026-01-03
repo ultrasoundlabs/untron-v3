@@ -4,7 +4,8 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
-import {MockERC20, MockSwapRouter, MockTronTxReader, UntronV3Harness} from "./UntronV3TestUtils.sol";
+import {MockERC20} from "../../tron/mocks/MockERC20.sol";
+import {MockSwapRouter, MockTronTxReader, UntronV3Harness} from "./UntronV3TestUtils.sol";
 
 abstract contract UntronV3TestBase is Test {
     MockTronTxReader internal _reader;
@@ -29,6 +30,8 @@ abstract contract UntronV3TestBase is Test {
         _untron.setUsdt(address(_usdt));
         _untron.setRealtor(address(this), true);
     }
+
+    function _emptyBlocks() internal pure returns (bytes[20] memory blocks) {}
 
     function _createLease(
         bytes32 receiverSalt,

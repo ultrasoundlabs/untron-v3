@@ -23,6 +23,8 @@ contract UntronV3ProtocolPnlTest is Test {
         _untron.setRealtor(address(this), true);
     }
 
+    function _emptyBlocks() internal pure returns (bytes[20] memory blocks) {}
+
     function testPreEntitleBooksFee() public {
         bytes32 salt = keccak256("salt1");
         uint32 leaseFeePpm = 10_000;
@@ -47,7 +49,7 @@ contract UntronV3ProtocolPnlTest is Test {
         );
 
         (uint256 claimIndex, uint256 gotLeaseId, uint256 netOut) =
-            _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+            _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         assertEq(gotLeaseId, leaseId);
         assertEq(netOut, 99);
@@ -83,7 +85,7 @@ contract UntronV3ProtocolPnlTest is Test {
             trc20Data
         );
 
-        (,, uint256 netOut) = _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
+        (,, uint256 netOut) = _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         assertEq(netOut, 0);
         assertEq(_untron.protocolPnl(), 100);
@@ -118,7 +120,7 @@ contract UntronV3ProtocolPnlTest is Test {
             TronCalldataUtils.evmToTronAddress(address(0)),
             trc20Data
         );
-        _untron.preEntitle(salt, 3, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         // Now record a pull for the deposit token (`tronUsdt`, which is `address(0)` in this test harness).
         _untron.exposedProcessReceiverPulled(salt, address(0), 1, pullTs + 1);
@@ -134,7 +136,7 @@ contract UntronV3ProtocolPnlTest is Test {
         );
 
         vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
-        _untron.preEntitle(salt, 4, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         _reader.setNextCallData(
             keccak256("tx_pull_guard_ok"),
@@ -146,7 +148,7 @@ contract UntronV3ProtocolPnlTest is Test {
             trc20Data
         );
 
-        _untron.preEntitle(salt, 5, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
     function testUsdtRebalancedBooksDrift() public {

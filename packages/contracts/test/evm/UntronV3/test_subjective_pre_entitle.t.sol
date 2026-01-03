@@ -57,7 +57,7 @@ contract UntronV3SubjectivePreEntitleTest is UntronV3TestBase {
         }
 
         (uint256 claimIndex2, uint256 gotLeaseId, uint256 netOut2) =
-            _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+            _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId, leaseId);
         assertEq(netOut2, rawAmount);
         assertEq(claimIndex2, 0);
@@ -103,7 +103,7 @@ contract UntronV3SubjectivePreEntitleTest is UntronV3TestBase {
         }
 
         (uint256 claimIndex, uint256 gotLeaseId, uint256 netOut) =
-            _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+            _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(gotLeaseId, leaseId);
         assertEq(netOut, provenRaw);
         assertEq(claimIndex, 1);

@@ -21,7 +21,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         );
 
         vm.expectRevert(UntronV3.NotEventChainTip.selector);
-        _untron.relayControllerEventChain(1, hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
     }
 
     function testRelayControllerEventChainDecodesSelectors() public {
@@ -43,7 +43,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             isTip
         );
         vm.expectRevert(UntronV3.EventRelayNoProgress.selector);
-        _untron.relayControllerEventChain(1, hex"", new bytes32[](0), 0, events);
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
 
         // Multicall wrapper selector (also EventRelayNoProgress because tip==tipOld).
         bytes[] memory calls = new bytes[](1);
@@ -58,7 +58,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             multicall
         );
         vm.expectRevert(UntronV3.EventRelayNoProgress.selector);
-        _untron.relayControllerEventChain(2, hex"", new bytes32[](0), 0, events);
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
 
         // Unknown selector.
         bytes memory wrongSel = abi.encodeWithSelector(bytes4(keccak256("notATip(bytes32)")), tipNew);
@@ -71,7 +71,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             wrongSel
         );
         vm.expectRevert(UntronV3.NotEventChainTip.selector);
-        _untron.relayControllerEventChain(3, hex"", new bytes32[](0), 0, events);
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
 
         // Too-short calldata (<4 bytes).
         _reader.setNextCallData(
@@ -83,7 +83,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             hex"01"
         );
         vm.expectRevert(UntronV3.TronInvalidCalldataLength.selector);
-        _untron.relayControllerEventChain(4, hex"", new bytes32[](0), 0, events);
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
     }
 
     function testRelayControllerEventChainProgressAndHashLinking() public {
@@ -103,7 +103,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             callData
         );
         vm.expectRevert(UntronV3.EventTipMismatch.selector);
-        _untron.relayControllerEventChain(1, hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
+        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
 
         // Correct events hash-link to tipNew.
         UntronV3.ControllerEvent[] memory events = new UntronV3.ControllerEvent[](2);
@@ -155,7 +155,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             callData2
         );
 
-        bytes32 gotTip = _untron.relayControllerEventChain(2, hex"", new bytes32[](0), 0, events);
+        bytes32 gotTip = _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
         assertEq(gotTip, tip);
         assertEq(_untron.lastControllerEventTip(), tip);
         assertEq(_untron.lastControllerEventSeq(), seqOld + 2);
@@ -206,7 +206,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         // Pre-entitle once for lease2.
         _reader.setNextCallData(
@@ -218,7 +218,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        _untron.preEntitle(salt, 2, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         // Pull backs 150 USDT at t2: covers lease1 fully (100) then lease2 (50).
         bytes32 pulledSig = keccak256("PulledFromReceiver(bytes32,address,uint256,uint256,uint256)");
@@ -298,7 +298,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        _untron.preEntitle(salt, 1, hex"", new bytes32[](0), 0);
+        _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         // Non-USDT pull: should NOT back pre-entitled unbacked volume; entire amount is treated as profit volume.
         address tokenX = address(0x1234);

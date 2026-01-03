@@ -2,18 +2,17 @@
 pragma solidity ^0.8.27;
 
 import {UntronV3} from "../../../src/evm/UntronV3.sol";
-import {TronTxReader} from "../../../src/evm/TronTxReader.sol";
+import {ITronTxReader} from "../../../src/evm/interfaces/ITronTxReader.sol";
 import {IBridger} from "../../../src/evm/bridgers/interfaces/IBridger.sol";
 import {Call} from "../../../src/evm/SwapExecutor.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
-import {MockERC20} from "../../tron/mocks/MockERC20.sol";
 
 interface IMintableERC20 {
     function mint(address to, uint256 amount) external;
 }
 
 contract MockTronTxReader {
-    TronTxReader.TriggerSmartContract internal _nextCallData;
+    ITronTxReader.TriggerSmartContract internal _nextCallData;
 
     function setNextCallData(
         bytes32 txId,
@@ -24,7 +23,7 @@ contract MockTronTxReader {
         bytes calldata data
     ) external {
         bytes memory data_ = data;
-        _nextCallData = TronTxReader.TriggerSmartContract({
+        _nextCallData = ITronTxReader.TriggerSmartContract({
             txId: txId,
             tronBlockNumber: tronBlockNumber,
             tronBlockTimestamp: tronBlockTimestamp,
@@ -34,13 +33,13 @@ contract MockTronTxReader {
         });
     }
 
-    function readTriggerSmartContract(uint256, bytes calldata, bytes32[] calldata, uint256)
+    function readTriggerSmartContract(bytes[20] calldata, bytes calldata, bytes32[] calldata, uint256)
         external
         view
-        returns (TronTxReader.TriggerSmartContract memory callData)
+        returns (ITronTxReader.TriggerSmartContract memory callData)
     {
-        TronTxReader.TriggerSmartContract storage s = _nextCallData;
-        return TronTxReader.TriggerSmartContract({
+        ITronTxReader.TriggerSmartContract storage s = _nextCallData;
+        return ITronTxReader.TriggerSmartContract({
             txId: s.txId,
             tronBlockNumber: s.tronBlockNumber,
             tronBlockTimestamp: s.tronBlockTimestamp,

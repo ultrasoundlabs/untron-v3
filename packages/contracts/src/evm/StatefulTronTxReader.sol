@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {TronSha256MerkleVerifier} from "../utils/TronSha256MerkleVerifier.sol";
 import {ProtoVarint, ProtoTruncated, ProtoInvalidWireType} from "../utils/ProtoVarint.sol";
+import {ITronTxReader} from "./interfaces/ITronTxReader.sol";
 
 /// @title StatefulTronTxReader
 /// @notice Stateful Tron transaction reader that verifies consensus, inclusion and exposes
@@ -30,19 +31,7 @@ import {ProtoVarint, ProtoTruncated, ProtoInvalidWireType} from "../utils/ProtoV
 ///   requires that contract to be of type `TriggerSmartContract` (type id 31).
 /// - Tron addresses are returned as `bytes21` in the canonical "0x41 || 20-byte-address" form.
 /// @author Ultrasound Labs
-contract StatefulTronTxReader {
-    // Types
-    /// @notice Parsed subset of a Tron `TriggerSmartContract` transaction.
-    /// @dev `txId` is the Tron transaction identifier shown by explorers and equals `sha256(raw_data)`.
-    struct TriggerSmartContract {
-        bytes32 txId; // not tx leaf!!! this is the actual tx ID you can put in e.g. Tronscan
-        uint256 tronBlockNumber;
-        uint32 tronBlockTimestamp;
-        bytes21 senderTron;
-        bytes21 toTron;
-        bytes data;
-    }
-
+contract StatefulTronTxReader is ITronTxReader {
     // Protobuf wire types
     uint8 internal constant _WIRE_VARINT = 0;
     uint8 internal constant _WIRE_FIXED64 = 1;
@@ -117,7 +106,7 @@ contract StatefulTronTxReader {
         bytes calldata encodedTx,
         bytes32[] calldata proof,
         uint256 index
-    ) external view returns (TriggerSmartContract memory callData) {
+    ) external view returns (ITronTxReader.TriggerSmartContract memory callData) {
         (uint256 blockNumber, uint32 blockTimestamp, bytes32 txTrieRoot) = _verifyFirstBlockFinality(blocks);
         if (!TronSha256MerkleVerifier.verify(txTrieRoot, sha256(encodedTx), proof, index)) {
             revert InvalidTxMerkleProof();
@@ -320,7 +309,7 @@ contract StatefulTronTxReader {
     function _parseTriggerSmartContract(bytes calldata encodedTx)
         internal
         pure
-        returns (TriggerSmartContract memory _partial)
+        returns (ITronTxReader.TriggerSmartContract memory _partial)
     {
         bytes32 txId;
         uint256 rawDataEnd;

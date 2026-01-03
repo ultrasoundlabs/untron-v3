@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {StatefulTronTxReader} from "../../../src/evm/StatefulTronTxReader.sol";
+import {ITronTxReader} from "../../../src/evm/interfaces/ITronTxReader.sol";
 
 contract StatefulTronTxReaderHarness is StatefulTronTxReader {
     constructor(bytes20[27] memory _srs, bytes20[27] memory _witnessDelegatees)
@@ -183,7 +184,7 @@ contract StatefulTronTxReaderLayer1Test is Test {
         bytes32[] memory proof = new bytes32[](0);
         uint256 index = 0;
 
-        StatefulTronTxReader.TriggerSmartContract memory callData =
+        ITronTxReader.TriggerSmartContract memory callData =
             reader.readTriggerSmartContract(blocks, txJson.encodedTx, proof, index);
 
         assertEq(callData.txId, txJson.txId, "txId mismatch");

@@ -12,7 +12,7 @@ import {IOFT} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {TronUsdtLikeERC20} from "./mocks/TronUsdtLikeERC20.sol";
 import {MockLegacyMeshOFTAdapter} from "./mocks/MockLegacyMeshOFTAdapter.sol";
-import {MockOFT} from "./mocks/MockOFT.sol";
+import {MockOFT} from "../../src/evm/mocks/MockOFT.sol";
 
 contract UntronControllerLegacyMeshForwarderE2ETest is Test {
     bytes32 private constant _SIG_USDT_REBALANCED = keccak256("UsdtRebalanced(uint256,uint256,address)");
@@ -42,7 +42,7 @@ contract UntronControllerLegacyMeshForwarderE2ETest is Test {
         _usdt0Arb = new MockERC20("USDT0", "USDT0", 6);
         _usdt0Poly = new MockERC20("USDT0", "USDT0", 6);
 
-        _arbOft = new MockOFT(_usdt0Arb, _usdt0Poly);
+        _arbOft = new MockOFT(address(_usdt0Arb), address(_usdt0Poly));
         _arbOft.setQuoteSendFee(0.2 ether, 0);
 
         _forwarder = new USDT0Forwarder(
