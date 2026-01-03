@@ -29,38 +29,38 @@ create extension if not exists pgcrypto with schema extensions;
 
 -- EVM addresses must be stored in a checksummed form.
 -- All other byte types must be stored in all lowercase hex.
-create domain evm_address as text
+create domain public.evm_address as text
 check (value ~ '^0x[0-9a-fA-F]{40}$');
 
 -- Tron mainnet base58check addresses (0x41 || addr20).
 -- Note: regex validation only (checksum not verified here).
-create domain tron_address as text
+create domain public.tron_address as text
 check (value ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$');
 
 -- Multi-chain "address string" for tables that can contain either chain.
-create domain chain_address as text
+create domain public.chain_address as text
 check (
     value ~ '^0x[0-9a-fA-F]{40}$'
     or value ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'
 );
 
-create domain bytes32_hex as text
+create domain public.bytes32_hex as text
 check (value ~ '^0x[0-9a-f]{64}$');
 
-create domain txhash_hex as text
+create domain public.txhash_hex as text
 check (value ~ '^0x[0-9a-f]{64}$');
 
 -- Variable-length bytes as 0x-prefixed even-length hex.
 -- (Used for ABI blobs / payloads.)
-create domain bytes_hex as text
+create domain public.bytes_hex as text
 check (value ~ '^0x([0-9a-f]{2})*$');
 
 -- uint256 fits within 78 decimal digits (2^256 ~ 1.15e77)
-create domain u256 as numeric(78, 0)
-check (value > = 0);
+create domain public.u256 as numeric(78, 0)
+check (value >= 0);
 
 -- int256 fits in numeric(78,0) comfortably
-create domain i256 as numeric(78, 0);
+create domain public.i256 as numeric(78, 0);
 
 -- =========================
 -- TRON ADDRESS HELPERS
@@ -75,7 +75,7 @@ We keep this in the DB mainly for deterministic projection + API output.
 If performance becomes an issue, do the conversion in the worker instead.
 */
 create or replace function chain.tron_b58check_encode(addr20 bytea)
-returns tron_address
+returns public.tron_address
 language plpgsql
 set search_path = ''
 immutable strict
@@ -120,11 +120,11 @@ begin
         i   := i + 1;
     end loop;
 
-    return enc::tron_address;
+    return enc::public.tron_address;
 end;
 $$;
 
-create or replace function chain.evm_address_to_bytes20(p_addr evm_address)
+create or replace function chain.evm_address_to_bytes20(p_addr public.evm_address)
 returns bytea
 language sql
 immutable strict
@@ -133,8 +133,8 @@ as $$
   select decode(substr(p_addr, 3), 'hex')
 $$;
 
-create or replace function chain.tron_address_from_evm(p_addr evm_address)
-returns tron_address
+create or replace function chain.tron_address_from_evm(p_addr public.evm_address)
+returns public.tron_address
 language sql
 immutable strict
 set search_path = ''
@@ -143,16 +143,16 @@ as $$
 $$;
 
 create or replace function chain.tron_address_from_text(p_addr text)
-returns tron_address
+returns public.tron_address
 language plpgsql
 immutable strict
 set search_path = ''
 as $$
 begin
   if p_addr ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$' then
-    return p_addr::tron_address;
+    return p_addr::public.tron_address;
   elsif p_addr ~ '^0x[0-9a-fA-F]{40}$' then
-    return chain.tron_address_from_evm(p_addr::evm_address);
+    return chain.tron_address_from_evm(p_addr::public.evm_address);
   end if;
 
   raise exception 'Invalid Tron address text: %', p_addr;

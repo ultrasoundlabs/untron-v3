@@ -23,6 +23,9 @@ Common:
 
 - `DATABASE_URL` (required)
 - `RUST_LOG` (optional, defaults to `info`)
+- `INDEXER_PROGRESS_INTERVAL_SECS` (default `5`; INFO progress summary per stream)
+- `OTEL_TRACES_SAMPLE_RATIO` (default `0.01`; set `1` for full tracing)
+- `OTEL_DISABLED` (optional; set `1` to disable OTLP exports)
 
 Hub stream (EVM):
 
@@ -30,10 +33,10 @@ Hub stream (EVM):
 - `HUB_CHAIN_ID` (required)
 - `HUB_CONTRACT_ADDRESS` (required; `0x…`)
 - `HUB_DEPLOYMENT_BLOCK` (required)
-- `HUB_CONFIRMATIONS` (default `12`)
-- `HUB_POLL_INTERVAL_SECS` (default `5`)
-- `HUB_CHUNK_BLOCKS` (default `5000`)
-- `HUB_REORG_SCAN_DEPTH` (default `512`)
+- `HUB_CONFIRMATIONS` (default `0`)
+- `HUB_POLL_INTERVAL_SECS` (default `1`)
+- `HUB_CHUNK_BLOCKS` (default `2000`)
+- `HUB_REORG_SCAN_DEPTH` (default `128`)
 
 Controller stream (Tron JSON-RPC):
 
@@ -41,10 +44,10 @@ Controller stream (Tron JSON-RPC):
 - `CONTROLLER_CHAIN_ID` (required)
 - `CONTROLLER_CONTRACT_ADDRESS` (required; `T…` base58 or `0x…`)
 - `CONTROLLER_DEPLOYMENT_BLOCK` (required)
-- `CONTROLLER_CONFIRMATIONS` (default `20`)
-- `CONTROLLER_POLL_INTERVAL_SECS` (default `5`)
-- `CONTROLLER_CHUNK_BLOCKS` (default `1000`)
-- `CONTROLLER_REORG_SCAN_DEPTH` (default `1024`)
+- `CONTROLLER_CONFIRMATIONS` (default `0`)
+- `CONTROLLER_POLL_INTERVAL_SECS` (default `1`)
+- `CONTROLLER_CHUNK_BLOCKS` (default `2000`)
+- `CONTROLLER_REORG_SCAN_DEPTH` (default `256`)
 
 RPC retry/backoff (applies to all streams):
 
@@ -65,3 +68,8 @@ DB pool:
 
 - `cargo run -p indexer -- --stream hub|controller|all`
 
+## Useful logging presets
+
+- Minimal (default): `RUST_LOG=info`
+- See per-range/tick internals: `RUST_LOG=indexer=debug`
+- Include SQLx query logs (very noisy): `RUST_LOG=indexer=debug,sqlx=trace`

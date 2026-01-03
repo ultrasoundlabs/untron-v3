@@ -412,6 +412,6 @@ for each statement execute function chain.on_event_appended_insert();
 drop trigger if exists trg_event_appended_canonical_update
 on chain.event_appended;
 create trigger trg_event_appended_canonical_update
-after update of canonical on chain.event_appended
+after update on chain.event_appended
 referencing old table as old_rows new table as new_rows
 for each statement execute function chain.on_event_appended_canonical_update();

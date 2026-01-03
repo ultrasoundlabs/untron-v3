@@ -3,25 +3,41 @@ use crate::{
     db::{self, ResolvedStream},
     reorg,
     rpc::RpcProviders,
+    telemetry::StreamTelemetry,
 };
 use alloy::providers::Provider;
 use anyhow::{Context, Result};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use super::{errors, helpers, policy, range, state::PollState, timestamps};
+use super::{
+    errors, helpers, policy, progress::ProgressReporter, range, state::PollState, timestamps,
+};
 
-pub async fn run_stream(
-    dbh: db::Db,
-    cfg: StreamConfig,
-    resolved: ResolvedStream,
-    providers: RpcProviders,
-    shutdown: CancellationToken,
-    block_header_concurrency: usize,
-    block_timestamp_cache_size: usize,
-) -> Result<()> {
+pub struct RunStreamParams {
+    pub dbh: db::Db,
+    pub cfg: StreamConfig,
+    pub resolved: ResolvedStream,
+    pub providers: RpcProviders,
+    pub shutdown: CancellationToken,
+    pub block_header_concurrency: usize,
+    pub block_timestamp_cache_size: usize,
+    pub progress_interval: Duration,
+}
+
+pub async fn run_stream(params: RunStreamParams) -> Result<()> {
+    let RunStreamParams {
+        dbh,
+        cfg,
+        resolved,
+        providers,
+        shutdown,
+        block_header_concurrency,
+        block_timestamp_cache_size,
+        progress_interval,
+    } = params;
     let (stream, chain_id, contract_address_db) = resolved.into_parts();
     let contract_address_rpc =
         helpers::resolve_rpc_contract_address(stream, contract_address_db.as_str())?;
@@ -33,8 +49,15 @@ pub async fn run_stream(
         contract_db = %contract_address_db,
         contract_rpc = %contract_address_rpc,
         from_block,
+        confirmations = cfg.confirmations,
+        poll_interval_secs = cfg.poll_interval.as_secs(),
+        chunk_blocks = cfg.chunk_blocks,
+        reorg_scan_depth = cfg.reorg_scan_depth,
         "stream starting"
     );
+
+    let mut progress = ProgressReporter::new(stream, progress_interval);
+    let telemetry = StreamTelemetry::new(stream, chain_id);
 
     let mut state = PollState {
         stream,
@@ -51,6 +74,7 @@ pub async fn run_stream(
             block_timestamp_cache_size,
             block_header_concurrency,
         ),
+        telemetry,
     };
 
     let mut ticker = time::interval(cfg.poll_interval.max(Duration::from_secs(1)));
@@ -72,11 +96,25 @@ pub async fn run_stream(
         }
 
         let Some(head) = helpers::await_or_cancel(&shutdown, async {
-            state
-                .provider
-                .get_block_number()
-                .await
-                .context("eth_blockNumber")
+            let start = Instant::now();
+            let res = state.provider.get_block_number().await;
+            match res {
+                Ok(v) => {
+                    state.telemetry.observe_rpc_latency_ms(
+                        "eth_blockNumber",
+                        start.elapsed().as_millis() as u64,
+                    );
+                    Ok(v)
+                }
+                Err(e) => {
+                    state.telemetry.observe_rpc_latency_ms(
+                        "eth_blockNumber",
+                        start.elapsed().as_millis() as u64,
+                    );
+                    state.telemetry.rpc_error("eth_blockNumber");
+                    Err(anyhow::Error::new(e).context("eth_blockNumber"))
+                }
+            }
         })
         .await?
         else {
@@ -85,10 +123,15 @@ pub async fn run_stream(
         let head: u64 = head;
 
         let safe_head = head.saturating_sub(state.confirmations);
+        state
+            .telemetry
+            .set_chain_position(head, safe_head, from_block, state.chunk_current);
         debug!(
             stream = state.stream.as_str(),
             head, safe_head, from_block, "tick"
         );
+
+        progress.maybe_report(head, safe_head, from_block, state.chunk_current);
 
         if let Some(reorg_start) = helpers::await_or_cancel(&shutdown, async {
             reorg::detect_reorg_start(
@@ -107,6 +150,10 @@ pub async fn run_stream(
                 stream = state.stream.as_str(),
                 reorg_start, "reorg detected; invalidating"
             );
+
+            let invalidated_blocks = from_block.saturating_sub(reorg_start);
+            progress.on_reorg(invalidated_blocks);
+            state.telemetry.reorg_detected();
 
             if helpers::await_or_cancel(
                 &shutdown,
@@ -129,18 +176,29 @@ pub async fn run_stream(
             let to_block = safe_head.min(from_block.saturating_add(state.chunk_current - 1));
 
             match range::process_range(&dbh, &shutdown, &mut state, from_block, to_block).await {
-                Ok(()) => {
-                    from_block = to_block.saturating_add(1);
+                Ok(Some(metrics)) => {
+                    progress.observe_range(&metrics);
+                    state.telemetry.observe_range(
+                        metrics.from_block,
+                        metrics.to_block,
+                        metrics.event_logs as u64,
+                        metrics.proof_logs as u64,
+                        metrics.total_ms,
+                    );
+                    from_block = metrics.to_block.saturating_add(1);
                     transient_attempts = 0;
                     transient_backoff = TRANSIENT_BACKOFF_INITIAL;
                     state.chunk_current =
                         policy::grow_chunk(state.chunk_current, state.chunk_target);
+                    progress.maybe_report(head, safe_head, from_block, state.chunk_current);
                 }
+                Ok(None) => return Ok(()),
                 Err(e) => {
                     if errors::looks_like_transient(&e)
                         && transient_attempts < policy::MAX_TRANSIENT_RETRIES
                     {
                         transient_attempts += 1;
+                        progress.on_transient_retry();
                         warn!(
                             stream = state.stream.as_str(),
                             from_block,
@@ -162,6 +220,7 @@ pub async fn run_stream(
                         transient_attempts = 0;
                         transient_backoff = TRANSIENT_BACKOFF_INITIAL;
                         state.chunk_current = policy::shrink_chunk(state.chunk_current);
+                        progress.on_chunk_shrink();
                         warn!(
                             stream = state.stream.as_str(),
                             from_block,
@@ -177,6 +236,7 @@ pub async fn run_stream(
                         transient_attempts = 0;
                         transient_backoff = TRANSIENT_BACKOFF_INITIAL;
                         state.chunk_current = policy::shrink_chunk(state.chunk_current);
+                        progress.on_chunk_shrink();
                         warn!(
                             stream = state.stream.as_str(),
                             from_block,
@@ -192,6 +252,7 @@ pub async fn run_stream(
                     if !state.pinned_providers.is_empty() {
                         transient_attempts = 0;
                         transient_backoff = TRANSIENT_BACKOFF_INITIAL;
+                        progress.on_pinned_repair_attempt();
                         warn!(
                             stream = state.stream.as_str(),
                             block = from_block,
@@ -210,7 +271,16 @@ pub async fn run_stream(
                             )
                             .await
                             {
-                                Ok(()) => {
+                                Ok(Some(metrics)) => {
+                                    progress.on_pinned_repair_success();
+                                    progress.observe_range(&metrics);
+                                    state.telemetry.observe_range(
+                                        metrics.from_block,
+                                        metrics.to_block,
+                                        metrics.event_logs as u64,
+                                        metrics.proof_logs as u64,
+                                        metrics.total_ms,
+                                    );
                                     info!(
                                         stream = state.stream.as_str(),
                                         block = from_block,
@@ -218,8 +288,16 @@ pub async fn run_stream(
                                         "repair succeeded"
                                     );
                                     repaired = true;
+                                    from_block = metrics.to_block.saturating_add(1);
+                                    progress.maybe_report(
+                                        head,
+                                        safe_head,
+                                        from_block,
+                                        state.chunk_current,
+                                    );
                                     break;
                                 }
+                                Ok(None) => return Ok(()),
                                 Err(e2) => {
                                     warn!(
                                         stream = state.stream.as_str(),
@@ -233,7 +311,6 @@ pub async fn run_stream(
                         }
 
                         if repaired {
-                            from_block = to_block.saturating_add(1);
                             continue;
                         }
                     }

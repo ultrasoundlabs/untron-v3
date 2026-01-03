@@ -2,6 +2,7 @@ services:
   db:
     image: postgres:18.1
     environment:
+      POSTGRES_DB: untron
       POSTGRES_PASSWORD: postgres
       POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD:?set POSTGRES_EXPORTER_PASSWORD}
       UI_READONLY_PASSWORD: ${UI_READONLY_PASSWORD:?set UI_READONLY_PASSWORD}
@@ -64,6 +65,11 @@ services:
       PGRST_DB_URI: postgres://pgrst_authenticator:${PGRST_AUTH_PASSWORD}@db:5432/untron
       PGRST_DB_SCHEMAS: api
       PGRST_DB_ANON_ROLE: pgrst_anon
+      # Security hardening:
+      # - OpenAPI should reflect the effective role privileges (so the UI doesn't advertise writes).
+      # - Force a rollback at end of every request as a defense-in-depth read-only guarantee.
+      PGRST_OPENAPI_MODE: follow-privileges
+      PGRST_DB_TX_END: rollback
       PGRST_ADMIN_SERVER_PORT: 3001
       PGRST_ADMIN_SERVER_HOST: 0.0.0.0
 
@@ -74,8 +80,25 @@ services:
       - "8080" # we expose swagger through caddy for clean PostgREST+Swagger multi-path
     environment:
       BASE_URL: /docs
-      SWAGGER_JSON_URL: /
+      SWAGGER_JSON_URL: /openapi.json
       VALIDATOR_URL: ""
+      SUPPORTED_SUBMIT_METHODS: '["get"]'
+
+  openapi_sidecar:
+    image: python:3.12-slim
+    restart: unless-stopped
+    environment:
+      UPSTREAM_OPENAPI_URL: http://postgrest:3000/
+      CACHE_SECONDS: "30"
+    command: >
+      sh -c "pip install --no-cache-dir flask requests gunicorn && gunicorn -w 2 -b 0.0.0.0:5000 sidecar:app"
+    volumes:
+      - ./openapi-sidecar:/sidecar:ro
+    working_dir: /sidecar
+    expose:
+      - "5000"
+    depends_on:
+      - postgrest
 
   gateway:
     image: caddy:2.9.1

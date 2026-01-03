@@ -103,7 +103,16 @@ pub async fn ensure_instance_config(
     .bind(stream.as_str())
     .fetch_optional(&db.pool)
     .await
-    .context("read chain.instance")?;
+    .map_err(|e| {
+        // Common footgun: indexer loads `.env` but the migrate binary doesn't, so it is easy to point
+        // migrations at one DB and the indexer at a different (unmigrated) DB.
+        if let Some(db_err) = e.as_database_error() && db_err.code().as_deref() == Some("42P01") {
+                return anyhow::anyhow!(
+                    "missing required table chain.instance (did you run `cargo run --bin migrate` against the same DATABASE_URL?)"
+                );
+            }
+        anyhow::Error::new(e).context("read chain.instance")
+    })?;
 
     match &existing {
         None => {
@@ -217,6 +226,23 @@ pub async fn ensure_instance_config(
             contract_address_db: domain::ControllerContractAddressDb::new(contract_address_db),
         },
     })
+}
+
+pub async fn ensure_schema_version(db: &Db, min_version: i64) -> Result<i64> {
+    let version: i64 = sqlx::query_scalar::<Postgres, i64>(
+        "select coalesce(max(version), 0) from _sqlx_migrations",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .context("read _sqlx_migrations version")?;
+
+    if version < min_version {
+        anyhow::bail!(
+            "database schema version is {version}, but indexer expects >= {min_version} (run `cargo run --bin migrate` against the same DATABASE_URL)"
+        );
+    }
+
+    Ok(version)
 }
 
 async fn configure_instance(

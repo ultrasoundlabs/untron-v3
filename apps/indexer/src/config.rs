@@ -56,6 +56,9 @@ pub struct AppConfig {
 
     pub block_header_concurrency: usize,
     pub block_timestamp_cache_size: usize,
+
+    /// How often each stream emits an INFO progress summary while running.
+    pub progress_interval: Duration,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -87,6 +90,13 @@ struct Cli {
     #[arg(env = "BLOCK_TIMESTAMP_CACHE_SIZE", default_value_t = 2048)]
     block_timestamp_cache_size: usize,
 
+    /// Emit an INFO progress log line every N seconds per stream.
+    ///
+    /// Keep this reasonably high in production (e.g. 30-60) to avoid log spam,
+    /// but low in dev (e.g. 5-15) to see backfill throughput.
+    #[arg(env = "INDEXER_PROGRESS_INTERVAL_SECS", default_value_t = 5)]
+    progress_interval_secs: u64,
+
     #[command(flatten)]
     hub: HubArgs,
 
@@ -108,55 +118,111 @@ struct RetryArgs {
 
 #[derive(Debug, Clone, Args)]
 struct HubArgs {
-    #[arg(env = "HUB_RPC_URLS")]
+    #[arg(id = "hub_rpc_urls", long = "hub-rpc-urls", env = "HUB_RPC_URLS")]
     rpc_urls: Option<String>,
 
-    #[arg(env = "HUB_CHAIN_ID")]
+    #[arg(id = "hub_chain_id", long = "hub-chain-id", env = "HUB_CHAIN_ID")]
     chain_id: Option<u64>,
 
-    #[arg(env = "HUB_CONTRACT_ADDRESS")]
+    #[arg(
+        id = "hub_contract_address",
+        long = "hub-contract-address",
+        env = "HUB_CONTRACT_ADDRESS"
+    )]
     contract_address: Option<String>,
 
-    #[arg(env = "HUB_DEPLOYMENT_BLOCK")]
+    #[arg(
+        id = "hub_deployment_block",
+        long = "hub-deployment-block",
+        env = "HUB_DEPLOYMENT_BLOCK"
+    )]
     deployment_block: Option<u64>,
 
-    #[arg(env = "HUB_CONFIRMATIONS")]
+    #[arg(
+        id = "hub_confirmations",
+        long = "hub-confirmations",
+        env = "HUB_CONFIRMATIONS"
+    )]
     confirmations: Option<u64>,
 
-    #[arg(env = "HUB_POLL_INTERVAL_SECS")]
+    #[arg(
+        id = "hub_poll_interval_secs",
+        long = "hub-poll-interval-secs",
+        env = "HUB_POLL_INTERVAL_SECS"
+    )]
     poll_interval_secs: Option<u64>,
 
-    #[arg(env = "HUB_CHUNK_BLOCKS")]
+    #[arg(
+        id = "hub_chunk_blocks",
+        long = "hub-chunk-blocks",
+        env = "HUB_CHUNK_BLOCKS"
+    )]
     chunk_blocks: Option<u64>,
 
-    #[arg(env = "HUB_REORG_SCAN_DEPTH")]
+    #[arg(
+        id = "hub_reorg_scan_depth",
+        long = "hub-reorg-scan-depth",
+        env = "HUB_REORG_SCAN_DEPTH"
+    )]
     reorg_scan_depth: Option<u64>,
 }
 
 #[derive(Debug, Clone, Args)]
 struct ControllerArgs {
-    #[arg(env = "CONTROLLER_RPC_URLS")]
+    #[arg(
+        id = "controller_rpc_urls",
+        long = "controller-rpc-urls",
+        env = "CONTROLLER_RPC_URLS"
+    )]
     rpc_urls: Option<String>,
 
-    #[arg(env = "CONTROLLER_CHAIN_ID")]
+    #[arg(
+        id = "controller_chain_id",
+        long = "controller-chain-id",
+        env = "CONTROLLER_CHAIN_ID"
+    )]
     chain_id: Option<u64>,
 
-    #[arg(env = "CONTROLLER_CONTRACT_ADDRESS")]
+    #[arg(
+        id = "controller_contract_address",
+        long = "controller-contract-address",
+        env = "CONTROLLER_CONTRACT_ADDRESS"
+    )]
     contract_address: Option<String>,
 
-    #[arg(env = "CONTROLLER_DEPLOYMENT_BLOCK")]
+    #[arg(
+        id = "controller_deployment_block",
+        long = "controller-deployment-block",
+        env = "CONTROLLER_DEPLOYMENT_BLOCK"
+    )]
     deployment_block: Option<u64>,
 
-    #[arg(env = "CONTROLLER_CONFIRMATIONS")]
+    #[arg(
+        id = "controller_confirmations",
+        long = "controller-confirmations",
+        env = "CONTROLLER_CONFIRMATIONS"
+    )]
     confirmations: Option<u64>,
 
-    #[arg(env = "CONTROLLER_POLL_INTERVAL_SECS")]
+    #[arg(
+        id = "controller_poll_interval_secs",
+        long = "controller-poll-interval-secs",
+        env = "CONTROLLER_POLL_INTERVAL_SECS"
+    )]
     poll_interval_secs: Option<u64>,
 
-    #[arg(env = "CONTROLLER_CHUNK_BLOCKS")]
+    #[arg(
+        id = "controller_chunk_blocks",
+        long = "controller-chunk-blocks",
+        env = "CONTROLLER_CHUNK_BLOCKS"
+    )]
     chunk_blocks: Option<u64>,
 
-    #[arg(env = "CONTROLLER_REORG_SCAN_DEPTH")]
+    #[arg(
+        id = "controller_reorg_scan_depth",
+        long = "controller-reorg-scan-depth",
+        env = "CONTROLLER_REORG_SCAN_DEPTH"
+    )]
     reorg_scan_depth: Option<u64>,
 }
 
@@ -199,22 +265,28 @@ pub fn load_config() -> Result<AppConfig> {
         db_max_connections: cli.db_max_connections,
         block_header_concurrency: cli.block_header_concurrency,
         block_timestamp_cache_size: cli.block_timestamp_cache_size,
+        progress_interval: Duration::from_secs(cli.progress_interval_secs.max(1)),
     })
 }
 
 fn load_stream_config(stream: Stream, args: StreamArgRefs<'_>) -> Result<Option<StreamConfig>> {
     let defaults = match stream {
         Stream::Hub => StreamDefaults {
-            confirmations: 12,
-            poll_interval: Duration::from_secs(5),
-            chunk_blocks: 5_000,
-            reorg_scan_depth: 512,
+            // Default to "developer-friendly" settings (works well on anvil and most local RPCs):
+            // - 0 confirmations so new blocks are indexed immediately
+            // - 1s polling for low latency
+            // - moderate chunk size with adaptive shrink-on-error
+            // - shallower reorg scan depth (reorg detection still runs every tick)
+            confirmations: 0,
+            poll_interval: Duration::from_secs(1),
+            chunk_blocks: 2_000,
+            reorg_scan_depth: 128,
         },
         Stream::Controller => StreamDefaults {
-            confirmations: 20,
-            poll_interval: Duration::from_secs(5),
-            chunk_blocks: 1_000,
-            reorg_scan_depth: 1_024,
+            confirmations: 0,
+            poll_interval: Duration::from_secs(1),
+            chunk_blocks: 2_000,
+            reorg_scan_depth: 256,
         },
     };
 

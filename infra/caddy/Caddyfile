@@ -1,8 +1,16 @@
 :8080 {
+  # GET-only OpenAPI for Swagger UI
+  handle /openapi.json {
+    reverse_proxy openapi_sidecar:5000
+  }
+
+  # Swagger UI
   handle /docs* {
     reverse_proxy swagger:8080
   }
 
-  # everything else goes to PostgREST (including / which returns the OpenAPI/Swagger spec)
-  reverse_proxy postgrest:3000
+  # Everything else goes to PostgREST (including "/" which serves the raw OpenAPI)
+  handle {
+    reverse_proxy postgrest:3000
+  }
 }

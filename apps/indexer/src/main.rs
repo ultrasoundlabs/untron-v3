@@ -6,6 +6,7 @@ mod observability;
 mod poller;
 mod reorg;
 mod rpc;
+mod telemetry;
 mod util;
 
 use anyhow::{Context, Result};
@@ -26,8 +27,11 @@ async fn main() -> Result<()> {
         db_max_connections,
         block_header_concurrency,
         block_timestamp_cache_size,
+        progress_interval,
     } = config::load_config()?;
     let dbh = db::Db::connect(&database_url, db_max_connections).await?;
+    // Keep this in sync with the latest migration file number.
+    let _schema_version = db::ensure_schema_version(&dbh, 5).await?;
 
     let shutdown = CancellationToken::new();
 
@@ -49,15 +53,16 @@ async fn main() -> Result<()> {
         let shutdown = shutdown.clone();
 
         join_set.spawn(async move {
-            poller::run_stream(
+            poller::run_stream(poller::RunStreamParams {
                 dbh,
-                stream_cfg,
+                cfg: stream_cfg,
                 resolved,
                 providers,
                 shutdown,
                 block_header_concurrency,
                 block_timestamp_cache_size,
-            )
+                progress_interval,
+            })
             .await
         });
     }

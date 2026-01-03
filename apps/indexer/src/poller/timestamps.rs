@@ -94,6 +94,7 @@ impl TimestampState {
                     _ = shutdown.cancelled() => Ok::<Option<(u64, u64)>, anyhow::Error>(None),
                     permit = sem.acquire_owned() => {
                         let _permit = permit.expect("semaphore closed");
+                        let start = std::time::Instant::now();
                         let block = provider
                             .get_block_by_number(alloy::rpc::types::BlockNumberOrTag::Number(block_number))
                             .await
@@ -101,6 +102,7 @@ impl TimestampState {
                         let Some(block) = block else {
                             anyhow::bail!("block {block_number} not found");
                         };
+                        let _elapsed_ms = start.elapsed().as_millis() as u64;
                         Ok(Some((block_number, normalize_timestamp_seconds(block.header.inner.timestamp))))
                     }
                 }
