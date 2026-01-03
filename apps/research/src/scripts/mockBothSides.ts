@@ -12,6 +12,9 @@ type Args = {
   hubChainId: number;
   tronChainId: number;
   mnemonic?: string;
+  controllerCreate2Prefix: string;
+  hubCreate2Prefix: string;
+  spawnAnvil: boolean;
   keepAlive: boolean;
   outDir: string;
 };
@@ -38,10 +41,24 @@ function parseArgs(argv: string[]): Args {
     throw new Error("Invalid --tron-chain-id");
 
   const mnemonic = get("--mnemonic");
+  const controllerCreate2Prefix = get("--controller-create2-prefix") ?? "0xff";
+  const hubCreate2Prefix = get("--hub-create2-prefix") ?? "0xff";
+  const spawnAnvil = has("--spawn-anvil");
   const keepAlive = !has("--no-keep");
   const outDir = get("--out-dir") ?? path.resolve(repoRoot(), "apps/research/out/mock-both-sides");
 
-  return { hubPort, tronPort, hubChainId, tronChainId, mnemonic, keepAlive, outDir };
+  return {
+    hubPort,
+    tronPort,
+    hubChainId,
+    tronChainId,
+    mnemonic,
+    controllerCreate2Prefix,
+    hubCreate2Prefix,
+    spawnAnvil,
+    keepAlive,
+    outDir,
+  };
 }
 
 function repoRoot(): string {
@@ -135,33 +152,41 @@ async function main() {
   const hubOut = path.join(args.outDir, "hub.json");
   const indexerEnvOut = path.join(args.outDir, "indexer.env");
 
-  log.info("Starting anvils...");
-  const hubAnvil = spawnAnvil({
-    port: args.hubPort,
-    chainId: args.hubChainId,
-    mnemonic: args.mnemonic,
-  });
-  const tronAnvil = spawnAnvil({
-    port: args.tronPort,
-    chainId: args.tronChainId,
-    mnemonic: args.mnemonic,
-  });
+  let killAll = () => {};
 
-  const killAll = () => {
-    for (const p of [hubAnvil, tronAnvil]) {
-      try {
-        p.kill("SIGKILL");
-      } catch {}
-    }
-  };
-  process.on("SIGINT", () => {
-    killAll();
-    process.exit(130);
-  });
-  process.on("SIGTERM", () => {
-    killAll();
-    process.exit(143);
-  });
+  if (args.spawnAnvil) {
+    log.info("Starting anvils...");
+    const hubAnvil = spawnAnvil({
+      port: args.hubPort,
+      chainId: args.hubChainId,
+      mnemonic: args.mnemonic,
+    });
+    const tronAnvil = spawnAnvil({
+      port: args.tronPort,
+      chainId: args.tronChainId,
+      mnemonic: args.mnemonic,
+    });
+
+    killAll = () => {
+      for (const p of [hubAnvil, tronAnvil]) {
+        try {
+          p.kill("SIGKILL");
+        } catch {}
+      }
+    };
+    process.on("SIGINT", () => {
+      killAll();
+      process.exit(130);
+    });
+    process.on("SIGTERM", () => {
+      killAll();
+      process.exit(143);
+    });
+  } else {
+    log.info("Using existing RPCs (not spawning anvil).");
+    log.info("Hub RPC:", hubUrl);
+    log.info("Controller RPC:", tronUrl);
+  }
 
   try {
     await Promise.all([waitForRpc(hubUrl, args.hubChainId), waitForRpc(tronUrl, args.tronChainId)]);
@@ -177,6 +202,7 @@ async function main() {
     env: {
       PRIVATE_KEY: DEFAULT_ANVIL_PK,
       OUTPUT_PATH: tronOut,
+      TRON_CREATE2_PREFIX: args.controllerCreate2Prefix,
     },
   });
 
@@ -193,6 +219,7 @@ async function main() {
       OUTPUT_PATH: hubOut,
       CONTROLLER_ADDRESS: tronJson.contracts.UntronController,
       TRON_RECEIVER_IMPL: tronJson.contracts.TRON_RECEIVER_IMPL,
+      UNTRON_CREATE2_PREFIX: args.hubCreate2Prefix,
     },
   });
 
@@ -217,7 +244,7 @@ async function main() {
     "Next: start the indexer with `source apps/research/out/mock-both-sides/indexer.env` (plus DATABASE_URL)."
   );
 
-  if (!args.keepAlive) {
+  if (!args.keepAlive || !args.spawnAnvil) {
     killAll();
     return;
   }

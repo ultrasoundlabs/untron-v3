@@ -15,6 +15,13 @@ import {IBlockRangeProver} from "../src/evm/blockRangeProvers/interfaces/IBlockR
 abstract contract UntronDeployer is UntronScriptBase {
     bytes1 internal constant _TRON_CREATE2_PREFIX = bytes1(0x41);
 
+    function _deployUntronV3WithCreate2Prefix(address controllerAddress, bytes1 create2Prefix, address tronReceiverImpl)
+        internal
+        returns (UntronV3 untron)
+    {
+        untron = new UntronV3(controllerAddress, create2Prefix, tronReceiverImpl);
+    }
+
     function _deployTronLightClient(
         address proverAddr,
         bytes32 initialBlockHash,
@@ -40,7 +47,7 @@ abstract contract UntronDeployer is UntronScriptBase {
     }
 
     function _deployUntronV3(address controllerAddress, address tronReceiverImpl) internal returns (UntronV3 untron) {
-        untron = new UntronV3(controllerAddress, _TRON_CREATE2_PREFIX, tronReceiverImpl);
+        untron = _deployUntronV3WithCreate2Prefix(controllerAddress, _TRON_CREATE2_PREFIX, tronReceiverImpl);
     }
 
     function _setUntronTronReader(UntronV3 untron, address tronReader) internal {

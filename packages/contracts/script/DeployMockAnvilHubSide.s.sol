@@ -93,6 +93,7 @@ contract DeployMockAnvilHubSideScript is DeployEvmSideScript {
         env.deployer = deployer;
         env.controllerAddress = controller;
         env.tronReceiverImpl = receiverImpl;
+        env.untronCreate2Prefix = bytes1(0xff);
         env.tronTxReader = address(0);
         env.useMockTronTxReader = true;
         env.tokenMessengerV2 = tokenMessengerV2;

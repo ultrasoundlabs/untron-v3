@@ -25,6 +25,7 @@ import {UntronDeployer} from "./UntronDeployer.sol";
 /// - USDT (optional; defaults to USDT0) - UntronV3 accounting token on this chain
 /// - OWNER (optional; defaults to deployer) - final owner for UntronV3 + bridgers
 /// - BRIDGER_CONFIG_PATH (optional; defaults to `<projectRoot>/script/bridgers.json`)
+/// - UNTRON_CREATE2_PREFIX (optional; defaults to 0x41) - CREATE2 prefix used by UntronV3 to predict receiver addresses
 /// - STATEFUL_TRON_TX_READER (optional; if set, uses existing and skips deploying StatefulTronTxReader)
 /// - USE_MOCK_STATEFUL_TRON_TX_READER (optional; if true, deploys and uses MockStatefulTronTxReader)
 /// - OUTPUT_PATH (optional; if set, writes a JSON with deployed addresses)
@@ -36,6 +37,7 @@ contract DeployEvmSideScript is UntronDeployer {
         address deployer;
         address controllerAddress;
         address tronReceiverImpl;
+        bytes1 untronCreate2Prefix;
         address tronTxReader;
         bool useMockTronTxReader;
         address tokenMessengerV2;
@@ -84,7 +86,7 @@ contract DeployEvmSideScript is UntronDeployer {
             }
         }
 
-        untron = _deployUntronV3(env.controllerAddress, env.tronReceiverImpl);
+        untron = _deployUntronV3WithCreate2Prefix(env.controllerAddress, env.untronCreate2Prefix, env.tronReceiverImpl);
         _setUntronTronReader(untron, tronTxReaderAddr);
         _setUntronUsdt(untron, env.usdt);
 
@@ -111,6 +113,12 @@ contract DeployEvmSideScript is UntronDeployer {
 
         env.controllerAddress = vm.envAddress("CONTROLLER_ADDRESS");
         env.tronReceiverImpl = vm.envAddress("TRON_RECEIVER_IMPL");
+        env.untronCreate2Prefix = bytes1(0x41);
+        try vm.envUint("UNTRON_CREATE2_PREFIX") returns (uint256 v) {
+            require(v <= type(uint8).max, "UNTRON_CREATE2_PREFIX overflow");
+            // forge-lint: disable-next-line(unsafe-typecast)
+            env.untronCreate2Prefix = bytes1(uint8(v));
+        } catch {}
         try vm.envAddress("STATEFUL_TRON_TX_READER") returns (address v) {
             env.tronTxReader = v;
         } catch {}
