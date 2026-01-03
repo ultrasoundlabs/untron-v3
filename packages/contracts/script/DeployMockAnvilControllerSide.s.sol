@@ -108,14 +108,16 @@ contract DeployMockAnvilControllerSideScript is UntronScriptBase {
         string memory outputPath = _outputPath();
         if (bytes(outputPath).length == 0) return;
 
+        // Keep output JSON "flat" (single root object), because forge's `vm.serialize*` returns the object for a
+        // given key, not a merged root across multiple object keys.
         string memory json = vm.serializeAddress("contracts", "UntronController", controller);
         json = vm.serializeAddress("contracts", "TRON_RECEIVER_IMPL", receiverImpl);
         json = vm.serializeAddress("contracts", "USDT", usdt);
-        json = vm.serializeAddress("roles", "OWNER", finalOwner);
-        json = vm.serializeAddress("roles", "EXECUTOR", executor);
-        json = vm.serializeAddress("roles", "LP", lp);
-        json = vm.serializeAddress("roles", "DEPLOYER", deployer);
-        json = vm.serializeUint("config", "TRON_CREATE2_PREFIX", uint256(uint8(create2Prefix)));
+        json = vm.serializeAddress("contracts", "OWNER", finalOwner);
+        json = vm.serializeAddress("contracts", "EXECUTOR", executor);
+        json = vm.serializeAddress("contracts", "LP", lp);
+        json = vm.serializeAddress("contracts", "DEPLOYER", deployer);
+        json = vm.serializeUint("contracts", "TRON_CREATE2_PREFIX", uint256(uint8(create2Prefix)));
         vm.writeJson(json, outputPath);
         console2.log("Wrote output JSON:", outputPath);
     }

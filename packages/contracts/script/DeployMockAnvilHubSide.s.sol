@@ -105,15 +105,23 @@ contract DeployMockAnvilHubSideScript is DeployEvmSideScript {
     }
 
     function _defaultBridgerConfig() internal view returns (BridgerConfig memory bridgers) {
-        bridgers.cctpChainIds = new uint256[](1);
-        bridgers.cctpChainIds[0] = block.chainid;
-        bridgers.circleDomains = new uint32[](1);
-        bridgers.circleDomains[0] = 0;
+        // Include a synthetic "remote" chain id so mocked fills can exercise bridging paths without reverting.
+        // `apps/research/src/scripts/generateBothSidesActivity.ts` uses `remoteChainId = hubChainId + 1000`.
+        uint256 remoteChainId = block.chainid + 1000;
 
-        bridgers.usdt0ChainIds = new uint256[](1);
+        bridgers.cctpChainIds = new uint256[](2);
+        bridgers.cctpChainIds[0] = block.chainid;
+        bridgers.cctpChainIds[1] = remoteChainId;
+        bridgers.circleDomains = new uint32[](2);
+        bridgers.circleDomains[0] = 0;
+        bridgers.circleDomains[1] = 1;
+
+        bridgers.usdt0ChainIds = new uint256[](2);
         bridgers.usdt0ChainIds[0] = block.chainid;
-        bridgers.eids = new uint32[](1);
+        bridgers.usdt0ChainIds[1] = remoteChainId;
+        bridgers.eids = new uint32[](2);
         bridgers.eids[0] = 1;
+        bridgers.eids[1] = 2;
     }
 
     function _mintIfConfigured(MockERC20 usdc, MockERC20 usdt0, address deployer) internal {
