@@ -19,11 +19,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // From: apps/research/src/scripts
-// To:   packages/contracts/test/evm/TronLightClient/fixtures
-const TRON_FIXTURES_DIR = resolve(
-  __dirname,
-  "../../../../packages/contracts/test/evm/TronLightClient/fixtures"
-);
+// To:   packages/contracts/test/evm/fixtures
+const TRON_FIXTURES_DIR = resolve(__dirname, "../../../../packages/contracts/test/evm/fixtures");
 
 function toHex(bytes: Uint8Array | Buffer): string {
   return Buffer.from(bytes).toString("hex");

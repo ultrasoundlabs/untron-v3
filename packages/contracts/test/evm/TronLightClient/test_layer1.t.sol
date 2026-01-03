@@ -116,7 +116,7 @@ contract TronLightClientLayer1Test is Test {
         string memory path = string.concat(
             root,
             // TODO: figure out how to iterate over all files in the fixtures folder
-            "/test/evm/TronLightClient/fixtures/tron_78000000_78000099.json"
+            "/test/evm/fixtures/tron_78000000_78000099.json"
         );
 
         // forge-lint: disable-next-line(unsafe-cheatcode)

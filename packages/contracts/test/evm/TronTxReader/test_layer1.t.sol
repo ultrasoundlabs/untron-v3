@@ -45,7 +45,7 @@ contract TronTxReaderTest is Test {
         // Load the JSON fixture containing Tron block and TRC-20 transactions.
         // Safe in test context: fixture file is readonly and controlled
         // forge-lint: disable-next-line(unsafe-cheatcode)
-        string memory json = vm.readFile("test/evm/TronTxReader/fixtures/trc20_block_78115149.json");
+        string memory json = vm.readFile("test/evm/fixtures/trc20_block_78115149.json");
 
         // Parse block-level data from the JSON.
         uint256 blockNumber = abi.decode(vm.parseJson(json, ".blockNumber"), (uint256));
@@ -130,7 +130,7 @@ contract TronTxReaderTest is Test {
 
     function testRevertWhenTxNotSuccessful() public {
         // forge-lint: disable-next-line(unsafe-cheatcode)
-        string memory json = vm.readFile("test/evm/TronTxReader/fixtures/trc20_block_78115149.json");
+        string memory json = vm.readFile("test/evm/fixtures/trc20_block_78115149.json");
 
         uint256 blockNumber = abi.decode(vm.parseJson(json, ".blockNumber"), (uint256));
         uint32 blockTimestamp = uint32(abi.decode(vm.parseJson(json, ".blockTimestamp"), (uint256)));

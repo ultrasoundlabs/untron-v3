@@ -21,7 +21,7 @@ contract TronLightClientLayer0Test is Test {
     function setUp() public {
         string memory root = vm.projectRoot();
         // Reuse the same fixture as layer1 so all tests agree on the data source.
-        string memory path = string.concat(root, "/test/evm/TronLightClient/fixtures/tron_78000000_78000099.json");
+        string memory path = string.concat(root, "/test/evm/fixtures/tron_78000000_78000099.json");
 
         // forge-lint: disable-next-line(unsafe-cheatcode)
         string memory json = vm.readFile(path);
