@@ -1015,3 +1015,353 @@ begin
          updated_at = now()
    where stream='hub';
 end $$;
+
+-- =============================================================================
+-- POSTGREST / OPENAPI DOC COMMENTS (HUB PROJECTION)
+-- =============================================================================
+
+-- Enum types
+comment on type hub.claim_status is
+$$Hub claim lifecycle status
+
+Claims are created by UntronV3 (EVM hub) when Tron-side deposits or controller pull profit volume
+is recognized, and later filled (paid/bridged) by a filler via `UntronV3.fill(...)`.
+
+- `created`: claim exists and is pending settlement
+- `filled`: claim has been settled (locally transferred or bridged)$$;
+
+-- Versioned state tables
+comment on table hub.ownership_versions is
+$$Hub owner history (versioned singleton)
+
+Derived from UntronV3's `OwnershipTransferred` event (emitted through `UntronV3Index`).
+There is exactly one "current" row where `valid_to_seq is null`.$$;
+
+comment on column hub.ownership_versions.valid_from_seq is
+$$Event sequence (`hub.event_seq`) at which this row became current$$;
+comment on column hub.ownership_versions.valid_to_seq is
+$$Event sequence at which this row stopped being current (NULL means current)$$;
+comment on column hub.ownership_versions.old_owner is
+$$Previous owner address (EVM)$$;
+comment on column hub.ownership_versions.new_owner is
+$$New owner address (EVM)$$;
+
+comment on table hub.protocol_config_versions is
+$$Hub protocol configuration snapshot (versioned singleton)
+
+This is a convenience "current config" object derived from multiple hub events:
+- `UsdtSet`              → `usdt` (EVM accounting token address on the hub chain)
+- `TronUsdtSet`          → `tron_usdt` (Tron USDT contract address)
+- `TronReaderSet`        → `tron_reader` (trusted Tron transaction reader contract)
+- `ProtocolFloorSet`     → `floor_ppm` (minimum percentage fee floor)
+- `ProtocolFlatFeeFloorSet` → `floor_flat_fee` (minimum flat fee floor)
+- `ProtocolMaxLeaseDurationSet` → `max_lease_duration_seconds`
+- `LesseePayoutConfigRateLimitSet` → payout-config update rate limiting parameters
+
+Values are stored as "last known setting" as of the current canonical event sequence.$$;
+
+comment on column hub.protocol_config_versions.usdt is
+$$EVM USDT accounting token address for the hub chain (nullable until
+configured)$$;
+comment on column hub.protocol_config_versions.tron_usdt is
+$$Tron USDT TRC-20 contract address (base58) (nullable until configured)$$;
+comment on column hub.protocol_config_versions.tron_reader is
+$$Trusted Tron transaction reader address (on the hub chain) used to
+verify/parse Tron transactions$$;
+comment on column hub.protocol_config_versions.floor_ppm is
+$$Protocol-wide minimum percentage fee floor (parts-per-million of raw
+volume)$$;
+comment on column hub.protocol_config_versions.floor_flat_fee is
+$$Protocol-wide minimum flat fee floor (USDT units, uint256)$$;
+comment on column hub.protocol_config_versions.max_lease_duration_seconds is
+$$Protocol-wide maximum lease duration in seconds (0/NULL means disabled)$$;
+comment on column hub.protocol_config_versions.lessee_rate_max_updates is
+$$Max number of payout-config updates allowed per window per lessee (NULL means
+unset/disabled)$$;
+comment on column hub.protocol_config_versions.lessee_rate_window_seconds is
+$$Window size (seconds) for payout-config update rate limiting (NULL means
+unset/disabled)$$;
+
+comment on table hub.realtor_versions is
+$$Realtor allowlist + realtor-specific constraints (versioned KV)
+
+Realtors are the only addresses allowed to create new leases on the hub (`UntronV3.createLease`).
+The owner can:
+- allowlist or delist a realtor
+- configure realtor-specific floors and rate limits
+
+Current realtor state is the row with `valid_to_seq is null` per `realtor`.$$;
+
+comment on column hub.realtor_versions.realtor is
+$$Realtor address (EVM)$$;
+comment on column hub.realtor_versions.allowed is
+$$Whether this address is currently allowlisted to create leases$$;
+comment on column hub.realtor_versions.min_fee_ppm is
+$$Realtor-specific minimum percentage fee floor (ppm), applied in addition to
+protocol floor$$;
+comment on column hub.realtor_versions.min_flat_fee is
+$$Realtor-specific minimum flat fee floor (USDT units), applied in addition to
+protocol floor$$;
+comment on column hub.realtor_versions.max_lease_duration_seconds is
+$$Realtor-specific maximum lease duration cap in seconds (NULL means no
+override)$$;
+comment on column hub.realtor_versions.lease_rate_max_leases is
+$$Max lease creations allowed per window for this realtor (NULL means
+unset/disabled)$$;
+comment on column hub.realtor_versions.lease_rate_window_seconds is
+$$Window size for realtor lease creation rate limiting (NULL means
+unset/disabled)$$;
+
+comment on table hub.lp_allowlist_versions is
+$$LP allowlist (versioned KV)
+
+This governs who may deposit principal into the fast-fill vault on the hub (`UntronV3.deposit`).
+Delisting does NOT prevent withdrawals; it only blocks new deposits.$$;
+
+comment on column hub.lp_allowlist_versions.lp is
+$$LP address (EVM) whose deposit permission is being tracked$$;
+comment on column hub.lp_allowlist_versions.allowed is
+$$Whether the LP is currently allowlisted to deposit into the hub vault$$;
+
+comment on table hub.lp_balance_versions is
+$$LP principal balance snapshot (derived, versioned KV)
+
+This is NOT a direct onchain field; it is derived deterministically from the hub ledger events:
+- `LpDeposited` increases balance
+- `LpWithdrawn` decreases balance
+
+This represents the "principal accounting" balance tracked by the protocol (0% APY by design).$$;
+
+comment on column hub.lp_balance_versions.balance is
+$$Current derived principal balance (uint256) for this LP$$;
+
+comment on table hub.chain_versions is
+$$Destination chain deprecation flags (versioned KV)
+
+The hub owner can mark destination chains as deprecated. Lessees cannot set deprecated chains
+in payout configs going forward (existing configs may remain).$$;
+
+comment on column hub.chain_versions.target_chain_id is
+$$EVM chainId for the payout destination$$;
+comment on column hub.chain_versions.deprecated is
+$$Whether this chainId is deprecated for new payout configurations$$;
+
+comment on table hub.swap_rate_versions is
+$$Swap rate table (versioned KV by target token)
+
+When a claim is settled in a non-USDT target token, the hub expects to swap USDT → target token.
+`rate_ppm` is the configured expected output rate used to:
+- compute expected output totals for batches
+- verify swaps produced at least the expected amount (SwapExecutor minimum output)
+
+Interpretation: `outAmount = amountUsdt * rate_ppm / 1_000_000`.$$;
+
+comment on column hub.swap_rate_versions.target_token is
+$$EVM token address that claims will be settled in$$;
+comment on column hub.swap_rate_versions.rate_ppm is
+$$Expected output rate (target token units per 1e6 USDT units)$$;
+
+comment on table hub.bridger_versions is
+$$Bridger routing table (versioned KV by (target_token, target_chain_id))
+
+If a claim's payout destination chain differs from the hub chain, the hub uses a configured
+bridger adapter for the `(target_token, target_chain_id)` pair.$$;
+
+comment on column hub.bridger_versions.target_token is
+$$Token being bridged (EVM address on the hub chain)$$;
+comment on column hub.bridger_versions.target_chain_id is
+$$Destination EVM chainId for the bridge$$;
+comment on column hub.bridger_versions.bridger is
+$$Bridger adapter contract address that implements `IBridger.bridge(...)`$$;
+
+comment on table hub.lease_versions is
+$$Lease registry (versioned KV by lease_id)
+
+A lease binds a receiver identity (`receiver_salt`) to:
+- a realtor (creator)
+- a lessee (controls payout config)
+- a fee schedule (ppm + flat)
+- a time window (`start_time` .. `nukeable_after`)
+
+Deposits are attributed to the lease active at the Tron timestamp, and claims are created with
+the payout config current at claim creation time.$$;
+
+comment on column hub.lease_versions.lease_id is
+$$Global lease identifier (Solidity uint256)$$;
+comment on column hub.lease_versions.receiver_salt is
+$$CREATE2 salt identifying the deterministic Tron receiver address$$;
+comment on column hub.lease_versions.lease_number is
+$$Per-receiver lease index (0-based) used for timeline ordering$$;
+comment on column hub.lease_versions.realtor is
+$$Realtor (EVM address) that created the lease$$;
+comment on column hub.lease_versions.lessee is
+$$Lessee (EVM address) that controls payout configuration$$;
+comment on column hub.lease_versions.start_time is
+$$Lease start time (seconds) on the hub chain$$;
+comment on column hub.lease_versions.nukeable_after is
+$$Earliest time when a subsequent lease for the same receiver_salt may be
+created$$;
+comment on column hub.lease_versions.lease_fee_ppm is
+$$Percentage fee (ppm) applied to recognized raw USDT volume$$;
+comment on column hub.lease_versions.flat_fee is
+$$Flat fee (USDT units) subtracted after percentage fee$$;
+
+comment on table hub.payout_config_versions is
+$$Lease payout configuration (versioned KV by lease_id)
+
+This stores the latest payout route for each lease, as set by the lessee:
+- `target_chain_id`: destination chain (local transfer if equals hub chainId)
+- `target_token`: token used for settlement on the hub chain (USDT or swapped token)
+- `beneficiary`: recipient on the destination chain (EVM address)
+
+Note: claims snapshot the payout config at creation time; later payout config updates do not
+retroactively change existing claims.$$;
+
+comment on column hub.payout_config_versions.target_chain_id is
+$$Destination chainId for payouts created under this config$$;
+comment on column hub.payout_config_versions.target_token is
+$$Settlement token on the hub chain used for claim fills$$;
+comment on column hub.payout_config_versions.beneficiary is
+$$Recipient address (EVM) for payouts / bridged deliveries$$;
+
+comment on table hub.claim_versions is
+$$Claim registry (versioned KV by (lease_id, claim_id))
+
+Claims are the hub-side representation of money owed to a beneficiary:
+- Created by `preEntitle` (proven Tron USDT deposit), `subjectivePreEntitle` (LP-sponsored),
+  or by processing controller pull profit volume.
+- Filled by `UntronV3.fill(...)` either by transferring locally or bridging.
+
+This table stores a row per claim version. Current state is `valid_to_seq is null`.
+The `status` field reflects whether the claim is still pending or has been filled.$$;
+
+comment on column hub.claim_versions.lease_id is
+$$Lease that produced this claim$$;
+comment on column hub.claim_versions.claim_id is
+$$Per-lease claim identifier (0-indexed, uint256)$$;
+comment on column hub.claim_versions.target_token is
+$$Token used for settlement when filling this claim (EVM address on hub
+chain)$$;
+comment on column hub.claim_versions.queue_index is
+$$Index of this claim in the per-target-token FIFO queue at creation time$$;
+comment on column hub.claim_versions.amount_usdt is
+$$Claim amount denominated in hub USDT accounting units (uint256)
+
+Even if the claim is settled in another token, this is the USDT-denominated amount used for accounting.$$;
+comment on column hub.claim_versions.target_chain_id is
+$$Destination chainId; if equals hub chainId, payout is a local transfer, else
+bridged$$;
+comment on column hub.claim_versions.beneficiary is
+$$Beneficiary address (EVM) receiving payout on the destination chain$$;
+comment on column hub.claim_versions.origin is
+$$Claim origin enum code (matches `UntronV3Index.ClaimOrigin`)
+
+0 = subjective pre-entitle (LP-sponsored)
+1 = pre-entitle (proven Tron deposit)
+2 = receiver pull profit volume$$;
+comment on column hub.claim_versions.origin_id is
+$$Origin identifier (meaning depends on origin)
+
+- pre-entitle: Tron txId (sha256(raw_data))
+- subjective pre-entitle: anticipated txId
+- receiver pull: receiver_salt$$;
+comment on column hub.claim_versions.origin_actor is
+$$Origin actor address (meaning depends on origin)
+
+Used for subjective pre-entitle sponsor; otherwise zero address.$$;
+comment on column hub.claim_versions.origin_token is
+$$Origin token/address (meaning depends on origin)
+
+For receiver pull origin, this is the token that was pulled on Tron (Tron address).
+For other origins, this is the EVM zero address (enforced by a CHECK constraint).$$;
+comment on column hub.claim_versions.origin_timestamp is
+$$Origin timestamp (seconds, best-effort metadata)
+
+For pre-entitle: Tron block timestamp of the proved deposit.
+For receiver pull: controller dump timestamp.
+For subjective pre-entitle: 0.$$;
+comment on column hub.claim_versions.origin_raw_amount is
+$$Raw amount before lease fees (uint256), denominated in USDT-equivalent
+units$$;
+comment on column hub.claim_versions.status is
+$$Current claim status (`created` or `filled`)$$;
+
+comment on table hub.lease_nonce_versions is
+$$Lease nonce snapshots (versioned KV by lease_id)
+
+Tracks the per-lease nonce used for EIP-712 signature-based payout config updates.
+Derived from `LeaseNonceUpdated` events.$$;
+
+comment on column hub.lease_nonce_versions.nonce is
+$$Current nonce value (uint256) for signature replay protection$$;
+
+comment on table hub.protocol_pnl_versions is
+$$Protocol profit-and-loss snapshots (versioned singleton)
+
+Derived from `ProtocolPnlUpdated` hub events. PnL is a signed value representing:
+- positive deltas from fees, favorable rebalances, deposits into PnL
+- negative deltas from owner withdrawals, unfavorable rebalances, controller executor spends
+
+The hub contract uses this as an accounting abstraction; it is NOT necessarily equal to the contract's USDT balance.$$;
+
+comment on column hub.protocol_pnl_versions.pnl is
+$$Current protocol PnL value (int256) after applying `delta`$$;
+comment on column hub.protocol_pnl_versions.delta is
+$$Change applied at this event (int256)$$;
+comment on column hub.protocol_pnl_versions.reason is
+$$Reason code (smallint) matching `UntronV3Index.PnlReason`$$;
+
+-- Ledgers
+comment on table hub.lp_vault_events is
+$$LP vault ledger (append-only)
+
+Stores each `LpDeposited` / `LpWithdrawn` event by event_seq. Used to:
+- provide an audit trail
+- derive `hub.lp_balance_versions` snapshots deterministically.$$;
+
+comment on table hub.tokens_rescued_ledger is
+$$Rescue ledger (append-only)
+
+Records `TokensRescued` actions (non-USDT tokens accidentally sent to hub contract) by event_seq.$$;
+
+comment on table hub.controller_tip_updates_ledger is
+$$Controller event-chain tip update ledger (append-only)
+
+These hub events are emitted when the hub relayer submits controller events and hash-links them to a new tip.
+The payload stores the raw controller event signature + ABI bytes that were hashed into the controller tip.$$;
+
+comment on table hub.controller_processed_ledger is
+$$Controller event processed ledger (append-only)
+
+These hub events are emitted when the hub processes queued controller events (`processControllerEvents`).
+They are hub-side bookkeeping to make controller reconciliation observable in indexed data.$$;
+
+-- Projector functions
+comment on function hub.apply_one(bigint, text, jsonb) is
+$$Hub projector: apply a single semantic hub event to derived tables
+
+This function is called only by `hub.apply_catchup`, which enforces:
+- contiguous canonical `event_seq` order
+- hash-chain continuity (`prev_tip` equals cursor `tip`)
+
+It interprets `p_type` (e.g. `LeaseCreated`, `ClaimCreated`) and uses the JSON `p_args` produced by the ingestion worker
+to update hub projection tables.$$;
+
+comment on function hub.rollback_from(bigint) is
+$$Hub projector: rollback derived hub state from an event sequence (inclusive)
+
+Used to handle reorgs. When a previously-canonical `chain.event_appended` row becomes non-canonical,
+the trigger computes the earliest affected `event_seq` and calls this function.
+
+Rollback is suffix-only:
+- delete projection rows created at/after `rollback_seq`
+- re-open previous versions whose `valid_to_seq` was within the rolled-back range
+- rewind `chain.stream_cursor` for the `hub` stream.$$;
+
+comment on function hub.apply_catchup() is
+$$Hub projector: apply all contiguous canonical hub events not yet applied
+
+This advances `chain.stream_cursor(stream='hub')` by scanning `chain.event_appended` for canonical rows
+starting at `applied_through_seq + 1`, verifying `prev_tip` continuity, and applying each event via `hub.apply_one`.
+
+This function is invoked by ingestion triggers when new canonical hub events arrive or when reorgs flip canonical flags.$$;

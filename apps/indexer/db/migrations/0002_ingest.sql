@@ -243,3 +243,196 @@ begin
         tip = excluded.tip,
         updated_at = now();
 end $$;
+
+-- =============================================================================
+-- POSTGREST / OPENAPI DOC COMMENTS (INGESTION LAYER)
+-- =============================================================================
+
+-- chain.instance
+comment on table chain.instance is
+$$Indexer configuration: one deployment instance per stream
+
+The Untron indexer stores two independent event hash-chains:
+- `hub` stream:      EVM-side `UntronV3Index` (UntronV3 hub emits events via this index contract)
+- `controller` stream: Tron-side `UntronControllerIndex` (controller emits sweeps/rebalance events)
+
+This table pins the database to a single deployment per stream to prevent accidental ingestion of
+events from the wrong chain or wrong contract address.$$;
+
+comment on column chain.instance.stream is
+$$Stream identifier (`hub` or `controller`)
+
+Determines which onchain index contract this row configures.$$;
+
+comment on column chain.instance.chain_id is
+$$Chain identifier for this stream
+
+- For `hub`, this is the EVM `chainId` where `UntronV3Index` is deployed.
+- For `controller`, this is the Tron network id as configured by the ingestion worker.
+
+The DB does not attempt to interpret chain IDs beyond enforcing consistency.$$;
+
+comment on column chain.instance.contract_address is
+$$Deployed index contract address for this stream
+
+- `hub`: EVM 0x-address of `UntronV3Index`
+- `controller`: Tron base58 address of `UntronControllerIndex`
+
+Format is validated by a CHECK constraint keyed on `stream`.$$;
+
+comment on column chain.instance.genesis_tip is
+$$Genesis hash-chain tip for this stream
+
+Matches the `EventChainGenesis.*` constant used by the onchain index contract.
+The projector starts at this tip and requires every ingested event to hash-link correctly.$$;
+
+-- chain.event_appended
+comment on table chain.event_appended is
+$$Canonical onchain event stream: EventAppended logs (hash-chained)
+
+Both Untron index contracts (`UntronV3Index` and `UntronControllerIndex`) emit a uniform event:
+
+  EventAppended(event_seq, prev_tip, new_tip, event_signature, abi_encoded_event_data)
+
+This table stores each observed EventAppended log along with its originating chain metadata.
+It is the SINGLE source of truth for projections.
+
+Reorg model:
+- We never delete rows.
+- The ingestion worker flips `canonical=false` for logs that were removed by a reorg.
+- Projection tables are rolled back and re-applied from the earliest affected `event_seq`.$$;
+
+comment on column chain.event_appended.id is
+$$Synthetic primary key for internal use
+
+Not part of any onchain identity; reorgs are modeled via `canonical` flags, not deletes.$$;
+
+comment on column chain.event_appended.stream is
+$$Which event hash-chain produced this log (`hub` or `controller`)$$;
+
+comment on column chain.event_appended.chain_id is
+$$Chain identifier for this log
+
+Must match `chain.instance.chain_id` for the row's stream.$$;
+
+comment on column chain.event_appended.contract_address is
+$$Index contract address that emitted the EventAppended log
+
+Must match `chain.instance.contract_address` for the row's stream.$$;
+
+comment on column chain.event_appended.block_number is
+$$Block number containing the onchain EventAppended log$$;
+
+comment on column chain.event_appended.block_timestamp is
+$$Block timestamp (seconds since epoch) for the log's block$$;
+
+comment on column chain.event_appended.block_hash is
+$$Block hash (bytes32 hex) for the log's block$$;
+
+comment on column chain.event_appended.tx_hash is
+$$Transaction hash (bytes32 hex) for the transaction containing the log$$;
+
+comment on column chain.event_appended.log_index is
+$$Log index within the transaction receipt (0-based)
+
+Together with `(chain_id, tx_hash, log_index)` uniquely identifies a log.$$;
+
+comment on column chain.event_appended.canonical is
+$$Reorg flag: true if this log is currently canonical
+
+The worker toggles this to false when a log is removed by a reorg. Projections treat
+non-canonical rows as nonexistent.$$;
+
+comment on column chain.event_appended.event_seq is
+$$Monotonic event sequence number in the onchain hash-chain
+
+This defines the canonical total order for projection. The DB enforces at most one canonical
+row per `(stream, event_seq)`.$$;
+
+comment on column chain.event_appended.prev_tip is
+$$Previous hash-chain tip that this event links from$$;
+
+comment on column chain.event_appended.new_tip is
+$$New hash-chain tip after applying this event onchain$$;
+
+comment on column chain.event_appended.event_signature is
+$$Keccak256 hash (bytes32) of the *semantic event* signature
+
+Example (hub): `keccak256("LeaseCreated(uint256,bytes32,uint256,address,address,uint64,uint64,uint32,uint64)")`
+
+This is the signature that the onchain index contract hashed into its `eventChainTip`.$$;
+
+comment on column chain.event_appended.abi_encoded_event_data is
+$$Exact ABI-encoded event data bytes that were hashed onchain
+
+This MUST match byte-for-byte the `abiEncodedEventData` passed to the onchain hash-chain logic.
+We store it to allow deterministic recomputation/verification of the onchain tips.$$;
+
+comment on column chain.event_appended.event_type is
+$$Worker-decoded semantic event name
+
+Examples: `LeaseCreated`, `ClaimCreated`, `PulledFromReceiver`.
+
+Projection functions (`hub.apply_one`, `ctl.apply_one`) interpret this string to update derived state.$$;
+
+comment on column chain.event_appended.args is
+$$Worker-decoded event arguments as JSON
+
+Keys are snake_case strings; values are stored as strings/hex and cast inside projector functions.
+Projectors use `chain.require_json_keys` to validate required fields.$$;
+
+comment on column chain.event_appended.inserted_at is
+$$Ingestion timestamp (when this row was written by the worker)$$;
+
+-- chain.controller_tip_proofs
+comment on table chain.controller_tip_proofs is
+$$Controller "tip proof" logs (NOT hash-chained)
+
+`UntronControllerIndex.isEventChainTip(bytes32)` emits an `IsEventChainTipCalled` event on Tron,
+but (by design) it is NOT appended into the controller event hash-chain.
+
+These logs serve as proof-carrying transactions that an onchain call asserted a given `eventChainTip`.
+The EVM hub uses proven Tron transactions of this call to accept controller event sequences.$$;
+
+comment on column chain.controller_tip_proofs.caller is
+$$Tron address that called `isEventChainTip`$$;
+
+comment on column chain.controller_tip_proofs.proved_tip is
+$$The hash-chain tip that the caller asserted equals the controller's current
+tip$$;
+
+-- chain.stream_cursor
+comment on table chain.stream_cursor is
+$$Projection cursor per stream
+
+Tracks how far the DB projections have been deterministically derived from canonical `chain.event_appended` rows.
+
+Fields:
+- `applied_through_seq`: highest contiguous event_seq that has been applied
+- `tip`: expected `prev_tip` of the next event (event_seq = applied_through_seq + 1)
+
+The `hub.apply_catchup` / `ctl.apply_catchup` functions enforce tip continuity and apply events in order.$$;
+
+comment on column chain.stream_cursor.applied_through_seq is
+$$Highest contiguous canonical `event_seq` already applied to projections$$;
+
+comment on column chain.stream_cursor.tip is
+$$Expected previous tip for the next event to apply
+
+If `applied_through_seq = 0`, this equals `chain.instance.genesis_tip`.$$;
+
+comment on column chain.stream_cursor.updated_at is
+$$Timestamp when the projector last advanced or rolled back this cursor$$;
+
+-- chain.configure_instance
+comment on function chain.configure_instance(
+    chain.stream, bigint, public.chain_address, public.bytes32_hex
+) is
+$$Configure a stream deployment and initialize its projection cursor
+
+This is an explicit setup step: ingestion/projection should fail loudly until `chain.instance` and
+`chain.stream_cursor` are configured, to avoid silently indexing the wrong contract or chain.
+
+Typical use:
+- call once for `hub` with the EVM chain id, UntronV3Index address, and genesis tip
+- call once for `controller` with the Tron chain id, UntronControllerIndex address, and genesis tip$$;

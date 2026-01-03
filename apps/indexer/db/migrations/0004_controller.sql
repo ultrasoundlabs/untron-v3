@@ -415,3 +415,113 @@ create trigger trg_event_appended_canonical_update
 after update on chain.event_appended
 referencing old table as old_rows new table as new_rows
 for each statement execute function chain.on_event_appended_canonical_update();
+
+-- =============================================================================
+-- POSTGREST / OPENAPI DOC COMMENTS (CONTROLLER PROJECTION + TRIGGERS)
+-- =============================================================================
+
+comment on table ctl.owner_versions is
+$$Controller owner history (versioned singleton)
+
+Derived from the Tron-side `OwnerChanged` event emitted by `UntronControllerIndex`.
+There is exactly one current row (`valid_to_seq is null`).$$;
+
+comment on table ctl.executor_versions is
+$$Controller executor history (versioned singleton)
+
+Derived from the Tron-side `ExecutorChanged` event emitted by `UntronControllerIndex`.
+The executor is an address permitted to spend controller-held USDT (future-proof feature).$$;
+
+comment on table ctl.usdt_versions is
+$$Controller canonical USDT token address (versioned singleton)
+
+Derived from the Tron-side `UsdtSet(newUsdt)` event.
+This is the accounting token the controller treats as "USDT" for `pulledUsdt` accounting.$$;
+
+comment on table ctl.lp_versions is
+$$Controller LP address (versioned singleton)
+
+Derived from the Tron-side `LpSet(newLp)` event.
+This LP is allowed to configure exchange rates and withdraw purchased non-USDT tokens.$$;
+
+comment on table ctl.payload_versions is
+$$Controller rebalancer payload configuration (versioned KV by rebalancer)
+
+Derived from the Tron-side `PayloadSet(rebalancer,payload)` event.
+The payload is rebalancer-specific ABI bytes used by `UntronController.rebalanceUsdt` (delegatecall) to bridge USDT.$$;
+
+comment on table ctl.receiver_versions is
+$$Deterministic receiver deployment registry (versioned KV by receiver_salt)
+
+Derived from the Tron-side `ReceiverDeployed(receiver,salt)` event.
+Receivers are CREATE2-deployed minimal proxies used as deterministic deposit addresses.$$;
+
+comment on table ctl.lp_exchange_rate_versions is
+$$LP-configured exchange rates for non-USDT tokens (versioned KV by token)
+
+Derived from the Tron-side `LpExchangeRateSet(token,exchangeRate)` event.
+These rates are used by `UntronController.pullFromReceivers` to convert swept token amounts into USDT-equivalent amounts.$$;
+
+comment on table ctl.pulled_from_receiver_ledger is
+$$Receiver sweep ledger (append-only)
+
+Derived from `PulledFromReceiver(receiverSalt, token, tokenAmount, exchangeRate, usdtAmount)`.
+This records that the controller swept tokens out of a receiver and accounted them as a USDT-equivalent amount.
+
+On the hub side, these events are later relayed and reconciled to:
+- back previously pre-entitled deposits (for token == Tron USDT)
+- or create "profit volume" claims (for token != Tron USDT)$$;
+
+comment on table ctl.usdt_rebalanced_ledger is
+$$USDT rebalance ledger (append-only)
+
+Derived from `UsdtRebalanced(inAmount,outAmount,rebalancer)`.
+Represents controller-side bridging/rebalancing of USDT out of Tron, including the expected out amount after fees.$$;
+
+comment on table ctl.controller_usdt_transfer_ledger is
+$$Controller USDT transfer ledger (append-only)
+
+Derived from `ControllerUsdtTransfer(recipient,amount)`.
+Represents executor-driven USDT spends from the controller. Hub treats these as negative protocol PnL.$$;
+
+comment on table ctl.lp_tokens_withdrawn_ledger is
+$$LP token withdrawal ledger (append-only)
+
+Derived from `LpTokensWithdrawn(token,amount)`.
+Represents LP withdrawing tokens purchased during non-USDT sweeps from the controller.$$;
+
+comment on function ctl.apply_one(bigint, text, jsonb) is
+$$Controller projector: apply a single semantic controller event to derived
+tables
+
+Called only by `ctl.apply_catchup` after hash-chain continuity checks.
+Interprets `p_type` (e.g. `PulledFromReceiver`, `UsdtRebalanced`) and applies inserts/updates.$$;
+
+comment on function ctl.rollback_from(bigint) is
+$$Controller projector: rollback derived controller state from an event sequence
+(inclusive)
+
+Used to handle reorgs in the controller stream (Tron). Performs suffix-only rollback and rewinds the
+`chain.stream_cursor(stream='controller')` tip to either genesis or the last applied canonical event.$$;
+
+comment on function ctl.apply_catchup() is
+$$Controller projector: apply all contiguous canonical controller events not yet
+applied
+
+Advances `chain.stream_cursor(stream='controller')` by scanning `chain.event_appended` for canonical rows
+starting at `applied_through_seq + 1`, verifying `prev_tip` continuity, and applying each event via `ctl.apply_one`.$$;
+
+comment on function chain.on_event_appended_insert() is
+$$Ingestion trigger: apply projections after inserting new canonical
+EventAppended rows
+
+After ingestion inserts into `chain.event_appended`, this trigger checks which streams are affected
+and runs `hub.apply_catchup()` and/or `ctl.apply_catchup()` accordingly.$$;
+
+comment on function chain.on_event_appended_canonical_update() is
+$$Ingestion trigger: handle reorgs by rolling back and re-applying projections
+
+When ingestion flips `chain.event_appended.canonical` (true → false or vice versa), this trigger:
+- computes earliest affected `event_seq` per stream for true→false flips
+- runs `hub.rollback_from(seq)` / `ctl.rollback_from(seq)` as needed
+- re-runs catchup to bring projections back to the highest contiguous canonical prefix.$$;

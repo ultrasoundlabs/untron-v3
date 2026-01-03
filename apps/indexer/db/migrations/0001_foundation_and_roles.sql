@@ -124,7 +124,9 @@ begin
 end;
 $$;
 
-create or replace function chain.evm_address_to_bytes20(p_addr public.evm_address)
+create or replace function chain.evm_address_to_bytes20(
+    p_addr public.evm_address
+)
 returns bytea
 language sql
 immutable strict
@@ -133,7 +135,9 @@ as $$
   select decode(substr(p_addr, 3), 'hex')
 $$;
 
-create or replace function chain.tron_address_from_evm(p_addr public.evm_address)
+create or replace function chain.tron_address_from_evm(
+    p_addr public.evm_address
+)
 returns public.tron_address
 language sql
 immutable strict
@@ -188,3 +192,144 @@ end $$;
 
 -- Note: PostgREST roles/passwords/grants are intentionally managed out-of-band
 -- (e.g. via docker init scripts / IaC), not in migrations.
+
+-- =============================================================================
+-- POSTGREST / OPENAPI DOC COMMENTS
+-- =============================================================================
+-- PostgREST includes SQL comments in its OpenAPI output as `description`
+-- fields.
+-- We keep these comments extremely explicit because most API consumers will see
+-- only the generated OpenAPI (not the underlying protocol code).
+
+-- Schemas
+comment on schema chain is
+$$Untron indexer: internal ingestion + reorg engine (not public)
+
+Contains the canonical event streams (`chain.event_appended`) for both Untron V3 hub
+(EVM, `UntronV3Index`) and Tron controller (`UntronControllerIndex`), plus the projector
+cursor machinery that applies events to the `hub.*` and `ctl.*` derived tables.
+
+This schema is intentionally NOT exposed directly via PostgREST; only `api.*` views
+are exposed.$$;
+
+comment on schema hub is
+$$Untron indexer: hub projection (derived state, not public)
+
+Materialized tables derived from the canonical `hub` event stream, i.e. events emitted
+by the EVM-side `UntronV3Index` contract (the Untron V3 hub). Tables here represent
+either "current state" (versioned tables with `valid_to_seq is null`) or append-only
+ledgers for actions.$$;
+
+comment on schema ctl is
+$$Untron indexer: controller projection (derived state, not public)
+
+Materialized tables derived from the canonical `controller` event stream, i.e. events
+emitted by the Tron-side `UntronControllerIndex` contract (receiver sweeps + bridging).
+Tables here represent either "current state" (versioned tables) or append-only ledgers.$$;
+
+comment on schema api is
+$$Untron Indexed Data API
+
+Read-only PostgREST schema.
+
+All objects in this schema are views over internal tables in `chain`, `hub`, and `ctl`.
+The intent is to expose a stable HTTP API surface while allowing internal refactors of
+storage/projection logic.$$;
+
+comment on schema extensions is
+$$Untron indexer: extensions schema (internal)
+
+Holds PostgreSQL extensions (e.g. `pgcrypto`) used by the ingestion/projection logic.$$;
+
+-- Domains (types)
+comment on domain public.evm_address is
+$$EVM address (0x + 20 bytes) as text
+
+Used for all EVM-chain addresses in the indexer. Regex validation is applied.
+Note: we do NOT enforce EIP-55 checksum at the database layer; upstream components
+should normalize addresses.$$;
+
+comment on domain public.tron_address is
+$$Tron mainnet address (base58check) as text
+
+Used for all Tron addresses in the indexer. Regex validation is applied.
+Note: we do NOT verify base58check checksums at the database layer.$$;
+
+comment on domain public.chain_address is
+$$Multi-chain address string (EVM or Tron)
+
+Used when a column may contain either an EVM address (0x...) or a Tron base58 address (T...).
+This is primarily used for cross-chain "origin token/address" fields that come from protocol
+event metadata.$$;
+
+comment on domain public.bytes32_hex is
+$$0x-prefixed lowercase hex bytes32 string
+
+Used for hash-chain tips and other 32-byte values that are represented canonically as lowercase hex.$$;
+
+comment on domain public.txhash_hex is
+$$0x-prefixed lowercase hex transaction hash string
+
+Used for transaction hashes in the ingestion layer. Always stored as lowercase hex.$$;
+
+comment on domain public.bytes_hex is
+$$0x-prefixed lowercase hex bytes (variable length)
+
+Used for ABI blobs and payloads, including `abi_encoded_event_data` which must match exactly the
+bytes that were hashed onchain into Untron's event hash-chains.$$;
+
+comment on domain public.u256 is
+$$Unsigned 256-bit integer stored as NUMERIC(78,0)
+
+Solidity `uint256` does not fit in Postgres BIGINT, so we store it as NUMERIC with sufficient precision.
+This domain is used for onchain amounts, ids, nonces, and other uint256-valued fields.$$;
+
+comment on domain public.i256 is
+$$Signed 256-bit integer stored as NUMERIC(78,0)
+
+Used for signed deltas such as Untron protocol PnL changes emitted onchain.$$;
+
+-- Enum types
+comment on type chain.stream is
+$$Untron event stream identifier
+
+- `hub`        = EVM-side Untron V3 hub stream (events emitted via `UntronV3Index`)
+- `controller` = Tron-side controller stream (events emitted via `UntronControllerIndex`)$$;
+
+-- Helpers
+comment on function chain.tron_b58check_encode(bytea) is
+$$Encode a 20-byte raw EVM address into a Tron base58check address
+
+Input: 20-byte address (no 0x41 prefix).
+Process: prepend Tron prefix (0x41), compute checksum, then base58 encode.
+
+This is used to deterministically project Tron receiver addresses or event metadata into the DB
+in a human-readable format.$$;
+
+comment on function chain.evm_address_to_bytes20(public.evm_address) is
+$$Convert an EVM address text (0x...) into 20 raw bytes
+
+This is a helper for Tron address conversion and for deterministic receiver address computations.$$;
+
+comment on function chain.tron_address_from_evm(public.evm_address) is
+$$Convert an EVM address into the corresponding Tron base58check address
+(0x41 prefix)
+
+This is used when a protocol event or configuration value is stored in EVM form but must be
+represented as a Tron address in the indexed data.$$;
+
+comment on function chain.tron_address_from_text(text) is
+$$Parse a text value as either Tron base58 (T...) or EVM 0x... and return a
+Tron base58 address
+
+- If the input is already a Tron base58 address, returns it.
+- If the input is an EVM address, converts it to the Tron base58 form.
+
+This is used by projectors when they receive address strings from the worker in JSON form.$$;
+
+comment on function chain.require_json_keys(jsonb, text []) is
+$$Projection safety: require a set of keys to exist in a JSON args blob
+
+The worker ingests onchain events into `chain.event_appended.args` (JSON).
+Projection functions (`hub.apply_one`, `ctl.apply_one`) call this helper to fail loudly if the
+ingestion layer changed and a required key is missing, preventing silent state corruption.$$;
