@@ -4,7 +4,8 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: untron
-      AUTHENTICATOR_PASSWORD: ${AUTHENTICATOR_PASSWORD:?set AUTHENTICATOR_PASSWORD}
+      PGRST_AUTH_PASSWORD: ${PGRST_AUTH_PASSWORD:?set PGRST_AUTH_PASSWORD}
+      UI_READONLY_PASSWORD: ${UI_READONLY_PASSWORD:?set UI_READONLY_PASSWORD}
     ports:
       - "5433:5432"
     healthcheck:
@@ -25,10 +26,18 @@ services:
     ports:
       - "3001:3000"
     environment:
-      AUTHENTICATOR_PASSWORD: ${AUTHENTICATOR_PASSWORD:?set AUTHENTICATOR_PASSWORD}
-      PGRST_DB_URI: postgres://authenticator:${AUTHENTICATOR_PASSWORD}@db:5432/untron
+      PGRST_DB_URI: postgres://pgrst_authenticator:${PGRST_AUTH_PASSWORD}@db:5432/untron
       PGRST_DB_SCHEMAS: api
-      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_DB_ANON_ROLE: pgrst_anon
+
+  swagger:
+    image: swaggerapi/swagger-ui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # this URL is fetched by the browser, so we use the host-mapped port
+      API_URL: http://localhost:3001/
 
 volumes:
   db_data:
