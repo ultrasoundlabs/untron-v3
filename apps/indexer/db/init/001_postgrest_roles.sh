@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
-POSTGRES_DB="${POSTGRES_DB:-untron}"
-PGRST_AUTH_PASSWORD="${PGRST_AUTH_PASSWORD:-}"
+POSTGRES_EXPORTER_PASSWORD="${POSTGRES_EXPORTER_PASSWORD:-}"
 UI_READONLY_PASSWORD="${UI_READONLY_PASSWORD:-}"
+PGRST_AUTH_PASSWORD="${PGRST_AUTH_PASSWORD:-}"
 
-if [ -z "$PGRST_AUTH_PASSWORD" ]; then
-  echo "PGRST_AUTH_PASSWORD must be set" >&2
+if [ -z "$POSTGRES_EXPORTER_PASSWORD" ]; then
+  echo "POSTGRES_EXPORTER_PASSWORD must be set" >&2
   exit 1
 fi
+
 if [ -z "$UI_READONLY_PASSWORD" ]; then
   echo "UI_READONLY_PASSWORD must be set" >&2
+  exit 1
+fi
+if [ -z "$PGRST_AUTH_PASSWORD" ]; then
+  echo "PGRST_AUTH_PASSWORD must be set" >&2
   exit 1
 fi
 
 psql -v ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \
-  --dbname "$POSTGRES_DB" \
-  -v pgrst_auth_password="$PGRST_AUTH_PASSWORD" \
-  -v ui_readonly_password="$UI_READONLY_PASSWORD" <<'EOSQL' || exit 1
+  --dbname "untron" \
+  -v postgres_exporter_password="$POSTGRES_EXPORTER_PASSWORD" \
+  -v ui_readonly_password="$UI_READONLY_PASSWORD" \
+  -v pgrst_auth_password="$PGRST_AUTH_PASSWORD" <<'EOSQL' || exit 1
 
 -- 1) Schemas
 create schema if not exists api;
@@ -62,6 +68,23 @@ begin
 
   -- Optional safety: read-only transactions for UI login
   execute 'alter role ui_readonly set default_transaction_read_only = on';
+
+  -- Postgres exporter (metrics)
+  if not exists (select 1 from pg_roles where rolname = 'postgres_exporter') then
+    create role postgres_exporter login noinherit;
+  end if;
+
+  -- set password from a psql var you pass in (like you do for the others)
+  execute format('alter role postgres_exporter password %L', :'postgres_exporter_password');
+
+  -- give it monitoring privileges (Postgres >= 10)
+  grant pg_monitor to postgres_exporter;
+
+  -- because you revoked CONNECT from PUBLIC, you must grant it explicitly
+  grant connect on database untron to postgres_exporter;
+
+  -- optional safety
+  execute 'alter role postgres_exporter set default_transaction_read_only = on';
 end $$;
 
 -- 3) Baseline hardening (optional but I recommend it early)

@@ -3,9 +3,9 @@ services:
     image: postgres:18.1
     environment:
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: untron
-      PGRST_AUTH_PASSWORD: ${PGRST_AUTH_PASSWORD:?set PGRST_AUTH_PASSWORD}
+      POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD:?set POSTGRES_EXPORTER_PASSWORD}
       UI_READONLY_PASSWORD: ${UI_READONLY_PASSWORD:?set UI_READONLY_PASSWORD}
+      PGRST_AUTH_PASSWORD: ${PGRST_AUTH_PASSWORD:?set PGRST_AUTH_PASSWORD}
     ports:
       - "5433:5432"
     healthcheck:
@@ -14,30 +14,79 @@ services:
       timeout: 5s
       retries: 30
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
       - ../apps/indexer/db/init:/docker-entrypoint-initdb.d:ro
 
-  postgrest:
-    image: postgrest/postgrest
+  postgres_exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.18.1
+    environment:
+      DATA_SOURCE_NAME: postgres://postgres_exporter:${POSTGRES_EXPORTER_PASSWORD}@db:5432/untron?sslmode=disable
+    expose:
+      - "9187"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.142.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otelcol/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "9464:9464" # Prometheus scrape endpoint (/metrics)
+    depends_on:
+      - postgres_exporter
+
+  pgweb:
+    image: sosedoff/pgweb:0.17.0
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "3001:3000"
+      - "8081:8081"
+    environment:
+      DATABASE_URL: postgres://ui_readonly:${UI_READONLY_PASSWORD}@db:5432/untron?sslmode=disable
+    command: ["pgweb", "--bind=0.0.0.0", "--listen=8081"]
+
+  postgrest:
+    image: postgrest/postgrest:v14.2
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+      - "3001"
     environment:
       PGRST_DB_URI: postgres://pgrst_authenticator:${PGRST_AUTH_PASSWORD}@db:5432/untron
       PGRST_DB_SCHEMAS: api
       PGRST_DB_ANON_ROLE: pgrst_anon
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: 0.0.0.0
 
   swagger:
-    image: swaggerapi/swagger-ui
+    image: swaggerapi/swagger-ui:v5.31.0
     restart: unless-stopped
+    expose:
+      - "8080" # we expose swagger through caddy for clean PostgREST+Swagger multi-path
+    environment:
+      BASE_URL: /docs
+      SWAGGER_JSON_URL: /
+      VALIDATOR_URL: ""
+
+  gateway:
+    image: caddy:2.9.1
+    restart: unless-stopped
+    depends_on:
+      - postgrest
+      - swagger
     ports:
       - "8080:8080"
-    environment:
-      # this URL is fetched by the browser, so we use the host-mapped port
-      API_URL: http://localhost:3001/
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
 
 volumes:
   db_data:
