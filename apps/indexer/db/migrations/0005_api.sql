@@ -336,7 +336,7 @@ end $$;
 -- - COMMENT ON TABLE/VIEW/COLUMN to populate OpenAPI resource descriptions
 
 comment on schema api is
-$$Untron Indexed Data API
+$$Untron V3 Indexer API
 
 Read-only HTTP API served by PostgREST.
 

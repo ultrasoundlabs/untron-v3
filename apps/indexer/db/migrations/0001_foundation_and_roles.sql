@@ -228,7 +228,7 @@ emitted by the Tron-side `UntronControllerIndex` contract (receiver sweeps + bri
 Tables here represent either "current state" (versioned tables) or append-only ledgers.$$;
 
 comment on schema api is
-$$Untron Indexed Data API
+$$Untron V3 Indexer API
 
 Read-only PostgREST schema.
 
