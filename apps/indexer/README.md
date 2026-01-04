@@ -18,6 +18,21 @@ This indexer is a small Rust/Tokio + Alloy worker that:
 
 `pnpm --filter @untron/v3-indexer dev`
 
+## Run via Docker Compose
+
+`infra/docker-compose.yml` includes:
+
+- `db_migrate`: runs `apps/indexer` SQLx migrations against the Compose Postgres
+- `indexer` (profile `indexer`): runs the polling worker
+
+1) Bring up infra services:
+
+`docker compose -f infra/docker-compose.yml up -d`
+
+2) Start the indexer (requires RPC URLs in `infra/indexer.env`):
+
+`docker compose -f infra/docker-compose.yml --profile indexer up -d indexer`
+
 ## Env
 
 Common:

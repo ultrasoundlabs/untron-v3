@@ -18,6 +18,18 @@ services:
       - db_data:/var/lib/postgresql
       - ../apps/indexer/db/init:/docker-entrypoint-initdb.d:ro
 
+  db_migrate:
+    build:
+      context: ..
+      dockerfile: apps/indexer/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/untron
+    entrypoint: ["/usr/local/bin/migrate"]
+    command: ["--no-notify-pgrst"]
+    depends_on:
+      db:
+        condition: service_healthy
+
   postgres_exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.18.1
     environment:
@@ -58,6 +70,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_migrate:
+        condition: service_completed_successfully
     expose:
       - "3000"
       - "3001"
@@ -99,6 +113,22 @@ services:
       - "5000"
     depends_on:
       - postgrest
+
+  indexer:
+    build:
+      context: ..
+      dockerfile: apps/indexer/Dockerfile
+    restart: unless-stopped
+    profiles: ["indexer"]
+    env_file:
+      - ./indexer.env
+    depends_on:
+      db_migrate:
+        condition: service_completed_successfully
+      otelcol:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   gateway:
     image: caddy:2.9.1
