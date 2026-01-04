@@ -1,1 +1,0 @@
-export { publishTronLightClient } from "./publish";
