@@ -3,3 +3,4 @@ apps/backend/test/** linguist-vendored=true
 packages/contracts/test/** linguist-vendored=true
 packages/contracts/abi/** linguist-generated
 crates/bindings/** linguist-generated
+crates/indexer-client/** linguist-generated
