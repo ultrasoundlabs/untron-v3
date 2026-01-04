@@ -9,23 +9,23 @@ use tokio_util::sync::CancellationToken;
 use super::logs::ValidatedLog;
 
 #[derive(Clone)]
-pub(super) struct BlockTimestampCache {
+pub struct BlockTimestampCache {
     inner: LruCache<u64, u64>,
 }
 
 impl BlockTimestampCache {
-    pub(super) fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         let cap = NonZeroUsize::new(capacity.max(1)).expect("nonzero");
         Self {
             inner: LruCache::new(cap),
         }
     }
 
-    pub(super) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.inner.clear();
     }
 
-    pub(super) fn get(&mut self, block_number: u64) -> Option<u64> {
+    pub fn get(&mut self, block_number: u64) -> Option<u64> {
         self.inner.get(&block_number).copied()
     }
 
@@ -39,14 +39,14 @@ impl BlockTimestampCache {
 }
 
 #[derive(Clone)]
-pub(super) struct TimestampState {
-    pub(super) cache: BlockTimestampCache,
+pub struct TimestampState {
+    pub cache: BlockTimestampCache,
     header_sem: Arc<Semaphore>,
     header_concurrency: usize,
 }
 
 impl TimestampState {
-    pub(super) fn new(cache_size: usize, block_header_concurrency: usize) -> Self {
+    pub fn new(cache_size: usize, block_header_concurrency: usize) -> Self {
         let header_concurrency = block_header_concurrency.max(1);
         Self {
             cache: BlockTimestampCache::new(cache_size),
@@ -55,7 +55,7 @@ impl TimestampState {
         }
     }
 
-    pub(super) async fn populate_timestamps(
+    pub async fn populate_timestamps(
         &mut self,
         shutdown: &CancellationToken,
         provider: &alloy::providers::DynProvider,
@@ -94,7 +94,6 @@ impl TimestampState {
                     _ = shutdown.cancelled() => Ok::<Option<(u64, u64)>, anyhow::Error>(None),
                     permit = sem.acquire_owned() => {
                         let _permit = permit.expect("semaphore closed");
-                        let start = std::time::Instant::now();
                         let block = provider
                             .get_block_by_number(alloy::rpc::types::BlockNumberOrTag::Number(block_number))
                             .await
@@ -102,7 +101,6 @@ impl TimestampState {
                         let Some(block) = block else {
                             anyhow::bail!("block {block_number} not found");
                         };
-                        let _elapsed_ms = start.elapsed().as_millis() as u64;
                         Ok(Some((block_number, normalize_timestamp_seconds(block.header.inner.timestamp))))
                     }
                 }
@@ -123,11 +121,18 @@ impl TimestampState {
     }
 }
 
-pub(super) fn normalize_timestamp_seconds(timestamp: u64) -> u64 {
-    // Guardrail for chains/endpoints that return milliseconds since epoch.
+pub fn normalize_timestamp_seconds(timestamp: u64) -> u64 {
     if timestamp >= 20_000_000_000 {
         timestamp / 1000
     } else {
         timestamp
     }
+}
+
+pub fn block_timestamp_for_log(cache: &mut BlockTimestampCache, log: &ValidatedLog) -> Result<u64> {
+    let block_number = log.block_number;
+    log.block_timestamp
+        .map(normalize_timestamp_seconds)
+        .or_else(|| cache.get(block_number))
+        .with_context(|| format!("missing block_timestamp for block {block_number}"))
 }

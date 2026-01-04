@@ -6,6 +6,7 @@ This indexer is a small Rust/Tokio + Alloy worker that:
 - Enriches logs with block timestamp
 - Bulk upserts into Postgres (`chain.event_appended`, `chain.controller_tip_proofs`)
 - Detects reorgs by block-hash mismatch and invalidates via `canonical=false`
+- Optionally indexes TRC-20 USDT `Transfer` logs into deterministic receiver addresses on the controller chain
 
 ## Run
 
@@ -64,9 +65,20 @@ DB pool:
 
 - `DB_MAX_CONNECTIONS` (default `5`)
 
-## CLI
+Receiver USDT transfer indexing (controller chain):
 
-- `cargo run -p indexer -- --stream hub|controller|all`
+- `TRC20_ENABLED` (default `true`)
+- `PREKNOWN_RECEIVER_SALTS` (optional; comma/space separated `0x…` bytes32 salts)
+- `UNTRON_CONTROLLER_CREATE2_PREFIX` (default `0x41`; set `0xff` for EVM-only test chains)
+- `TRC20_POLL_INTERVAL_SECS` (default `2`)
+- `TRC20_CHUNK_BLOCKS` (default `2000`)
+- `TRC20_TO_BATCH_SIZE` (default `50`)
+- `TRC20_BACKFILL_CONCURRENCY` (default `2`)
+- `TRC20_DISCOVERY_INTERVAL_SECS` (default `30`)
+
+## Stream selection
+
+- `INDEXER_STREAM` (optional: `hub` | `controller` | `all`; default: `all`)
 
 ## Useful logging presets
 

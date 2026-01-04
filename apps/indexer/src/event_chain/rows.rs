@@ -1,7 +1,7 @@
 use crate::{
     config::Stream,
-    db::{ControllerTipProofRow, EventAppendedRow},
-    decode, domain,
+    db::event_chain::{ControllerTipProofRow, EventAppendedRow},
+    domain,
 };
 use alloy::primitives::U256;
 use anyhow::{Context, Result};
@@ -9,7 +9,8 @@ use untron_v3_bindings::{
     untron_controller_index::UntronControllerIndex, untron_v3_index::UntronV3Index,
 };
 
-use super::{logs::ValidatedLog, state::PollState, timestamps};
+use super::{decode, state::PollState};
+use crate::shared::{logs::ValidatedLog, timestamps};
 
 pub(super) fn decode_event_appended(
     state: &mut PollState,
@@ -23,7 +24,7 @@ pub(super) fn decode_event_appended(
 
 fn decode_hub_event_appended(state: &mut PollState, log: ValidatedLog) -> Result<EventAppendedRow> {
     let block_number = log.block_number;
-    let block_timestamp = block_timestamp_for(&mut state.timestamps.cache, &log)?;
+    let block_timestamp = timestamps::block_timestamp_for_log(&mut state.timestamps.cache, &log)?;
 
     let decoded = log
         .log
@@ -48,8 +49,8 @@ fn decode_hub_event_appended(state: &mut PollState, log: ValidatedLog) -> Result
             .context("block_number out of range for bigint")?,
         block_timestamp: i64::try_from(block_timestamp)
             .context("block_timestamp out of range for bigint")?,
-        block_hash: log.block_hash,
-        tx_hash: log.tx_hash,
+        block_hash: domain::BlockHash(log.block_hash),
+        tx_hash: domain::TxHash(log.tx_hash),
         log_index: i32::try_from(log.log_index).context("log_index out of range for int4")?,
         event_seq: i64::try_from(event_seq).context("event_seq out of range for bigint")?,
         prev_tip: domain::Tip(prev_tip),
@@ -66,7 +67,7 @@ fn decode_controller_event_appended(
     log: ValidatedLog,
 ) -> Result<EventAppendedRow> {
     let block_number = log.block_number;
-    let block_timestamp = block_timestamp_for(&mut state.timestamps.cache, &log)?;
+    let block_timestamp = timestamps::block_timestamp_for_log(&mut state.timestamps.cache, &log)?;
 
     let decoded = log
         .log
@@ -92,9 +93,9 @@ fn decode_controller_event_appended(
             .context("block_number out of range for bigint")?,
         block_timestamp: i64::try_from(block_timestamp)
             .context("block_timestamp out of range for bigint")?,
-        block_hash: log.block_hash,
+        block_hash: domain::BlockHash(log.block_hash),
 
-        tx_hash: log.tx_hash,
+        tx_hash: domain::TxHash(log.tx_hash),
         log_index: i32::try_from(log.log_index).context("log_index out of range for int4")?,
 
         event_seq: i64::try_from(event_seq).context("event_seq out of range for bigint")?,
@@ -118,7 +119,7 @@ pub(super) fn decode_tip_proof(
     };
 
     let block_number = log.block_number;
-    let block_timestamp = block_timestamp_for(&mut state.timestamps.cache, &log)?;
+    let block_timestamp = timestamps::block_timestamp_for_log(&mut state.timestamps.cache, &log)?;
 
     let decoded = log
         .log
@@ -132,23 +133,12 @@ pub(super) fn decode_tip_proof(
             .context("block_number out of range for bigint")?,
         block_timestamp: i64::try_from(block_timestamp)
             .context("block_timestamp out of range for bigint")?,
-        block_hash: log.block_hash,
-        tx_hash: log.tx_hash,
+        block_hash: domain::BlockHash(log.block_hash),
+        tx_hash: domain::TxHash(log.tx_hash),
         log_index: i32::try_from(log.log_index).context("log_index out of range for int4")?,
-        caller: domain::Caller(decoded.inner.data.caller),
+        caller: domain::TronAddress::from_evm(decoded.inner.data.caller),
         proved_tip: domain::Tip(decoded.inner.data.eventChainTip),
     })
-}
-
-fn block_timestamp_for(
-    cache: &mut timestamps::BlockTimestampCache,
-    log: &ValidatedLog,
-) -> Result<u64> {
-    let block_number = log.block_number;
-    log.block_timestamp
-        .map(timestamps::normalize_timestamp_seconds)
-        .or_else(|| cache.get(block_number))
-        .with_context(|| format!("missing block_timestamp for block {block_number}"))
 }
 
 fn u256_to_u64(value: U256) -> Result<u64> {

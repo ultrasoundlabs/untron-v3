@@ -1,13 +1,12 @@
 mod config;
 mod db;
-mod decode;
 mod domain;
+mod event_chain;
+mod metrics;
 mod observability;
-mod poller;
-mod reorg;
+mod receiver_usdt;
 mod rpc;
-mod telemetry;
-mod util;
+mod shared;
 
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
@@ -23,7 +22,7 @@ async fn main() -> Result<()> {
     let config::AppConfig {
         database_url,
         streams,
-        retry,
+        receiver_usdt: receiver_usdt_cfg,
         db_max_connections,
         block_header_concurrency,
         block_timestamp_cache_size,
@@ -37,6 +36,12 @@ async fn main() -> Result<()> {
 
     let mut join_set = tokio::task::JoinSet::new();
 
+    // If the controller stream is configured, we also run the TRC-20 receiver transfer indexer
+    // using the same RPC providers and deployment block.
+    let mut controller_for_receiver_usdt: Option<config::StreamConfig> = None;
+    let mut controller_providers_for_receiver_usdt: Option<rpc::RpcProviders> = None;
+    let mut controller_resolved_for_receiver_usdt: Option<db::ResolvedStream> = None;
+
     for stream_cfg in streams {
         let dbh = dbh.clone();
 
@@ -48,12 +53,18 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-        let providers = rpc::build_providers(&stream_cfg.rpc_urls, &retry).await?;
+        let providers = rpc::RpcProviders::from_config(&stream_cfg.rpc).await?;
 
         let shutdown = shutdown.clone();
 
+        if stream_cfg.stream == config::Stream::Controller {
+            controller_for_receiver_usdt = Some(stream_cfg.clone());
+            controller_providers_for_receiver_usdt = Some(providers.clone());
+            controller_resolved_for_receiver_usdt = Some(resolved.clone());
+        }
+
         join_set.spawn(async move {
-            poller::run_stream(poller::RunStreamParams {
+            event_chain::run_stream(event_chain::RunStreamParams {
                 dbh,
                 cfg: stream_cfg,
                 resolved,
@@ -65,6 +76,33 @@ async fn main() -> Result<()> {
             })
             .await
         });
+    }
+
+    if let (Some(cfg), Some(providers), Some(resolved)) = (
+        controller_for_receiver_usdt,
+        controller_providers_for_receiver_usdt,
+        controller_resolved_for_receiver_usdt,
+    ) {
+        let dbh = dbh.clone();
+        let shutdown = shutdown.clone();
+
+        // Receiver USDT indexer has its own env-driven knobs; it only requires controller RPC access + DB.
+        if receiver_usdt_cfg.enabled {
+            join_set.spawn(async move {
+                receiver_usdt::run_receiver_usdt_indexer(receiver_usdt::RunReceiverUsdtParams {
+                    dbh,
+                    controller_cfg: cfg,
+                    resolved,
+                    providers,
+                    receiver_usdt_cfg,
+                    block_header_concurrency,
+                    block_timestamp_cache_size,
+                    progress_interval,
+                    shutdown,
+                })
+                .await
+            });
+        }
     }
 
     info!("indexer started");

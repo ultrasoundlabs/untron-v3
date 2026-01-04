@@ -1,19 +1,18 @@
 use anyhow::{Context, Result};
 
-use crate::domain;
-
 #[derive(Clone)]
-pub(super) struct ValidatedLog {
-    pub(super) log: alloy::rpc::types::Log,
-    pub(super) block_number: u64,
-    pub(super) block_hash: domain::BlockHash,
-    pub(super) tx_hash: domain::TxHash,
-    pub(super) log_index: u32,
-    pub(super) block_timestamp: Option<u64>,
+pub struct ValidatedLog {
+    pub log: alloy::rpc::types::Log,
+    pub block_number: u64,
+    pub block_hash: alloy::primitives::B256,
+    pub tx_hash: alloy::primitives::B256,
+    pub log_index: u32,
+    pub block_timestamp: Option<u64>,
 }
 
-pub(super) fn validate_logs(logs: Vec<alloy::rpc::types::Log>) -> Result<Vec<ValidatedLog>> {
-    logs.into_iter()
+pub fn validate_and_sort_logs(logs: Vec<alloy::rpc::types::Log>) -> Result<Vec<ValidatedLog>> {
+    let mut logs: Vec<ValidatedLog> = logs
+        .into_iter()
         .map(|l| {
             let block_timestamp = l.block_timestamp;
             let block_number = l
@@ -32,11 +31,13 @@ pub(super) fn validate_logs(logs: Vec<alloy::rpc::types::Log>) -> Result<Vec<Val
             Ok(ValidatedLog {
                 log: l,
                 block_number,
-                block_hash: domain::BlockHash(block_hash),
-                tx_hash: domain::TxHash(tx_hash),
+                block_hash,
+                tx_hash,
                 log_index,
                 block_timestamp,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    logs.sort_by_key(|l| (l.block_number, l.log_index));
+    Ok(logs)
 }

@@ -1,7 +1,7 @@
 use crate::{config::Stream, domain};
 use alloy::primitives::Address;
 
-use crate::telemetry::StreamTelemetry;
+use crate::metrics::StreamTelemetry;
 
 #[derive(Clone)]
 pub(super) struct PollState {
@@ -19,7 +19,7 @@ pub(super) struct PollState {
     pub(super) provider: alloy::providers::DynProvider,
     pub(super) pinned_providers: Vec<alloy::providers::DynProvider>,
 
-    pub(super) timestamps: super::timestamps::TimestampState,
+    pub(super) timestamps: crate::shared::timestamps::TimestampState,
 
     pub(super) telemetry: StreamTelemetry,
 }

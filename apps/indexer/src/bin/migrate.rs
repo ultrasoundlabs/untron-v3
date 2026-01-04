@@ -1,25 +1,47 @@
 use anyhow::{Context, Result};
-use clap::{ArgAction, Parser};
 use sqlx::Postgres;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 
-#[derive(Debug, Parser)]
-#[command(name = "migrate", disable_help_subcommand = true)]
+#[derive(Debug, Clone)]
 struct Args {
-    #[arg(long = "no-notify-pgrst", action = ArgAction::SetFalse, default_value_t = true)]
     notify_pgrst: bool,
-
-    #[arg(long, default_value = "pgrst")]
     pgrst_channel: String,
-
-    #[arg(long, default_value = "reload schema")]
     pgrst_payload: String,
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Self {
+            notify_pgrst: true,
+            pgrst_channel: "pgrst".to_string(),
+            pgrst_payload: "reload schema".to_string(),
+        }
+    }
+}
+
+fn parse_args() -> Result<Args> {
+    let mut out = Args::default();
+    let mut it = env::args().skip(1);
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--no-notify-pgrst" => out.notify_pgrst = false,
+            "--notify-pgrst" => out.notify_pgrst = true,
+            "--pgrst-channel" => {
+                out.pgrst_channel = it.next().context("missing value for --pgrst-channel")?;
+            }
+            "--pgrst-payload" => {
+                out.pgrst_payload = it.next().context("missing value for --pgrst-payload")?;
+            }
+            other => anyhow::bail!("unknown arg: {other}"),
+        }
+    }
+    Ok(out)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = parse_args()?;
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
 
     let pool = PgPoolOptions::new()

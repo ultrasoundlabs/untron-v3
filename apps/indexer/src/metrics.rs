@@ -114,7 +114,7 @@ impl StreamTelemetry {
             .u64_observable_gauge("indexer.head_block")
             .with_description("Latest chain head block number")
             .with_callback(move |observer| {
-                observer.observe(head_block_clone.load(Ordering::Relaxed), &attrs_clone)
+                observer.observe(head_block_clone.load(Ordering::Relaxed), &attrs_clone);
             })
             .build();
 
@@ -124,7 +124,7 @@ impl StreamTelemetry {
             .u64_observable_gauge("indexer.safe_head_block")
             .with_description("Latest safe head (head - confirmations)")
             .with_callback(move |observer| {
-                observer.observe(safe_head_block_clone.load(Ordering::Relaxed), &attrs_clone)
+                observer.observe(safe_head_block_clone.load(Ordering::Relaxed), &attrs_clone);
             })
             .build();
 
@@ -134,7 +134,7 @@ impl StreamTelemetry {
             .u64_observable_gauge("indexer.next_block")
             .with_description("Next block number to index")
             .with_callback(move |observer| {
-                observer.observe(next_block_clone.load(Ordering::Relaxed), &attrs_clone)
+                observer.observe(next_block_clone.load(Ordering::Relaxed), &attrs_clone);
             })
             .build();
 
@@ -144,7 +144,7 @@ impl StreamTelemetry {
             .u64_observable_gauge("indexer.backlog_blocks")
             .with_description("Approx backlog size in blocks (safe_head - next_block)")
             .with_callback(move |observer| {
-                observer.observe(backlog_blocks_clone.load(Ordering::Relaxed), &attrs_clone)
+                observer.observe(backlog_blocks_clone.load(Ordering::Relaxed), &attrs_clone);
             })
             .build();
 
@@ -154,7 +154,7 @@ impl StreamTelemetry {
             .u64_observable_gauge("indexer.chunk_blocks")
             .with_description("Current block chunk size for eth_getLogs")
             .with_callback(move |observer| {
-                observer.observe(chunk_blocks_clone.load(Ordering::Relaxed), &attrs_clone)
+                observer.observe(chunk_blocks_clone.load(Ordering::Relaxed), &attrs_clone);
             })
             .build();
 

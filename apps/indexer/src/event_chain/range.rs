@@ -1,30 +1,15 @@
-use crate::{config::Stream, db};
+use crate::{config::Stream, db, shared::progress::RangeMetrics};
 use alloy::{providers::Provider, rpc::types::Filter, sol_types::SolEvent};
 use anyhow::{Context, Result};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
-use tracing::Instrument;
-use tracing::debug;
+use tracing::{Instrument, debug};
 use untron_v3_bindings::{
     untron_controller_index::UntronControllerIndex, untron_v3_index::UntronV3Index,
 };
 
-use super::{helpers, logs::validate_logs, rows, state::PollState};
-
-#[derive(Debug, Clone)]
-pub(super) struct RangeMetrics {
-    pub(super) from_block: u64,
-    pub(super) to_block: u64,
-    pub(super) event_logs: usize,
-    pub(super) proof_logs: usize,
-
-    pub(super) rpc_event_ms: u64,
-    pub(super) rpc_proof_ms: u64,
-    pub(super) ts_ms: u64,
-    pub(super) decode_ms: u64,
-    pub(super) db_ms: u64,
-    pub(super) total_ms: u64,
-}
+use super::{rows, state::PollState};
+use crate::shared::{r#async, logs};
 
 pub(super) async fn process_range(
     dbh: &db::Db,
@@ -66,27 +51,23 @@ pub(super) async fn process_range_with_provider(
             .to_block(to_block)
             .event_signature(event_appended_topic0);
 
-        let rpc_event_start = Instant::now();
-        let event_logs = helpers::await_or_cancel(shutdown, async {
-            match provider.get_logs(&filter).await {
-                Ok(v) => Ok(v),
-                Err(e) => {
+        let Some((raw_event_logs, rpc_event_ms)) =
+            r#async::timed_await_or_cancel(shutdown, async {
+                provider.get_logs(&filter).await.map_err(|e| {
                     state.telemetry.rpc_error("eth_getLogs_EventAppended");
-                    Err(anyhow::Error::new(e).context(format!(
+                    anyhow::Error::new(e).context(format!(
                         "eth_getLogs EventAppended [{from_block}..{to_block}]"
-                    )))
-                }
-            }
-        })
-        .await?;
-        let rpc_event_ms = rpc_event_start.elapsed().as_millis() as u64;
+                    ))
+                })
+            })
+            .await?
+        else {
+            return Ok(None);
+        };
+        let event_logs = logs::validate_and_sort_logs(raw_event_logs)?;
         state
             .telemetry
             .observe_rpc_latency_ms("eth_getLogs_EventAppended", rpc_event_ms);
-        let Some(event_logs) = event_logs else {
-            return Ok(None);
-        };
-        let event_logs = event_logs;
 
         let mut proof_logs = Vec::new();
         let mut rpc_proof_ms = 0u64;
@@ -96,47 +77,41 @@ pub(super) async fn process_range_with_provider(
                 .from_block(from_block)
                 .to_block(to_block)
                 .event_signature(UntronControllerIndex::IsEventChainTipCalled::SIGNATURE_HASH);
-            let rpc_proof_start = Instant::now();
-            let maybe = helpers::await_or_cancel(shutdown, async {
-                match provider.get_logs(&proof_filter).await {
-                    Ok(v) => Ok(v),
-                    Err(e) => {
-                        state
-                            .telemetry
-                            .rpc_error("eth_getLogs_IsEventChainTipCalled");
-                        Err(anyhow::Error::new(e).context(format!(
-                            "eth_getLogs IsEventChainTipCalled [{from_block}..{to_block}]"
-                        )))
-                    }
-                }
+            let Some((raw_proof_logs, ms)) = r#async::timed_await_or_cancel(shutdown, async {
+                provider.get_logs(&proof_filter).await.map_err(|e| {
+                    state
+                        .telemetry
+                        .rpc_error("eth_getLogs_IsEventChainTipCalled");
+                    anyhow::Error::new(e).context(format!(
+                        "eth_getLogs IsEventChainTipCalled [{from_block}..{to_block}]"
+                    ))
+                })
             })
-            .await?;
-            rpc_proof_ms = rpc_proof_start.elapsed().as_millis() as u64;
+            .await?
+            else {
+                return Ok(None);
+            };
+            proof_logs = logs::validate_and_sort_logs(raw_proof_logs)?;
+            rpc_proof_ms = ms;
             state
                 .telemetry
                 .observe_rpc_latency_ms("eth_getLogs_IsEventChainTipCalled", rpc_proof_ms);
-            let Some(logs) = maybe else {
-                return Ok(None);
-            };
-            proof_logs = logs;
         }
 
-        let mut event_logs = validate_logs(event_logs)?;
-        let mut proof_logs = validate_logs(proof_logs)?;
-
-        event_logs.sort_by_key(|l| (l.block_number, l.log_index));
-        proof_logs.sort_by_key(|l| (l.block_number, l.log_index));
-
-        let ts_start = Instant::now();
-        state
-            .timestamps
-            .populate_timestamps(shutdown, provider, &event_logs, &proof_logs)
-            .await
-            .context("timestamp enrichment")?;
+        let Some(((), ts_ms)) = r#async::timed_await_or_cancel(shutdown, async {
+            state
+                .timestamps
+                .populate_timestamps(shutdown, provider, &event_logs, &proof_logs)
+                .await
+                .context("timestamp enrichment")
+        })
+        .await?
+        else {
+            return Ok(None);
+        };
         if shutdown.is_cancelled() {
             return Ok(None);
         }
-        let ts_ms = ts_start.elapsed().as_millis() as u64;
         state.telemetry.observe_timestamp_enrichment_ms(ts_ms);
 
         let decode_start = Instant::now();
@@ -154,8 +129,8 @@ pub(super) async fn process_range_with_provider(
         let decode_ms = decode_start.elapsed().as_millis() as u64;
 
         let db_start = Instant::now();
-        let inserted = helpers::await_or_cancel(shutdown, async {
-            match db::insert_batch(dbh, &event_rows, &proof_rows).await {
+        let inserted = r#async::await_or_cancel(shutdown, async {
+            match db::event_chain::insert_batch(dbh, &event_rows, &proof_rows).await {
                 Ok(()) => Ok(()),
                 Err(e) => {
                     state.telemetry.db_error("insert_batch");
@@ -179,27 +154,38 @@ pub(super) async fn process_range_with_provider(
                 .rows_upserted("chain.controller_tip_proofs", proof_rows.len() as u64);
         }
 
+        let event_logs_count = event_rows.len();
+        let proof_logs_count = proof_rows.len();
+        let total_ms = total_start.elapsed().as_millis() as u64;
+
+        state.telemetry.observe_range(
+            from_block,
+            to_block,
+            event_logs_count as u64,
+            proof_logs_count as u64,
+            total_ms,
+        );
+
         let metrics = RangeMetrics {
             from_block,
             to_block,
-            event_logs: event_rows.len(),
-            proof_logs: proof_rows.len(),
-            rpc_event_ms,
-            rpc_proof_ms,
+            logs: (event_logs_count + proof_logs_count) as u64,
+            rows: (event_logs_count + proof_logs_count) as u64,
+            rpc_ms: rpc_event_ms.saturating_add(rpc_proof_ms),
             ts_ms,
             decode_ms,
             db_ms,
-            total_ms: total_start.elapsed().as_millis() as u64,
+            total_ms,
         };
 
         debug!(
             stream = state.stream.as_str(),
             from_block,
             to_block,
-            event_logs = metrics.event_logs,
-            proof_logs = metrics.proof_logs,
-            rpc_event_ms = metrics.rpc_event_ms,
-            rpc_proof_ms = metrics.rpc_proof_ms,
+            event_logs = event_logs_count,
+            proof_logs = proof_logs_count,
+            rpc_event_ms,
+            rpc_proof_ms,
             ts_ms = metrics.ts_ms,
             decode_ms = metrics.decode_ms,
             db_ms = metrics.db_ms,

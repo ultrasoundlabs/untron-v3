@@ -7,9 +7,10 @@ edition = "2024"
 alloy = { version = "1.2.1", features = ["json", "serde"] }
 anyhow = "1.0.100"
 bs58 = { version = "0.5.1", features = ["check"] }
-clap = { version = "4.5.53", features = ["derive", "env"] }
 dotenvy = "0.15.7"
+envy = "0.4.2"
 futures = "0.3.31"
+hex = "0.4.3"
 lru = "0.13.0"
 opentelemetry = "0.31.0"
 opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic"] }

@@ -10,7 +10,7 @@ pub async fn detect_reorg_start(
     stream: Stream,
     scan_depth: u64,
 ) -> Result<Option<u64>> {
-    let Some(latest) = db::latest_canonical_block_hash(dbh, stream).await? else {
+    let Some(latest) = db::event_chain::latest_canonical_block_hash(dbh, stream).await? else {
         return Ok(None);
     };
 
@@ -58,7 +58,8 @@ pub async fn detect_reorg_start(
     }
 
     let scan_depth = scan_depth.max(1);
-    let mut stored = db::recent_canonical_block_hashes(dbh, stream, scan_depth).await?;
+    let mut stored =
+        db::event_chain::recent_canonical_block_hashes(dbh, stream, scan_depth).await?;
     if stored.is_empty() {
         // Shouldn't happen because `latest` exists, but handle defensively.
         return Ok(Some(latest.block_number));
@@ -132,7 +133,7 @@ async fn get_block_hash_opt(
 
 // Returns `Some(reason)` when a mismatch is not confirmed (and we should avoid invalidation).
 async fn mismatch_not_confirmed(
-    latest: &db::StoredBlockHash,
+    latest: &db::event_chain::StoredBlockHash,
     pinned_providers: &[alloy::providers::DynProvider],
 ) -> Result<Option<&'static str>> {
     if pinned_providers.is_empty() {

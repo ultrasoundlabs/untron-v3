@@ -1,4 +1,3 @@
-use crate::config::RetryConfig;
 use alloy::{
     providers::{DynProvider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
@@ -8,27 +7,46 @@ use anyhow::{Context, Result};
 use std::num::NonZeroUsize;
 use tower::ServiceBuilder;
 
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_rate_limit_retries: u32,
+    pub initial_backoff_ms: u64,
+    pub compute_units_per_second: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcConfig {
+    pub urls: Vec<String>,
+    pub retry: RetryConfig,
+}
+
 #[derive(Clone)]
 pub struct RpcProviders {
     pub fallback: DynProvider,
     pub pinned: Vec<DynProvider>,
 }
 
-pub async fn build_providers(rpc_urls: &[String], retry: &RetryConfig) -> Result<RpcProviders> {
-    if rpc_urls.is_empty() {
-        anyhow::bail!("rpc_urls must not be empty");
+impl RpcProviders {
+    pub async fn from_config(cfg: &RpcConfig) -> Result<Self> {
+        build_providers(cfg).await
+    }
+}
+
+pub(crate) async fn build_providers(cfg: &RpcConfig) -> Result<RpcProviders> {
+    if cfg.urls.is_empty() {
+        anyhow::bail!("rpc urls must not be empty");
     }
 
     let retry_layer = RetryBackoffLayer::new(
-        retry.max_rate_limit_retries,
-        retry.initial_backoff_ms,
-        retry.compute_units_per_second,
+        cfg.retry.max_rate_limit_retries,
+        cfg.retry.initial_backoff_ms,
+        cfg.retry.compute_units_per_second,
     );
 
-    let mut pinned = Vec::with_capacity(rpc_urls.len());
-    let mut transports = Vec::with_capacity(rpc_urls.len());
+    let mut pinned = Vec::with_capacity(cfg.urls.len());
+    let mut transports = Vec::with_capacity(cfg.urls.len());
 
-    for url in rpc_urls {
+    for url in &cfg.urls {
         let transport = BuiltInConnectionString::connect(url)
             .await
             .with_context(|| format!("connect transport: {url}"))?;
