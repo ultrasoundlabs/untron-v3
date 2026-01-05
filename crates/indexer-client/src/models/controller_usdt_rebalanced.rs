@@ -16,13 +16,13 @@ use serde::{Deserialize, Serialize};
 pub struct ControllerUsdtRebalanced {
     /// Controller event sequence for this rebalance  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// USDT amount bridged in (uint256)
     #[serde(rename = "in_amount", skip_serializing_if = "Option::is_none")]
-    pub in_amount: Option<f64>,
+    pub in_amount: Option<serde_json::Number>,
     /// Expected USDT amount out on destination (uint256)
     #[serde(rename = "out_amount", skip_serializing_if = "Option::is_none")]
-    pub out_amount: Option<f64>,
+    pub out_amount: Option<serde_json::Number>,
     /// Rebalancer used (Tron address)
     #[serde(rename = "rebalancer", skip_serializing_if = "Option::is_none")]
     pub rebalancer: Option<String>,

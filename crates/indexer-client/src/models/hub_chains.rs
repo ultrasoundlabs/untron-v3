@@ -16,12 +16,12 @@ use serde::{Deserialize, Serialize};
 pub struct HubChains {
     /// Destination EVM chainId  Note: This is a Primary Key.<pk/>
     #[serde(rename = "target_chain_id", skip_serializing_if = "Option::is_none")]
-    pub target_chain_id: Option<i32>,
+    pub target_chain_id: Option<i64>,
     /// Event sequence at which this deprecation flag became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Whether this destination chain is deprecated for new payout configs
     #[serde(rename = "deprecated", skip_serializing_if = "Option::is_none")]
     pub deprecated: Option<bool>,

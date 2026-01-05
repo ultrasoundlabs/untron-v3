@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 pub struct HubControllerProcessed {
     /// Hub event sequence for this controller processing record  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// Index within the hub's controller event queue that was processed
     #[serde(rename = "event_index", skip_serializing_if = "Option::is_none")]
-    pub event_index: Option<f64>,
+    pub event_index: Option<serde_json::Number>,
     /// Controller event block number (as embedded in the hub event payload)
     #[serde(rename = "block_number", skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<i32>,
+    pub block_number: Option<i64>,
     /// Controller event block timestamp (seconds) (as embedded in the hub event payload)
     #[serde(rename = "block_timestamp", skip_serializing_if = "Option::is_none")]
-    pub block_timestamp: Option<i32>,
+    pub block_timestamp: Option<i64>,
     /// Controller event signature hash (bytes32 hex)
     #[serde(rename = "event_signature", skip_serializing_if = "Option::is_none")]
     pub event_signature: Option<String>,

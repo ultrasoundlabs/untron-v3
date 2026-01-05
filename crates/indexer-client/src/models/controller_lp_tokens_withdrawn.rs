@@ -16,13 +16,13 @@ use serde::{Deserialize, Serialize};
 pub struct ControllerLpTokensWithdrawn {
     /// Controller event sequence for this LP withdrawal  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// Token withdrawn by LP (Tron address)
     #[serde(rename = "token", skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// Amount withdrawn (uint256)
     #[serde(rename = "amount", skip_serializing_if = "Option::is_none")]
-    pub amount: Option<f64>,
+    pub amount: Option<serde_json::Number>,
 }
 
 impl ControllerLpTokensWithdrawn {

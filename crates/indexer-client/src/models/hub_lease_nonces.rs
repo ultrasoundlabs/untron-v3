@@ -16,15 +16,15 @@ use serde::{Deserialize, Serialize};
 pub struct HubLeaseNonces {
     /// Lease id  Note: This is a Primary Key.<pk/>
     #[serde(rename = "lease_id", skip_serializing_if = "Option::is_none")]
-    pub lease_id: Option<f64>,
+    pub lease_id: Option<serde_json::Number>,
     /// Event sequence at which this nonce became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Current nonce value used for EIP-712 signature replay protection
     #[serde(rename = "nonce", skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<f64>,
+    pub nonce: Option<serde_json::Number>,
 }
 
 impl HubLeaseNonces {

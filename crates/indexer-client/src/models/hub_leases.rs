@@ -16,18 +16,18 @@ use serde::{Deserialize, Serialize};
 pub struct HubLeases {
     /// Global lease id (uint256)  Note: This is a Primary Key.<pk/>
     #[serde(rename = "lease_id", skip_serializing_if = "Option::is_none")]
-    pub lease_id: Option<f64>,
+    pub lease_id: Option<serde_json::Number>,
     /// Event sequence at which this lease became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Receiver salt (bytes32) used to derive deterministic Tron receiver addresses
     #[serde(rename = "receiver_salt", skip_serializing_if = "Option::is_none")]
     pub receiver_salt: Option<String>,
     /// Per-receiver lease index (0-based) for timeline ordering
     #[serde(rename = "lease_number", skip_serializing_if = "Option::is_none")]
-    pub lease_number: Option<f64>,
+    pub lease_number: Option<serde_json::Number>,
     /// Realtor (EVM) that created this lease
     #[serde(rename = "realtor", skip_serializing_if = "Option::is_none")]
     pub realtor: Option<String>,
@@ -36,16 +36,16 @@ pub struct HubLeases {
     pub lessee: Option<String>,
     /// Lease start time on the hub chain (seconds)
     #[serde(rename = "start_time", skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<i32>,
+    pub start_time: Option<i64>,
     /// Earliest timestamp when the lease can be replaced by a new one for this receiver_salt
     #[serde(rename = "nukeable_after", skip_serializing_if = "Option::is_none")]
-    pub nukeable_after: Option<i32>,
+    pub nukeable_after: Option<i64>,
     /// Percentage fee (ppm) applied to recognized raw volume
     #[serde(rename = "lease_fee_ppm", skip_serializing_if = "Option::is_none")]
-    pub lease_fee_ppm: Option<i32>,
+    pub lease_fee_ppm: Option<i64>,
     /// Flat fee (USDT units) applied after percentage fee
     #[serde(rename = "flat_fee", skip_serializing_if = "Option::is_none")]
-    pub flat_fee: Option<f64>,
+    pub flat_fee: Option<serde_json::Number>,
 }
 
 impl HubLeases {

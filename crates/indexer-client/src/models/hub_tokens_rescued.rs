@@ -16,13 +16,13 @@ use serde::{Deserialize, Serialize};
 pub struct HubTokensRescued {
     /// Hub event sequence for this rescue  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// Token rescued (EVM address on hub chain; must not be USDT)
     #[serde(rename = "token", skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// Amount rescued (uint256)
     #[serde(rename = "amount", skip_serializing_if = "Option::is_none")]
-    pub amount: Option<f64>,
+    pub amount: Option<serde_json::Number>,
 }
 
 impl HubTokensRescued {

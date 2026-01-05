@@ -16,33 +16,33 @@ use serde::{Deserialize, Serialize};
 pub struct HubClaims {
     /// Lease id that produced this claim  Note: This is a Primary Key.<pk/>
     #[serde(rename = "lease_id", skip_serializing_if = "Option::is_none")]
-    pub lease_id: Option<f64>,
+    pub lease_id: Option<serde_json::Number>,
     /// Per-lease claim id (uint256, 0-indexed)  Note: This is a Primary Key.<pk/>
     #[serde(rename = "claim_id", skip_serializing_if = "Option::is_none")]
-    pub claim_id: Option<f64>,
+    pub claim_id: Option<serde_json::Number>,
     /// Event sequence at which this claim version became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Token used for settlement when filling this claim (EVM on hub chain)
     #[serde(rename = "target_token", skip_serializing_if = "Option::is_none")]
     pub target_token: Option<String>,
     /// Index in the FIFO queue (per target_token) where this claim was enqueued
     #[serde(rename = "queue_index", skip_serializing_if = "Option::is_none")]
-    pub queue_index: Option<f64>,
+    pub queue_index: Option<serde_json::Number>,
     /// USDT-denominated claim amount (uint256) used for accounting
     #[serde(rename = "amount_usdt", skip_serializing_if = "Option::is_none")]
-    pub amount_usdt: Option<f64>,
+    pub amount_usdt: Option<serde_json::Number>,
     /// Destination chainId for payout (local if equals hub chainId)
     #[serde(rename = "target_chain_id", skip_serializing_if = "Option::is_none")]
-    pub target_chain_id: Option<i32>,
+    pub target_chain_id: Option<i64>,
     /// Beneficiary address (EVM) receiving payout
     #[serde(rename = "beneficiary", skip_serializing_if = "Option::is_none")]
     pub beneficiary: Option<String>,
     /// Claim origin code (matches `UntronV3Index.ClaimOrigin`)
     #[serde(rename = "origin", skip_serializing_if = "Option::is_none")]
-    pub origin: Option<i32>,
+    pub origin: Option<i64>,
     /// Origin identifier (txId for pre-entitle, receiver_salt for receiver pull, etc.)
     #[serde(rename = "origin_id", skip_serializing_if = "Option::is_none")]
     pub origin_id: Option<String>,
@@ -54,10 +54,10 @@ pub struct HubClaims {
     pub origin_token: Option<String>,
     /// Origin timestamp (seconds) (Tron block time or controller dump time; 0 if not applicable)
     #[serde(rename = "origin_timestamp", skip_serializing_if = "Option::is_none")]
-    pub origin_timestamp: Option<i32>,
+    pub origin_timestamp: Option<i64>,
     /// Raw amount before fees (USDT-equivalent units)
     #[serde(rename = "origin_raw_amount", skip_serializing_if = "Option::is_none")]
-    pub origin_raw_amount: Option<f64>,
+    pub origin_raw_amount: Option<serde_json::Number>,
     /// Claim lifecycle status (`created` or `filled`)
     #[serde(rename = "status", skip_serializing_if = "Option::is_none")]
     pub status: Option<Status>,

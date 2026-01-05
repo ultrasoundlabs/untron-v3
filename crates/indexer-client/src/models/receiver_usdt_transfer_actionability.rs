@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReceiverUsdtTransferActionability {
     #[serde(rename = "chain_id", skip_serializing_if = "Option::is_none")]
-    pub chain_id: Option<i32>,
+    pub chain_id: Option<i64>,
     #[serde(rename = "token", skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     #[serde(rename = "receiver_salt", skip_serializing_if = "Option::is_none")]
@@ -25,11 +25,11 @@ pub struct ReceiverUsdtTransferActionability {
     #[serde(rename = "recipient", skip_serializing_if = "Option::is_none")]
     pub recipient: Option<String>,
     #[serde(rename = "amount", skip_serializing_if = "Option::is_none")]
-    pub amount: Option<f64>,
+    pub amount: Option<serde_json::Number>,
     #[serde(rename = "block_number", skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<i32>,
+    pub block_number: Option<i64>,
     #[serde(rename = "block_timestamp", skip_serializing_if = "Option::is_none")]
-    pub block_timestamp: Option<i32>,
+    pub block_timestamp: Option<i64>,
     #[serde(rename = "block_time", skip_serializing_if = "Option::is_none")]
     pub block_time: Option<String>,
     #[serde(rename = "block_hash", skip_serializing_if = "Option::is_none")]
@@ -37,21 +37,21 @@ pub struct ReceiverUsdtTransferActionability {
     #[serde(rename = "tx_hash", skip_serializing_if = "Option::is_none")]
     pub tx_hash: Option<String>,
     #[serde(rename = "log_index", skip_serializing_if = "Option::is_none")]
-    pub log_index: Option<i32>,
+    pub log_index: Option<i64>,
     #[serde(rename = "claim_origin", skip_serializing_if = "Option::is_none")]
-    pub claim_origin: Option<i32>,
+    pub claim_origin: Option<i64>,
     #[serde(rename = "claim_lease_id", skip_serializing_if = "Option::is_none")]
-    pub claim_lease_id: Option<f64>,
+    pub claim_lease_id: Option<serde_json::Number>,
     #[serde(rename = "claim_id", skip_serializing_if = "Option::is_none")]
-    pub claim_id: Option<f64>,
+    pub claim_id: Option<serde_json::Number>,
     #[serde(rename = "claim_status", skip_serializing_if = "Option::is_none")]
     pub claim_status: Option<ClaimStatus>,
     #[serde(rename = "claim_amount_usdt", skip_serializing_if = "Option::is_none")]
-    pub claim_amount_usdt: Option<f64>,
+    pub claim_amount_usdt: Option<serde_json::Number>,
     #[serde(rename = "expected_lease_id", skip_serializing_if = "Option::is_none")]
-    pub expected_lease_id: Option<f64>,
+    pub expected_lease_id: Option<serde_json::Number>,
     #[serde(rename = "last_pull_timestamp", skip_serializing_if = "Option::is_none")]
-    pub last_pull_timestamp: Option<i32>,
+    pub last_pull_timestamp: Option<i64>,
     #[serde(rename = "preentitle_time_ok", skip_serializing_if = "Option::is_none")]
     pub preentitle_time_ok: Option<bool>,
     #[serde(rename = "recommended_action", skip_serializing_if = "Option::is_none")]

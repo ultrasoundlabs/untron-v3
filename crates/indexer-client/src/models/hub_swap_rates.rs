@@ -19,12 +19,12 @@ pub struct HubSwapRates {
     pub target_token: Option<String>,
     /// Event sequence at which this rate became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Expected output rate: targetToken units per 1e6 USDT units
     #[serde(rename = "rate_ppm", skip_serializing_if = "Option::is_none")]
-    pub rate_ppm: Option<i32>,
+    pub rate_ppm: Option<i64>,
 }
 
 impl HubSwapRates {

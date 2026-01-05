@@ -19,12 +19,12 @@ pub struct ControllerLpExchangeRates {
     pub token: Option<String>,
     /// Controller event sequence at which this exchange rate became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Scaled exchange rate used to convert token amounts into USDT-equivalent amounts
     #[serde(rename = "exchange_rate", skip_serializing_if = "Option::is_none")]
-    pub exchange_rate: Option<f64>,
+    pub exchange_rate: Option<serde_json::Number>,
 }
 
 impl ControllerLpExchangeRates {

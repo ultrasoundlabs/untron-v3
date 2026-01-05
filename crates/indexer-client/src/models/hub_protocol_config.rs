@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 pub struct HubProtocolConfig {
     /// Event sequence at which this config snapshot became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// EVM USDT accounting token address on the hub chain
     #[serde(rename = "usdt", skip_serializing_if = "Option::is_none")]
     pub usdt: Option<String>,
@@ -30,19 +30,19 @@ pub struct HubProtocolConfig {
     pub tron_reader: Option<String>,
     /// Protocol-wide minimum percentage fee floor (ppm)
     #[serde(rename = "floor_ppm", skip_serializing_if = "Option::is_none")]
-    pub floor_ppm: Option<i32>,
+    pub floor_ppm: Option<i64>,
     /// Protocol-wide minimum flat fee floor (USDT units)
     #[serde(rename = "floor_flat_fee", skip_serializing_if = "Option::is_none")]
-    pub floor_flat_fee: Option<f64>,
+    pub floor_flat_fee: Option<serde_json::Number>,
     /// Protocol-wide maximum lease duration in seconds (NULL/0 means disabled)
     #[serde(rename = "max_lease_duration_seconds", skip_serializing_if = "Option::is_none")]
-    pub max_lease_duration_seconds: Option<i32>,
+    pub max_lease_duration_seconds: Option<i64>,
     /// Max payout config updates allowed per window per lessee (NULL/0 means disabled)
     #[serde(rename = "lessee_rate_max_updates", skip_serializing_if = "Option::is_none")]
-    pub lessee_rate_max_updates: Option<f64>,
+    pub lessee_rate_max_updates: Option<serde_json::Number>,
     /// Window size (seconds) for payout config update rate limiting (NULL/0 means disabled)
     #[serde(rename = "lessee_rate_window_seconds", skip_serializing_if = "Option::is_none")]
-    pub lessee_rate_window_seconds: Option<f64>,
+    pub lessee_rate_window_seconds: Option<serde_json::Number>,
 }
 
 impl HubProtocolConfig {

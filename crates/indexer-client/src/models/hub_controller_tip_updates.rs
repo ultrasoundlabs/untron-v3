@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 pub struct HubControllerTipUpdates {
     /// Hub event sequence for this controller tip update record  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// Controller tip that this hop links from
     #[serde(rename = "previous_tip", skip_serializing_if = "Option::is_none")]
     pub previous_tip: Option<String>,
     /// Controller event block number (as embedded in the hub event payload)
     #[serde(rename = "block_number", skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<i32>,
+    pub block_number: Option<i64>,
     /// Controller event block timestamp (seconds) (as embedded in the hub event payload)
     #[serde(rename = "block_timestamp", skip_serializing_if = "Option::is_none")]
-    pub block_timestamp: Option<i32>,
+    pub block_timestamp: Option<i64>,
     /// Controller event signature hash (bytes32 hex)
     #[serde(rename = "event_signature", skip_serializing_if = "Option::is_none")]
     pub event_signature: Option<String>,

@@ -19,7 +19,7 @@ pub struct EventAppended {
     pub stream: Option<Stream>,
     /// Monotonic sequence number in the stream's onchain event hash-chain
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// Previous onchain event hash-chain tip before this event
     #[serde(rename = "prev_tip", skip_serializing_if = "Option::is_none")]
     pub prev_tip: Option<String>,
@@ -40,10 +40,10 @@ pub struct EventAppended {
     pub args: Option<serde_json::Value>,
     /// Block number containing the EventAppended log
     #[serde(rename = "block_number", skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<i32>,
+    pub block_number: Option<i64>,
     /// Block timestamp (seconds since epoch) containing the EventAppended log
     #[serde(rename = "block_timestamp", skip_serializing_if = "Option::is_none")]
-    pub block_timestamp: Option<i32>,
+    pub block_timestamp: Option<i64>,
     /// Convenience timestamp (block_timestamp converted to timestamptz)
     #[serde(rename = "block_time", skip_serializing_if = "Option::is_none")]
     pub block_time: Option<String>,
@@ -55,7 +55,7 @@ pub struct EventAppended {
     pub tx_hash: Option<String>,
     /// Log index within the transaction receipt (0-based)
     #[serde(rename = "log_index", skip_serializing_if = "Option::is_none")]
-    pub log_index: Option<i32>,
+    pub log_index: Option<i64>,
 }
 
 impl EventAppended {

@@ -19,7 +19,7 @@ pub struct StreamCursor {
     pub stream: Option<Stream>,
     /// Highest contiguous canonical event sequence already applied to derived tables
     #[serde(rename = "applied_through_seq", skip_serializing_if = "Option::is_none")]
-    pub applied_through_seq: Option<i32>,
+    pub applied_through_seq: Option<i64>,
     /// Expected `prev_tip` for the next event to apply (hash-chain continuity check)
     #[serde(rename = "tip", skip_serializing_if = "Option::is_none")]
     pub tip: Option<String>,

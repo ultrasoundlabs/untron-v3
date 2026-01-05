@@ -130,6 +130,22 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  relayer:
+    build:
+      context: ..
+      dockerfile: apps/relayer/Dockerfile
+    restart: unless-stopped
+    profiles: ["relayer"]
+    env_file:
+      - ./relayer.env
+    depends_on:
+      postgrest:
+        condition: service_started
+      otelcol:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   gateway:
     image: caddy:2.9.1
     restart: unless-stopped

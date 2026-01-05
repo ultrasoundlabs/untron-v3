@@ -16,15 +16,15 @@ use serde::{Deserialize, Serialize};
 pub struct HubPayoutConfigs {
     /// Lease id this payout config applies to  Note: This is a Primary Key.<pk/>
     #[serde(rename = "lease_id", skip_serializing_if = "Option::is_none")]
-    pub lease_id: Option<f64>,
+    pub lease_id: Option<serde_json::Number>,
     /// Event sequence at which this payout config became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Destination chainId for payouts created under this config
     #[serde(rename = "target_chain_id", skip_serializing_if = "Option::is_none")]
-    pub target_chain_id: Option<i32>,
+    pub target_chain_id: Option<i64>,
     /// Settlement token on the hub chain used for fills (USDT or swapped token)
     #[serde(rename = "target_token", skip_serializing_if = "Option::is_none")]
     pub target_token: Option<String>,

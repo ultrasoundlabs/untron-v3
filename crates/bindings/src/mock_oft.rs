@@ -12,6 +12,14 @@ interface MockOFT {
         uint64 nonce;
         MessagingFee fee;
     }
+    struct OFTFeeDetail {
+        int256 feeAmountLD;
+        string description;
+    }
+    struct OFTLimit {
+        uint256 minAmountLD;
+        uint256 maxAmountLD;
+    }
     struct OFTReceipt {
         uint256 amountSentLD;
         uint256 amountReceivedLD;
@@ -26,24 +34,40 @@ interface MockOFT {
         bytes oftCmd;
     }
 
-    event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstEid);
+    error AmountSDOverflowed(uint256 amountSD);
+    error InvalidLocalDecimals();
+    error MockOFT_InsufficientNativeFee();
+    error MockOFT_MintFailed();
+    error MockOFT_RefundFailed();
+    error MockOFT_TransferFromFailed();
+    error SlippageExceeded(uint256 amountLD, uint256 minAmountLD);
+
+    event OFTReceived(bytes32 indexed guid, uint32 srcEid, address indexed toAddress, uint256 amountReceivedLD);
+    event OFTSent(bytes32 indexed guid, uint32 dstEid, address indexed fromAddress, uint256 amountSentLD, uint256 amountReceivedLD);
+    event Sent(address indexed from, bytes32 indexed to, uint256 amountLD, uint32 dstEid);
 
     constructor(address tokenSrc_, address tokenDst_);
 
     function TOKEN_DST() external view returns (address);
     function TOKEN_SRC() external view returns (address);
+    function approvalRequired() external pure returns (bool);
     function lastAmountLD() external view returns (uint256);
     function lastDstEid() external view returns (uint32);
+    function lastFee() external view returns (uint256 nativeFee, uint256 lzTokenFee);
     function lastMinAmountLD() external view returns (uint256);
-    function lastMsgValue() external view returns (uint256);
     function lastNonce() external view returns (uint64);
     function lastRefundAddress() external view returns (address);
+    function lastSendParam() external view returns (uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes memory extraOptions, bytes memory composeMsg, bytes memory oftCmd);
     function lastTo() external view returns (bytes32);
+    function oftVersion() external pure returns (bytes4 interfaceId, uint64 version);
     function quoteLzTokenFee() external view returns (uint256);
     function quoteNativeFee() external view returns (uint256);
-    function quoteSend(SendParam memory, bool) external view returns (MessagingFee memory fee);
+    function quoteOFT(SendParam memory sp) external pure returns (OFTLimit memory limit, OFTFeeDetail[] memory oftFeeDetails, OFTReceipt memory receipt);
+    function quoteSend(SendParam memory sp, bool payInLzToken) external view returns (MessagingFee memory fee);
     function send(SendParam memory sp, MessagingFee memory fee, address refundAddress) external payable returns (MessagingReceipt memory receipt, OFTReceipt memory oftReceipt);
     function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
+    function sharedDecimals() external view returns (uint8);
+    function token() external view returns (address);
 }
 ```
 
@@ -56,12 +80,12 @@ interface MockOFT {
       {
         "name": "tokenSrc_",
         "type": "address",
-        "internalType": "contract MockERC20"
+        "internalType": "address"
       },
       {
         "name": "tokenDst_",
         "type": "address",
-        "internalType": "contract MockERC20"
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -74,7 +98,7 @@ interface MockOFT {
       {
         "name": "",
         "type": "address",
-        "internalType": "contract MockERC20"
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -87,10 +111,23 @@ interface MockOFT {
       {
         "name": "",
         "type": "address",
-        "internalType": "contract MockERC20"
+        "internalType": "contract IERC20"
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "approvalRequired",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -120,11 +157,16 @@ interface MockOFT {
   },
   {
     "type": "function",
-    "name": "lastMinAmountLD",
+    "name": "lastFee",
     "inputs": [],
     "outputs": [
       {
-        "name": "",
+        "name": "nativeFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "lzTokenFee",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -133,7 +175,7 @@ interface MockOFT {
   },
   {
     "type": "function",
-    "name": "lastMsgValue",
+    "name": "lastMinAmountLD",
     "inputs": [],
     "outputs": [
       {
@@ -172,6 +214,49 @@ interface MockOFT {
   },
   {
     "type": "function",
+    "name": "lastSendParam",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "dstEid",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "to",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amountLD",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minAmountLD",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "extraOptions",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "composeMsg",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "oftCmd",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lastTo",
     "inputs": [],
     "outputs": [
@@ -182,6 +267,24 @@ interface MockOFT {
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "oftVersion",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "interfaceId",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      },
+      {
+        "name": "version",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -211,10 +314,112 @@ interface MockOFT {
   },
   {
     "type": "function",
+    "name": "quoteOFT",
+    "inputs": [
+      {
+        "name": "sp",
+        "type": "tuple",
+        "internalType": "struct SendParam",
+        "components": [
+          {
+            "name": "dstEid",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "to",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "amountLD",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minAmountLD",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "extraOptions",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "composeMsg",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "oftCmd",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "limit",
+        "type": "tuple",
+        "internalType": "struct OFTLimit",
+        "components": [
+          {
+            "name": "minAmountLD",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxAmountLD",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "oftFeeDetails",
+        "type": "tuple[]",
+        "internalType": "struct OFTFeeDetail[]",
+        "components": [
+          {
+            "name": "feeAmountLD",
+            "type": "int256",
+            "internalType": "int256"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      },
+      {
+        "name": "receipt",
+        "type": "tuple",
+        "internalType": "struct OFTReceipt",
+        "components": [
+          {
+            "name": "amountSentLD",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amountReceivedLD",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "quoteSend",
     "inputs": [
       {
-        "name": "",
+        "name": "sp",
         "type": "tuple",
         "internalType": "struct SendParam",
         "components": [
@@ -256,7 +461,7 @@ interface MockOFT {
         ]
       },
       {
-        "name": "",
+        "name": "payInLzToken",
         "type": "bool",
         "internalType": "bool"
       }
@@ -425,6 +630,100 @@ interface MockOFT {
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "sharedDecimals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "token",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "OFTReceived",
+    "inputs": [
+      {
+        "name": "guid",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "srcEid",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "toAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amountReceivedLD",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OFTSent",
+    "inputs": [
+      {
+        "name": "guid",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "dstEid",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "fromAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amountSentLD",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountReceivedLD",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "event",
     "name": "Sent",
     "inputs": [
@@ -436,12 +735,12 @@ interface MockOFT {
       },
       {
         "name": "to",
-        "type": "address",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "address"
+        "internalType": "bytes32"
       },
       {
-        "name": "amount",
+        "name": "amountLD",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -454,6 +753,58 @@ interface MockOFT {
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AmountSDOverflowed",
+    "inputs": [
+      {
+        "name": "amountSD",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidLocalDecimals",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MockOFT_InsufficientNativeFee",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MockOFT_MintFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MockOFT_RefundFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MockOFT_TransferFromFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlippageExceeded",
+    "inputs": [
+      {
+        "name": "amountLD",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minAmountLD",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   }
 ]
 ```*/
@@ -470,22 +821,22 @@ pub mod MockOFT {
     /// The creation / init bytecode of the contract.
     ///
     /// ```text
-    ///0x60c060405234801561000f575f5ffd5b50604051610a21380380610a2183398101604081905261002e91610060565b6001600160a01b039182166080521660a052610091565b80516001600160a01b038116811461005b575f5ffd5b919050565b5f5f60408385031215610071575f5ffd5b61007a83610045565b915061008860208401610045565b90509250929050565b60805160a0516109616100c05f395f818161027b015261041501525f818161014c015261037a01526109615ff3fe6080604052600436106100d9575f3560e01c80638c2267411161007c578063c146844711610057578063c1468447146102c3578063c7c7f5b3146102d8578063f20cd6a9146102f9578063fda6b9291461030e575f5ffd5b80638c226741146102325780638cb46e781461026a578063a12769551461029d575f5ffd5b80633b6f743b116100b75780633b6f743b1461016e578063463d1fca146101cf57806352631ab4146101e457806386c285b01461021d575f5ffd5b80630199ca6c146100dd57806321c432171461010457806337dd460d1461013b575b5f5ffd5b3480156100e8575f5ffd5b506100f15f5481565b6040519081526020015b60405180910390f35b34801561010f575f5ffd5b50600654610123906001600160a01b031681565b6040516001600160a01b0390911681526020016100fb565b348015610146575f5ffd5b506101237f000000000000000000000000000000000000000000000000000000000000000081565b348015610179575f5ffd5b506101b461018836600461074b565b50506040805180820182525f808252602091820181905282518084019093525482526001549082015290565b604080518251815260209283015192810192909252016100fb565b3480156101da575f5ffd5b506100f160075481565b3480156101ef575f5ffd5b506002546102049067ffffffffffffffff1681565b60405167ffffffffffffffff90911681526020016100fb565b348015610228575f5ffd5b506100f160045481565b34801561023d575f5ffd5b5060025461025590600160401b900463ffffffff1681565b60405163ffffffff90911681526020016100fb565b348015610275575f5ffd5b506101237f000000000000000000000000000000000000000000000000000000000000000081565b3480156102a8575f5ffd5b506102c16102b736600461079a565b5f91909155600155565b005b3480156102ce575f5ffd5b506100f160035481565b6102eb6102e63660046107ba565b610323565b6040516100fb92919061082e565b348015610304575f5ffd5b506100f160055481565b348015610319575f5ffd5b506100f160015481565b61032b6106e4565b604080518082019091525f8082526020820152833534101561034b575f5ffd5b604080516323b872dd60e01b81523360048201523060248201529086013560448201525f906001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016906323b872dd906064016020604051808303815f875af11580156103c0573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906103e49190610883565b6040516340c10f1960e01b81526001600160a01b036020890135818116600484015260608a013560248401529293507f000000000000000000000000000000000000000000000000000000000000000016906340c10f19906044015f604051808303815f87803b158015610456575f5ffd5b505af1158015610468573d5f5f3e3d5ffd5b50506002805467ffffffffffffffff16925090505f6104868361089e565b82546101009290920a67ffffffffffffffff8181021990931691831602179091556002545f925030913391166104bf60208c018c6108d6565b8b602001358c6040013560405160200161053496959493929190606096871b6bffffffffffffffffffffffff1990811682529590961b909416601486015260c09290921b6001600160c01b031916602885015260e01b6001600160e01b03191660308401526034830152605482015260740190565b60408051601f198184030181529190528051602091820120915061055a908901896108d6565b6002805463ffffffff92909216600160401b026bffffffff000000000000000019831681179091556020808b01356003556040808c01356004556060808d0135600555600680546001600160a01b038d166001600160a01b0319909116179055346007558151908101825285815267ffffffffffffffff93841693909416929092179083015281016105f1368a90038a018a6108f9565b9052604080518082018252908a013580825260608b01356020808401919091529297509095506001600160a01b0384169133917f7a431b21620a3eaa949b0489713cbc31c02e7251a9bef91b0980d9524d9ac53e91610652908d018d6108d6565b6040805192835263ffffffff90911660208301520160405180910390a386353481810391146106d8575f876001600160a01b0316826040515f6040518083038185875af1925050503d805f81146106c4576040519150601f19603f3d011682016040523d82523d5f602084013e6106c9565b606091505b50509050806106d6575f5ffd5b505b50505050935093915050565b60405180606001604052805f81526020015f67ffffffffffffffff16815260200161072060405180604001604052805f81526020015f81525090565b905290565b5f60e08284031215610735575f5ffd5b50919050565b8015158114610748575f5ffd5b50565b5f5f6040838503121561075c575f5ffd5b823567ffffffffffffffff811115610772575f5ffd5b61077e85828601610725565b925050602083013561078f8161073b565b809150509250929050565b5f5f604083850312156107ab575f5ffd5b50508035926020909101359150565b5f5f5f83850360808112156107cd575f5ffd5b843567ffffffffffffffff8111156107e3575f5ffd5b6107ef87828801610725565b9450506040601f1982011215610803575f5ffd5b5060208401915060608401356001600160a01b0381168114610823575f5ffd5b809150509250925092565b5f60c0820190508351825267ffffffffffffffff60208501511660208301526040840151610869604084018280518252602090810151910152565b5082516080830152602083015160a08301525b9392505050565b5f60208284031215610893575f5ffd5b815161087c8161073b565b5f67ffffffffffffffff821667ffffffffffffffff81036108cd57634e487b7160e01b5f52601160045260245ffd5b60010192915050565b5f602082840312156108e6575f5ffd5b813563ffffffff8116811461087c575f5ffd5b5f604082840312801561090a575f5ffd5b506040805190810167ffffffffffffffff8111828210171561093a57634e487b7160e01b5f52604160045260245ffd5b60405282358152602092830135928101929092525091905056fea164736f6c634300081b000a
+    ///0x60c060405234801561000f575f5ffd5b5060405161127338038061127383398101604081905261002e91610060565b6001600160a01b039182166080521660a052610091565b80516001600160a01b038116811461005b575f5ffd5b919050565b5f5f60408385031215610071575f5ffd5b61007a83610045565b915061008860208401610045565b90509250929050565b60805160a05161119e6100d55f395f8181610349015281816109f70152610a4b01525f8181610209015281816104340152818161070a015261081a015261119e5ff3fe60806040526004361061011b575f3560e01c80638c2267411161009d578063c146844711610062578063c1468447146103db578063c7c7f5b3146103f0578063f20cd6a914610411578063fc0c546a14610426578063fda6b92914610458575f5ffd5b80638c226741146103005780638cb46e78146103385780639801134e1461036b5780639f68b9641461039a578063a1276955146103b5575f5ffd5b806337dd460d116100e357806337dd460d146101f85780633b6f743b1461022b57806352631ab41461028c578063857749b0146102c557806386c285b0146102eb575f5ffd5b80630199ca6c1461011f5780630d35b41514610146578063156a0d0f1461017457806321c432171461019a5780632b205c65146101d1575b5f5ffd5b34801561012a575f5ffd5b506101335f5481565b6040519081526020015b60405180910390f35b348015610151575f5ffd5b50610165610160366004610be7565b61046d565b60405161013d93929190610c4f565b34801561017f575f5ffd5b506040805162b9270b60e21b8152600160208201520161013d565b3480156101a5575f5ffd5b50600c546101b9906001600160a01b031681565b6040516001600160a01b03909116815260200161013d565b3480156101dc575f5ffd5b506101e561050e565b60405161013d9796959493929190610cea565b348015610203575f5ffd5b506101b97f000000000000000000000000000000000000000000000000000000000000000081565b348015610236575f5ffd5b50610271610245366004610d5e565b50506040805180820182525f808252602091820181905282518084019093525482526001549082015290565b6040805182518152602092830151928101929092520161013d565b348015610297575f5ffd5b506002546102ac9067ffffffffffffffff1681565b60405167ffffffffffffffff909116815260200161013d565b3480156102d0575f5ffd5b506102d96106d0565b60405160ff909116815260200161013d565b3480156102f6575f5ffd5b50610133600e5481565b34801561030b575f5ffd5b50600c5461032390600160a01b900463ffffffff1681565b60405163ffffffff909116815260200161013d565b348015610343575f5ffd5b506101b97f000000000000000000000000000000000000000000000000000000000000000081565b348015610376575f5ffd5b50600a54600b54610385919082565b6040805192835260208301919091520161013d565b3480156103a5575f5ffd5b506040516001815260200161013d565b3480156103c0575f5ffd5b506103d96103cf366004610dad565b5f91909155600155565b005b3480156103e6575f5ffd5b50610133600d5481565b6104036103fe366004610dcd565b6107ae565b60405161013d929190610e41565b34801561041c575f5ffd5b50610133600f5481565b348015610431575f5ffd5b507f00000000000000000000000000000000000000000000000000000000000000006101b9565b348015610463575f5ffd5b5061013360015481565b604080518082019091525f8082526020820152606061049d60405180604001604052805f81526020015f81525090565b6040805180820182525f8082525f1960208084019190915283518281529081019093529094506104ef565b604080518082019091525f8152606060208201528152602001906001900390816104c85790505b5060408051808201825295013580865260208601529294929392915050565b600380546004546005546006546007805463ffffffff9095169593949293919261053790610eaa565b80601f016020809104026020016040519081016040528092919081815260200182805461056390610eaa565b80156105ae5780601f10610585576101008083540402835291602001916105ae565b820191905f5260205f20905b81548152906001019060200180831161059157829003601f168201915b5050505050908060050180546105c390610eaa565b80601f01602080910402602001604051908101604052809291908181526020018280546105ef90610eaa565b801561063a5780601f106106115761010080835404028352916020019161063a565b820191905f5260205f20905b81548152906001019060200180831161061d57829003601f168201915b50505050509080600601805461064f90610eaa565b80601f016020809104026020016040519081016040528092919081815260200182805461067b90610eaa565b80156106c65780601f1061069d576101008083540402835291602001916106c6565b820191905f5260205f20905b8154815290600101906020018083116106a957829003601f168201915b5050505050905087565b60408051600481526024810182526020810180516001600160e01b031663313ce56760e01b17905290515f91829182916001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016916107359190610edc565b5f60405180830381855afa9150503d805f811461076d576040519150601f19603f3d011682016040523d82523d5f602084013e610772565b606091505b5091509150818015610785575080516020145b156107a5578080602001905181019061079e9190610ef2565b9250505090565b60069250505090565b6107b6610b90565b604080518082019091525f808252602082015283353410156107eb5760405163af584ca560e01b815260040160405180910390fd5b604080516323b872dd60e01b81523360048201523060248201529086013560448201525f906001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016906323b872dd906064016020604051808303815f875af1158015610860573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906108849190610f12565b9050806108a45760405163aa4ef52160e01b815260040160405180910390fd5b6002805467ffffffffffffffff8082166001011667ffffffffffffffff1990911681179091558660036108d7828261108e565b50508535600a55602080870135600b55600c80546001600160a01b0319166001600160a01b03881617905561090e90880188611127565b600c805463ffffffff92909216600160a01b0263ffffffff60a01b19909216919091179055602080880135600d55604080890135600e556060808a0135600f558151908101825283815260025467ffffffffffffffff1692810192909252810161097d36899003890189611142565b90526040805180820182529089013580825260608a013560208084019190915292965090945090880180359133917f1a16e1c6eea6132c55d32b7c9a7f1657bcd89dcee152ef265fd21051cec76bb291906109d8908c611127565b6040805192835263ffffffff90911660208301520160405180910390a37f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031615610b07576040516001600160a01b036020890135818116602484015260608a01356044840152915f917f0000000000000000000000000000000000000000000000000000000000000000169060640160408051601f198184030181529181526020820180516001600160e01b03166340c10f1960e01b17905251610aa49190610edc565b5f604051808303815f865af19150503d805f8114610add576040519150601f19603f3d011682016040523d82523d5f602084013e610ae2565b606091505b5050905080610b0457604051631d67634560e11b815260040160405180910390fd5b50505b8535348181039114610b85575f866001600160a01b0316826040515f6040518083038185875af1925050503d805f8114610b5c576040519150601f19603f3d011682016040523d82523d5f602084013e610b61565b606091505b5050905080610b835760405163c1a38c5d60e01b815260040160405180910390fd5b505b505050935093915050565b60405180606001604052805f81526020015f67ffffffffffffffff168152602001610bcc60405180604001604052805f81526020015f81525090565b905290565b5f60e08284031215610be1575f5ffd5b50919050565b5f60208284031215610bf7575f5ffd5b813567ffffffffffffffff811115610c0d575f5ffd5b610c1984828501610bd1565b949350505050565b5f81518084528060208401602086015e5f602082860101526020601f19601f83011685010191505092915050565b83518152602080850151908201525f60a0820160a0604084015280855180835260c08501915060c08160051b8601019250602087015f5b82811015610cce5760bf198786030184528151805186526020810151905060406020870152610cb86040870182610c21565b9550506020938401939190910190600101610c86565b5050855160608601525050602084015160808401529050610c19565b63ffffffff8816815286602082015285604082015284606082015260e060808201525f610d1a60e0830186610c21565b82810360a0840152610d2c8186610c21565b905082810360c0840152610d408185610c21565b9a9950505050505050505050565b8015158114610d5b575f5ffd5b50565b5f5f60408385031215610d6f575f5ffd5b823567ffffffffffffffff811115610d85575f5ffd5b610d9185828601610bd1565b9250506020830135610da281610d4e565b809150509250929050565b5f5f60408385031215610dbe575f5ffd5b50508035926020909101359150565b5f5f5f8385036080811215610de0575f5ffd5b843567ffffffffffffffff811115610df6575f5ffd5b610e0287828801610bd1565b9450506040601f1982011215610e16575f5ffd5b5060208401915060608401356001600160a01b0381168114610e36575f5ffd5b809150509250925092565b5f60c0820190508351825267ffffffffffffffff60208501511660208301526040840151610e7c604084018280518252602090810151910152565b5082516080830152602083015160a08301525b9392505050565b634e487b7160e01b5f52604160045260245ffd5b600181811c90821680610ebe57607f821691505b602082108103610be157634e487b7160e01b5f52602260045260245ffd5b5f82518060208501845e5f920191825250919050565b5f60208284031215610f02575f5ffd5b815160ff81168114610e8f575f5ffd5b5f60208284031215610f22575f5ffd5b8151610e8f81610d4e565b63ffffffff81168114610d5b575f5ffd5b5f5f8335601e19843603018112610f53575f5ffd5b83018035915067ffffffffffffffff821115610f6d575f5ffd5b602001915036819003821315610f81575f5ffd5b9250929050565b601f821115610fcf57805f5260205f20601f840160051c81016020851015610fad5750805b601f840160051c820191505b81811015610fcc575f8155600101610fb9565b50505b505050565b67ffffffffffffffff831115610fec57610fec610e96565b61100083610ffa8354610eaa565b83610f88565b5f601f841160018114611031575f851561101a5750838201355b5f19600387901b1c1916600186901b178355610fcc565b5f83815260208120601f198716915b828110156110605786850135825560209485019460019092019101611040565b508682101561107c575f1960f88860031b161c19848701351681555b505060018560011b0183555050505050565b813561109981610f2d565b815463ffffffff191663ffffffff919091161781556020820135600182015560408201356002820155606082013560038201556110d96080830183610f3e565b6110e7818360048601610fd4565b50506110f660a0830183610f3e565b611104818360058601610fd4565b505061111360c0830183610f3e565b611121818360068601610fd4565b50505050565b5f60208284031215611137575f5ffd5b8135610e8f81610f2d565b5f6040828403128015611153575f5ffd5b506040805190810167ffffffffffffffff8111828210171561117757611177610e96565b60405282358152602092830135928101929092525091905056fea164736f6c634300081b000a
     /// ```
     #[rustfmt::skip]
     #[allow(clippy::all)]
     pub static BYTECODE: alloy_sol_types::private::Bytes = alloy_sol_types::private::Bytes::from_static(
-        b"`\xC0`@R4\x80\x15a\0\x0FW__\xFD[P`@Qa\n!8\x03\x80a\n!\x839\x81\x01`@\x81\x90Ra\0.\x91a\0`V[`\x01`\x01`\xA0\x1B\x03\x91\x82\x16`\x80R\x16`\xA0Ra\0\x91V[\x80Q`\x01`\x01`\xA0\x1B\x03\x81\x16\x81\x14a\0[W__\xFD[\x91\x90PV[__`@\x83\x85\x03\x12\x15a\0qW__\xFD[a\0z\x83a\0EV[\x91Pa\0\x88` \x84\x01a\0EV[\x90P\x92P\x92\x90PV[`\x80Q`\xA0Qa\taa\0\xC0_9_\x81\x81a\x02{\x01Ra\x04\x15\x01R_\x81\x81a\x01L\x01Ra\x03z\x01Ra\ta_\xF3\xFE`\x80`@R`\x046\x10a\0\xD9W_5`\xE0\x1C\x80c\x8C\"gA\x11a\0|W\x80c\xC1F\x84G\x11a\0WW\x80c\xC1F\x84G\x14a\x02\xC3W\x80c\xC7\xC7\xF5\xB3\x14a\x02\xD8W\x80c\xF2\x0C\xD6\xA9\x14a\x02\xF9W\x80c\xFD\xA6\xB9)\x14a\x03\x0EW__\xFD[\x80c\x8C\"gA\x14a\x022W\x80c\x8C\xB4nx\x14a\x02jW\x80c\xA1'iU\x14a\x02\x9DW__\xFD[\x80c;ot;\x11a\0\xB7W\x80c;ot;\x14a\x01nW\x80cF=\x1F\xCA\x14a\x01\xCFW\x80cRc\x1A\xB4\x14a\x01\xE4W\x80c\x86\xC2\x85\xB0\x14a\x02\x1DW__\xFD[\x80c\x01\x99\xCAl\x14a\0\xDDW\x80c!\xC42\x17\x14a\x01\x04W\x80c7\xDDF\r\x14a\x01;W[__\xFD[4\x80\x15a\0\xE8W__\xFD[Pa\0\xF1_T\x81V[`@Q\x90\x81R` \x01[`@Q\x80\x91\x03\x90\xF3[4\x80\x15a\x01\x0FW__\xFD[P`\x06Ta\x01#\x90`\x01`\x01`\xA0\x1B\x03\x16\x81V[`@Q`\x01`\x01`\xA0\x1B\x03\x90\x91\x16\x81R` \x01a\0\xFBV[4\x80\x15a\x01FW__\xFD[Pa\x01#\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x01yW__\xFD[Pa\x01\xB4a\x01\x886`\x04a\x07KV[PP`@\x80Q\x80\x82\x01\x82R_\x80\x82R` \x91\x82\x01\x81\x90R\x82Q\x80\x84\x01\x90\x93RT\x82R`\x01T\x90\x82\x01R\x90V[`@\x80Q\x82Q\x81R` \x92\x83\x01Q\x92\x81\x01\x92\x90\x92R\x01a\0\xFBV[4\x80\x15a\x01\xDAW__\xFD[Pa\0\xF1`\x07T\x81V[4\x80\x15a\x01\xEFW__\xFD[P`\x02Ta\x02\x04\x90g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81V[`@Qg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\0\xFBV[4\x80\x15a\x02(W__\xFD[Pa\0\xF1`\x04T\x81V[4\x80\x15a\x02=W__\xFD[P`\x02Ta\x02U\x90`\x01`@\x1B\x90\x04c\xFF\xFF\xFF\xFF\x16\x81V[`@Qc\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\0\xFBV[4\x80\x15a\x02uW__\xFD[Pa\x01#\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x02\xA8W__\xFD[Pa\x02\xC1a\x02\xB76`\x04a\x07\x9AV[_\x91\x90\x91U`\x01UV[\0[4\x80\x15a\x02\xCEW__\xFD[Pa\0\xF1`\x03T\x81V[a\x02\xEBa\x02\xE66`\x04a\x07\xBAV[a\x03#V[`@Qa\0\xFB\x92\x91\x90a\x08.V[4\x80\x15a\x03\x04W__\xFD[Pa\0\xF1`\x05T\x81V[4\x80\x15a\x03\x19W__\xFD[Pa\0\xF1`\x01T\x81V[a\x03+a\x06\xE4V[`@\x80Q\x80\x82\x01\x90\x91R_\x80\x82R` \x82\x01R\x8354\x10\x15a\x03KW__\xFD[`@\x80Qc#\xB8r\xDD`\xE0\x1B\x81R3`\x04\x82\x01R0`$\x82\x01R\x90\x86\x015`D\x82\x01R_\x90`\x01`\x01`\xA0\x1B\x03\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90c#\xB8r\xDD\x90`d\x01` `@Q\x80\x83\x03\x81_\x87Z\xF1\x15\x80\x15a\x03\xC0W=__>=_\xFD[PPPP`@Q=`\x1F\x19`\x1F\x82\x01\x16\x82\x01\x80`@RP\x81\x01\x90a\x03\xE4\x91\x90a\x08\x83V[`@Qc@\xC1\x0F\x19`\xE0\x1B\x81R`\x01`\x01`\xA0\x1B\x03` \x89\x015\x81\x81\x16`\x04\x84\x01R``\x8A\x015`$\x84\x01R\x92\x93P\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90c@\xC1\x0F\x19\x90`D\x01_`@Q\x80\x83\x03\x81_\x87\x80;\x15\x80\x15a\x04VW__\xFD[PZ\xF1\x15\x80\x15a\x04hW=__>=_\xFD[PP`\x02\x80Tg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x92P\x90P_a\x04\x86\x83a\x08\x9EV[\x82Ta\x01\0\x92\x90\x92\ng\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x81\x02\x19\x90\x93\x16\x91\x83\x16\x02\x17\x90\x91U`\x02T_\x92P0\x913\x91\x16a\x04\xBF` \x8C\x01\x8Ca\x08\xD6V[\x8B` \x015\x8C`@\x015`@Q` \x01a\x054\x96\x95\x94\x93\x92\x91\x90``\x96\x87\x1Bk\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x19\x90\x81\x16\x82R\x95\x90\x96\x1B\x90\x94\x16`\x14\x86\x01R`\xC0\x92\x90\x92\x1B`\x01`\x01`\xC0\x1B\x03\x19\x16`(\x85\x01R`\xE0\x1B`\x01`\x01`\xE0\x1B\x03\x19\x16`0\x84\x01R`4\x83\x01R`T\x82\x01R`t\x01\x90V[`@\x80Q`\x1F\x19\x81\x84\x03\x01\x81R\x91\x90R\x80Q` \x91\x82\x01 \x91Pa\x05Z\x90\x89\x01\x89a\x08\xD6V[`\x02\x80Tc\xFF\xFF\xFF\xFF\x92\x90\x92\x16`\x01`@\x1B\x02k\xFF\xFF\xFF\xFF\0\0\0\0\0\0\0\0\x19\x83\x16\x81\x17\x90\x91U` \x80\x8B\x015`\x03U`@\x80\x8C\x015`\x04U``\x80\x8D\x015`\x05U`\x06\x80T`\x01`\x01`\xA0\x1B\x03\x8D\x16`\x01`\x01`\xA0\x1B\x03\x19\x90\x91\x16\x17\x90U4`\x07U\x81Q\x90\x81\x01\x82R\x85\x81Rg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x93\x84\x16\x93\x90\x94\x16\x92\x90\x92\x17\x90\x83\x01R\x81\x01a\x05\xF16\x8A\x90\x03\x8A\x01\x8Aa\x08\xF9V[\x90R`@\x80Q\x80\x82\x01\x82R\x90\x8A\x015\x80\x82R``\x8B\x015` \x80\x84\x01\x91\x90\x91R\x92\x97P\x90\x95P`\x01`\x01`\xA0\x1B\x03\x84\x16\x913\x91\x7FzC\x1B!b\n>\xAA\x94\x9B\x04\x89q<\xBC1\xC0.rQ\xA9\xBE\xF9\x1B\t\x80\xD9RM\x9A\xC5>\x91a\x06R\x90\x8D\x01\x8Da\x08\xD6V[`@\x80Q\x92\x83Rc\xFF\xFF\xFF\xFF\x90\x91\x16` \x83\x01R\x01`@Q\x80\x91\x03\x90\xA3\x8654\x81\x81\x03\x91\x14a\x06\xD8W_\x87`\x01`\x01`\xA0\x1B\x03\x16\x82`@Q_`@Q\x80\x83\x03\x81\x85\x87Z\xF1\x92PPP=\x80_\x81\x14a\x06\xC4W`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\x06\xC9V[``\x91P[PP\x90P\x80a\x06\xD6W__\xFD[P[PPPP\x93P\x93\x91PPV[`@Q\x80``\x01`@R\x80_\x81R` \x01_g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81R` \x01a\x07 `@Q\x80`@\x01`@R\x80_\x81R` \x01_\x81RP\x90V[\x90R\x90V[_`\xE0\x82\x84\x03\x12\x15a\x075W__\xFD[P\x91\x90PV[\x80\x15\x15\x81\x14a\x07HW__\xFD[PV[__`@\x83\x85\x03\x12\x15a\x07\\W__\xFD[\x825g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\x07rW__\xFD[a\x07~\x85\x82\x86\x01a\x07%V[\x92PP` \x83\x015a\x07\x8F\x81a\x07;V[\x80\x91PP\x92P\x92\x90PV[__`@\x83\x85\x03\x12\x15a\x07\xABW__\xFD[PP\x805\x92` \x90\x91\x015\x91PV[___\x83\x85\x03`\x80\x81\x12\x15a\x07\xCDW__\xFD[\x845g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\x07\xE3W__\xFD[a\x07\xEF\x87\x82\x88\x01a\x07%V[\x94PP`@`\x1F\x19\x82\x01\x12\x15a\x08\x03W__\xFD[P` \x84\x01\x91P``\x84\x015`\x01`\x01`\xA0\x1B\x03\x81\x16\x81\x14a\x08#W__\xFD[\x80\x91PP\x92P\x92P\x92V[_`\xC0\x82\x01\x90P\x83Q\x82Rg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF` \x85\x01Q\x16` \x83\x01R`@\x84\x01Qa\x08i`@\x84\x01\x82\x80Q\x82R` \x90\x81\x01Q\x91\x01RV[P\x82Q`\x80\x83\x01R` \x83\x01Q`\xA0\x83\x01R[\x93\x92PPPV[_` \x82\x84\x03\x12\x15a\x08\x93W__\xFD[\x81Qa\x08|\x81a\x07;V[_g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x82\x16g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x03a\x08\xCDWcNH{q`\xE0\x1B_R`\x11`\x04R`$_\xFD[`\x01\x01\x92\x91PPV[_` \x82\x84\x03\x12\x15a\x08\xE6W__\xFD[\x815c\xFF\xFF\xFF\xFF\x81\x16\x81\x14a\x08|W__\xFD[_`@\x82\x84\x03\x12\x80\x15a\t\nW__\xFD[P`@\x80Q\x90\x81\x01g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x82\x82\x10\x17\x15a\t:WcNH{q`\xE0\x1B_R`A`\x04R`$_\xFD[`@R\x825\x81R` \x92\x83\x015\x92\x81\x01\x92\x90\x92RP\x91\x90PV\xFE\xA1dsolcC\0\x08\x1B\0\n",
+        b"`\xC0`@R4\x80\x15a\0\x0FW__\xFD[P`@Qa\x12s8\x03\x80a\x12s\x839\x81\x01`@\x81\x90Ra\0.\x91a\0`V[`\x01`\x01`\xA0\x1B\x03\x91\x82\x16`\x80R\x16`\xA0Ra\0\x91V[\x80Q`\x01`\x01`\xA0\x1B\x03\x81\x16\x81\x14a\0[W__\xFD[\x91\x90PV[__`@\x83\x85\x03\x12\x15a\0qW__\xFD[a\0z\x83a\0EV[\x91Pa\0\x88` \x84\x01a\0EV[\x90P\x92P\x92\x90PV[`\x80Q`\xA0Qa\x11\x9Ea\0\xD5_9_\x81\x81a\x03I\x01R\x81\x81a\t\xF7\x01Ra\nK\x01R_\x81\x81a\x02\t\x01R\x81\x81a\x044\x01R\x81\x81a\x07\n\x01Ra\x08\x1A\x01Ra\x11\x9E_\xF3\xFE`\x80`@R`\x046\x10a\x01\x1BW_5`\xE0\x1C\x80c\x8C\"gA\x11a\0\x9DW\x80c\xC1F\x84G\x11a\0bW\x80c\xC1F\x84G\x14a\x03\xDBW\x80c\xC7\xC7\xF5\xB3\x14a\x03\xF0W\x80c\xF2\x0C\xD6\xA9\x14a\x04\x11W\x80c\xFC\x0CTj\x14a\x04&W\x80c\xFD\xA6\xB9)\x14a\x04XW__\xFD[\x80c\x8C\"gA\x14a\x03\0W\x80c\x8C\xB4nx\x14a\x038W\x80c\x98\x01\x13N\x14a\x03kW\x80c\x9Fh\xB9d\x14a\x03\x9AW\x80c\xA1'iU\x14a\x03\xB5W__\xFD[\x80c7\xDDF\r\x11a\0\xE3W\x80c7\xDDF\r\x14a\x01\xF8W\x80c;ot;\x14a\x02+W\x80cRc\x1A\xB4\x14a\x02\x8CW\x80c\x85wI\xB0\x14a\x02\xC5W\x80c\x86\xC2\x85\xB0\x14a\x02\xEBW__\xFD[\x80c\x01\x99\xCAl\x14a\x01\x1FW\x80c\r5\xB4\x15\x14a\x01FW\x80c\x15j\r\x0F\x14a\x01tW\x80c!\xC42\x17\x14a\x01\x9AW\x80c+ \\e\x14a\x01\xD1W[__\xFD[4\x80\x15a\x01*W__\xFD[Pa\x013_T\x81V[`@Q\x90\x81R` \x01[`@Q\x80\x91\x03\x90\xF3[4\x80\x15a\x01QW__\xFD[Pa\x01ea\x01`6`\x04a\x0B\xE7V[a\x04mV[`@Qa\x01=\x93\x92\x91\x90a\x0COV[4\x80\x15a\x01\x7FW__\xFD[P`@\x80Qb\xB9'\x0B`\xE2\x1B\x81R`\x01` \x82\x01R\x01a\x01=V[4\x80\x15a\x01\xA5W__\xFD[P`\x0CTa\x01\xB9\x90`\x01`\x01`\xA0\x1B\x03\x16\x81V[`@Q`\x01`\x01`\xA0\x1B\x03\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x01\xDCW__\xFD[Pa\x01\xE5a\x05\x0EV[`@Qa\x01=\x97\x96\x95\x94\x93\x92\x91\x90a\x0C\xEAV[4\x80\x15a\x02\x03W__\xFD[Pa\x01\xB9\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x026W__\xFD[Pa\x02qa\x02E6`\x04a\r^V[PP`@\x80Q\x80\x82\x01\x82R_\x80\x82R` \x91\x82\x01\x81\x90R\x82Q\x80\x84\x01\x90\x93RT\x82R`\x01T\x90\x82\x01R\x90V[`@\x80Q\x82Q\x81R` \x92\x83\x01Q\x92\x81\x01\x92\x90\x92R\x01a\x01=V[4\x80\x15a\x02\x97W__\xFD[P`\x02Ta\x02\xAC\x90g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81V[`@Qg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x02\xD0W__\xFD[Pa\x02\xD9a\x06\xD0V[`@Q`\xFF\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x02\xF6W__\xFD[Pa\x013`\x0ET\x81V[4\x80\x15a\x03\x0BW__\xFD[P`\x0CTa\x03#\x90`\x01`\xA0\x1B\x90\x04c\xFF\xFF\xFF\xFF\x16\x81V[`@Qc\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x03CW__\xFD[Pa\x01\xB9\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x03vW__\xFD[P`\nT`\x0BTa\x03\x85\x91\x90\x82V[`@\x80Q\x92\x83R` \x83\x01\x91\x90\x91R\x01a\x01=V[4\x80\x15a\x03\xA5W__\xFD[P`@Q`\x01\x81R` \x01a\x01=V[4\x80\x15a\x03\xC0W__\xFD[Pa\x03\xD9a\x03\xCF6`\x04a\r\xADV[_\x91\x90\x91U`\x01UV[\0[4\x80\x15a\x03\xE6W__\xFD[Pa\x013`\rT\x81V[a\x04\x03a\x03\xFE6`\x04a\r\xCDV[a\x07\xAEV[`@Qa\x01=\x92\x91\x90a\x0EAV[4\x80\x15a\x04\x1CW__\xFD[Pa\x013`\x0FT\x81V[4\x80\x15a\x041W__\xFD[P\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0a\x01\xB9V[4\x80\x15a\x04cW__\xFD[Pa\x013`\x01T\x81V[`@\x80Q\x80\x82\x01\x90\x91R_\x80\x82R` \x82\x01R``a\x04\x9D`@Q\x80`@\x01`@R\x80_\x81R` \x01_\x81RP\x90V[`@\x80Q\x80\x82\x01\x82R_\x80\x82R_\x19` \x80\x84\x01\x91\x90\x91R\x83Q\x82\x81R\x90\x81\x01\x90\x93R\x90\x94Pa\x04\xEFV[`@\x80Q\x80\x82\x01\x90\x91R_\x81R``` \x82\x01R\x81R` \x01\x90`\x01\x90\x03\x90\x81a\x04\xC8W\x90P[P`@\x80Q\x80\x82\x01\x82R\x95\x015\x80\x86R` \x86\x01R\x92\x94\x92\x93\x92\x91PPV[`\x03\x80T`\x04T`\x05T`\x06T`\x07\x80Tc\xFF\xFF\xFF\xFF\x90\x95\x16\x95\x93\x94\x92\x93\x91\x92a\x057\x90a\x0E\xAAV[\x80`\x1F\x01` \x80\x91\x04\x02` \x01`@Q\x90\x81\x01`@R\x80\x92\x91\x90\x81\x81R` \x01\x82\x80Ta\x05c\x90a\x0E\xAAV[\x80\x15a\x05\xAEW\x80`\x1F\x10a\x05\x85Wa\x01\0\x80\x83T\x04\x02\x83R\x91` \x01\x91a\x05\xAEV[\x82\x01\x91\x90_R` _ \x90[\x81T\x81R\x90`\x01\x01\x90` \x01\x80\x83\x11a\x05\x91W\x82\x90\x03`\x1F\x16\x82\x01\x91[PPPPP\x90\x80`\x05\x01\x80Ta\x05\xC3\x90a\x0E\xAAV[\x80`\x1F\x01` \x80\x91\x04\x02` \x01`@Q\x90\x81\x01`@R\x80\x92\x91\x90\x81\x81R` \x01\x82\x80Ta\x05\xEF\x90a\x0E\xAAV[\x80\x15a\x06:W\x80`\x1F\x10a\x06\x11Wa\x01\0\x80\x83T\x04\x02\x83R\x91` \x01\x91a\x06:V[\x82\x01\x91\x90_R` _ \x90[\x81T\x81R\x90`\x01\x01\x90` \x01\x80\x83\x11a\x06\x1DW\x82\x90\x03`\x1F\x16\x82\x01\x91[PPPPP\x90\x80`\x06\x01\x80Ta\x06O\x90a\x0E\xAAV[\x80`\x1F\x01` \x80\x91\x04\x02` \x01`@Q\x90\x81\x01`@R\x80\x92\x91\x90\x81\x81R` \x01\x82\x80Ta\x06{\x90a\x0E\xAAV[\x80\x15a\x06\xC6W\x80`\x1F\x10a\x06\x9DWa\x01\0\x80\x83T\x04\x02\x83R\x91` \x01\x91a\x06\xC6V[\x82\x01\x91\x90_R` _ \x90[\x81T\x81R\x90`\x01\x01\x90` \x01\x80\x83\x11a\x06\xA9W\x82\x90\x03`\x1F\x16\x82\x01\x91[PPPPP\x90P\x87V[`@\x80Q`\x04\x81R`$\x81\x01\x82R` \x81\x01\x80Q`\x01`\x01`\xE0\x1B\x03\x16c1<\xE5g`\xE0\x1B\x17\x90R\x90Q_\x91\x82\x91\x82\x91`\x01`\x01`\xA0\x1B\x03\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x91a\x075\x91\x90a\x0E\xDCV[_`@Q\x80\x83\x03\x81\x85Z\xFA\x91PP=\x80_\x81\x14a\x07mW`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\x07rV[``\x91P[P\x91P\x91P\x81\x80\x15a\x07\x85WP\x80Q` \x14[\x15a\x07\xA5W\x80\x80` \x01\x90Q\x81\x01\x90a\x07\x9E\x91\x90a\x0E\xF2V[\x92PPP\x90V[`\x06\x92PPP\x90V[a\x07\xB6a\x0B\x90V[`@\x80Q\x80\x82\x01\x90\x91R_\x80\x82R` \x82\x01R\x8354\x10\x15a\x07\xEBW`@Qc\xAFXL\xA5`\xE0\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[`@\x80Qc#\xB8r\xDD`\xE0\x1B\x81R3`\x04\x82\x01R0`$\x82\x01R\x90\x86\x015`D\x82\x01R_\x90`\x01`\x01`\xA0\x1B\x03\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90c#\xB8r\xDD\x90`d\x01` `@Q\x80\x83\x03\x81_\x87Z\xF1\x15\x80\x15a\x08`W=__>=_\xFD[PPPP`@Q=`\x1F\x19`\x1F\x82\x01\x16\x82\x01\x80`@RP\x81\x01\x90a\x08\x84\x91\x90a\x0F\x12V[\x90P\x80a\x08\xA4W`@Qc\xAAN\xF5!`\xE0\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[`\x02\x80Tg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x80\x82\x16`\x01\x01\x16g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x19\x90\x91\x16\x81\x17\x90\x91U\x86`\x03a\x08\xD7\x82\x82a\x10\x8EV[PP\x855`\nU` \x80\x87\x015`\x0BU`\x0C\x80T`\x01`\x01`\xA0\x1B\x03\x19\x16`\x01`\x01`\xA0\x1B\x03\x88\x16\x17\x90Ua\t\x0E\x90\x88\x01\x88a\x11'V[`\x0C\x80Tc\xFF\xFF\xFF\xFF\x92\x90\x92\x16`\x01`\xA0\x1B\x02c\xFF\xFF\xFF\xFF`\xA0\x1B\x19\x90\x92\x16\x91\x90\x91\x17\x90U` \x80\x88\x015`\rU`@\x80\x89\x015`\x0EU``\x80\x8A\x015`\x0FU\x81Q\x90\x81\x01\x82R\x83\x81R`\x02Tg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x92\x81\x01\x92\x90\x92R\x81\x01a\t}6\x89\x90\x03\x89\x01\x89a\x11BV[\x90R`@\x80Q\x80\x82\x01\x82R\x90\x89\x015\x80\x82R``\x8A\x015` \x80\x84\x01\x91\x90\x91R\x92\x96P\x90\x94P\x90\x88\x01\x805\x913\x91\x7F\x1A\x16\xE1\xC6\xEE\xA6\x13,U\xD3+|\x9A\x7F\x16W\xBC\xD8\x9D\xCE\xE1R\xEF&_\xD2\x10Q\xCE\xC7k\xB2\x91\x90a\t\xD8\x90\x8Ca\x11'V[`@\x80Q\x92\x83Rc\xFF\xFF\xFF\xFF\x90\x91\x16` \x83\x01R\x01`@Q\x80\x91\x03\x90\xA3\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0`\x01`\x01`\xA0\x1B\x03\x16\x15a\x0B\x07W`@Q`\x01`\x01`\xA0\x1B\x03` \x89\x015\x81\x81\x16`$\x84\x01R``\x8A\x015`D\x84\x01R\x91_\x91\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90`d\x01`@\x80Q`\x1F\x19\x81\x84\x03\x01\x81R\x91\x81R` \x82\x01\x80Q`\x01`\x01`\xE0\x1B\x03\x16c@\xC1\x0F\x19`\xE0\x1B\x17\x90RQa\n\xA4\x91\x90a\x0E\xDCV[_`@Q\x80\x83\x03\x81_\x86Z\xF1\x91PP=\x80_\x81\x14a\n\xDDW`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\n\xE2V[``\x91P[PP\x90P\x80a\x0B\x04W`@Qc\x1DgcE`\xE1\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[PP[\x8554\x81\x81\x03\x91\x14a\x0B\x85W_\x86`\x01`\x01`\xA0\x1B\x03\x16\x82`@Q_`@Q\x80\x83\x03\x81\x85\x87Z\xF1\x92PPP=\x80_\x81\x14a\x0B\\W`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\x0BaV[``\x91P[PP\x90P\x80a\x0B\x83W`@Qc\xC1\xA3\x8C]`\xE0\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[P[PPP\x93P\x93\x91PPV[`@Q\x80``\x01`@R\x80_\x81R` \x01_g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81R` \x01a\x0B\xCC`@Q\x80`@\x01`@R\x80_\x81R` \x01_\x81RP\x90V[\x90R\x90V[_`\xE0\x82\x84\x03\x12\x15a\x0B\xE1W__\xFD[P\x91\x90PV[_` \x82\x84\x03\x12\x15a\x0B\xF7W__\xFD[\x815g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\x0C\rW__\xFD[a\x0C\x19\x84\x82\x85\x01a\x0B\xD1V[\x94\x93PPPPV[_\x81Q\x80\x84R\x80` \x84\x01` \x86\x01^_` \x82\x86\x01\x01R` `\x1F\x19`\x1F\x83\x01\x16\x85\x01\x01\x91PP\x92\x91PPV[\x83Q\x81R` \x80\x85\x01Q\x90\x82\x01R_`\xA0\x82\x01`\xA0`@\x84\x01R\x80\x85Q\x80\x83R`\xC0\x85\x01\x91P`\xC0\x81`\x05\x1B\x86\x01\x01\x92P` \x87\x01_[\x82\x81\x10\x15a\x0C\xCEW`\xBF\x19\x87\x86\x03\x01\x84R\x81Q\x80Q\x86R` \x81\x01Q\x90P`@` \x87\x01Ra\x0C\xB8`@\x87\x01\x82a\x0C!V[\x95PP` \x93\x84\x01\x93\x91\x90\x91\x01\x90`\x01\x01a\x0C\x86V[PP\x85Q``\x86\x01RPP` \x84\x01Q`\x80\x84\x01R\x90Pa\x0C\x19V[c\xFF\xFF\xFF\xFF\x88\x16\x81R\x86` \x82\x01R\x85`@\x82\x01R\x84``\x82\x01R`\xE0`\x80\x82\x01R_a\r\x1A`\xE0\x83\x01\x86a\x0C!V[\x82\x81\x03`\xA0\x84\x01Ra\r,\x81\x86a\x0C!V[\x90P\x82\x81\x03`\xC0\x84\x01Ra\r@\x81\x85a\x0C!V[\x9A\x99PPPPPPPPPPV[\x80\x15\x15\x81\x14a\r[W__\xFD[PV[__`@\x83\x85\x03\x12\x15a\roW__\xFD[\x825g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\r\x85W__\xFD[a\r\x91\x85\x82\x86\x01a\x0B\xD1V[\x92PP` \x83\x015a\r\xA2\x81a\rNV[\x80\x91PP\x92P\x92\x90PV[__`@\x83\x85\x03\x12\x15a\r\xBEW__\xFD[PP\x805\x92` \x90\x91\x015\x91PV[___\x83\x85\x03`\x80\x81\x12\x15a\r\xE0W__\xFD[\x845g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\r\xF6W__\xFD[a\x0E\x02\x87\x82\x88\x01a\x0B\xD1V[\x94PP`@`\x1F\x19\x82\x01\x12\x15a\x0E\x16W__\xFD[P` \x84\x01\x91P``\x84\x015`\x01`\x01`\xA0\x1B\x03\x81\x16\x81\x14a\x0E6W__\xFD[\x80\x91PP\x92P\x92P\x92V[_`\xC0\x82\x01\x90P\x83Q\x82Rg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF` \x85\x01Q\x16` \x83\x01R`@\x84\x01Qa\x0E|`@\x84\x01\x82\x80Q\x82R` \x90\x81\x01Q\x91\x01RV[P\x82Q`\x80\x83\x01R` \x83\x01Q`\xA0\x83\x01R[\x93\x92PPPV[cNH{q`\xE0\x1B_R`A`\x04R`$_\xFD[`\x01\x81\x81\x1C\x90\x82\x16\x80a\x0E\xBEW`\x7F\x82\x16\x91P[` \x82\x10\x81\x03a\x0B\xE1WcNH{q`\xE0\x1B_R`\"`\x04R`$_\xFD[_\x82Q\x80` \x85\x01\x84^_\x92\x01\x91\x82RP\x91\x90PV[_` \x82\x84\x03\x12\x15a\x0F\x02W__\xFD[\x81Q`\xFF\x81\x16\x81\x14a\x0E\x8FW__\xFD[_` \x82\x84\x03\x12\x15a\x0F\"W__\xFD[\x81Qa\x0E\x8F\x81a\rNV[c\xFF\xFF\xFF\xFF\x81\x16\x81\x14a\r[W__\xFD[__\x835`\x1E\x19\x846\x03\x01\x81\x12a\x0FSW__\xFD[\x83\x01\x805\x91Pg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x82\x11\x15a\x0FmW__\xFD[` \x01\x91P6\x81\x90\x03\x82\x13\x15a\x0F\x81W__\xFD[\x92P\x92\x90PV[`\x1F\x82\x11\x15a\x0F\xCFW\x80_R` _ `\x1F\x84\x01`\x05\x1C\x81\x01` \x85\x10\x15a\x0F\xADWP\x80[`\x1F\x84\x01`\x05\x1C\x82\x01\x91P[\x81\x81\x10\x15a\x0F\xCCW_\x81U`\x01\x01a\x0F\xB9V[PP[PPPV[g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x83\x11\x15a\x0F\xECWa\x0F\xECa\x0E\x96V[a\x10\0\x83a\x0F\xFA\x83Ta\x0E\xAAV[\x83a\x0F\x88V[_`\x1F\x84\x11`\x01\x81\x14a\x101W_\x85\x15a\x10\x1AWP\x83\x82\x015[_\x19`\x03\x87\x90\x1B\x1C\x19\x16`\x01\x86\x90\x1B\x17\x83Ua\x0F\xCCV[_\x83\x81R` \x81 `\x1F\x19\x87\x16\x91[\x82\x81\x10\x15a\x10`W\x86\x85\x015\x82U` \x94\x85\x01\x94`\x01\x90\x92\x01\x91\x01a\x10@V[P\x86\x82\x10\x15a\x10|W_\x19`\xF8\x88`\x03\x1B\x16\x1C\x19\x84\x87\x015\x16\x81U[PP`\x01\x85`\x01\x1B\x01\x83UPPPPPV[\x815a\x10\x99\x81a\x0F-V[\x81Tc\xFF\xFF\xFF\xFF\x19\x16c\xFF\xFF\xFF\xFF\x91\x90\x91\x16\x17\x81U` \x82\x015`\x01\x82\x01U`@\x82\x015`\x02\x82\x01U``\x82\x015`\x03\x82\x01Ua\x10\xD9`\x80\x83\x01\x83a\x0F>V[a\x10\xE7\x81\x83`\x04\x86\x01a\x0F\xD4V[PPa\x10\xF6`\xA0\x83\x01\x83a\x0F>V[a\x11\x04\x81\x83`\x05\x86\x01a\x0F\xD4V[PPa\x11\x13`\xC0\x83\x01\x83a\x0F>V[a\x11!\x81\x83`\x06\x86\x01a\x0F\xD4V[PPPPV[_` \x82\x84\x03\x12\x15a\x117W__\xFD[\x815a\x0E\x8F\x81a\x0F-V[_`@\x82\x84\x03\x12\x80\x15a\x11SW__\xFD[P`@\x80Q\x90\x81\x01g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x82\x82\x10\x17\x15a\x11wWa\x11wa\x0E\x96V[`@R\x825\x81R` \x92\x83\x015\x92\x81\x01\x92\x90\x92RP\x91\x90PV\xFE\xA1dsolcC\0\x08\x1B\0\n",
     );
     /// The runtime bytecode of the contract, as deployed on the network.
     ///
     /// ```text
-    ///0x6080604052600436106100d9575f3560e01c80638c2267411161007c578063c146844711610057578063c1468447146102c3578063c7c7f5b3146102d8578063f20cd6a9146102f9578063fda6b9291461030e575f5ffd5b80638c226741146102325780638cb46e781461026a578063a12769551461029d575f5ffd5b80633b6f743b116100b75780633b6f743b1461016e578063463d1fca146101cf57806352631ab4146101e457806386c285b01461021d575f5ffd5b80630199ca6c146100dd57806321c432171461010457806337dd460d1461013b575b5f5ffd5b3480156100e8575f5ffd5b506100f15f5481565b6040519081526020015b60405180910390f35b34801561010f575f5ffd5b50600654610123906001600160a01b031681565b6040516001600160a01b0390911681526020016100fb565b348015610146575f5ffd5b506101237f000000000000000000000000000000000000000000000000000000000000000081565b348015610179575f5ffd5b506101b461018836600461074b565b50506040805180820182525f808252602091820181905282518084019093525482526001549082015290565b604080518251815260209283015192810192909252016100fb565b3480156101da575f5ffd5b506100f160075481565b3480156101ef575f5ffd5b506002546102049067ffffffffffffffff1681565b60405167ffffffffffffffff90911681526020016100fb565b348015610228575f5ffd5b506100f160045481565b34801561023d575f5ffd5b5060025461025590600160401b900463ffffffff1681565b60405163ffffffff90911681526020016100fb565b348015610275575f5ffd5b506101237f000000000000000000000000000000000000000000000000000000000000000081565b3480156102a8575f5ffd5b506102c16102b736600461079a565b5f91909155600155565b005b3480156102ce575f5ffd5b506100f160035481565b6102eb6102e63660046107ba565b610323565b6040516100fb92919061082e565b348015610304575f5ffd5b506100f160055481565b348015610319575f5ffd5b506100f160015481565b61032b6106e4565b604080518082019091525f8082526020820152833534101561034b575f5ffd5b604080516323b872dd60e01b81523360048201523060248201529086013560448201525f906001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016906323b872dd906064016020604051808303815f875af11580156103c0573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906103e49190610883565b6040516340c10f1960e01b81526001600160a01b036020890135818116600484015260608a013560248401529293507f000000000000000000000000000000000000000000000000000000000000000016906340c10f19906044015f604051808303815f87803b158015610456575f5ffd5b505af1158015610468573d5f5f3e3d5ffd5b50506002805467ffffffffffffffff16925090505f6104868361089e565b82546101009290920a67ffffffffffffffff8181021990931691831602179091556002545f925030913391166104bf60208c018c6108d6565b8b602001358c6040013560405160200161053496959493929190606096871b6bffffffffffffffffffffffff1990811682529590961b909416601486015260c09290921b6001600160c01b031916602885015260e01b6001600160e01b03191660308401526034830152605482015260740190565b60408051601f198184030181529190528051602091820120915061055a908901896108d6565b6002805463ffffffff92909216600160401b026bffffffff000000000000000019831681179091556020808b01356003556040808c01356004556060808d0135600555600680546001600160a01b038d166001600160a01b0319909116179055346007558151908101825285815267ffffffffffffffff93841693909416929092179083015281016105f1368a90038a018a6108f9565b9052604080518082018252908a013580825260608b01356020808401919091529297509095506001600160a01b0384169133917f7a431b21620a3eaa949b0489713cbc31c02e7251a9bef91b0980d9524d9ac53e91610652908d018d6108d6565b6040805192835263ffffffff90911660208301520160405180910390a386353481810391146106d8575f876001600160a01b0316826040515f6040518083038185875af1925050503d805f81146106c4576040519150601f19603f3d011682016040523d82523d5f602084013e6106c9565b606091505b50509050806106d6575f5ffd5b505b50505050935093915050565b60405180606001604052805f81526020015f67ffffffffffffffff16815260200161072060405180604001604052805f81526020015f81525090565b905290565b5f60e08284031215610735575f5ffd5b50919050565b8015158114610748575f5ffd5b50565b5f5f6040838503121561075c575f5ffd5b823567ffffffffffffffff811115610772575f5ffd5b61077e85828601610725565b925050602083013561078f8161073b565b809150509250929050565b5f5f604083850312156107ab575f5ffd5b50508035926020909101359150565b5f5f5f83850360808112156107cd575f5ffd5b843567ffffffffffffffff8111156107e3575f5ffd5b6107ef87828801610725565b9450506040601f1982011215610803575f5ffd5b5060208401915060608401356001600160a01b0381168114610823575f5ffd5b809150509250925092565b5f60c0820190508351825267ffffffffffffffff60208501511660208301526040840151610869604084018280518252602090810151910152565b5082516080830152602083015160a08301525b9392505050565b5f60208284031215610893575f5ffd5b815161087c8161073b565b5f67ffffffffffffffff821667ffffffffffffffff81036108cd57634e487b7160e01b5f52601160045260245ffd5b60010192915050565b5f602082840312156108e6575f5ffd5b813563ffffffff8116811461087c575f5ffd5b5f604082840312801561090a575f5ffd5b506040805190810167ffffffffffffffff8111828210171561093a57634e487b7160e01b5f52604160045260245ffd5b60405282358152602092830135928101929092525091905056fea164736f6c634300081b000a
+    ///0x60806040526004361061011b575f3560e01c80638c2267411161009d578063c146844711610062578063c1468447146103db578063c7c7f5b3146103f0578063f20cd6a914610411578063fc0c546a14610426578063fda6b92914610458575f5ffd5b80638c226741146103005780638cb46e78146103385780639801134e1461036b5780639f68b9641461039a578063a1276955146103b5575f5ffd5b806337dd460d116100e357806337dd460d146101f85780633b6f743b1461022b57806352631ab41461028c578063857749b0146102c557806386c285b0146102eb575f5ffd5b80630199ca6c1461011f5780630d35b41514610146578063156a0d0f1461017457806321c432171461019a5780632b205c65146101d1575b5f5ffd5b34801561012a575f5ffd5b506101335f5481565b6040519081526020015b60405180910390f35b348015610151575f5ffd5b50610165610160366004610be7565b61046d565b60405161013d93929190610c4f565b34801561017f575f5ffd5b506040805162b9270b60e21b8152600160208201520161013d565b3480156101a5575f5ffd5b50600c546101b9906001600160a01b031681565b6040516001600160a01b03909116815260200161013d565b3480156101dc575f5ffd5b506101e561050e565b60405161013d9796959493929190610cea565b348015610203575f5ffd5b506101b97f000000000000000000000000000000000000000000000000000000000000000081565b348015610236575f5ffd5b50610271610245366004610d5e565b50506040805180820182525f808252602091820181905282518084019093525482526001549082015290565b6040805182518152602092830151928101929092520161013d565b348015610297575f5ffd5b506002546102ac9067ffffffffffffffff1681565b60405167ffffffffffffffff909116815260200161013d565b3480156102d0575f5ffd5b506102d96106d0565b60405160ff909116815260200161013d565b3480156102f6575f5ffd5b50610133600e5481565b34801561030b575f5ffd5b50600c5461032390600160a01b900463ffffffff1681565b60405163ffffffff909116815260200161013d565b348015610343575f5ffd5b506101b97f000000000000000000000000000000000000000000000000000000000000000081565b348015610376575f5ffd5b50600a54600b54610385919082565b6040805192835260208301919091520161013d565b3480156103a5575f5ffd5b506040516001815260200161013d565b3480156103c0575f5ffd5b506103d96103cf366004610dad565b5f91909155600155565b005b3480156103e6575f5ffd5b50610133600d5481565b6104036103fe366004610dcd565b6107ae565b60405161013d929190610e41565b34801561041c575f5ffd5b50610133600f5481565b348015610431575f5ffd5b507f00000000000000000000000000000000000000000000000000000000000000006101b9565b348015610463575f5ffd5b5061013360015481565b604080518082019091525f8082526020820152606061049d60405180604001604052805f81526020015f81525090565b6040805180820182525f8082525f1960208084019190915283518281529081019093529094506104ef565b604080518082019091525f8152606060208201528152602001906001900390816104c85790505b5060408051808201825295013580865260208601529294929392915050565b600380546004546005546006546007805463ffffffff9095169593949293919261053790610eaa565b80601f016020809104026020016040519081016040528092919081815260200182805461056390610eaa565b80156105ae5780601f10610585576101008083540402835291602001916105ae565b820191905f5260205f20905b81548152906001019060200180831161059157829003601f168201915b5050505050908060050180546105c390610eaa565b80601f01602080910402602001604051908101604052809291908181526020018280546105ef90610eaa565b801561063a5780601f106106115761010080835404028352916020019161063a565b820191905f5260205f20905b81548152906001019060200180831161061d57829003601f168201915b50505050509080600601805461064f90610eaa565b80601f016020809104026020016040519081016040528092919081815260200182805461067b90610eaa565b80156106c65780601f1061069d576101008083540402835291602001916106c6565b820191905f5260205f20905b8154815290600101906020018083116106a957829003601f168201915b5050505050905087565b60408051600481526024810182526020810180516001600160e01b031663313ce56760e01b17905290515f91829182916001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016916107359190610edc565b5f60405180830381855afa9150503d805f811461076d576040519150601f19603f3d011682016040523d82523d5f602084013e610772565b606091505b5091509150818015610785575080516020145b156107a5578080602001905181019061079e9190610ef2565b9250505090565b60069250505090565b6107b6610b90565b604080518082019091525f808252602082015283353410156107eb5760405163af584ca560e01b815260040160405180910390fd5b604080516323b872dd60e01b81523360048201523060248201529086013560448201525f906001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016906323b872dd906064016020604051808303815f875af1158015610860573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906108849190610f12565b9050806108a45760405163aa4ef52160e01b815260040160405180910390fd5b6002805467ffffffffffffffff8082166001011667ffffffffffffffff1990911681179091558660036108d7828261108e565b50508535600a55602080870135600b55600c80546001600160a01b0319166001600160a01b03881617905561090e90880188611127565b600c805463ffffffff92909216600160a01b0263ffffffff60a01b19909216919091179055602080880135600d55604080890135600e556060808a0135600f558151908101825283815260025467ffffffffffffffff1692810192909252810161097d36899003890189611142565b90526040805180820182529089013580825260608a013560208084019190915292965090945090880180359133917f1a16e1c6eea6132c55d32b7c9a7f1657bcd89dcee152ef265fd21051cec76bb291906109d8908c611127565b6040805192835263ffffffff90911660208301520160405180910390a37f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031615610b07576040516001600160a01b036020890135818116602484015260608a01356044840152915f917f0000000000000000000000000000000000000000000000000000000000000000169060640160408051601f198184030181529181526020820180516001600160e01b03166340c10f1960e01b17905251610aa49190610edc565b5f604051808303815f865af19150503d805f8114610add576040519150601f19603f3d011682016040523d82523d5f602084013e610ae2565b606091505b5050905080610b0457604051631d67634560e11b815260040160405180910390fd5b50505b8535348181039114610b85575f866001600160a01b0316826040515f6040518083038185875af1925050503d805f8114610b5c576040519150601f19603f3d011682016040523d82523d5f602084013e610b61565b606091505b5050905080610b835760405163c1a38c5d60e01b815260040160405180910390fd5b505b505050935093915050565b60405180606001604052805f81526020015f67ffffffffffffffff168152602001610bcc60405180604001604052805f81526020015f81525090565b905290565b5f60e08284031215610be1575f5ffd5b50919050565b5f60208284031215610bf7575f5ffd5b813567ffffffffffffffff811115610c0d575f5ffd5b610c1984828501610bd1565b949350505050565b5f81518084528060208401602086015e5f602082860101526020601f19601f83011685010191505092915050565b83518152602080850151908201525f60a0820160a0604084015280855180835260c08501915060c08160051b8601019250602087015f5b82811015610cce5760bf198786030184528151805186526020810151905060406020870152610cb86040870182610c21565b9550506020938401939190910190600101610c86565b5050855160608601525050602084015160808401529050610c19565b63ffffffff8816815286602082015285604082015284606082015260e060808201525f610d1a60e0830186610c21565b82810360a0840152610d2c8186610c21565b905082810360c0840152610d408185610c21565b9a9950505050505050505050565b8015158114610d5b575f5ffd5b50565b5f5f60408385031215610d6f575f5ffd5b823567ffffffffffffffff811115610d85575f5ffd5b610d9185828601610bd1565b9250506020830135610da281610d4e565b809150509250929050565b5f5f60408385031215610dbe575f5ffd5b50508035926020909101359150565b5f5f5f8385036080811215610de0575f5ffd5b843567ffffffffffffffff811115610df6575f5ffd5b610e0287828801610bd1565b9450506040601f1982011215610e16575f5ffd5b5060208401915060608401356001600160a01b0381168114610e36575f5ffd5b809150509250925092565b5f60c0820190508351825267ffffffffffffffff60208501511660208301526040840151610e7c604084018280518252602090810151910152565b5082516080830152602083015160a08301525b9392505050565b634e487b7160e01b5f52604160045260245ffd5b600181811c90821680610ebe57607f821691505b602082108103610be157634e487b7160e01b5f52602260045260245ffd5b5f82518060208501845e5f920191825250919050565b5f60208284031215610f02575f5ffd5b815160ff81168114610e8f575f5ffd5b5f60208284031215610f22575f5ffd5b8151610e8f81610d4e565b63ffffffff81168114610d5b575f5ffd5b5f5f8335601e19843603018112610f53575f5ffd5b83018035915067ffffffffffffffff821115610f6d575f5ffd5b602001915036819003821315610f81575f5ffd5b9250929050565b601f821115610fcf57805f5260205f20601f840160051c81016020851015610fad5750805b601f840160051c820191505b81811015610fcc575f8155600101610fb9565b50505b505050565b67ffffffffffffffff831115610fec57610fec610e96565b61100083610ffa8354610eaa565b83610f88565b5f601f841160018114611031575f851561101a5750838201355b5f19600387901b1c1916600186901b178355610fcc565b5f83815260208120601f198716915b828110156110605786850135825560209485019460019092019101611040565b508682101561107c575f1960f88860031b161c19848701351681555b505060018560011b0183555050505050565b813561109981610f2d565b815463ffffffff191663ffffffff919091161781556020820135600182015560408201356002820155606082013560038201556110d96080830183610f3e565b6110e7818360048601610fd4565b50506110f660a0830183610f3e565b611104818360058601610fd4565b505061111360c0830183610f3e565b611121818360068601610fd4565b50505050565b5f60208284031215611137575f5ffd5b8135610e8f81610f2d565b5f6040828403128015611153575f5ffd5b506040805190810167ffffffffffffffff8111828210171561117757611177610e96565b60405282358152602092830135928101929092525091905056fea164736f6c634300081b000a
     /// ```
     #[rustfmt::skip]
     #[allow(clippy::all)]
     pub static DEPLOYED_BYTECODE: alloy_sol_types::private::Bytes = alloy_sol_types::private::Bytes::from_static(
-        b"`\x80`@R`\x046\x10a\0\xD9W_5`\xE0\x1C\x80c\x8C\"gA\x11a\0|W\x80c\xC1F\x84G\x11a\0WW\x80c\xC1F\x84G\x14a\x02\xC3W\x80c\xC7\xC7\xF5\xB3\x14a\x02\xD8W\x80c\xF2\x0C\xD6\xA9\x14a\x02\xF9W\x80c\xFD\xA6\xB9)\x14a\x03\x0EW__\xFD[\x80c\x8C\"gA\x14a\x022W\x80c\x8C\xB4nx\x14a\x02jW\x80c\xA1'iU\x14a\x02\x9DW__\xFD[\x80c;ot;\x11a\0\xB7W\x80c;ot;\x14a\x01nW\x80cF=\x1F\xCA\x14a\x01\xCFW\x80cRc\x1A\xB4\x14a\x01\xE4W\x80c\x86\xC2\x85\xB0\x14a\x02\x1DW__\xFD[\x80c\x01\x99\xCAl\x14a\0\xDDW\x80c!\xC42\x17\x14a\x01\x04W\x80c7\xDDF\r\x14a\x01;W[__\xFD[4\x80\x15a\0\xE8W__\xFD[Pa\0\xF1_T\x81V[`@Q\x90\x81R` \x01[`@Q\x80\x91\x03\x90\xF3[4\x80\x15a\x01\x0FW__\xFD[P`\x06Ta\x01#\x90`\x01`\x01`\xA0\x1B\x03\x16\x81V[`@Q`\x01`\x01`\xA0\x1B\x03\x90\x91\x16\x81R` \x01a\0\xFBV[4\x80\x15a\x01FW__\xFD[Pa\x01#\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x01yW__\xFD[Pa\x01\xB4a\x01\x886`\x04a\x07KV[PP`@\x80Q\x80\x82\x01\x82R_\x80\x82R` \x91\x82\x01\x81\x90R\x82Q\x80\x84\x01\x90\x93RT\x82R`\x01T\x90\x82\x01R\x90V[`@\x80Q\x82Q\x81R` \x92\x83\x01Q\x92\x81\x01\x92\x90\x92R\x01a\0\xFBV[4\x80\x15a\x01\xDAW__\xFD[Pa\0\xF1`\x07T\x81V[4\x80\x15a\x01\xEFW__\xFD[P`\x02Ta\x02\x04\x90g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81V[`@Qg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\0\xFBV[4\x80\x15a\x02(W__\xFD[Pa\0\xF1`\x04T\x81V[4\x80\x15a\x02=W__\xFD[P`\x02Ta\x02U\x90`\x01`@\x1B\x90\x04c\xFF\xFF\xFF\xFF\x16\x81V[`@Qc\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\0\xFBV[4\x80\x15a\x02uW__\xFD[Pa\x01#\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x02\xA8W__\xFD[Pa\x02\xC1a\x02\xB76`\x04a\x07\x9AV[_\x91\x90\x91U`\x01UV[\0[4\x80\x15a\x02\xCEW__\xFD[Pa\0\xF1`\x03T\x81V[a\x02\xEBa\x02\xE66`\x04a\x07\xBAV[a\x03#V[`@Qa\0\xFB\x92\x91\x90a\x08.V[4\x80\x15a\x03\x04W__\xFD[Pa\0\xF1`\x05T\x81V[4\x80\x15a\x03\x19W__\xFD[Pa\0\xF1`\x01T\x81V[a\x03+a\x06\xE4V[`@\x80Q\x80\x82\x01\x90\x91R_\x80\x82R` \x82\x01R\x8354\x10\x15a\x03KW__\xFD[`@\x80Qc#\xB8r\xDD`\xE0\x1B\x81R3`\x04\x82\x01R0`$\x82\x01R\x90\x86\x015`D\x82\x01R_\x90`\x01`\x01`\xA0\x1B\x03\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90c#\xB8r\xDD\x90`d\x01` `@Q\x80\x83\x03\x81_\x87Z\xF1\x15\x80\x15a\x03\xC0W=__>=_\xFD[PPPP`@Q=`\x1F\x19`\x1F\x82\x01\x16\x82\x01\x80`@RP\x81\x01\x90a\x03\xE4\x91\x90a\x08\x83V[`@Qc@\xC1\x0F\x19`\xE0\x1B\x81R`\x01`\x01`\xA0\x1B\x03` \x89\x015\x81\x81\x16`\x04\x84\x01R``\x8A\x015`$\x84\x01R\x92\x93P\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90c@\xC1\x0F\x19\x90`D\x01_`@Q\x80\x83\x03\x81_\x87\x80;\x15\x80\x15a\x04VW__\xFD[PZ\xF1\x15\x80\x15a\x04hW=__>=_\xFD[PP`\x02\x80Tg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x92P\x90P_a\x04\x86\x83a\x08\x9EV[\x82Ta\x01\0\x92\x90\x92\ng\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x81\x02\x19\x90\x93\x16\x91\x83\x16\x02\x17\x90\x91U`\x02T_\x92P0\x913\x91\x16a\x04\xBF` \x8C\x01\x8Ca\x08\xD6V[\x8B` \x015\x8C`@\x015`@Q` \x01a\x054\x96\x95\x94\x93\x92\x91\x90``\x96\x87\x1Bk\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x19\x90\x81\x16\x82R\x95\x90\x96\x1B\x90\x94\x16`\x14\x86\x01R`\xC0\x92\x90\x92\x1B`\x01`\x01`\xC0\x1B\x03\x19\x16`(\x85\x01R`\xE0\x1B`\x01`\x01`\xE0\x1B\x03\x19\x16`0\x84\x01R`4\x83\x01R`T\x82\x01R`t\x01\x90V[`@\x80Q`\x1F\x19\x81\x84\x03\x01\x81R\x91\x90R\x80Q` \x91\x82\x01 \x91Pa\x05Z\x90\x89\x01\x89a\x08\xD6V[`\x02\x80Tc\xFF\xFF\xFF\xFF\x92\x90\x92\x16`\x01`@\x1B\x02k\xFF\xFF\xFF\xFF\0\0\0\0\0\0\0\0\x19\x83\x16\x81\x17\x90\x91U` \x80\x8B\x015`\x03U`@\x80\x8C\x015`\x04U``\x80\x8D\x015`\x05U`\x06\x80T`\x01`\x01`\xA0\x1B\x03\x8D\x16`\x01`\x01`\xA0\x1B\x03\x19\x90\x91\x16\x17\x90U4`\x07U\x81Q\x90\x81\x01\x82R\x85\x81Rg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x93\x84\x16\x93\x90\x94\x16\x92\x90\x92\x17\x90\x83\x01R\x81\x01a\x05\xF16\x8A\x90\x03\x8A\x01\x8Aa\x08\xF9V[\x90R`@\x80Q\x80\x82\x01\x82R\x90\x8A\x015\x80\x82R``\x8B\x015` \x80\x84\x01\x91\x90\x91R\x92\x97P\x90\x95P`\x01`\x01`\xA0\x1B\x03\x84\x16\x913\x91\x7FzC\x1B!b\n>\xAA\x94\x9B\x04\x89q<\xBC1\xC0.rQ\xA9\xBE\xF9\x1B\t\x80\xD9RM\x9A\xC5>\x91a\x06R\x90\x8D\x01\x8Da\x08\xD6V[`@\x80Q\x92\x83Rc\xFF\xFF\xFF\xFF\x90\x91\x16` \x83\x01R\x01`@Q\x80\x91\x03\x90\xA3\x8654\x81\x81\x03\x91\x14a\x06\xD8W_\x87`\x01`\x01`\xA0\x1B\x03\x16\x82`@Q_`@Q\x80\x83\x03\x81\x85\x87Z\xF1\x92PPP=\x80_\x81\x14a\x06\xC4W`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\x06\xC9V[``\x91P[PP\x90P\x80a\x06\xD6W__\xFD[P[PPPP\x93P\x93\x91PPV[`@Q\x80``\x01`@R\x80_\x81R` \x01_g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81R` \x01a\x07 `@Q\x80`@\x01`@R\x80_\x81R` \x01_\x81RP\x90V[\x90R\x90V[_`\xE0\x82\x84\x03\x12\x15a\x075W__\xFD[P\x91\x90PV[\x80\x15\x15\x81\x14a\x07HW__\xFD[PV[__`@\x83\x85\x03\x12\x15a\x07\\W__\xFD[\x825g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\x07rW__\xFD[a\x07~\x85\x82\x86\x01a\x07%V[\x92PP` \x83\x015a\x07\x8F\x81a\x07;V[\x80\x91PP\x92P\x92\x90PV[__`@\x83\x85\x03\x12\x15a\x07\xABW__\xFD[PP\x805\x92` \x90\x91\x015\x91PV[___\x83\x85\x03`\x80\x81\x12\x15a\x07\xCDW__\xFD[\x845g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\x07\xE3W__\xFD[a\x07\xEF\x87\x82\x88\x01a\x07%V[\x94PP`@`\x1F\x19\x82\x01\x12\x15a\x08\x03W__\xFD[P` \x84\x01\x91P``\x84\x015`\x01`\x01`\xA0\x1B\x03\x81\x16\x81\x14a\x08#W__\xFD[\x80\x91PP\x92P\x92P\x92V[_`\xC0\x82\x01\x90P\x83Q\x82Rg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF` \x85\x01Q\x16` \x83\x01R`@\x84\x01Qa\x08i`@\x84\x01\x82\x80Q\x82R` \x90\x81\x01Q\x91\x01RV[P\x82Q`\x80\x83\x01R` \x83\x01Q`\xA0\x83\x01R[\x93\x92PPPV[_` \x82\x84\x03\x12\x15a\x08\x93W__\xFD[\x81Qa\x08|\x81a\x07;V[_g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x82\x16g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x03a\x08\xCDWcNH{q`\xE0\x1B_R`\x11`\x04R`$_\xFD[`\x01\x01\x92\x91PPV[_` \x82\x84\x03\x12\x15a\x08\xE6W__\xFD[\x815c\xFF\xFF\xFF\xFF\x81\x16\x81\x14a\x08|W__\xFD[_`@\x82\x84\x03\x12\x80\x15a\t\nW__\xFD[P`@\x80Q\x90\x81\x01g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x82\x82\x10\x17\x15a\t:WcNH{q`\xE0\x1B_R`A`\x04R`$_\xFD[`@R\x825\x81R` \x92\x83\x015\x92\x81\x01\x92\x90\x92RP\x91\x90PV\xFE\xA1dsolcC\0\x08\x1B\0\n",
+        b"`\x80`@R`\x046\x10a\x01\x1BW_5`\xE0\x1C\x80c\x8C\"gA\x11a\0\x9DW\x80c\xC1F\x84G\x11a\0bW\x80c\xC1F\x84G\x14a\x03\xDBW\x80c\xC7\xC7\xF5\xB3\x14a\x03\xF0W\x80c\xF2\x0C\xD6\xA9\x14a\x04\x11W\x80c\xFC\x0CTj\x14a\x04&W\x80c\xFD\xA6\xB9)\x14a\x04XW__\xFD[\x80c\x8C\"gA\x14a\x03\0W\x80c\x8C\xB4nx\x14a\x038W\x80c\x98\x01\x13N\x14a\x03kW\x80c\x9Fh\xB9d\x14a\x03\x9AW\x80c\xA1'iU\x14a\x03\xB5W__\xFD[\x80c7\xDDF\r\x11a\0\xE3W\x80c7\xDDF\r\x14a\x01\xF8W\x80c;ot;\x14a\x02+W\x80cRc\x1A\xB4\x14a\x02\x8CW\x80c\x85wI\xB0\x14a\x02\xC5W\x80c\x86\xC2\x85\xB0\x14a\x02\xEBW__\xFD[\x80c\x01\x99\xCAl\x14a\x01\x1FW\x80c\r5\xB4\x15\x14a\x01FW\x80c\x15j\r\x0F\x14a\x01tW\x80c!\xC42\x17\x14a\x01\x9AW\x80c+ \\e\x14a\x01\xD1W[__\xFD[4\x80\x15a\x01*W__\xFD[Pa\x013_T\x81V[`@Q\x90\x81R` \x01[`@Q\x80\x91\x03\x90\xF3[4\x80\x15a\x01QW__\xFD[Pa\x01ea\x01`6`\x04a\x0B\xE7V[a\x04mV[`@Qa\x01=\x93\x92\x91\x90a\x0COV[4\x80\x15a\x01\x7FW__\xFD[P`@\x80Qb\xB9'\x0B`\xE2\x1B\x81R`\x01` \x82\x01R\x01a\x01=V[4\x80\x15a\x01\xA5W__\xFD[P`\x0CTa\x01\xB9\x90`\x01`\x01`\xA0\x1B\x03\x16\x81V[`@Q`\x01`\x01`\xA0\x1B\x03\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x01\xDCW__\xFD[Pa\x01\xE5a\x05\x0EV[`@Qa\x01=\x97\x96\x95\x94\x93\x92\x91\x90a\x0C\xEAV[4\x80\x15a\x02\x03W__\xFD[Pa\x01\xB9\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x026W__\xFD[Pa\x02qa\x02E6`\x04a\r^V[PP`@\x80Q\x80\x82\x01\x82R_\x80\x82R` \x91\x82\x01\x81\x90R\x82Q\x80\x84\x01\x90\x93RT\x82R`\x01T\x90\x82\x01R\x90V[`@\x80Q\x82Q\x81R` \x92\x83\x01Q\x92\x81\x01\x92\x90\x92R\x01a\x01=V[4\x80\x15a\x02\x97W__\xFD[P`\x02Ta\x02\xAC\x90g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81V[`@Qg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x02\xD0W__\xFD[Pa\x02\xD9a\x06\xD0V[`@Q`\xFF\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x02\xF6W__\xFD[Pa\x013`\x0ET\x81V[4\x80\x15a\x03\x0BW__\xFD[P`\x0CTa\x03#\x90`\x01`\xA0\x1B\x90\x04c\xFF\xFF\xFF\xFF\x16\x81V[`@Qc\xFF\xFF\xFF\xFF\x90\x91\x16\x81R` \x01a\x01=V[4\x80\x15a\x03CW__\xFD[Pa\x01\xB9\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x81V[4\x80\x15a\x03vW__\xFD[P`\nT`\x0BTa\x03\x85\x91\x90\x82V[`@\x80Q\x92\x83R` \x83\x01\x91\x90\x91R\x01a\x01=V[4\x80\x15a\x03\xA5W__\xFD[P`@Q`\x01\x81R` \x01a\x01=V[4\x80\x15a\x03\xC0W__\xFD[Pa\x03\xD9a\x03\xCF6`\x04a\r\xADV[_\x91\x90\x91U`\x01UV[\0[4\x80\x15a\x03\xE6W__\xFD[Pa\x013`\rT\x81V[a\x04\x03a\x03\xFE6`\x04a\r\xCDV[a\x07\xAEV[`@Qa\x01=\x92\x91\x90a\x0EAV[4\x80\x15a\x04\x1CW__\xFD[Pa\x013`\x0FT\x81V[4\x80\x15a\x041W__\xFD[P\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0a\x01\xB9V[4\x80\x15a\x04cW__\xFD[Pa\x013`\x01T\x81V[`@\x80Q\x80\x82\x01\x90\x91R_\x80\x82R` \x82\x01R``a\x04\x9D`@Q\x80`@\x01`@R\x80_\x81R` \x01_\x81RP\x90V[`@\x80Q\x80\x82\x01\x82R_\x80\x82R_\x19` \x80\x84\x01\x91\x90\x91R\x83Q\x82\x81R\x90\x81\x01\x90\x93R\x90\x94Pa\x04\xEFV[`@\x80Q\x80\x82\x01\x90\x91R_\x81R``` \x82\x01R\x81R` \x01\x90`\x01\x90\x03\x90\x81a\x04\xC8W\x90P[P`@\x80Q\x80\x82\x01\x82R\x95\x015\x80\x86R` \x86\x01R\x92\x94\x92\x93\x92\x91PPV[`\x03\x80T`\x04T`\x05T`\x06T`\x07\x80Tc\xFF\xFF\xFF\xFF\x90\x95\x16\x95\x93\x94\x92\x93\x91\x92a\x057\x90a\x0E\xAAV[\x80`\x1F\x01` \x80\x91\x04\x02` \x01`@Q\x90\x81\x01`@R\x80\x92\x91\x90\x81\x81R` \x01\x82\x80Ta\x05c\x90a\x0E\xAAV[\x80\x15a\x05\xAEW\x80`\x1F\x10a\x05\x85Wa\x01\0\x80\x83T\x04\x02\x83R\x91` \x01\x91a\x05\xAEV[\x82\x01\x91\x90_R` _ \x90[\x81T\x81R\x90`\x01\x01\x90` \x01\x80\x83\x11a\x05\x91W\x82\x90\x03`\x1F\x16\x82\x01\x91[PPPPP\x90\x80`\x05\x01\x80Ta\x05\xC3\x90a\x0E\xAAV[\x80`\x1F\x01` \x80\x91\x04\x02` \x01`@Q\x90\x81\x01`@R\x80\x92\x91\x90\x81\x81R` \x01\x82\x80Ta\x05\xEF\x90a\x0E\xAAV[\x80\x15a\x06:W\x80`\x1F\x10a\x06\x11Wa\x01\0\x80\x83T\x04\x02\x83R\x91` \x01\x91a\x06:V[\x82\x01\x91\x90_R` _ \x90[\x81T\x81R\x90`\x01\x01\x90` \x01\x80\x83\x11a\x06\x1DW\x82\x90\x03`\x1F\x16\x82\x01\x91[PPPPP\x90\x80`\x06\x01\x80Ta\x06O\x90a\x0E\xAAV[\x80`\x1F\x01` \x80\x91\x04\x02` \x01`@Q\x90\x81\x01`@R\x80\x92\x91\x90\x81\x81R` \x01\x82\x80Ta\x06{\x90a\x0E\xAAV[\x80\x15a\x06\xC6W\x80`\x1F\x10a\x06\x9DWa\x01\0\x80\x83T\x04\x02\x83R\x91` \x01\x91a\x06\xC6V[\x82\x01\x91\x90_R` _ \x90[\x81T\x81R\x90`\x01\x01\x90` \x01\x80\x83\x11a\x06\xA9W\x82\x90\x03`\x1F\x16\x82\x01\x91[PPPPP\x90P\x87V[`@\x80Q`\x04\x81R`$\x81\x01\x82R` \x81\x01\x80Q`\x01`\x01`\xE0\x1B\x03\x16c1<\xE5g`\xE0\x1B\x17\x90R\x90Q_\x91\x82\x91\x82\x91`\x01`\x01`\xA0\x1B\x03\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x91a\x075\x91\x90a\x0E\xDCV[_`@Q\x80\x83\x03\x81\x85Z\xFA\x91PP=\x80_\x81\x14a\x07mW`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\x07rV[``\x91P[P\x91P\x91P\x81\x80\x15a\x07\x85WP\x80Q` \x14[\x15a\x07\xA5W\x80\x80` \x01\x90Q\x81\x01\x90a\x07\x9E\x91\x90a\x0E\xF2V[\x92PPP\x90V[`\x06\x92PPP\x90V[a\x07\xB6a\x0B\x90V[`@\x80Q\x80\x82\x01\x90\x91R_\x80\x82R` \x82\x01R\x8354\x10\x15a\x07\xEBW`@Qc\xAFXL\xA5`\xE0\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[`@\x80Qc#\xB8r\xDD`\xE0\x1B\x81R3`\x04\x82\x01R0`$\x82\x01R\x90\x86\x015`D\x82\x01R_\x90`\x01`\x01`\xA0\x1B\x03\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90c#\xB8r\xDD\x90`d\x01` `@Q\x80\x83\x03\x81_\x87Z\xF1\x15\x80\x15a\x08`W=__>=_\xFD[PPPP`@Q=`\x1F\x19`\x1F\x82\x01\x16\x82\x01\x80`@RP\x81\x01\x90a\x08\x84\x91\x90a\x0F\x12V[\x90P\x80a\x08\xA4W`@Qc\xAAN\xF5!`\xE0\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[`\x02\x80Tg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x80\x82\x16`\x01\x01\x16g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x19\x90\x91\x16\x81\x17\x90\x91U\x86`\x03a\x08\xD7\x82\x82a\x10\x8EV[PP\x855`\nU` \x80\x87\x015`\x0BU`\x0C\x80T`\x01`\x01`\xA0\x1B\x03\x19\x16`\x01`\x01`\xA0\x1B\x03\x88\x16\x17\x90Ua\t\x0E\x90\x88\x01\x88a\x11'V[`\x0C\x80Tc\xFF\xFF\xFF\xFF\x92\x90\x92\x16`\x01`\xA0\x1B\x02c\xFF\xFF\xFF\xFF`\xA0\x1B\x19\x90\x92\x16\x91\x90\x91\x17\x90U` \x80\x88\x015`\rU`@\x80\x89\x015`\x0EU``\x80\x8A\x015`\x0FU\x81Q\x90\x81\x01\x82R\x83\x81R`\x02Tg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x92\x81\x01\x92\x90\x92R\x81\x01a\t}6\x89\x90\x03\x89\x01\x89a\x11BV[\x90R`@\x80Q\x80\x82\x01\x82R\x90\x89\x015\x80\x82R``\x8A\x015` \x80\x84\x01\x91\x90\x91R\x92\x96P\x90\x94P\x90\x88\x01\x805\x913\x91\x7F\x1A\x16\xE1\xC6\xEE\xA6\x13,U\xD3+|\x9A\x7F\x16W\xBC\xD8\x9D\xCE\xE1R\xEF&_\xD2\x10Q\xCE\xC7k\xB2\x91\x90a\t\xD8\x90\x8Ca\x11'V[`@\x80Q\x92\x83Rc\xFF\xFF\xFF\xFF\x90\x91\x16` \x83\x01R\x01`@Q\x80\x91\x03\x90\xA3\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0`\x01`\x01`\xA0\x1B\x03\x16\x15a\x0B\x07W`@Q`\x01`\x01`\xA0\x1B\x03` \x89\x015\x81\x81\x16`$\x84\x01R``\x8A\x015`D\x84\x01R\x91_\x91\x7F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x16\x90`d\x01`@\x80Q`\x1F\x19\x81\x84\x03\x01\x81R\x91\x81R` \x82\x01\x80Q`\x01`\x01`\xE0\x1B\x03\x16c@\xC1\x0F\x19`\xE0\x1B\x17\x90RQa\n\xA4\x91\x90a\x0E\xDCV[_`@Q\x80\x83\x03\x81_\x86Z\xF1\x91PP=\x80_\x81\x14a\n\xDDW`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\n\xE2V[``\x91P[PP\x90P\x80a\x0B\x04W`@Qc\x1DgcE`\xE1\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[PP[\x8554\x81\x81\x03\x91\x14a\x0B\x85W_\x86`\x01`\x01`\xA0\x1B\x03\x16\x82`@Q_`@Q\x80\x83\x03\x81\x85\x87Z\xF1\x92PPP=\x80_\x81\x14a\x0B\\W`@Q\x91P`\x1F\x19`?=\x01\x16\x82\x01`@R=\x82R=_` \x84\x01>a\x0BaV[``\x91P[PP\x90P\x80a\x0B\x83W`@Qc\xC1\xA3\x8C]`\xE0\x1B\x81R`\x04\x01`@Q\x80\x91\x03\x90\xFD[P[PPP\x93P\x93\x91PPV[`@Q\x80``\x01`@R\x80_\x81R` \x01_g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x16\x81R` \x01a\x0B\xCC`@Q\x80`@\x01`@R\x80_\x81R` \x01_\x81RP\x90V[\x90R\x90V[_`\xE0\x82\x84\x03\x12\x15a\x0B\xE1W__\xFD[P\x91\x90PV[_` \x82\x84\x03\x12\x15a\x0B\xF7W__\xFD[\x815g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\x0C\rW__\xFD[a\x0C\x19\x84\x82\x85\x01a\x0B\xD1V[\x94\x93PPPPV[_\x81Q\x80\x84R\x80` \x84\x01` \x86\x01^_` \x82\x86\x01\x01R` `\x1F\x19`\x1F\x83\x01\x16\x85\x01\x01\x91PP\x92\x91PPV[\x83Q\x81R` \x80\x85\x01Q\x90\x82\x01R_`\xA0\x82\x01`\xA0`@\x84\x01R\x80\x85Q\x80\x83R`\xC0\x85\x01\x91P`\xC0\x81`\x05\x1B\x86\x01\x01\x92P` \x87\x01_[\x82\x81\x10\x15a\x0C\xCEW`\xBF\x19\x87\x86\x03\x01\x84R\x81Q\x80Q\x86R` \x81\x01Q\x90P`@` \x87\x01Ra\x0C\xB8`@\x87\x01\x82a\x0C!V[\x95PP` \x93\x84\x01\x93\x91\x90\x91\x01\x90`\x01\x01a\x0C\x86V[PP\x85Q``\x86\x01RPP` \x84\x01Q`\x80\x84\x01R\x90Pa\x0C\x19V[c\xFF\xFF\xFF\xFF\x88\x16\x81R\x86` \x82\x01R\x85`@\x82\x01R\x84``\x82\x01R`\xE0`\x80\x82\x01R_a\r\x1A`\xE0\x83\x01\x86a\x0C!V[\x82\x81\x03`\xA0\x84\x01Ra\r,\x81\x86a\x0C!V[\x90P\x82\x81\x03`\xC0\x84\x01Ra\r@\x81\x85a\x0C!V[\x9A\x99PPPPPPPPPPV[\x80\x15\x15\x81\x14a\r[W__\xFD[PV[__`@\x83\x85\x03\x12\x15a\roW__\xFD[\x825g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\r\x85W__\xFD[a\r\x91\x85\x82\x86\x01a\x0B\xD1V[\x92PP` \x83\x015a\r\xA2\x81a\rNV[\x80\x91PP\x92P\x92\x90PV[__`@\x83\x85\x03\x12\x15a\r\xBEW__\xFD[PP\x805\x92` \x90\x91\x015\x91PV[___\x83\x85\x03`\x80\x81\x12\x15a\r\xE0W__\xFD[\x845g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x15a\r\xF6W__\xFD[a\x0E\x02\x87\x82\x88\x01a\x0B\xD1V[\x94PP`@`\x1F\x19\x82\x01\x12\x15a\x0E\x16W__\xFD[P` \x84\x01\x91P``\x84\x015`\x01`\x01`\xA0\x1B\x03\x81\x16\x81\x14a\x0E6W__\xFD[\x80\x91PP\x92P\x92P\x92V[_`\xC0\x82\x01\x90P\x83Q\x82Rg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF` \x85\x01Q\x16` \x83\x01R`@\x84\x01Qa\x0E|`@\x84\x01\x82\x80Q\x82R` \x90\x81\x01Q\x91\x01RV[P\x82Q`\x80\x83\x01R` \x83\x01Q`\xA0\x83\x01R[\x93\x92PPPV[cNH{q`\xE0\x1B_R`A`\x04R`$_\xFD[`\x01\x81\x81\x1C\x90\x82\x16\x80a\x0E\xBEW`\x7F\x82\x16\x91P[` \x82\x10\x81\x03a\x0B\xE1WcNH{q`\xE0\x1B_R`\"`\x04R`$_\xFD[_\x82Q\x80` \x85\x01\x84^_\x92\x01\x91\x82RP\x91\x90PV[_` \x82\x84\x03\x12\x15a\x0F\x02W__\xFD[\x81Q`\xFF\x81\x16\x81\x14a\x0E\x8FW__\xFD[_` \x82\x84\x03\x12\x15a\x0F\"W__\xFD[\x81Qa\x0E\x8F\x81a\rNV[c\xFF\xFF\xFF\xFF\x81\x16\x81\x14a\r[W__\xFD[__\x835`\x1E\x19\x846\x03\x01\x81\x12a\x0FSW__\xFD[\x83\x01\x805\x91Pg\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x82\x11\x15a\x0FmW__\xFD[` \x01\x91P6\x81\x90\x03\x82\x13\x15a\x0F\x81W__\xFD[\x92P\x92\x90PV[`\x1F\x82\x11\x15a\x0F\xCFW\x80_R` _ `\x1F\x84\x01`\x05\x1C\x81\x01` \x85\x10\x15a\x0F\xADWP\x80[`\x1F\x84\x01`\x05\x1C\x82\x01\x91P[\x81\x81\x10\x15a\x0F\xCCW_\x81U`\x01\x01a\x0F\xB9V[PP[PPPV[g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x83\x11\x15a\x0F\xECWa\x0F\xECa\x0E\x96V[a\x10\0\x83a\x0F\xFA\x83Ta\x0E\xAAV[\x83a\x0F\x88V[_`\x1F\x84\x11`\x01\x81\x14a\x101W_\x85\x15a\x10\x1AWP\x83\x82\x015[_\x19`\x03\x87\x90\x1B\x1C\x19\x16`\x01\x86\x90\x1B\x17\x83Ua\x0F\xCCV[_\x83\x81R` \x81 `\x1F\x19\x87\x16\x91[\x82\x81\x10\x15a\x10`W\x86\x85\x015\x82U` \x94\x85\x01\x94`\x01\x90\x92\x01\x91\x01a\x10@V[P\x86\x82\x10\x15a\x10|W_\x19`\xF8\x88`\x03\x1B\x16\x1C\x19\x84\x87\x015\x16\x81U[PP`\x01\x85`\x01\x1B\x01\x83UPPPPPV[\x815a\x10\x99\x81a\x0F-V[\x81Tc\xFF\xFF\xFF\xFF\x19\x16c\xFF\xFF\xFF\xFF\x91\x90\x91\x16\x17\x81U` \x82\x015`\x01\x82\x01U`@\x82\x015`\x02\x82\x01U``\x82\x015`\x03\x82\x01Ua\x10\xD9`\x80\x83\x01\x83a\x0F>V[a\x10\xE7\x81\x83`\x04\x86\x01a\x0F\xD4V[PPa\x10\xF6`\xA0\x83\x01\x83a\x0F>V[a\x11\x04\x81\x83`\x05\x86\x01a\x0F\xD4V[PPa\x11\x13`\xC0\x83\x01\x83a\x0F>V[a\x11!\x81\x83`\x06\x86\x01a\x0F\xD4V[PPPPV[_` \x82\x84\x03\x12\x15a\x117W__\xFD[\x815a\x0E\x8F\x81a\x0F-V[_`@\x82\x84\x03\x12\x80\x15a\x11SW__\xFD[P`@\x80Q\x90\x81\x01g\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x81\x11\x82\x82\x10\x17\x15a\x11wWa\x11wa\x0E\x96V[`@R\x825\x81R` \x92\x83\x015\x92\x81\x01\x92\x90\x92RP\x91\x90PV\xFE\xA1dsolcC\0\x08\x1B\0\n",
     );
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
@@ -945,6 +1296,460 @@ struct MessagingReceipt { bytes32 guid; uint64 nonce; MessagingFee fee; }
                 );
                 <MessagingFee as alloy_sol_types::EventTopic>::encode_topic_preimage(
                     &rust.fee,
+                    out,
+                );
+            }
+            #[inline]
+            fn encode_topic(
+                rust: &Self::RustType,
+            ) -> alloy_sol_types::abi::token::WordToken {
+                let mut out = alloy_sol_types::private::Vec::new();
+                <Self as alloy_sol_types::EventTopic>::encode_topic_preimage(
+                    rust,
+                    &mut out,
+                );
+                alloy_sol_types::abi::token::WordToken(
+                    alloy_sol_types::private::keccak256(out),
+                )
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**```solidity
+struct OFTFeeDetail { int256 feeAmountLD; string description; }
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct OFTFeeDetail {
+        #[allow(missing_docs)]
+        pub feeAmountLD: alloy::sol_types::private::primitives::aliases::I256,
+        #[allow(missing_docs)]
+        pub description: alloy::sol_types::private::String,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = (
+            alloy::sol_types::sol_data::Int<256>,
+            alloy::sol_types::sol_data::String,
+        );
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = (
+            alloy::sol_types::private::primitives::aliases::I256,
+            alloy::sol_types::private::String,
+        );
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<OFTFeeDetail> for UnderlyingRustTuple<'_> {
+            fn from(value: OFTFeeDetail) -> Self {
+                (value.feeAmountLD, value.description)
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for OFTFeeDetail {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self {
+                    feeAmountLD: tuple.0,
+                    description: tuple.1,
+                }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolValue for OFTFeeDetail {
+            type SolType = Self;
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::private::SolTypeValue<Self> for OFTFeeDetail {
+            #[inline]
+            fn stv_to_tokens(&self) -> <Self as alloy_sol_types::SolType>::Token<'_> {
+                (
+                    <alloy::sol_types::sol_data::Int<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.feeAmountLD),
+                    <alloy::sol_types::sol_data::String as alloy_sol_types::SolType>::tokenize(
+                        &self.description,
+                    ),
+                )
+            }
+            #[inline]
+            fn stv_abi_encoded_size(&self) -> usize {
+                if let Some(size) = <Self as alloy_sol_types::SolType>::ENCODED_SIZE {
+                    return size;
+                }
+                let tuple = <UnderlyingRustTuple<
+                    '_,
+                > as ::core::convert::From<Self>>::from(self.clone());
+                <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_encoded_size(&tuple)
+            }
+            #[inline]
+            fn stv_eip712_data_word(&self) -> alloy_sol_types::Word {
+                <Self as alloy_sol_types::SolStruct>::eip712_hash_struct(self)
+            }
+            #[inline]
+            fn stv_abi_encode_packed_to(
+                &self,
+                out: &mut alloy_sol_types::private::Vec<u8>,
+            ) {
+                let tuple = <UnderlyingRustTuple<
+                    '_,
+                > as ::core::convert::From<Self>>::from(self.clone());
+                <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_encode_packed_to(&tuple, out)
+            }
+            #[inline]
+            fn stv_abi_packed_encoded_size(&self) -> usize {
+                if let Some(size) = <Self as alloy_sol_types::SolType>::PACKED_ENCODED_SIZE {
+                    return size;
+                }
+                let tuple = <UnderlyingRustTuple<
+                    '_,
+                > as ::core::convert::From<Self>>::from(self.clone());
+                <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_packed_encoded_size(&tuple)
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolType for OFTFeeDetail {
+            type RustType = Self;
+            type Token<'a> = <UnderlyingSolTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SOL_NAME: &'static str = <Self as alloy_sol_types::SolStruct>::NAME;
+            const ENCODED_SIZE: Option<usize> = <UnderlyingSolTuple<
+                '_,
+            > as alloy_sol_types::SolType>::ENCODED_SIZE;
+            const PACKED_ENCODED_SIZE: Option<usize> = <UnderlyingSolTuple<
+                '_,
+            > as alloy_sol_types::SolType>::PACKED_ENCODED_SIZE;
+            #[inline]
+            fn valid_token(token: &Self::Token<'_>) -> bool {
+                <UnderlyingSolTuple<'_> as alloy_sol_types::SolType>::valid_token(token)
+            }
+            #[inline]
+            fn detokenize(token: Self::Token<'_>) -> Self::RustType {
+                let tuple = <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::detokenize(token);
+                <Self as ::core::convert::From<UnderlyingRustTuple<'_>>>::from(tuple)
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolStruct for OFTFeeDetail {
+            const NAME: &'static str = "OFTFeeDetail";
+            #[inline]
+            fn eip712_root_type() -> alloy_sol_types::private::Cow<'static, str> {
+                alloy_sol_types::private::Cow::Borrowed(
+                    "OFTFeeDetail(int256 feeAmountLD,string description)",
+                )
+            }
+            #[inline]
+            fn eip712_components() -> alloy_sol_types::private::Vec<
+                alloy_sol_types::private::Cow<'static, str>,
+            > {
+                alloy_sol_types::private::Vec::new()
+            }
+            #[inline]
+            fn eip712_encode_type() -> alloy_sol_types::private::Cow<'static, str> {
+                <Self as alloy_sol_types::SolStruct>::eip712_root_type()
+            }
+            #[inline]
+            fn eip712_encode_data(&self) -> alloy_sol_types::private::Vec<u8> {
+                [
+                    <alloy::sol_types::sol_data::Int<
+                        256,
+                    > as alloy_sol_types::SolType>::eip712_data_word(&self.feeAmountLD)
+                        .0,
+                    <alloy::sol_types::sol_data::String as alloy_sol_types::SolType>::eip712_data_word(
+                            &self.description,
+                        )
+                        .0,
+                ]
+                    .concat()
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::EventTopic for OFTFeeDetail {
+            #[inline]
+            fn topic_preimage_length(rust: &Self::RustType) -> usize {
+                0usize
+                    + <alloy::sol_types::sol_data::Int<
+                        256,
+                    > as alloy_sol_types::EventTopic>::topic_preimage_length(
+                        &rust.feeAmountLD,
+                    )
+                    + <alloy::sol_types::sol_data::String as alloy_sol_types::EventTopic>::topic_preimage_length(
+                        &rust.description,
+                    )
+            }
+            #[inline]
+            fn encode_topic_preimage(
+                rust: &Self::RustType,
+                out: &mut alloy_sol_types::private::Vec<u8>,
+            ) {
+                out.reserve(
+                    <Self as alloy_sol_types::EventTopic>::topic_preimage_length(rust),
+                );
+                <alloy::sol_types::sol_data::Int<
+                    256,
+                > as alloy_sol_types::EventTopic>::encode_topic_preimage(
+                    &rust.feeAmountLD,
+                    out,
+                );
+                <alloy::sol_types::sol_data::String as alloy_sol_types::EventTopic>::encode_topic_preimage(
+                    &rust.description,
+                    out,
+                );
+            }
+            #[inline]
+            fn encode_topic(
+                rust: &Self::RustType,
+            ) -> alloy_sol_types::abi::token::WordToken {
+                let mut out = alloy_sol_types::private::Vec::new();
+                <Self as alloy_sol_types::EventTopic>::encode_topic_preimage(
+                    rust,
+                    &mut out,
+                );
+                alloy_sol_types::abi::token::WordToken(
+                    alloy_sol_types::private::keccak256(out),
+                )
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**```solidity
+struct OFTLimit { uint256 minAmountLD; uint256 maxAmountLD; }
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct OFTLimit {
+        #[allow(missing_docs)]
+        pub minAmountLD: alloy::sol_types::private::primitives::aliases::U256,
+        #[allow(missing_docs)]
+        pub maxAmountLD: alloy::sol_types::private::primitives::aliases::U256,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = (
+            alloy::sol_types::sol_data::Uint<256>,
+            alloy::sol_types::sol_data::Uint<256>,
+        );
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = (
+            alloy::sol_types::private::primitives::aliases::U256,
+            alloy::sol_types::private::primitives::aliases::U256,
+        );
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<OFTLimit> for UnderlyingRustTuple<'_> {
+            fn from(value: OFTLimit) -> Self {
+                (value.minAmountLD, value.maxAmountLD)
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for OFTLimit {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self {
+                    minAmountLD: tuple.0,
+                    maxAmountLD: tuple.1,
+                }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolValue for OFTLimit {
+            type SolType = Self;
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::private::SolTypeValue<Self> for OFTLimit {
+            #[inline]
+            fn stv_to_tokens(&self) -> <Self as alloy_sol_types::SolType>::Token<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.minAmountLD),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.maxAmountLD),
+                )
+            }
+            #[inline]
+            fn stv_abi_encoded_size(&self) -> usize {
+                if let Some(size) = <Self as alloy_sol_types::SolType>::ENCODED_SIZE {
+                    return size;
+                }
+                let tuple = <UnderlyingRustTuple<
+                    '_,
+                > as ::core::convert::From<Self>>::from(self.clone());
+                <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_encoded_size(&tuple)
+            }
+            #[inline]
+            fn stv_eip712_data_word(&self) -> alloy_sol_types::Word {
+                <Self as alloy_sol_types::SolStruct>::eip712_hash_struct(self)
+            }
+            #[inline]
+            fn stv_abi_encode_packed_to(
+                &self,
+                out: &mut alloy_sol_types::private::Vec<u8>,
+            ) {
+                let tuple = <UnderlyingRustTuple<
+                    '_,
+                > as ::core::convert::From<Self>>::from(self.clone());
+                <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_encode_packed_to(&tuple, out)
+            }
+            #[inline]
+            fn stv_abi_packed_encoded_size(&self) -> usize {
+                if let Some(size) = <Self as alloy_sol_types::SolType>::PACKED_ENCODED_SIZE {
+                    return size;
+                }
+                let tuple = <UnderlyingRustTuple<
+                    '_,
+                > as ::core::convert::From<Self>>::from(self.clone());
+                <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_packed_encoded_size(&tuple)
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolType for OFTLimit {
+            type RustType = Self;
+            type Token<'a> = <UnderlyingSolTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SOL_NAME: &'static str = <Self as alloy_sol_types::SolStruct>::NAME;
+            const ENCODED_SIZE: Option<usize> = <UnderlyingSolTuple<
+                '_,
+            > as alloy_sol_types::SolType>::ENCODED_SIZE;
+            const PACKED_ENCODED_SIZE: Option<usize> = <UnderlyingSolTuple<
+                '_,
+            > as alloy_sol_types::SolType>::PACKED_ENCODED_SIZE;
+            #[inline]
+            fn valid_token(token: &Self::Token<'_>) -> bool {
+                <UnderlyingSolTuple<'_> as alloy_sol_types::SolType>::valid_token(token)
+            }
+            #[inline]
+            fn detokenize(token: Self::Token<'_>) -> Self::RustType {
+                let tuple = <UnderlyingSolTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::detokenize(token);
+                <Self as ::core::convert::From<UnderlyingRustTuple<'_>>>::from(tuple)
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolStruct for OFTLimit {
+            const NAME: &'static str = "OFTLimit";
+            #[inline]
+            fn eip712_root_type() -> alloy_sol_types::private::Cow<'static, str> {
+                alloy_sol_types::private::Cow::Borrowed(
+                    "OFTLimit(uint256 minAmountLD,uint256 maxAmountLD)",
+                )
+            }
+            #[inline]
+            fn eip712_components() -> alloy_sol_types::private::Vec<
+                alloy_sol_types::private::Cow<'static, str>,
+            > {
+                alloy_sol_types::private::Vec::new()
+            }
+            #[inline]
+            fn eip712_encode_type() -> alloy_sol_types::private::Cow<'static, str> {
+                <Self as alloy_sol_types::SolStruct>::eip712_root_type()
+            }
+            #[inline]
+            fn eip712_encode_data(&self) -> alloy_sol_types::private::Vec<u8> {
+                [
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::eip712_data_word(&self.minAmountLD)
+                        .0,
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::eip712_data_word(&self.maxAmountLD)
+                        .0,
+                ]
+                    .concat()
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::EventTopic for OFTLimit {
+            #[inline]
+            fn topic_preimage_length(rust: &Self::RustType) -> usize {
+                0usize
+                    + <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::EventTopic>::topic_preimage_length(
+                        &rust.minAmountLD,
+                    )
+                    + <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::EventTopic>::topic_preimage_length(
+                        &rust.maxAmountLD,
+                    )
+            }
+            #[inline]
+            fn encode_topic_preimage(
+                rust: &Self::RustType,
+                out: &mut alloy_sol_types::private::Vec<u8>,
+            ) {
+                out.reserve(
+                    <Self as alloy_sol_types::EventTopic>::topic_preimage_length(rust),
+                );
+                <alloy::sol_types::sol_data::Uint<
+                    256,
+                > as alloy_sol_types::EventTopic>::encode_topic_preimage(
+                    &rust.minAmountLD,
+                    out,
+                );
+                <alloy::sol_types::sol_data::Uint<
+                    256,
+                > as alloy_sol_types::EventTopic>::encode_topic_preimage(
+                    &rust.maxAmountLD,
                     out,
                 );
             }
@@ -1531,9 +2336,836 @@ struct SendParam { uint32 dstEid; bytes32 to; uint256 amountLD; uint256 minAmoun
     };
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
-    /**Event with signature `Sent(address,address,uint256,uint32)` and selector `0x7a431b21620a3eaa949b0489713cbc31c02e7251a9bef91b0980d9524d9ac53e`.
+    /**Custom error with signature `AmountSDOverflowed(uint256)` and selector `0xe2ce9413`.
 ```solidity
-event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstEid);
+error AmountSDOverflowed(uint256 amountSD);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct AmountSDOverflowed {
+        #[allow(missing_docs)]
+        pub amountSD: alloy::sol_types::private::primitives::aliases::U256,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = (alloy::sol_types::sol_data::Uint<256>,);
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = (
+            alloy::sol_types::private::primitives::aliases::U256,
+        );
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<AmountSDOverflowed> for UnderlyingRustTuple<'_> {
+            fn from(value: AmountSDOverflowed) -> Self {
+                (value.amountSD,)
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for AmountSDOverflowed {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self { amountSD: tuple.0 }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for AmountSDOverflowed {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "AmountSDOverflowed(uint256)";
+            const SELECTOR: [u8; 4] = [226u8, 206u8, 148u8, 19u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountSD),
+                )
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Custom error with signature `InvalidLocalDecimals()` and selector `0x1e9714b0`.
+```solidity
+error InvalidLocalDecimals();
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct InvalidLocalDecimals;
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = ();
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = ();
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<InvalidLocalDecimals> for UnderlyingRustTuple<'_> {
+            fn from(value: InvalidLocalDecimals) -> Self {
+                ()
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for InvalidLocalDecimals {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for InvalidLocalDecimals {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "InvalidLocalDecimals()";
+            const SELECTOR: [u8; 4] = [30u8, 151u8, 20u8, 176u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Custom error with signature `MockOFT_InsufficientNativeFee()` and selector `0xaf584ca5`.
+```solidity
+error MockOFT_InsufficientNativeFee();
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct MockOFT_InsufficientNativeFee;
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = ();
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = ();
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<MockOFT_InsufficientNativeFee>
+        for UnderlyingRustTuple<'_> {
+            fn from(value: MockOFT_InsufficientNativeFee) -> Self {
+                ()
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>>
+        for MockOFT_InsufficientNativeFee {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for MockOFT_InsufficientNativeFee {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "MockOFT_InsufficientNativeFee()";
+            const SELECTOR: [u8; 4] = [175u8, 88u8, 76u8, 165u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Custom error with signature `MockOFT_MintFailed()` and selector `0x3acec68a`.
+```solidity
+error MockOFT_MintFailed();
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct MockOFT_MintFailed;
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = ();
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = ();
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<MockOFT_MintFailed> for UnderlyingRustTuple<'_> {
+            fn from(value: MockOFT_MintFailed) -> Self {
+                ()
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for MockOFT_MintFailed {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for MockOFT_MintFailed {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "MockOFT_MintFailed()";
+            const SELECTOR: [u8; 4] = [58u8, 206u8, 198u8, 138u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Custom error with signature `MockOFT_RefundFailed()` and selector `0xc1a38c5d`.
+```solidity
+error MockOFT_RefundFailed();
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct MockOFT_RefundFailed;
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = ();
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = ();
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<MockOFT_RefundFailed> for UnderlyingRustTuple<'_> {
+            fn from(value: MockOFT_RefundFailed) -> Self {
+                ()
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for MockOFT_RefundFailed {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for MockOFT_RefundFailed {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "MockOFT_RefundFailed()";
+            const SELECTOR: [u8; 4] = [193u8, 163u8, 140u8, 93u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Custom error with signature `MockOFT_TransferFromFailed()` and selector `0xaa4ef521`.
+```solidity
+error MockOFT_TransferFromFailed();
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct MockOFT_TransferFromFailed;
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = ();
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = ();
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<MockOFT_TransferFromFailed>
+        for UnderlyingRustTuple<'_> {
+            fn from(value: MockOFT_TransferFromFailed) -> Self {
+                ()
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>>
+        for MockOFT_TransferFromFailed {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for MockOFT_TransferFromFailed {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "MockOFT_TransferFromFailed()";
+            const SELECTOR: [u8; 4] = [170u8, 78u8, 245u8, 33u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Custom error with signature `SlippageExceeded(uint256,uint256)` and selector `0x71c4efed`.
+```solidity
+error SlippageExceeded(uint256 amountLD, uint256 minAmountLD);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct SlippageExceeded {
+        #[allow(missing_docs)]
+        pub amountLD: alloy::sol_types::private::primitives::aliases::U256,
+        #[allow(missing_docs)]
+        pub minAmountLD: alloy::sol_types::private::primitives::aliases::U256,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        type UnderlyingSolTuple<'a> = (
+            alloy::sol_types::sol_data::Uint<256>,
+            alloy::sol_types::sol_data::Uint<256>,
+        );
+        #[doc(hidden)]
+        type UnderlyingRustTuple<'a> = (
+            alloy::sol_types::private::primitives::aliases::U256,
+            alloy::sol_types::private::primitives::aliases::U256,
+        );
+        #[cfg(test)]
+        #[allow(dead_code, unreachable_patterns)]
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
+            match _t {
+                alloy_sol_types::private::AssertTypeEq::<
+                    <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                >(_) => {}
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<SlippageExceeded> for UnderlyingRustTuple<'_> {
+            fn from(value: SlippageExceeded) -> Self {
+                (value.amountLD, value.minAmountLD)
+            }
+        }
+        #[automatically_derived]
+        #[doc(hidden)]
+        impl ::core::convert::From<UnderlyingRustTuple<'_>> for SlippageExceeded {
+            fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                Self {
+                    amountLD: tuple.0,
+                    minAmountLD: tuple.1,
+                }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolError for SlippageExceeded {
+            type Parameters<'a> = UnderlyingSolTuple<'a>;
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "SlippageExceeded(uint256,uint256)";
+            const SELECTOR: [u8; 4] = [113u8, 196u8, 239u8, 237u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountLD),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.minAmountLD),
+                )
+            }
+            #[inline]
+            fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Event with signature `OFTReceived(bytes32,uint32,address,uint256)` and selector `0xefed6d3500546b29533b128a29e3a94d70788727f0507505ac12eaf2e578fd9c`.
+```solidity
+event OFTReceived(bytes32 indexed guid, uint32 srcEid, address indexed toAddress, uint256 amountReceivedLD);
+```*/
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    #[derive(Clone)]
+    pub struct OFTReceived {
+        #[allow(missing_docs)]
+        pub guid: alloy::sol_types::private::FixedBytes<32>,
+        #[allow(missing_docs)]
+        pub srcEid: u32,
+        #[allow(missing_docs)]
+        pub toAddress: alloy::sol_types::private::Address,
+        #[allow(missing_docs)]
+        pub amountReceivedLD: alloy::sol_types::private::primitives::aliases::U256,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[automatically_derived]
+        impl alloy_sol_types::SolEvent for OFTReceived {
+            type DataTuple<'a> = (
+                alloy::sol_types::sol_data::Uint<32>,
+                alloy::sol_types::sol_data::Uint<256>,
+            );
+            type DataToken<'a> = <Self::DataTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type TopicList = (
+                alloy_sol_types::sol_data::FixedBytes<32>,
+                alloy::sol_types::sol_data::FixedBytes<32>,
+                alloy::sol_types::sol_data::Address,
+            );
+            const SIGNATURE: &'static str = "OFTReceived(bytes32,uint32,address,uint256)";
+            const SIGNATURE_HASH: alloy_sol_types::private::B256 = alloy_sol_types::private::B256::new([
+                239u8, 237u8, 109u8, 53u8, 0u8, 84u8, 107u8, 41u8, 83u8, 59u8, 18u8,
+                138u8, 41u8, 227u8, 169u8, 77u8, 112u8, 120u8, 135u8, 39u8, 240u8, 80u8,
+                117u8, 5u8, 172u8, 18u8, 234u8, 242u8, 229u8, 120u8, 253u8, 156u8,
+            ]);
+            const ANONYMOUS: bool = false;
+            #[allow(unused_variables)]
+            #[inline]
+            fn new(
+                topics: <Self::TopicList as alloy_sol_types::SolType>::RustType,
+                data: <Self::DataTuple<'_> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                Self {
+                    guid: topics.1,
+                    srcEid: data.0,
+                    toAddress: topics.2,
+                    amountReceivedLD: data.1,
+                }
+            }
+            #[inline]
+            fn check_signature(
+                topics: &<Self::TopicList as alloy_sol_types::SolType>::RustType,
+            ) -> alloy_sol_types::Result<()> {
+                if topics.0 != Self::SIGNATURE_HASH {
+                    return Err(
+                        alloy_sol_types::Error::invalid_event_signature_hash(
+                            Self::SIGNATURE,
+                            topics.0,
+                            Self::SIGNATURE_HASH,
+                        ),
+                    );
+                }
+                Ok(())
+            }
+            #[inline]
+            fn tokenize_body(&self) -> Self::DataToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        32,
+                    > as alloy_sol_types::SolType>::tokenize(&self.srcEid),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountReceivedLD),
+                )
+            }
+            #[inline]
+            fn topics(&self) -> <Self::TopicList as alloy_sol_types::SolType>::RustType {
+                (Self::SIGNATURE_HASH.into(), self.guid.clone(), self.toAddress.clone())
+            }
+            #[inline]
+            fn encode_topics_raw(
+                &self,
+                out: &mut [alloy_sol_types::abi::token::WordToken],
+            ) -> alloy_sol_types::Result<()> {
+                if out.len() < <Self::TopicList as alloy_sol_types::TopicList>::COUNT {
+                    return Err(alloy_sol_types::Error::Overrun);
+                }
+                out[0usize] = alloy_sol_types::abi::token::WordToken(
+                    Self::SIGNATURE_HASH,
+                );
+                out[1usize] = <alloy::sol_types::sol_data::FixedBytes<
+                    32,
+                > as alloy_sol_types::EventTopic>::encode_topic(&self.guid);
+                out[2usize] = <alloy::sol_types::sol_data::Address as alloy_sol_types::EventTopic>::encode_topic(
+                    &self.toAddress,
+                );
+                Ok(())
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::private::IntoLogData for OFTReceived {
+            fn to_log_data(&self) -> alloy_sol_types::private::LogData {
+                From::from(self)
+            }
+            fn into_log_data(self) -> alloy_sol_types::private::LogData {
+                From::from(&self)
+            }
+        }
+        #[automatically_derived]
+        impl From<&OFTReceived> for alloy_sol_types::private::LogData {
+            #[inline]
+            fn from(this: &OFTReceived) -> alloy_sol_types::private::LogData {
+                alloy_sol_types::SolEvent::encode_log_data(this)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Event with signature `OFTSent(bytes32,uint32,address,uint256,uint256)` and selector `0x85496b760a4b7f8d66384b9df21b381f5d1b1e79f229a47aaf4c232edc2fe59a`.
+```solidity
+event OFTSent(bytes32 indexed guid, uint32 dstEid, address indexed fromAddress, uint256 amountSentLD, uint256 amountReceivedLD);
+```*/
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    #[derive(Clone)]
+    pub struct OFTSent {
+        #[allow(missing_docs)]
+        pub guid: alloy::sol_types::private::FixedBytes<32>,
+        #[allow(missing_docs)]
+        pub dstEid: u32,
+        #[allow(missing_docs)]
+        pub fromAddress: alloy::sol_types::private::Address,
+        #[allow(missing_docs)]
+        pub amountSentLD: alloy::sol_types::private::primitives::aliases::U256,
+        #[allow(missing_docs)]
+        pub amountReceivedLD: alloy::sol_types::private::primitives::aliases::U256,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        #[automatically_derived]
+        impl alloy_sol_types::SolEvent for OFTSent {
+            type DataTuple<'a> = (
+                alloy::sol_types::sol_data::Uint<32>,
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Uint<256>,
+            );
+            type DataToken<'a> = <Self::DataTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type TopicList = (
+                alloy_sol_types::sol_data::FixedBytes<32>,
+                alloy::sol_types::sol_data::FixedBytes<32>,
+                alloy::sol_types::sol_data::Address,
+            );
+            const SIGNATURE: &'static str = "OFTSent(bytes32,uint32,address,uint256,uint256)";
+            const SIGNATURE_HASH: alloy_sol_types::private::B256 = alloy_sol_types::private::B256::new([
+                133u8, 73u8, 107u8, 118u8, 10u8, 75u8, 127u8, 141u8, 102u8, 56u8, 75u8,
+                157u8, 242u8, 27u8, 56u8, 31u8, 93u8, 27u8, 30u8, 121u8, 242u8, 41u8,
+                164u8, 122u8, 175u8, 76u8, 35u8, 46u8, 220u8, 47u8, 229u8, 154u8,
+            ]);
+            const ANONYMOUS: bool = false;
+            #[allow(unused_variables)]
+            #[inline]
+            fn new(
+                topics: <Self::TopicList as alloy_sol_types::SolType>::RustType,
+                data: <Self::DataTuple<'_> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                Self {
+                    guid: topics.1,
+                    dstEid: data.0,
+                    fromAddress: topics.2,
+                    amountSentLD: data.1,
+                    amountReceivedLD: data.2,
+                }
+            }
+            #[inline]
+            fn check_signature(
+                topics: &<Self::TopicList as alloy_sol_types::SolType>::RustType,
+            ) -> alloy_sol_types::Result<()> {
+                if topics.0 != Self::SIGNATURE_HASH {
+                    return Err(
+                        alloy_sol_types::Error::invalid_event_signature_hash(
+                            Self::SIGNATURE,
+                            topics.0,
+                            Self::SIGNATURE_HASH,
+                        ),
+                    );
+                }
+                Ok(())
+            }
+            #[inline]
+            fn tokenize_body(&self) -> Self::DataToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        32,
+                    > as alloy_sol_types::SolType>::tokenize(&self.dstEid),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountSentLD),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountReceivedLD),
+                )
+            }
+            #[inline]
+            fn topics(&self) -> <Self::TopicList as alloy_sol_types::SolType>::RustType {
+                (
+                    Self::SIGNATURE_HASH.into(),
+                    self.guid.clone(),
+                    self.fromAddress.clone(),
+                )
+            }
+            #[inline]
+            fn encode_topics_raw(
+                &self,
+                out: &mut [alloy_sol_types::abi::token::WordToken],
+            ) -> alloy_sol_types::Result<()> {
+                if out.len() < <Self::TopicList as alloy_sol_types::TopicList>::COUNT {
+                    return Err(alloy_sol_types::Error::Overrun);
+                }
+                out[0usize] = alloy_sol_types::abi::token::WordToken(
+                    Self::SIGNATURE_HASH,
+                );
+                out[1usize] = <alloy::sol_types::sol_data::FixedBytes<
+                    32,
+                > as alloy_sol_types::EventTopic>::encode_topic(&self.guid);
+                out[2usize] = <alloy::sol_types::sol_data::Address as alloy_sol_types::EventTopic>::encode_topic(
+                    &self.fromAddress,
+                );
+                Ok(())
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::private::IntoLogData for OFTSent {
+            fn to_log_data(&self) -> alloy_sol_types::private::LogData {
+                From::from(self)
+            }
+            fn into_log_data(self) -> alloy_sol_types::private::LogData {
+                From::from(&self)
+            }
+        }
+        #[automatically_derived]
+        impl From<&OFTSent> for alloy_sol_types::private::LogData {
+            #[inline]
+            fn from(this: &OFTSent) -> alloy_sol_types::private::LogData {
+                alloy_sol_types::SolEvent::encode_log_data(this)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Event with signature `Sent(address,bytes32,uint256,uint32)` and selector `0x1a16e1c6eea6132c55d32b7c9a7f1657bcd89dcee152ef265fd21051cec76bb2`.
+```solidity
+event Sent(address indexed from, bytes32 indexed to, uint256 amountLD, uint32 dstEid);
 ```*/
     #[allow(
         non_camel_case_types,
@@ -1546,9 +3178,9 @@ event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstE
         #[allow(missing_docs)]
         pub from: alloy::sol_types::private::Address,
         #[allow(missing_docs)]
-        pub to: alloy::sol_types::private::Address,
+        pub to: alloy::sol_types::private::FixedBytes<32>,
         #[allow(missing_docs)]
-        pub amount: alloy::sol_types::private::primitives::aliases::U256,
+        pub amountLD: alloy::sol_types::private::primitives::aliases::U256,
         #[allow(missing_docs)]
         pub dstEid: u32,
     }
@@ -1572,13 +3204,13 @@ event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstE
             type TopicList = (
                 alloy_sol_types::sol_data::FixedBytes<32>,
                 alloy::sol_types::sol_data::Address,
-                alloy::sol_types::sol_data::Address,
+                alloy::sol_types::sol_data::FixedBytes<32>,
             );
-            const SIGNATURE: &'static str = "Sent(address,address,uint256,uint32)";
+            const SIGNATURE: &'static str = "Sent(address,bytes32,uint256,uint32)";
             const SIGNATURE_HASH: alloy_sol_types::private::B256 = alloy_sol_types::private::B256::new([
-                122u8, 67u8, 27u8, 33u8, 98u8, 10u8, 62u8, 170u8, 148u8, 155u8, 4u8,
-                137u8, 113u8, 60u8, 188u8, 49u8, 192u8, 46u8, 114u8, 81u8, 169u8, 190u8,
-                249u8, 27u8, 9u8, 128u8, 217u8, 82u8, 77u8, 154u8, 197u8, 62u8,
+                26u8, 22u8, 225u8, 198u8, 238u8, 166u8, 19u8, 44u8, 85u8, 211u8, 43u8,
+                124u8, 154u8, 127u8, 22u8, 87u8, 188u8, 216u8, 157u8, 206u8, 225u8, 82u8,
+                239u8, 38u8, 95u8, 210u8, 16u8, 81u8, 206u8, 199u8, 107u8, 178u8,
             ]);
             const ANONYMOUS: bool = false;
             #[allow(unused_variables)]
@@ -1590,7 +3222,7 @@ event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstE
                 Self {
                     from: topics.1,
                     to: topics.2,
-                    amount: data.0,
+                    amountLD: data.0,
                     dstEid: data.1,
                 }
             }
@@ -1614,7 +3246,7 @@ event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstE
                 (
                     <alloy::sol_types::sol_data::Uint<
                         256,
-                    > as alloy_sol_types::SolType>::tokenize(&self.amount),
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountLD),
                     <alloy::sol_types::sol_data::Uint<
                         32,
                     > as alloy_sol_types::SolType>::tokenize(&self.dstEid),
@@ -1638,9 +3270,9 @@ event Sent(address indexed from, address indexed to, uint256 amount, uint32 dstE
                 out[1usize] = <alloy::sol_types::sol_data::Address as alloy_sol_types::EventTopic>::encode_topic(
                     &self.from,
                 );
-                out[2usize] = <alloy::sol_types::sol_data::Address as alloy_sol_types::EventTopic>::encode_topic(
-                    &self.to,
-                );
+                out[2usize] = <alloy::sol_types::sol_data::FixedBytes<
+                    32,
+                > as alloy_sol_types::EventTopic>::encode_topic(&self.to);
                 Ok(())
             }
         }
@@ -2036,6 +3668,155 @@ function TOKEN_SRC() external view returns (address);
     };
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `approvalRequired()` and selector `0x9f68b964`.
+```solidity
+function approvalRequired() external pure returns (bool);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct approvalRequiredCall;
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`approvalRequired()`](approvalRequiredCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct approvalRequiredReturn {
+        #[allow(missing_docs)]
+        pub _0: bool,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<approvalRequiredCall>
+            for UnderlyingRustTuple<'_> {
+                fn from(value: approvalRequiredCall) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>>
+            for approvalRequiredCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (alloy::sol_types::sol_data::Bool,);
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (bool,);
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<approvalRequiredReturn>
+            for UnderlyingRustTuple<'_> {
+                fn from(value: approvalRequiredReturn) -> Self {
+                    (value._0,)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>>
+            for approvalRequiredReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self { _0: tuple.0 }
+                }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for approvalRequiredCall {
+            type Parameters<'a> = ();
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = bool;
+            type ReturnTuple<'a> = (alloy::sol_types::sol_data::Bool,);
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "approvalRequired()";
+            const SELECTOR: [u8; 4] = [159u8, 104u8, 185u8, 100u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Bool as alloy_sol_types::SolType>::tokenize(
+                        ret,
+                    ),
+                )
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(|r| {
+                        let r: approvalRequiredReturn = r.into();
+                        r._0
+                    })
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(|r| {
+                        let r: approvalRequiredReturn = r.into();
+                        r._0
+                    })
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
     /**Function with signature `lastAmountLD()` and selector `0x86c285b0`.
 ```solidity
 function lastAmountLD() external view returns (uint256);
@@ -2328,6 +4109,169 @@ function lastDstEid() external view returns (uint32);
     };
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `lastFee()` and selector `0x9801134e`.
+```solidity
+function lastFee() external view returns (uint256 nativeFee, uint256 lzTokenFee);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct lastFeeCall;
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`lastFee()`](lastFeeCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct lastFeeReturn {
+        #[allow(missing_docs)]
+        pub nativeFee: alloy::sol_types::private::primitives::aliases::U256,
+        #[allow(missing_docs)]
+        pub lzTokenFee: alloy::sol_types::private::primitives::aliases::U256,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<lastFeeCall> for UnderlyingRustTuple<'_> {
+                fn from(value: lastFeeCall) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for lastFeeCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Uint<256>,
+            );
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (
+                alloy::sol_types::private::primitives::aliases::U256,
+                alloy::sol_types::private::primitives::aliases::U256,
+            );
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<lastFeeReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: lastFeeReturn) -> Self {
+                    (value.nativeFee, value.lzTokenFee)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for lastFeeReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self {
+                        nativeFee: tuple.0,
+                        lzTokenFee: tuple.1,
+                    }
+                }
+            }
+        }
+        impl lastFeeReturn {
+            fn _tokenize(
+                &self,
+            ) -> <lastFeeCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.nativeFee),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.lzTokenFee),
+                )
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for lastFeeCall {
+            type Parameters<'a> = ();
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = lastFeeReturn;
+            type ReturnTuple<'a> = (
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Uint<256>,
+            );
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "lastFee()";
+            const SELECTOR: [u8; 4] = [152u8, 1u8, 19u8, 78u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                lastFeeReturn::_tokenize(ret)
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(Into::into)
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Into::into)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
     /**Function with signature `lastMinAmountLD()` and selector `0xf20cd6a9`.
 ```solidity
 function lastMinAmountLD() external view returns (uint256);
@@ -2470,153 +4414,6 @@ function lastMinAmountLD() external view returns (uint256);
                 > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
                     .map(|r| {
                         let r: lastMinAmountLDReturn = r.into();
-                        r._0
-                    })
-            }
-        }
-    };
-    #[derive(serde::Serialize, serde::Deserialize)]
-    #[derive(Default, Debug, PartialEq, Eq, Hash)]
-    /**Function with signature `lastMsgValue()` and selector `0x463d1fca`.
-```solidity
-function lastMsgValue() external view returns (uint256);
-```*/
-    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
-    #[derive(Clone)]
-    pub struct lastMsgValueCall;
-    #[derive(serde::Serialize, serde::Deserialize)]
-    #[derive(Default, Debug, PartialEq, Eq, Hash)]
-    ///Container type for the return parameters of the [`lastMsgValue()`](lastMsgValueCall) function.
-    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
-    #[derive(Clone)]
-    pub struct lastMsgValueReturn {
-        #[allow(missing_docs)]
-        pub _0: alloy::sol_types::private::primitives::aliases::U256,
-    }
-    #[allow(
-        non_camel_case_types,
-        non_snake_case,
-        clippy::pub_underscore_fields,
-        clippy::style
-    )]
-    const _: () = {
-        use alloy::sol_types as alloy_sol_types;
-        {
-            #[doc(hidden)]
-            #[allow(dead_code)]
-            type UnderlyingSolTuple<'a> = ();
-            #[doc(hidden)]
-            type UnderlyingRustTuple<'a> = ();
-            #[cfg(test)]
-            #[allow(dead_code, unreachable_patterns)]
-            fn _type_assertion(
-                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
-            ) {
-                match _t {
-                    alloy_sol_types::private::AssertTypeEq::<
-                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
-                    >(_) => {}
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<lastMsgValueCall> for UnderlyingRustTuple<'_> {
-                fn from(value: lastMsgValueCall) -> Self {
-                    ()
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<UnderlyingRustTuple<'_>> for lastMsgValueCall {
-                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
-                    Self
-                }
-            }
-        }
-        {
-            #[doc(hidden)]
-            #[allow(dead_code)]
-            type UnderlyingSolTuple<'a> = (alloy::sol_types::sol_data::Uint<256>,);
-            #[doc(hidden)]
-            type UnderlyingRustTuple<'a> = (
-                alloy::sol_types::private::primitives::aliases::U256,
-            );
-            #[cfg(test)]
-            #[allow(dead_code, unreachable_patterns)]
-            fn _type_assertion(
-                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
-            ) {
-                match _t {
-                    alloy_sol_types::private::AssertTypeEq::<
-                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
-                    >(_) => {}
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<lastMsgValueReturn> for UnderlyingRustTuple<'_> {
-                fn from(value: lastMsgValueReturn) -> Self {
-                    (value._0,)
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<UnderlyingRustTuple<'_>> for lastMsgValueReturn {
-                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
-                    Self { _0: tuple.0 }
-                }
-            }
-        }
-        #[automatically_derived]
-        impl alloy_sol_types::SolCall for lastMsgValueCall {
-            type Parameters<'a> = ();
-            type Token<'a> = <Self::Parameters<
-                'a,
-            > as alloy_sol_types::SolType>::Token<'a>;
-            type Return = alloy::sol_types::private::primitives::aliases::U256;
-            type ReturnTuple<'a> = (alloy::sol_types::sol_data::Uint<256>,);
-            type ReturnToken<'a> = <Self::ReturnTuple<
-                'a,
-            > as alloy_sol_types::SolType>::Token<'a>;
-            const SIGNATURE: &'static str = "lastMsgValue()";
-            const SELECTOR: [u8; 4] = [70u8, 61u8, 31u8, 202u8];
-            #[inline]
-            fn new<'a>(
-                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
-            ) -> Self {
-                tuple.into()
-            }
-            #[inline]
-            fn tokenize(&self) -> Self::Token<'_> {
-                ()
-            }
-            #[inline]
-            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
-                (
-                    <alloy::sol_types::sol_data::Uint<
-                        256,
-                    > as alloy_sol_types::SolType>::tokenize(ret),
-                )
-            }
-            #[inline]
-            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
-                <Self::ReturnTuple<
-                    '_,
-                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
-                    .map(|r| {
-                        let r: lastMsgValueReturn = r.into();
-                        r._0
-                    })
-            }
-            #[inline]
-            fn abi_decode_returns_validate(
-                data: &[u8],
-            ) -> alloy_sol_types::Result<Self::Return> {
-                <Self::ReturnTuple<
-                    '_,
-                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
-                    .map(|r| {
-                        let r: lastMsgValueReturn = r.into();
                         r._0
                     })
             }
@@ -2918,6 +4715,222 @@ function lastRefundAddress() external view returns (address);
     };
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `lastSendParam()` and selector `0x2b205c65`.
+```solidity
+function lastSendParam() external view returns (uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes memory extraOptions, bytes memory composeMsg, bytes memory oftCmd);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct lastSendParamCall;
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`lastSendParam()`](lastSendParamCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct lastSendParamReturn {
+        #[allow(missing_docs)]
+        pub dstEid: u32,
+        #[allow(missing_docs)]
+        pub to: alloy::sol_types::private::FixedBytes<32>,
+        #[allow(missing_docs)]
+        pub amountLD: alloy::sol_types::private::primitives::aliases::U256,
+        #[allow(missing_docs)]
+        pub minAmountLD: alloy::sol_types::private::primitives::aliases::U256,
+        #[allow(missing_docs)]
+        pub extraOptions: alloy::sol_types::private::Bytes,
+        #[allow(missing_docs)]
+        pub composeMsg: alloy::sol_types::private::Bytes,
+        #[allow(missing_docs)]
+        pub oftCmd: alloy::sol_types::private::Bytes,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<lastSendParamCall> for UnderlyingRustTuple<'_> {
+                fn from(value: lastSendParamCall) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for lastSendParamCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (
+                alloy::sol_types::sol_data::Uint<32>,
+                alloy::sol_types::sol_data::FixedBytes<32>,
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Bytes,
+                alloy::sol_types::sol_data::Bytes,
+                alloy::sol_types::sol_data::Bytes,
+            );
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (
+                u32,
+                alloy::sol_types::private::FixedBytes<32>,
+                alloy::sol_types::private::primitives::aliases::U256,
+                alloy::sol_types::private::primitives::aliases::U256,
+                alloy::sol_types::private::Bytes,
+                alloy::sol_types::private::Bytes,
+                alloy::sol_types::private::Bytes,
+            );
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<lastSendParamReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: lastSendParamReturn) -> Self {
+                    (
+                        value.dstEid,
+                        value.to,
+                        value.amountLD,
+                        value.minAmountLD,
+                        value.extraOptions,
+                        value.composeMsg,
+                        value.oftCmd,
+                    )
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for lastSendParamReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self {
+                        dstEid: tuple.0,
+                        to: tuple.1,
+                        amountLD: tuple.2,
+                        minAmountLD: tuple.3,
+                        extraOptions: tuple.4,
+                        composeMsg: tuple.5,
+                        oftCmd: tuple.6,
+                    }
+                }
+            }
+        }
+        impl lastSendParamReturn {
+            fn _tokenize(
+                &self,
+            ) -> <lastSendParamCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        32,
+                    > as alloy_sol_types::SolType>::tokenize(&self.dstEid),
+                    <alloy::sol_types::sol_data::FixedBytes<
+                        32,
+                    > as alloy_sol_types::SolType>::tokenize(&self.to),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.amountLD),
+                    <alloy::sol_types::sol_data::Uint<
+                        256,
+                    > as alloy_sol_types::SolType>::tokenize(&self.minAmountLD),
+                    <alloy::sol_types::sol_data::Bytes as alloy_sol_types::SolType>::tokenize(
+                        &self.extraOptions,
+                    ),
+                    <alloy::sol_types::sol_data::Bytes as alloy_sol_types::SolType>::tokenize(
+                        &self.composeMsg,
+                    ),
+                    <alloy::sol_types::sol_data::Bytes as alloy_sol_types::SolType>::tokenize(
+                        &self.oftCmd,
+                    ),
+                )
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for lastSendParamCall {
+            type Parameters<'a> = ();
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = lastSendParamReturn;
+            type ReturnTuple<'a> = (
+                alloy::sol_types::sol_data::Uint<32>,
+                alloy::sol_types::sol_data::FixedBytes<32>,
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Uint<256>,
+                alloy::sol_types::sol_data::Bytes,
+                alloy::sol_types::sol_data::Bytes,
+                alloy::sol_types::sol_data::Bytes,
+            );
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "lastSendParam()";
+            const SELECTOR: [u8; 4] = [43u8, 32u8, 92u8, 101u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                lastSendParamReturn::_tokenize(ret)
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(Into::into)
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Into::into)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
     /**Function with signature `lastTo()` and selector `0xc1468447`.
 ```solidity
 function lastTo() external view returns (bytes32);
@@ -3058,6 +5071,169 @@ function lastTo() external view returns (bytes32);
                         let r: lastToReturn = r.into();
                         r._0
                     })
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `oftVersion()` and selector `0x156a0d0f`.
+```solidity
+function oftVersion() external pure returns (bytes4 interfaceId, uint64 version);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct oftVersionCall;
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`oftVersion()`](oftVersionCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct oftVersionReturn {
+        #[allow(missing_docs)]
+        pub interfaceId: alloy::sol_types::private::FixedBytes<4>,
+        #[allow(missing_docs)]
+        pub version: u64,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<oftVersionCall> for UnderlyingRustTuple<'_> {
+                fn from(value: oftVersionCall) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for oftVersionCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (
+                alloy::sol_types::sol_data::FixedBytes<4>,
+                alloy::sol_types::sol_data::Uint<64>,
+            );
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (
+                alloy::sol_types::private::FixedBytes<4>,
+                u64,
+            );
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<oftVersionReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: oftVersionReturn) -> Self {
+                    (value.interfaceId, value.version)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for oftVersionReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self {
+                        interfaceId: tuple.0,
+                        version: tuple.1,
+                    }
+                }
+            }
+        }
+        impl oftVersionReturn {
+            fn _tokenize(
+                &self,
+            ) -> <oftVersionCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::FixedBytes<
+                        4,
+                    > as alloy_sol_types::SolType>::tokenize(&self.interfaceId),
+                    <alloy::sol_types::sol_data::Uint<
+                        64,
+                    > as alloy_sol_types::SolType>::tokenize(&self.version),
+                )
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for oftVersionCall {
+            type Parameters<'a> = ();
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = oftVersionReturn;
+            type ReturnTuple<'a> = (
+                alloy::sol_types::sol_data::FixedBytes<4>,
+                alloy::sol_types::sol_data::Uint<64>,
+            );
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "oftVersion()";
+            const SELECTOR: [u8; 4] = [21u8, 106u8, 13u8, 15u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                oftVersionReturn::_tokenize(ret)
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(Into::into)
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Into::into)
             }
         }
     };
@@ -3361,17 +5537,194 @@ function quoteNativeFee() external view returns (uint256);
     };
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `quoteOFT((uint32,bytes32,uint256,uint256,bytes,bytes,bytes))` and selector `0x0d35b415`.
+```solidity
+function quoteOFT(SendParam memory sp) external pure returns (OFTLimit memory limit, OFTFeeDetail[] memory oftFeeDetails, OFTReceipt memory receipt);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct quoteOFTCall {
+        #[allow(missing_docs)]
+        pub sp: <SendParam as alloy::sol_types::SolType>::RustType,
+    }
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`quoteOFT((uint32,bytes32,uint256,uint256,bytes,bytes,bytes))`](quoteOFTCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct quoteOFTReturn {
+        #[allow(missing_docs)]
+        pub limit: <OFTLimit as alloy::sol_types::SolType>::RustType,
+        #[allow(missing_docs)]
+        pub oftFeeDetails: alloy::sol_types::private::Vec<
+            <OFTFeeDetail as alloy::sol_types::SolType>::RustType,
+        >,
+        #[allow(missing_docs)]
+        pub receipt: <OFTReceipt as alloy::sol_types::SolType>::RustType,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (SendParam,);
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (
+                <SendParam as alloy::sol_types::SolType>::RustType,
+            );
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<quoteOFTCall> for UnderlyingRustTuple<'_> {
+                fn from(value: quoteOFTCall) -> Self {
+                    (value.sp,)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for quoteOFTCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self { sp: tuple.0 }
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (
+                OFTLimit,
+                alloy::sol_types::sol_data::Array<OFTFeeDetail>,
+                OFTReceipt,
+            );
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (
+                <OFTLimit as alloy::sol_types::SolType>::RustType,
+                alloy::sol_types::private::Vec<
+                    <OFTFeeDetail as alloy::sol_types::SolType>::RustType,
+                >,
+                <OFTReceipt as alloy::sol_types::SolType>::RustType,
+            );
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<quoteOFTReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: quoteOFTReturn) -> Self {
+                    (value.limit, value.oftFeeDetails, value.receipt)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for quoteOFTReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self {
+                        limit: tuple.0,
+                        oftFeeDetails: tuple.1,
+                        receipt: tuple.2,
+                    }
+                }
+            }
+        }
+        impl quoteOFTReturn {
+            fn _tokenize(
+                &self,
+            ) -> <quoteOFTCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
+                (
+                    <OFTLimit as alloy_sol_types::SolType>::tokenize(&self.limit),
+                    <alloy::sol_types::sol_data::Array<
+                        OFTFeeDetail,
+                    > as alloy_sol_types::SolType>::tokenize(&self.oftFeeDetails),
+                    <OFTReceipt as alloy_sol_types::SolType>::tokenize(&self.receipt),
+                )
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for quoteOFTCall {
+            type Parameters<'a> = (SendParam,);
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = quoteOFTReturn;
+            type ReturnTuple<'a> = (
+                OFTLimit,
+                alloy::sol_types::sol_data::Array<OFTFeeDetail>,
+                OFTReceipt,
+            );
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "quoteOFT((uint32,bytes32,uint256,uint256,bytes,bytes,bytes))";
+            const SELECTOR: [u8; 4] = [13u8, 53u8, 180u8, 21u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                (<SendParam as alloy_sol_types::SolType>::tokenize(&self.sp),)
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                quoteOFTReturn::_tokenize(ret)
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(Into::into)
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Into::into)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
     /**Function with signature `quoteSend((uint32,bytes32,uint256,uint256,bytes,bytes,bytes),bool)` and selector `0x3b6f743b`.
 ```solidity
-function quoteSend(SendParam memory, bool) external view returns (MessagingFee memory fee);
+function quoteSend(SendParam memory sp, bool payInLzToken) external view returns (MessagingFee memory fee);
 ```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
     pub struct quoteSendCall {
         #[allow(missing_docs)]
-        pub _0: <SendParam as alloy::sol_types::SolType>::RustType,
+        pub sp: <SendParam as alloy::sol_types::SolType>::RustType,
         #[allow(missing_docs)]
-        pub _1: bool,
+        pub payInLzToken: bool,
     }
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
@@ -3414,14 +5767,17 @@ function quoteSend(SendParam memory, bool) external view returns (MessagingFee m
             #[doc(hidden)]
             impl ::core::convert::From<quoteSendCall> for UnderlyingRustTuple<'_> {
                 fn from(value: quoteSendCall) -> Self {
-                    (value._0, value._1)
+                    (value.sp, value.payInLzToken)
                 }
             }
             #[automatically_derived]
             #[doc(hidden)]
             impl ::core::convert::From<UnderlyingRustTuple<'_>> for quoteSendCall {
                 fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
-                    Self { _0: tuple.0, _1: tuple.1 }
+                    Self {
+                        sp: tuple.0,
+                        payInLzToken: tuple.1,
+                    }
                 }
             }
         }
@@ -3481,9 +5837,9 @@ function quoteSend(SendParam memory, bool) external view returns (MessagingFee m
             #[inline]
             fn tokenize(&self) -> Self::Token<'_> {
                 (
-                    <SendParam as alloy_sol_types::SolType>::tokenize(&self._0),
+                    <SendParam as alloy_sol_types::SolType>::tokenize(&self.sp),
                     <alloy::sol_types::sol_data::Bool as alloy_sol_types::SolType>::tokenize(
-                        &self._1,
+                        &self.payInLzToken,
                     ),
                 )
             }
@@ -3862,6 +6218,298 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
             }
         }
     };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `sharedDecimals()` and selector `0x857749b0`.
+```solidity
+function sharedDecimals() external view returns (uint8);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct sharedDecimalsCall;
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`sharedDecimals()`](sharedDecimalsCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct sharedDecimalsReturn {
+        #[allow(missing_docs)]
+        pub _0: u8,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<sharedDecimalsCall> for UnderlyingRustTuple<'_> {
+                fn from(value: sharedDecimalsCall) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for sharedDecimalsCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (alloy::sol_types::sol_data::Uint<8>,);
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (u8,);
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<sharedDecimalsReturn>
+            for UnderlyingRustTuple<'_> {
+                fn from(value: sharedDecimalsReturn) -> Self {
+                    (value._0,)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>>
+            for sharedDecimalsReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self { _0: tuple.0 }
+                }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for sharedDecimalsCall {
+            type Parameters<'a> = ();
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = u8;
+            type ReturnTuple<'a> = (alloy::sol_types::sol_data::Uint<8>,);
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "sharedDecimals()";
+            const SELECTOR: [u8; 4] = [133u8, 119u8, 73u8, 176u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Uint<
+                        8,
+                    > as alloy_sol_types::SolType>::tokenize(ret),
+                )
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(|r| {
+                        let r: sharedDecimalsReturn = r.into();
+                        r._0
+                    })
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(|r| {
+                        let r: sharedDecimalsReturn = r.into();
+                        r._0
+                    })
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `token()` and selector `0xfc0c546a`.
+```solidity
+function token() external view returns (address);
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct tokenCall;
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    ///Container type for the return parameters of the [`token()`](tokenCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct tokenReturn {
+        #[allow(missing_docs)]
+        pub _0: alloy::sol_types::private::Address,
+    }
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use alloy::sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<tokenCall> for UnderlyingRustTuple<'_> {
+                fn from(value: tokenCall) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for tokenCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (alloy::sol_types::sol_data::Address,);
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (alloy::sol_types::private::Address,);
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<tokenReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: tokenReturn) -> Self {
+                    (value._0,)
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for tokenReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self { _0: tuple.0 }
+                }
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for tokenCall {
+            type Parameters<'a> = ();
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = alloy::sol_types::private::Address;
+            type ReturnTuple<'a> = (alloy::sol_types::sol_data::Address,);
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "token()";
+            const SELECTOR: [u8; 4] = [252u8, 12u8, 84u8, 106u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                ()
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                (
+                    <alloy::sol_types::sol_data::Address as alloy_sol_types::SolType>::tokenize(
+                        ret,
+                    ),
+                )
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(|r| {
+                        let r: tokenReturn = r.into();
+                        r._0
+                    })
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(|r| {
+                        let r: tokenReturn = r.into();
+                        r._0
+                    })
+            }
+        }
+    };
     ///Container for all the [`MockOFT`](self) function calls.
     #[derive(Clone)]
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -3872,29 +6520,41 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
         #[allow(missing_docs)]
         TOKEN_SRC(TOKEN_SRCCall),
         #[allow(missing_docs)]
+        approvalRequired(approvalRequiredCall),
+        #[allow(missing_docs)]
         lastAmountLD(lastAmountLDCall),
         #[allow(missing_docs)]
         lastDstEid(lastDstEidCall),
         #[allow(missing_docs)]
-        lastMinAmountLD(lastMinAmountLDCall),
+        lastFee(lastFeeCall),
         #[allow(missing_docs)]
-        lastMsgValue(lastMsgValueCall),
+        lastMinAmountLD(lastMinAmountLDCall),
         #[allow(missing_docs)]
         lastNonce(lastNonceCall),
         #[allow(missing_docs)]
         lastRefundAddress(lastRefundAddressCall),
         #[allow(missing_docs)]
+        lastSendParam(lastSendParamCall),
+        #[allow(missing_docs)]
         lastTo(lastToCall),
+        #[allow(missing_docs)]
+        oftVersion(oftVersionCall),
         #[allow(missing_docs)]
         quoteLzTokenFee(quoteLzTokenFeeCall),
         #[allow(missing_docs)]
         quoteNativeFee(quoteNativeFeeCall),
+        #[allow(missing_docs)]
+        quoteOFT(quoteOFTCall),
         #[allow(missing_docs)]
         quoteSend(quoteSendCall),
         #[allow(missing_docs)]
         send(sendCall),
         #[allow(missing_docs)]
         setQuoteSendFee(setQuoteSendFeeCall),
+        #[allow(missing_docs)]
+        sharedDecimals(sharedDecimalsCall),
+        #[allow(missing_docs)]
+        token(tokenCall),
     }
     impl MockOFTCalls {
         /// All the selectors of this enum.
@@ -3905,52 +6565,70 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
         /// Prefer using `SolInterface` methods instead.
         pub const SELECTORS: &'static [[u8; 4usize]] = &[
             [1u8, 153u8, 202u8, 108u8],
+            [13u8, 53u8, 180u8, 21u8],
+            [21u8, 106u8, 13u8, 15u8],
             [33u8, 196u8, 50u8, 23u8],
+            [43u8, 32u8, 92u8, 101u8],
             [55u8, 221u8, 70u8, 13u8],
             [59u8, 111u8, 116u8, 59u8],
-            [70u8, 61u8, 31u8, 202u8],
             [82u8, 99u8, 26u8, 180u8],
+            [133u8, 119u8, 73u8, 176u8],
             [134u8, 194u8, 133u8, 176u8],
             [140u8, 34u8, 103u8, 65u8],
             [140u8, 180u8, 110u8, 120u8],
+            [152u8, 1u8, 19u8, 78u8],
+            [159u8, 104u8, 185u8, 100u8],
             [161u8, 39u8, 105u8, 85u8],
             [193u8, 70u8, 132u8, 71u8],
             [199u8, 199u8, 245u8, 179u8],
             [242u8, 12u8, 214u8, 169u8],
+            [252u8, 12u8, 84u8, 106u8],
             [253u8, 166u8, 185u8, 41u8],
         ];
         /// The names of the variants in the same order as `SELECTORS`.
         pub const VARIANT_NAMES: &'static [&'static str] = &[
             ::core::stringify!(quoteNativeFee),
+            ::core::stringify!(quoteOFT),
+            ::core::stringify!(oftVersion),
             ::core::stringify!(lastRefundAddress),
+            ::core::stringify!(lastSendParam),
             ::core::stringify!(TOKEN_SRC),
             ::core::stringify!(quoteSend),
-            ::core::stringify!(lastMsgValue),
             ::core::stringify!(lastNonce),
+            ::core::stringify!(sharedDecimals),
             ::core::stringify!(lastAmountLD),
             ::core::stringify!(lastDstEid),
             ::core::stringify!(TOKEN_DST),
+            ::core::stringify!(lastFee),
+            ::core::stringify!(approvalRequired),
             ::core::stringify!(setQuoteSendFee),
             ::core::stringify!(lastTo),
             ::core::stringify!(send),
             ::core::stringify!(lastMinAmountLD),
+            ::core::stringify!(token),
             ::core::stringify!(quoteLzTokenFee),
         ];
         /// The signatures in the same order as `SELECTORS`.
         pub const SIGNATURES: &'static [&'static str] = &[
             <quoteNativeFeeCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <quoteOFTCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <oftVersionCall as alloy_sol_types::SolCall>::SIGNATURE,
             <lastRefundAddressCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <lastSendParamCall as alloy_sol_types::SolCall>::SIGNATURE,
             <TOKEN_SRCCall as alloy_sol_types::SolCall>::SIGNATURE,
             <quoteSendCall as alloy_sol_types::SolCall>::SIGNATURE,
-            <lastMsgValueCall as alloy_sol_types::SolCall>::SIGNATURE,
             <lastNonceCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <sharedDecimalsCall as alloy_sol_types::SolCall>::SIGNATURE,
             <lastAmountLDCall as alloy_sol_types::SolCall>::SIGNATURE,
             <lastDstEidCall as alloy_sol_types::SolCall>::SIGNATURE,
             <TOKEN_DSTCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <lastFeeCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <approvalRequiredCall as alloy_sol_types::SolCall>::SIGNATURE,
             <setQuoteSendFeeCall as alloy_sol_types::SolCall>::SIGNATURE,
             <lastToCall as alloy_sol_types::SolCall>::SIGNATURE,
             <sendCall as alloy_sol_types::SolCall>::SIGNATURE,
             <lastMinAmountLDCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <tokenCall as alloy_sol_types::SolCall>::SIGNATURE,
             <quoteLzTokenFeeCall as alloy_sol_types::SolCall>::SIGNATURE,
         ];
         /// Returns the signature for the given selector, if known.
@@ -3978,7 +6656,7 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
     impl alloy_sol_types::SolInterface for MockOFTCalls {
         const NAME: &'static str = "MockOFTCalls";
         const MIN_DATA_LENGTH: usize = 0usize;
-        const COUNT: usize = 14usize;
+        const COUNT: usize = 20usize;
         #[inline]
         fn selector(&self) -> [u8; 4] {
             match self {
@@ -3988,17 +6666,18 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                 Self::TOKEN_SRC(_) => {
                     <TOKEN_SRCCall as alloy_sol_types::SolCall>::SELECTOR
                 }
+                Self::approvalRequired(_) => {
+                    <approvalRequiredCall as alloy_sol_types::SolCall>::SELECTOR
+                }
                 Self::lastAmountLD(_) => {
                     <lastAmountLDCall as alloy_sol_types::SolCall>::SELECTOR
                 }
                 Self::lastDstEid(_) => {
                     <lastDstEidCall as alloy_sol_types::SolCall>::SELECTOR
                 }
+                Self::lastFee(_) => <lastFeeCall as alloy_sol_types::SolCall>::SELECTOR,
                 Self::lastMinAmountLD(_) => {
                     <lastMinAmountLDCall as alloy_sol_types::SolCall>::SELECTOR
-                }
-                Self::lastMsgValue(_) => {
-                    <lastMsgValueCall as alloy_sol_types::SolCall>::SELECTOR
                 }
                 Self::lastNonce(_) => {
                     <lastNonceCall as alloy_sol_types::SolCall>::SELECTOR
@@ -4006,13 +6685,20 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                 Self::lastRefundAddress(_) => {
                     <lastRefundAddressCall as alloy_sol_types::SolCall>::SELECTOR
                 }
+                Self::lastSendParam(_) => {
+                    <lastSendParamCall as alloy_sol_types::SolCall>::SELECTOR
+                }
                 Self::lastTo(_) => <lastToCall as alloy_sol_types::SolCall>::SELECTOR,
+                Self::oftVersion(_) => {
+                    <oftVersionCall as alloy_sol_types::SolCall>::SELECTOR
+                }
                 Self::quoteLzTokenFee(_) => {
                     <quoteLzTokenFeeCall as alloy_sol_types::SolCall>::SELECTOR
                 }
                 Self::quoteNativeFee(_) => {
                     <quoteNativeFeeCall as alloy_sol_types::SolCall>::SELECTOR
                 }
+                Self::quoteOFT(_) => <quoteOFTCall as alloy_sol_types::SolCall>::SELECTOR,
                 Self::quoteSend(_) => {
                     <quoteSendCall as alloy_sol_types::SolCall>::SELECTOR
                 }
@@ -4020,6 +6706,10 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                 Self::setQuoteSendFee(_) => {
                     <setQuoteSendFeeCall as alloy_sol_types::SolCall>::SELECTOR
                 }
+                Self::sharedDecimals(_) => {
+                    <sharedDecimalsCall as alloy_sol_types::SolCall>::SELECTOR
+                }
+                Self::token(_) => <tokenCall as alloy_sol_types::SolCall>::SELECTOR,
             }
         }
         #[inline]
@@ -4049,6 +6739,22 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                     quoteNativeFee
                 },
                 {
+                    fn quoteOFT(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <quoteOFTCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
+                            .map(MockOFTCalls::quoteOFT)
+                    }
+                    quoteOFT
+                },
+                {
+                    fn oftVersion(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <oftVersionCall as alloy_sol_types::SolCall>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTCalls::oftVersion)
+                    }
+                    oftVersion
+                },
+                {
                     fn lastRefundAddress(
                         data: &[u8],
                     ) -> alloy_sol_types::Result<MockOFTCalls> {
@@ -4058,6 +6764,17 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                             .map(MockOFTCalls::lastRefundAddress)
                     }
                     lastRefundAddress
+                },
+                {
+                    fn lastSendParam(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <lastSendParamCall as alloy_sol_types::SolCall>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTCalls::lastSendParam)
+                    }
+                    lastSendParam
                 },
                 {
                     fn TOKEN_SRC(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
@@ -4074,22 +6791,22 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                     quoteSend
                 },
                 {
-                    fn lastMsgValue(
-                        data: &[u8],
-                    ) -> alloy_sol_types::Result<MockOFTCalls> {
-                        <lastMsgValueCall as alloy_sol_types::SolCall>::abi_decode_raw(
-                                data,
-                            )
-                            .map(MockOFTCalls::lastMsgValue)
-                    }
-                    lastMsgValue
-                },
-                {
                     fn lastNonce(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
                         <lastNonceCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
                             .map(MockOFTCalls::lastNonce)
                     }
                     lastNonce
+                },
+                {
+                    fn sharedDecimals(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <sharedDecimalsCall as alloy_sol_types::SolCall>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTCalls::sharedDecimals)
+                    }
+                    sharedDecimals
                 },
                 {
                     fn lastAmountLD(
@@ -4117,6 +6834,24 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                             .map(MockOFTCalls::TOKEN_DST)
                     }
                     TOKEN_DST
+                },
+                {
+                    fn lastFee(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <lastFeeCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
+                            .map(MockOFTCalls::lastFee)
+                    }
+                    lastFee
+                },
+                {
+                    fn approvalRequired(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <approvalRequiredCall as alloy_sol_types::SolCall>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTCalls::approvalRequired)
+                    }
+                    approvalRequired
                 },
                 {
                     fn setQuoteSendFee(
@@ -4153,6 +6888,13 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                             .map(MockOFTCalls::lastMinAmountLD)
                     }
                     lastMinAmountLD
+                },
+                {
+                    fn token(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <tokenCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
+                            .map(MockOFTCalls::token)
+                    }
+                    token
                 },
                 {
                     fn quoteLzTokenFee(
@@ -4197,6 +6939,24 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                     quoteNativeFee
                 },
                 {
+                    fn quoteOFT(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <quoteOFTCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::quoteOFT)
+                    }
+                    quoteOFT
+                },
+                {
+                    fn oftVersion(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <oftVersionCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::oftVersion)
+                    }
+                    oftVersion
+                },
+                {
                     fn lastRefundAddress(
                         data: &[u8],
                     ) -> alloy_sol_types::Result<MockOFTCalls> {
@@ -4206,6 +6966,17 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                             .map(MockOFTCalls::lastRefundAddress)
                     }
                     lastRefundAddress
+                },
+                {
+                    fn lastSendParam(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <lastSendParamCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::lastSendParam)
+                    }
+                    lastSendParam
                 },
                 {
                     fn TOKEN_SRC(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
@@ -4226,17 +6997,6 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                     quoteSend
                 },
                 {
-                    fn lastMsgValue(
-                        data: &[u8],
-                    ) -> alloy_sol_types::Result<MockOFTCalls> {
-                        <lastMsgValueCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
-                                data,
-                            )
-                            .map(MockOFTCalls::lastMsgValue)
-                    }
-                    lastMsgValue
-                },
-                {
                     fn lastNonce(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
                         <lastNonceCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
                                 data,
@@ -4244,6 +7004,17 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                             .map(MockOFTCalls::lastNonce)
                     }
                     lastNonce
+                },
+                {
+                    fn sharedDecimals(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <sharedDecimalsCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::sharedDecimals)
+                    }
+                    sharedDecimals
                 },
                 {
                     fn lastAmountLD(
@@ -4273,6 +7044,26 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                             .map(MockOFTCalls::TOKEN_DST)
                     }
                     TOKEN_DST
+                },
+                {
+                    fn lastFee(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <lastFeeCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::lastFee)
+                    }
+                    lastFee
+                },
+                {
+                    fn approvalRequired(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <approvalRequiredCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::approvalRequired)
+                    }
+                    approvalRequired
                 },
                 {
                     fn setQuoteSendFee(
@@ -4315,6 +7106,15 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                     lastMinAmountLD
                 },
                 {
+                    fn token(data: &[u8]) -> alloy_sol_types::Result<MockOFTCalls> {
+                        <tokenCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTCalls::token)
+                    }
+                    token
+                },
+                {
                     fn quoteLzTokenFee(
                         data: &[u8],
                     ) -> alloy_sol_types::Result<MockOFTCalls> {
@@ -4345,6 +7145,11 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                 Self::TOKEN_SRC(inner) => {
                     <TOKEN_SRCCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
+                Self::approvalRequired(inner) => {
+                    <approvalRequiredCall as alloy_sol_types::SolCall>::abi_encoded_size(
+                        inner,
+                    )
+                }
                 Self::lastAmountLD(inner) => {
                     <lastAmountLDCall as alloy_sol_types::SolCall>::abi_encoded_size(
                         inner,
@@ -4353,13 +7158,11 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                 Self::lastDstEid(inner) => {
                     <lastDstEidCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
+                Self::lastFee(inner) => {
+                    <lastFeeCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
+                }
                 Self::lastMinAmountLD(inner) => {
                     <lastMinAmountLDCall as alloy_sol_types::SolCall>::abi_encoded_size(
-                        inner,
-                    )
-                }
-                Self::lastMsgValue(inner) => {
-                    <lastMsgValueCall as alloy_sol_types::SolCall>::abi_encoded_size(
                         inner,
                     )
                 }
@@ -4371,8 +7174,16 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                         inner,
                     )
                 }
+                Self::lastSendParam(inner) => {
+                    <lastSendParamCall as alloy_sol_types::SolCall>::abi_encoded_size(
+                        inner,
+                    )
+                }
                 Self::lastTo(inner) => {
                     <lastToCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
+                }
+                Self::oftVersion(inner) => {
+                    <oftVersionCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
                 Self::quoteLzTokenFee(inner) => {
                     <quoteLzTokenFeeCall as alloy_sol_types::SolCall>::abi_encoded_size(
@@ -4384,6 +7195,9 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                         inner,
                     )
                 }
+                Self::quoteOFT(inner) => {
+                    <quoteOFTCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
+                }
                 Self::quoteSend(inner) => {
                     <quoteSendCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
@@ -4394,6 +7208,14 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                     <setQuoteSendFeeCall as alloy_sol_types::SolCall>::abi_encoded_size(
                         inner,
                     )
+                }
+                Self::sharedDecimals(inner) => {
+                    <sharedDecimalsCall as alloy_sol_types::SolCall>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::token(inner) => {
+                    <tokenCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
             }
         }
@@ -4412,6 +7234,12 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                         out,
                     )
                 }
+                Self::approvalRequired(inner) => {
+                    <approvalRequiredCall as alloy_sol_types::SolCall>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
                 Self::lastAmountLD(inner) => {
                     <lastAmountLDCall as alloy_sol_types::SolCall>::abi_encode_raw(
                         inner,
@@ -4424,14 +7252,11 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                         out,
                     )
                 }
+                Self::lastFee(inner) => {
+                    <lastFeeCall as alloy_sol_types::SolCall>::abi_encode_raw(inner, out)
+                }
                 Self::lastMinAmountLD(inner) => {
                     <lastMinAmountLDCall as alloy_sol_types::SolCall>::abi_encode_raw(
-                        inner,
-                        out,
-                    )
-                }
-                Self::lastMsgValue(inner) => {
-                    <lastMsgValueCall as alloy_sol_types::SolCall>::abi_encode_raw(
                         inner,
                         out,
                     )
@@ -4448,8 +7273,20 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                         out,
                     )
                 }
+                Self::lastSendParam(inner) => {
+                    <lastSendParamCall as alloy_sol_types::SolCall>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
                 Self::lastTo(inner) => {
                     <lastToCall as alloy_sol_types::SolCall>::abi_encode_raw(inner, out)
+                }
+                Self::oftVersion(inner) => {
+                    <oftVersionCall as alloy_sol_types::SolCall>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
                 }
                 Self::quoteLzTokenFee(inner) => {
                     <quoteLzTokenFeeCall as alloy_sol_types::SolCall>::abi_encode_raw(
@@ -4459,6 +7296,12 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                 }
                 Self::quoteNativeFee(inner) => {
                     <quoteNativeFeeCall as alloy_sol_types::SolCall>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::quoteOFT(inner) => {
+                    <quoteOFTCall as alloy_sol_types::SolCall>::abi_encode_raw(
                         inner,
                         out,
                     )
@@ -4478,6 +7321,413 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
                         out,
                     )
                 }
+                Self::sharedDecimals(inner) => {
+                    <sharedDecimalsCall as alloy_sol_types::SolCall>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::token(inner) => {
+                    <tokenCall as alloy_sol_types::SolCall>::abi_encode_raw(inner, out)
+                }
+            }
+        }
+    }
+    ///Container for all the [`MockOFT`](self) custom errors.
+    #[derive(Clone)]
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
+    pub enum MockOFTErrors {
+        #[allow(missing_docs)]
+        AmountSDOverflowed(AmountSDOverflowed),
+        #[allow(missing_docs)]
+        InvalidLocalDecimals(InvalidLocalDecimals),
+        #[allow(missing_docs)]
+        MockOFT_InsufficientNativeFee(MockOFT_InsufficientNativeFee),
+        #[allow(missing_docs)]
+        MockOFT_MintFailed(MockOFT_MintFailed),
+        #[allow(missing_docs)]
+        MockOFT_RefundFailed(MockOFT_RefundFailed),
+        #[allow(missing_docs)]
+        MockOFT_TransferFromFailed(MockOFT_TransferFromFailed),
+        #[allow(missing_docs)]
+        SlippageExceeded(SlippageExceeded),
+    }
+    impl MockOFTErrors {
+        /// All the selectors of this enum.
+        ///
+        /// Note that the selectors might not be in the same order as the variants.
+        /// No guarantees are made about the order of the selectors.
+        ///
+        /// Prefer using `SolInterface` methods instead.
+        pub const SELECTORS: &'static [[u8; 4usize]] = &[
+            [30u8, 151u8, 20u8, 176u8],
+            [58u8, 206u8, 198u8, 138u8],
+            [113u8, 196u8, 239u8, 237u8],
+            [170u8, 78u8, 245u8, 33u8],
+            [175u8, 88u8, 76u8, 165u8],
+            [193u8, 163u8, 140u8, 93u8],
+            [226u8, 206u8, 148u8, 19u8],
+        ];
+        /// The names of the variants in the same order as `SELECTORS`.
+        pub const VARIANT_NAMES: &'static [&'static str] = &[
+            ::core::stringify!(InvalidLocalDecimals),
+            ::core::stringify!(MockOFT_MintFailed),
+            ::core::stringify!(SlippageExceeded),
+            ::core::stringify!(MockOFT_TransferFromFailed),
+            ::core::stringify!(MockOFT_InsufficientNativeFee),
+            ::core::stringify!(MockOFT_RefundFailed),
+            ::core::stringify!(AmountSDOverflowed),
+        ];
+        /// The signatures in the same order as `SELECTORS`.
+        pub const SIGNATURES: &'static [&'static str] = &[
+            <InvalidLocalDecimals as alloy_sol_types::SolError>::SIGNATURE,
+            <MockOFT_MintFailed as alloy_sol_types::SolError>::SIGNATURE,
+            <SlippageExceeded as alloy_sol_types::SolError>::SIGNATURE,
+            <MockOFT_TransferFromFailed as alloy_sol_types::SolError>::SIGNATURE,
+            <MockOFT_InsufficientNativeFee as alloy_sol_types::SolError>::SIGNATURE,
+            <MockOFT_RefundFailed as alloy_sol_types::SolError>::SIGNATURE,
+            <AmountSDOverflowed as alloy_sol_types::SolError>::SIGNATURE,
+        ];
+        /// Returns the signature for the given selector, if known.
+        #[inline]
+        pub fn signature_by_selector(
+            selector: [u8; 4usize],
+        ) -> ::core::option::Option<&'static str> {
+            match Self::SELECTORS.binary_search(&selector) {
+                ::core::result::Result::Ok(idx) => {
+                    ::core::option::Option::Some(Self::SIGNATURES[idx])
+                }
+                ::core::result::Result::Err(_) => ::core::option::Option::None,
+            }
+        }
+        /// Returns the enum variant name for the given selector, if known.
+        #[inline]
+        pub fn name_by_selector(
+            selector: [u8; 4usize],
+        ) -> ::core::option::Option<&'static str> {
+            let sig = Self::signature_by_selector(selector)?;
+            sig.split_once('(').map(|(name, _)| name)
+        }
+    }
+    #[automatically_derived]
+    impl alloy_sol_types::SolInterface for MockOFTErrors {
+        const NAME: &'static str = "MockOFTErrors";
+        const MIN_DATA_LENGTH: usize = 0usize;
+        const COUNT: usize = 7usize;
+        #[inline]
+        fn selector(&self) -> [u8; 4] {
+            match self {
+                Self::AmountSDOverflowed(_) => {
+                    <AmountSDOverflowed as alloy_sol_types::SolError>::SELECTOR
+                }
+                Self::InvalidLocalDecimals(_) => {
+                    <InvalidLocalDecimals as alloy_sol_types::SolError>::SELECTOR
+                }
+                Self::MockOFT_InsufficientNativeFee(_) => {
+                    <MockOFT_InsufficientNativeFee as alloy_sol_types::SolError>::SELECTOR
+                }
+                Self::MockOFT_MintFailed(_) => {
+                    <MockOFT_MintFailed as alloy_sol_types::SolError>::SELECTOR
+                }
+                Self::MockOFT_RefundFailed(_) => {
+                    <MockOFT_RefundFailed as alloy_sol_types::SolError>::SELECTOR
+                }
+                Self::MockOFT_TransferFromFailed(_) => {
+                    <MockOFT_TransferFromFailed as alloy_sol_types::SolError>::SELECTOR
+                }
+                Self::SlippageExceeded(_) => {
+                    <SlippageExceeded as alloy_sol_types::SolError>::SELECTOR
+                }
+            }
+        }
+        #[inline]
+        fn selector_at(i: usize) -> ::core::option::Option<[u8; 4]> {
+            Self::SELECTORS.get(i).copied()
+        }
+        #[inline]
+        fn valid_selector(selector: [u8; 4]) -> bool {
+            Self::SELECTORS.binary_search(&selector).is_ok()
+        }
+        #[inline]
+        #[allow(non_snake_case)]
+        fn abi_decode_raw(
+            selector: [u8; 4],
+            data: &[u8],
+        ) -> alloy_sol_types::Result<Self> {
+            static DECODE_SHIMS: &[fn(
+                &[u8],
+            ) -> alloy_sol_types::Result<MockOFTErrors>] = &[
+                {
+                    fn InvalidLocalDecimals(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <InvalidLocalDecimals as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::InvalidLocalDecimals)
+                    }
+                    InvalidLocalDecimals
+                },
+                {
+                    fn MockOFT_MintFailed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_MintFailed as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_MintFailed)
+                    }
+                    MockOFT_MintFailed
+                },
+                {
+                    fn SlippageExceeded(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <SlippageExceeded as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::SlippageExceeded)
+                    }
+                    SlippageExceeded
+                },
+                {
+                    fn MockOFT_TransferFromFailed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_TransferFromFailed as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_TransferFromFailed)
+                    }
+                    MockOFT_TransferFromFailed
+                },
+                {
+                    fn MockOFT_InsufficientNativeFee(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_InsufficientNativeFee as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_InsufficientNativeFee)
+                    }
+                    MockOFT_InsufficientNativeFee
+                },
+                {
+                    fn MockOFT_RefundFailed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_RefundFailed as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_RefundFailed)
+                    }
+                    MockOFT_RefundFailed
+                },
+                {
+                    fn AmountSDOverflowed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <AmountSDOverflowed as alloy_sol_types::SolError>::abi_decode_raw(
+                                data,
+                            )
+                            .map(MockOFTErrors::AmountSDOverflowed)
+                    }
+                    AmountSDOverflowed
+                },
+            ];
+            let Ok(idx) = Self::SELECTORS.binary_search(&selector) else {
+                return Err(
+                    alloy_sol_types::Error::unknown_selector(
+                        <Self as alloy_sol_types::SolInterface>::NAME,
+                        selector,
+                    ),
+                );
+            };
+            DECODE_SHIMS[idx](data)
+        }
+        #[inline]
+        #[allow(non_snake_case)]
+        fn abi_decode_raw_validate(
+            selector: [u8; 4],
+            data: &[u8],
+        ) -> alloy_sol_types::Result<Self> {
+            static DECODE_VALIDATE_SHIMS: &[fn(
+                &[u8],
+            ) -> alloy_sol_types::Result<MockOFTErrors>] = &[
+                {
+                    fn InvalidLocalDecimals(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <InvalidLocalDecimals as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::InvalidLocalDecimals)
+                    }
+                    InvalidLocalDecimals
+                },
+                {
+                    fn MockOFT_MintFailed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_MintFailed as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_MintFailed)
+                    }
+                    MockOFT_MintFailed
+                },
+                {
+                    fn SlippageExceeded(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <SlippageExceeded as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::SlippageExceeded)
+                    }
+                    SlippageExceeded
+                },
+                {
+                    fn MockOFT_TransferFromFailed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_TransferFromFailed as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_TransferFromFailed)
+                    }
+                    MockOFT_TransferFromFailed
+                },
+                {
+                    fn MockOFT_InsufficientNativeFee(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_InsufficientNativeFee as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_InsufficientNativeFee)
+                    }
+                    MockOFT_InsufficientNativeFee
+                },
+                {
+                    fn MockOFT_RefundFailed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <MockOFT_RefundFailed as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::MockOFT_RefundFailed)
+                    }
+                    MockOFT_RefundFailed
+                },
+                {
+                    fn AmountSDOverflowed(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<MockOFTErrors> {
+                        <AmountSDOverflowed as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(MockOFTErrors::AmountSDOverflowed)
+                    }
+                    AmountSDOverflowed
+                },
+            ];
+            let Ok(idx) = Self::SELECTORS.binary_search(&selector) else {
+                return Err(
+                    alloy_sol_types::Error::unknown_selector(
+                        <Self as alloy_sol_types::SolInterface>::NAME,
+                        selector,
+                    ),
+                );
+            };
+            DECODE_VALIDATE_SHIMS[idx](data)
+        }
+        #[inline]
+        fn abi_encoded_size(&self) -> usize {
+            match self {
+                Self::AmountSDOverflowed(inner) => {
+                    <AmountSDOverflowed as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::InvalidLocalDecimals(inner) => {
+                    <InvalidLocalDecimals as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::MockOFT_InsufficientNativeFee(inner) => {
+                    <MockOFT_InsufficientNativeFee as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::MockOFT_MintFailed(inner) => {
+                    <MockOFT_MintFailed as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::MockOFT_RefundFailed(inner) => {
+                    <MockOFT_RefundFailed as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::MockOFT_TransferFromFailed(inner) => {
+                    <MockOFT_TransferFromFailed as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+                Self::SlippageExceeded(inner) => {
+                    <SlippageExceeded as alloy_sol_types::SolError>::abi_encoded_size(
+                        inner,
+                    )
+                }
+            }
+        }
+        #[inline]
+        fn abi_encode_raw(&self, out: &mut alloy_sol_types::private::Vec<u8>) {
+            match self {
+                Self::AmountSDOverflowed(inner) => {
+                    <AmountSDOverflowed as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::InvalidLocalDecimals(inner) => {
+                    <InvalidLocalDecimals as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::MockOFT_InsufficientNativeFee(inner) => {
+                    <MockOFT_InsufficientNativeFee as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::MockOFT_MintFailed(inner) => {
+                    <MockOFT_MintFailed as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::MockOFT_RefundFailed(inner) => {
+                    <MockOFT_RefundFailed as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::MockOFT_TransferFromFailed(inner) => {
+                    <MockOFT_TransferFromFailed as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
+                Self::SlippageExceeded(inner) => {
+                    <SlippageExceeded as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
+                }
             }
         }
     }
@@ -4486,6 +7736,10 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Debug, PartialEq, Eq, Hash)]
     pub enum MockOFTEvents {
+        #[allow(missing_docs)]
+        OFTReceived(OFTReceived),
+        #[allow(missing_docs)]
+        OFTSent(OFTSent),
         #[allow(missing_docs)]
         Sent(Sent),
     }
@@ -4498,16 +7752,32 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
         /// Prefer using `SolInterface` methods instead.
         pub const SELECTORS: &'static [[u8; 32usize]] = &[
             [
-                122u8, 67u8, 27u8, 33u8, 98u8, 10u8, 62u8, 170u8, 148u8, 155u8, 4u8,
-                137u8, 113u8, 60u8, 188u8, 49u8, 192u8, 46u8, 114u8, 81u8, 169u8, 190u8,
-                249u8, 27u8, 9u8, 128u8, 217u8, 82u8, 77u8, 154u8, 197u8, 62u8,
+                26u8, 22u8, 225u8, 198u8, 238u8, 166u8, 19u8, 44u8, 85u8, 211u8, 43u8,
+                124u8, 154u8, 127u8, 22u8, 87u8, 188u8, 216u8, 157u8, 206u8, 225u8, 82u8,
+                239u8, 38u8, 95u8, 210u8, 16u8, 81u8, 206u8, 199u8, 107u8, 178u8,
+            ],
+            [
+                133u8, 73u8, 107u8, 118u8, 10u8, 75u8, 127u8, 141u8, 102u8, 56u8, 75u8,
+                157u8, 242u8, 27u8, 56u8, 31u8, 93u8, 27u8, 30u8, 121u8, 242u8, 41u8,
+                164u8, 122u8, 175u8, 76u8, 35u8, 46u8, 220u8, 47u8, 229u8, 154u8,
+            ],
+            [
+                239u8, 237u8, 109u8, 53u8, 0u8, 84u8, 107u8, 41u8, 83u8, 59u8, 18u8,
+                138u8, 41u8, 227u8, 169u8, 77u8, 112u8, 120u8, 135u8, 39u8, 240u8, 80u8,
+                117u8, 5u8, 172u8, 18u8, 234u8, 242u8, 229u8, 120u8, 253u8, 156u8,
             ],
         ];
         /// The names of the variants in the same order as `SELECTORS`.
-        pub const VARIANT_NAMES: &'static [&'static str] = &[::core::stringify!(Sent)];
+        pub const VARIANT_NAMES: &'static [&'static str] = &[
+            ::core::stringify!(Sent),
+            ::core::stringify!(OFTSent),
+            ::core::stringify!(OFTReceived),
+        ];
         /// The signatures in the same order as `SELECTORS`.
         pub const SIGNATURES: &'static [&'static str] = &[
             <Sent as alloy_sol_types::SolEvent>::SIGNATURE,
+            <OFTSent as alloy_sol_types::SolEvent>::SIGNATURE,
+            <OFTReceived as alloy_sol_types::SolEvent>::SIGNATURE,
         ];
         /// Returns the signature for the given selector, if known.
         #[inline]
@@ -4533,12 +7803,23 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
     #[automatically_derived]
     impl alloy_sol_types::SolEventInterface for MockOFTEvents {
         const NAME: &'static str = "MockOFTEvents";
-        const COUNT: usize = 1usize;
+        const COUNT: usize = 3usize;
         fn decode_raw_log(
             topics: &[alloy_sol_types::Word],
             data: &[u8],
         ) -> alloy_sol_types::Result<Self> {
             match topics.first().copied() {
+                Some(<OFTReceived as alloy_sol_types::SolEvent>::SIGNATURE_HASH) => {
+                    <OFTReceived as alloy_sol_types::SolEvent>::decode_raw_log(
+                            topics,
+                            data,
+                        )
+                        .map(Self::OFTReceived)
+                }
+                Some(<OFTSent as alloy_sol_types::SolEvent>::SIGNATURE_HASH) => {
+                    <OFTSent as alloy_sol_types::SolEvent>::decode_raw_log(topics, data)
+                        .map(Self::OFTSent)
+                }
                 Some(<Sent as alloy_sol_types::SolEvent>::SIGNATURE_HASH) => {
                     <Sent as alloy_sol_types::SolEvent>::decode_raw_log(topics, data)
                         .map(Self::Sent)
@@ -4561,6 +7842,12 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
     impl alloy_sol_types::private::IntoLogData for MockOFTEvents {
         fn to_log_data(&self) -> alloy_sol_types::private::LogData {
             match self {
+                Self::OFTReceived(inner) => {
+                    alloy_sol_types::private::IntoLogData::to_log_data(inner)
+                }
+                Self::OFTSent(inner) => {
+                    alloy_sol_types::private::IntoLogData::to_log_data(inner)
+                }
                 Self::Sent(inner) => {
                     alloy_sol_types::private::IntoLogData::to_log_data(inner)
                 }
@@ -4568,6 +7855,12 @@ function setQuoteSendFee(uint256 nativeFee, uint256 lzTokenFee) external;
         }
         fn into_log_data(self) -> alloy_sol_types::private::LogData {
             match self {
+                Self::OFTReceived(inner) => {
+                    alloy_sol_types::private::IntoLogData::into_log_data(inner)
+                }
+                Self::OFTSent(inner) => {
+                    alloy_sol_types::private::IntoLogData::into_log_data(inner)
+                }
                 Self::Sent(inner) => {
                     alloy_sol_types::private::IntoLogData::into_log_data(inner)
                 }
@@ -4761,6 +8054,12 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
         pub fn TOKEN_SRC(&self) -> alloy_contract::SolCallBuilder<&P, TOKEN_SRCCall, N> {
             self.call_builder(&TOKEN_SRCCall)
         }
+        ///Creates a new call builder for the [`approvalRequired`] function.
+        pub fn approvalRequired(
+            &self,
+        ) -> alloy_contract::SolCallBuilder<&P, approvalRequiredCall, N> {
+            self.call_builder(&approvalRequiredCall)
+        }
         ///Creates a new call builder for the [`lastAmountLD`] function.
         pub fn lastAmountLD(
             &self,
@@ -4773,17 +8072,15 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
         ) -> alloy_contract::SolCallBuilder<&P, lastDstEidCall, N> {
             self.call_builder(&lastDstEidCall)
         }
+        ///Creates a new call builder for the [`lastFee`] function.
+        pub fn lastFee(&self) -> alloy_contract::SolCallBuilder<&P, lastFeeCall, N> {
+            self.call_builder(&lastFeeCall)
+        }
         ///Creates a new call builder for the [`lastMinAmountLD`] function.
         pub fn lastMinAmountLD(
             &self,
         ) -> alloy_contract::SolCallBuilder<&P, lastMinAmountLDCall, N> {
             self.call_builder(&lastMinAmountLDCall)
-        }
-        ///Creates a new call builder for the [`lastMsgValue`] function.
-        pub fn lastMsgValue(
-            &self,
-        ) -> alloy_contract::SolCallBuilder<&P, lastMsgValueCall, N> {
-            self.call_builder(&lastMsgValueCall)
         }
         ///Creates a new call builder for the [`lastNonce`] function.
         pub fn lastNonce(&self) -> alloy_contract::SolCallBuilder<&P, lastNonceCall, N> {
@@ -4795,9 +8092,21 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
         ) -> alloy_contract::SolCallBuilder<&P, lastRefundAddressCall, N> {
             self.call_builder(&lastRefundAddressCall)
         }
+        ///Creates a new call builder for the [`lastSendParam`] function.
+        pub fn lastSendParam(
+            &self,
+        ) -> alloy_contract::SolCallBuilder<&P, lastSendParamCall, N> {
+            self.call_builder(&lastSendParamCall)
+        }
         ///Creates a new call builder for the [`lastTo`] function.
         pub fn lastTo(&self) -> alloy_contract::SolCallBuilder<&P, lastToCall, N> {
             self.call_builder(&lastToCall)
+        }
+        ///Creates a new call builder for the [`oftVersion`] function.
+        pub fn oftVersion(
+            &self,
+        ) -> alloy_contract::SolCallBuilder<&P, oftVersionCall, N> {
+            self.call_builder(&oftVersionCall)
         }
         ///Creates a new call builder for the [`quoteLzTokenFee`] function.
         pub fn quoteLzTokenFee(
@@ -4811,13 +8120,20 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
         ) -> alloy_contract::SolCallBuilder<&P, quoteNativeFeeCall, N> {
             self.call_builder(&quoteNativeFeeCall)
         }
+        ///Creates a new call builder for the [`quoteOFT`] function.
+        pub fn quoteOFT(
+            &self,
+            sp: <SendParam as alloy::sol_types::SolType>::RustType,
+        ) -> alloy_contract::SolCallBuilder<&P, quoteOFTCall, N> {
+            self.call_builder(&quoteOFTCall { sp })
+        }
         ///Creates a new call builder for the [`quoteSend`] function.
         pub fn quoteSend(
             &self,
-            _0: <SendParam as alloy::sol_types::SolType>::RustType,
-            _1: bool,
+            sp: <SendParam as alloy::sol_types::SolType>::RustType,
+            payInLzToken: bool,
         ) -> alloy_contract::SolCallBuilder<&P, quoteSendCall, N> {
-            self.call_builder(&quoteSendCall { _0, _1 })
+            self.call_builder(&quoteSendCall { sp, payInLzToken })
         }
         ///Creates a new call builder for the [`send`] function.
         pub fn send(
@@ -4841,6 +8157,16 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
                 },
             )
         }
+        ///Creates a new call builder for the [`sharedDecimals`] function.
+        pub fn sharedDecimals(
+            &self,
+        ) -> alloy_contract::SolCallBuilder<&P, sharedDecimalsCall, N> {
+            self.call_builder(&sharedDecimalsCall)
+        }
+        ///Creates a new call builder for the [`token`] function.
+        pub fn token(&self) -> alloy_contract::SolCallBuilder<&P, tokenCall, N> {
+            self.call_builder(&tokenCall)
+        }
     }
     /// Event filters.
     impl<
@@ -4855,6 +8181,14 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
             &self,
         ) -> alloy_contract::Event<&P, E, N> {
             alloy_contract::Event::new_sol(&self.provider, &self.address)
+        }
+        ///Creates a new event filter for the [`OFTReceived`] event.
+        pub fn OFTReceived_filter(&self) -> alloy_contract::Event<&P, OFTReceived, N> {
+            self.event_filter::<OFTReceived>()
+        }
+        ///Creates a new event filter for the [`OFTSent`] event.
+        pub fn OFTSent_filter(&self) -> alloy_contract::Event<&P, OFTSent, N> {
+            self.event_filter::<OFTSent>()
         }
         ///Creates a new event filter for the [`Sent`] event.
         pub fn Sent_filter(&self) -> alloy_contract::Event<&P, Sent, N> {

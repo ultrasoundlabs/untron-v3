@@ -16,10 +16,10 @@ use serde::{Deserialize, Serialize};
 pub struct ControllerTipProofs {
     /// Block number containing the controller `IsEventChainTipCalled` log
     #[serde(rename = "block_number", skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<i32>,
+    pub block_number: Option<i64>,
     /// Block timestamp (seconds since epoch) containing the log
     #[serde(rename = "block_timestamp", skip_serializing_if = "Option::is_none")]
-    pub block_timestamp: Option<i32>,
+    pub block_timestamp: Option<i64>,
     /// Block hash of the log's block (bytes32 hex)
     #[serde(rename = "block_hash", skip_serializing_if = "Option::is_none")]
     pub block_hash: Option<String>,
@@ -31,7 +31,7 @@ pub struct ControllerTipProofs {
     pub tx_hash: Option<String>,
     /// Log index within the transaction receipt (0-based)
     #[serde(rename = "log_index", skip_serializing_if = "Option::is_none")]
-    pub log_index: Option<i32>,
+    pub log_index: Option<i64>,
     /// Tron address that called `isEventChainTip(bytes32)`
     #[serde(rename = "caller", skip_serializing_if = "Option::is_none")]
     pub caller: Option<String>,

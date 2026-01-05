@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct ControllerPulledFromReceiver {
     /// Controller event sequence for this receiver pull  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// Receiver salt identifying which deterministic receiver was swept
     #[serde(rename = "receiver_salt", skip_serializing_if = "Option::is_none")]
     pub receiver_salt: Option<String>,
@@ -25,13 +25,13 @@ pub struct ControllerPulledFromReceiver {
     pub token: Option<String>,
     /// Raw token amount pulled (uint256)
     #[serde(rename = "token_amount", skip_serializing_if = "Option::is_none")]
-    pub token_amount: Option<f64>,
+    pub token_amount: Option<serde_json::Number>,
     /// Exchange rate used (1e18-scaled); 1:1 for USDT sweeps
     #[serde(rename = "exchange_rate", skip_serializing_if = "Option::is_none")]
-    pub exchange_rate: Option<f64>,
+    pub exchange_rate: Option<serde_json::Number>,
     /// USDT-equivalent amount accounted for this pull (uint256)
     #[serde(rename = "usdt_amount", skip_serializing_if = "Option::is_none")]
-    pub usdt_amount: Option<f64>,
+    pub usdt_amount: Option<serde_json::Number>,
 }
 
 impl ControllerPulledFromReceiver {

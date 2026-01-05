@@ -19,27 +19,27 @@ pub struct HubRealtors {
     pub realtor: Option<String>,
     /// Event sequence at which this realtor snapshot became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Whether this address is currently allowlisted to create leases
     #[serde(rename = "allowed", skip_serializing_if = "Option::is_none")]
     pub allowed: Option<bool>,
     /// Realtor-specific minimum percentage fee floor (ppm)
     #[serde(rename = "min_fee_ppm", skip_serializing_if = "Option::is_none")]
-    pub min_fee_ppm: Option<i32>,
+    pub min_fee_ppm: Option<i64>,
     /// Realtor-specific minimum flat fee floor (USDT units)
     #[serde(rename = "min_flat_fee", skip_serializing_if = "Option::is_none")]
-    pub min_flat_fee: Option<f64>,
+    pub min_flat_fee: Option<serde_json::Number>,
     /// Realtor-specific maximum lease duration in seconds (NULL means no override)
     #[serde(rename = "max_lease_duration_seconds", skip_serializing_if = "Option::is_none")]
-    pub max_lease_duration_seconds: Option<i32>,
+    pub max_lease_duration_seconds: Option<i64>,
     /// Max lease creations allowed per window (NULL/0 means disabled)
     #[serde(rename = "lease_rate_max_leases", skip_serializing_if = "Option::is_none")]
-    pub lease_rate_max_leases: Option<f64>,
+    pub lease_rate_max_leases: Option<serde_json::Number>,
     /// Window size (seconds) for lease creation rate limiting (NULL/0 means disabled)
     #[serde(rename = "lease_rate_window_seconds", skip_serializing_if = "Option::is_none")]
-    pub lease_rate_window_seconds: Option<f64>,
+    pub lease_rate_window_seconds: Option<serde_json::Number>,
 }
 
 impl HubRealtors {

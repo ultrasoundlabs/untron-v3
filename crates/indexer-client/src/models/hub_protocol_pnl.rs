@@ -16,18 +16,18 @@ use serde::{Deserialize, Serialize};
 pub struct HubProtocolPnl {
     /// Event sequence at which this PnL snapshot became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Current protocol PnL value (int256)
     #[serde(rename = "pnl", skip_serializing_if = "Option::is_none")]
-    pub pnl: Option<f64>,
+    pub pnl: Option<serde_json::Number>,
     /// Delta applied at this event (int256)
     #[serde(rename = "delta", skip_serializing_if = "Option::is_none")]
-    pub delta: Option<f64>,
+    pub delta: Option<serde_json::Number>,
     /// PnL reason code (matches `UntronV3Index.PnlReason`)
     #[serde(rename = "reason", skip_serializing_if = "Option::is_none")]
-    pub reason: Option<i32>,
+    pub reason: Option<i64>,
 }
 
 impl HubProtocolPnl {

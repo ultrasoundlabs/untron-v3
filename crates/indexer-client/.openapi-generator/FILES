@@ -1,5 +1,4 @@
 .gitignore
-.openapi-generator-ignore
 .travis.yml
 Cargo.toml
 README.md
@@ -66,10 +65,16 @@ docs/HubSwapRatesApi.md
 docs/HubTokensRescued.md
 docs/HubTokensRescuedApi.md
 docs/IntrospectionApi.md
+docs/ReceiverUsdtBalances.md
+docs/ReceiverUsdtBalancesApi.md
+docs/ReceiverUsdtIndexerStatus.md
+docs/ReceiverUsdtIndexerStatusApi.md
 docs/ReceiverUsdtTransferActionability.md
 docs/ReceiverUsdtTransferActionabilityApi.md
 docs/StreamCursor.md
 docs/StreamCursorApi.md
+docs/StreamIngestSummary.md
+docs/StreamIngestSummaryApi.md
 docs/UnaccountedReceiverUsdtTransfers.md
 docs/UnaccountedReceiverUsdtTransfersApi.md
 git_push.sh
@@ -107,8 +112,11 @@ src/apis/hub_swap_rates_api.rs
 src/apis/hub_tokens_rescued_api.rs
 src/apis/introspection_api.rs
 src/apis/mod.rs
+src/apis/receiver_usdt_balances_api.rs
+src/apis/receiver_usdt_indexer_status_api.rs
 src/apis/receiver_usdt_transfer_actionability_api.rs
 src/apis/stream_cursor_api.rs
+src/apis/stream_ingest_summary_api.rs
 src/apis/unaccounted_receiver_usdt_transfers_api.rs
 src/lib.rs
 src/models/controller_executor.rs
@@ -143,6 +151,9 @@ src/models/hub_realtors.rs
 src/models/hub_swap_rates.rs
 src/models/hub_tokens_rescued.rs
 src/models/mod.rs
+src/models/receiver_usdt_balances.rs
+src/models/receiver_usdt_indexer_status.rs
 src/models/receiver_usdt_transfer_actionability.rs
 src/models/stream_cursor.rs
+src/models/stream_ingest_summary.rs
 src/models/unaccounted_receiver_usdt_transfers.rs

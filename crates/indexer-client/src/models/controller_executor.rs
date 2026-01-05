@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 pub struct ControllerExecutor {
     /// Controller event sequence at which this executor became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Controller executor (Tron address)
     #[serde(rename = "executor", skip_serializing_if = "Option::is_none")]
     pub executor: Option<String>,

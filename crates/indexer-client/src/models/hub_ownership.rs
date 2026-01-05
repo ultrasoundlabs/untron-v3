@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct HubOwnership {
     /// Event sequence at which this owner transition became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     /// Previous hub owner (EVM address)
     #[serde(rename = "old_owner", skip_serializing_if = "Option::is_none")]
     pub old_owner: Option<String>,

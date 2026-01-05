@@ -19,9 +19,9 @@ pub struct ControllerReceivers {
     pub receiver_salt: Option<String>,
     /// Controller event sequence at which this receiver mapping became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Receiver contract address on Tron (base58)
     #[serde(rename = "receiver", skip_serializing_if = "Option::is_none")]
     pub receiver: Option<String>,

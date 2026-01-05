@@ -19,12 +19,12 @@ pub struct HubBridgers {
     pub target_token: Option<String>,
     /// Destination EVM chainId  Note: This is a Primary Key.<pk/>
     #[serde(rename = "target_chain_id", skip_serializing_if = "Option::is_none")]
-    pub target_chain_id: Option<i32>,
+    pub target_chain_id: Option<i64>,
     /// Event sequence at which this bridger route became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Bridger adapter contract address (EVM)
     #[serde(rename = "bridger", skip_serializing_if = "Option::is_none")]
     pub bridger: Option<String>,

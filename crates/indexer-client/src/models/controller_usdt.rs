@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 pub struct ControllerUsdt {
     /// Controller event sequence at which this canonical USDT became current  Note: This is a Primary Key.<pk/>
     #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i32>,
+    pub valid_from_seq: Option<i64>,
     #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i32>,
+    pub valid_to_seq: Option<i64>,
     /// Controller canonical USDT token contract (Tron address)
     #[serde(rename = "usdt", skip_serializing_if = "Option::is_none")]
     pub usdt: Option<String>,

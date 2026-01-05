@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct HubLpVaultEvents {
     /// Hub event sequence for this vault event  Note: This is a Primary Key.<pk/>
     #[serde(rename = "event_seq", skip_serializing_if = "Option::is_none")]
-    pub event_seq: Option<i32>,
+    pub event_seq: Option<i64>,
     /// `deposit` or `withdraw`
     #[serde(rename = "kind", skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
@@ -25,7 +25,7 @@ pub struct HubLpVaultEvents {
     pub lp: Option<String>,
     /// Amount deposited/withdrawn (uint256, USDT units)
     #[serde(rename = "amount", skip_serializing_if = "Option::is_none")]
-    pub amount: Option<f64>,
+    pub amount: Option<serde_json::Number>,
 }
 
 impl HubLpVaultEvents {
