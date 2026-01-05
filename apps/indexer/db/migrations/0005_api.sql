@@ -310,6 +310,157 @@ For each canonical TRC-20 USDT transfer into a deterministic receiver, this view
 - 'pull'               => no claim yet and a later pull timestamp suggests pre-entitle would revert$$;
 
 -- =========================
+-- RELAYER HELPERS
+-- =========================
+/*
+Relayer helper views (PostgREST API).
+
+These views exist to let automation safely answer:
+- "Is the indexer caught up (projection-wise), per stream?"
+- "Is the receiver USDT transfer indexer still backfilling?"
+- "What is the net USDT balance per receiver (derived from indexed transfers and pulls)?"
+
+All data is derived from canonical rows only and is therefore reorg-safe.
+*/
+
+-- =========================
+-- STREAM STATUS
+-- =========================
+
+create or replace view api.stream_ingest_summary as
+with last_event as (
+    select
+        stream,
+        max(event_seq) as max_event_seq,
+        max(block_number) as max_block_number,
+        max(block_timestamp) as max_block_timestamp
+    from chain.event_appended
+    where canonical
+    group by stream
+)
+select
+    c.stream,
+    c.applied_through_seq,
+    c.tip,
+    c.updated_at,
+
+    e.max_event_seq,
+    e.max_block_number,
+    e.max_block_timestamp,
+    to_timestamp(e.max_block_timestamp) as max_block_time,
+
+    (
+        e.max_event_seq is not null
+        and c.applied_through_seq = e.max_event_seq
+    ) as is_projection_caught_up
+from chain.stream_cursor c
+left join last_event e using (stream);
+
+comment on view api.stream_ingest_summary is
+$$Per-stream ingestion/projection summary for relayers.
+
+This view is intentionally minimal:
+- It does NOT attempt to query RPC head (that stays in the relayer).
+- It DOES let relayers detect when projections are behind ingestion (`is_projection_caught_up = false`),
+  which would make derived "current state" views stale.$$;
+
+-- =========================
+-- RECEIVER USDT INDEXER STATUS
+-- =========================
+
+create or replace view api.receiver_usdt_indexer_status as
+select
+    t.stream,
+    t.next_block as tail_next_block,
+    t.updated_at as tail_updated_at,
+
+    (
+        select min(w.backfill_next_block)
+        from ctl.receiver_watchlist w
+        where w.backfill_next_block is not null
+    ) as min_backfill_next_block,
+
+    (
+        select count(*)::bigint
+        from ctl.receiver_watchlist
+    ) as receiver_count,
+
+    (
+        select count(*)::bigint
+        from ctl.receiver_watchlist w
+        where w.backfill_next_block is not null
+    ) as backfill_pending_receivers,
+
+    (
+        select max(w.updated_at)
+        from ctl.receiver_watchlist w
+    ) as watchlist_updated_at
+from ctl.receiver_usdt_tail_cursor t;
+
+comment on view api.receiver_usdt_indexer_status is
+$$Receiver USDT transfer indexer status (tail + backfill).
+
+The TRC-20 receiver transfer indexer has two moving parts:
+- a single shared tail cursor (`ctl.receiver_usdt_tail_cursor.next_block`), and
+- per-receiver backfill cursors (`ctl.receiver_watchlist.backfill_next_block`).
+
+Relayers should generally avoid acting on receiver-transfer-derived state unless:
+- `min_backfill_next_block` is NULL (no pending backfills), and
+- `tail_next_block` is close to the Tron head (with the relayer's own head check).$$;
+
+-- =========================
+-- RECEIVER USDT BALANCES (DERIVED)
+-- =========================
+
+create or replace view api.receiver_usdt_balances as
+with current_usdt as (
+    select u.usdt
+    from ctl.usdt_versions u
+    where u.valid_to_seq is null
+    limit 1
+),
+incoming as (
+    select
+        t.receiver_salt,
+        sum(t.amount) as incoming_amount
+    from ctl.receiver_usdt_transfers t
+    join current_usdt u on u.usdt = t.token
+    where t.canonical
+    group by t.receiver_salt
+),
+pulled as (
+    select
+        l.receiver_salt,
+        sum(l.token_amount) as pulled_amount
+    from ctl.pulled_from_receiver_ledger l
+    join current_usdt u on u.usdt = l.token
+    group by l.receiver_salt
+)
+select
+    w.receiver_salt,
+    w.receiver,
+    w.receiver_evm,
+    u.usdt as token,
+    coalesce(i.incoming_amount, 0::public.u256) as incoming_amount,
+    coalesce(p.pulled_amount, 0::public.u256) as pulled_amount,
+    greatest(
+        coalesce(i.incoming_amount, 0::public.u256) - coalesce(p.pulled_amount, 0::public.u256),
+        0::public.u256
+    ) as balance_amount
+from ctl.receiver_watchlist w
+cross join current_usdt u
+left join incoming i on i.receiver_salt = w.receiver_salt
+left join pulled p on p.receiver_salt = w.receiver_salt;
+
+comment on view api.receiver_usdt_balances is
+$$Net receiver USDT balances derived from indexed transfer logs and pull ledgers.
+
+This is a deterministic approximation of each receiver's USDT balance:
+  sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)
+
+It assumes receiver addresses do not have other outflows besides controller pulls.$$;
+
+-- =========================
 -- POSTGREST GRANTS
 -- These are safe to run in all environments; they no-op if roles don't exist.
 -- =========================
