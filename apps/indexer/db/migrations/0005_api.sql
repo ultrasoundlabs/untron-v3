@@ -338,6 +338,7 @@ with last_event as (
     where canonical
     group by stream
 )
+
 select
     c.stream,
     c.applied_through_seq,
@@ -419,6 +420,7 @@ with current_usdt as (
     where u.valid_to_seq is null
     limit 1
 ),
+
 incoming as (
     select
         t.receiver_salt,
@@ -428,6 +430,7 @@ incoming as (
     where t.canonical
     group by t.receiver_salt
 ),
+
 pulled as (
     select
         l.receiver_salt,
@@ -436,6 +439,7 @@ pulled as (
     join current_usdt u on u.usdt = l.token
     group by l.receiver_salt
 )
+
 select
     w.receiver_salt,
     w.receiver,
@@ -444,7 +448,8 @@ select
     coalesce(i.incoming_amount, 0::public.u256) as incoming_amount,
     coalesce(p.pulled_amount, 0::public.u256) as pulled_amount,
     greatest(
-        coalesce(i.incoming_amount, 0::public.u256) - coalesce(p.pulled_amount, 0::public.u256),
+        coalesce(i.incoming_amount, 0::public.u256)
+        - coalesce(p.pulled_amount, 0::public.u256),
         0::public.u256
     ) as balance_amount
 from ctl.receiver_watchlist w

@@ -1,9 +1,9 @@
 use super::RelayerState;
 use crate::{
-    hub::HubUserOpSender,
     metrics::RelayerTelemetry,
     tron::{address::TronAddress, grpc::TronGrpc, wallet::TronWallet},
 };
+use aa::Safe4337UserOpSender;
 use alloy::primitives::{Address, U256};
 use anyhow::Result;
 use std::sync::Arc;
@@ -11,14 +11,14 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct HubExecutor {
-    sender: Arc<Mutex<HubUserOpSender>>,
+    sender: Arc<Mutex<Safe4337UserOpSender>>,
     untron_v3: Address,
     telemetry: RelayerTelemetry,
 }
 
 impl HubExecutor {
     pub fn new(
-        sender: Arc<Mutex<HubUserOpSender>>,
+        sender: Arc<Mutex<Safe4337UserOpSender>>,
         untron_v3: Address,
         telemetry: RelayerTelemetry,
     ) -> Self {

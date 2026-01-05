@@ -13,16 +13,16 @@ use alloy::rpc::types::eth::erc4337::{SendUserOperationResponse, UserOperationGa
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
-pub(super) struct BundlerPool {
+pub(crate) struct BundlerPool {
     urls: Vec<String>,
     providers: Vec<DynProvider>,
     next_idx: usize,
 }
 
 impl BundlerPool {
-    pub(super) async fn new(urls: Vec<String>) -> Result<Self> {
+    pub(crate) async fn new(urls: Vec<String>) -> Result<Self> {
         if urls.is_empty() {
-            anyhow::bail!("HUB_BUNDLER_URLS must be non-empty");
+            anyhow::bail!("bundler urls must be non-empty");
         }
 
         let mut providers = Vec::with_capacity(urls.len());
@@ -48,7 +48,7 @@ impl BundlerPool {
         }
     }
 
-    pub(super) async fn estimate_user_operation_gas(
+    pub(crate) async fn estimate_user_operation_gas(
         &mut self,
         user_op: &PackedUserOperation,
         entry_point: Address,
@@ -92,7 +92,7 @@ impl BundlerPool {
         }))
     }
 
-    pub(super) async fn send_user_operation(
+    pub(crate) async fn send_user_operation(
         &mut self,
         user_op: &PackedUserOperation,
         entry_point: Address,
@@ -135,7 +135,7 @@ impl BundlerPool {
             .unwrap_or_else(|| anyhow::anyhow!("all bundlers failed for eth_sendUserOperation")))
     }
 
-    pub(super) async fn supported_entry_points(&mut self) -> Result<Vec<Address>> {
+    pub(crate) async fn supported_entry_points(&mut self) -> Result<Vec<Address>> {
         let mut last_err: Option<anyhow::Error> = None;
 
         let order = rotate_order(self.next_idx, self.providers.len());
@@ -190,3 +190,4 @@ mod tests {
         assert_eq!(rotate_order(5, 3), vec![2, 0, 1]);
     }
 }
+

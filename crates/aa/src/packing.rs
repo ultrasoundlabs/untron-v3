@@ -1,7 +1,7 @@
 use alloy::primitives::{Address, Bytes, U256};
 use anyhow::{Context, Result};
 
-pub(super) fn add_gas_buffer(v: U256, pct: u64) -> Result<U256> {
+pub(crate) fn add_gas_buffer(v: U256, pct: u64) -> Result<U256> {
     if pct == 0 {
         return Ok(v);
     }
@@ -11,10 +11,7 @@ pub(super) fn add_gas_buffer(v: U256, pct: u64) -> Result<U256> {
         .context("overflow adding gas buffer")
 }
 
-pub(super) fn pack_init_code(
-    factory: Option<Address>,
-    factory_data: Option<&Bytes>,
-) -> Result<Vec<u8>> {
+pub(crate) fn pack_init_code(factory: Option<Address>, factory_data: Option<&Bytes>) -> Result<Vec<u8>> {
     match factory {
         None => Ok(Vec::new()),
         Some(f) => {
@@ -27,7 +24,7 @@ pub(super) fn pack_init_code(
     }
 }
 
-pub(super) fn pack_paymaster_and_data(
+pub(crate) fn pack_paymaster_and_data(
     paymaster: Option<Address>,
     paymaster_verification_gas_limit: Option<U256>,
     paymaster_post_op_gas_limit: Option<U256>,
@@ -40,17 +37,13 @@ pub(super) fn pack_paymaster_and_data(
                 .context("paymaster_verification_gas_limit must be set when paymaster is set")?;
             let post = paymaster_post_op_gas_limit
                 .context("paymaster_post_op_gas_limit must be set when paymaster is set")?;
-            let data =
-                paymaster_data.context("paymaster_data must be set when paymaster is set")?;
+            let data = paymaster_data.context("paymaster_data must be set when paymaster is set")?;
 
             let ver_u128 = u128::try_from(ver)
                 .context("paymaster_verification_gas_limit overflows uint128")?;
             let post_u128 =
                 u128::try_from(post).context("paymaster_post_op_gas_limit overflows uint128")?;
 
-            // EntryPoint v0.7 packs paymasterAndData as:
-            // abi.encodePacked(paymaster, paymasterVerificationGasLimit, paymasterPostOpGasLimit, paymasterData)
-            // where both gas limits are uint128 (16 bytes big-endian).
             let mut out = Vec::with_capacity(20 + 16 + 16 + data.len());
             out.extend_from_slice(p.as_slice());
             out.extend_from_slice(&ver_u128.to_be_bytes());
@@ -61,27 +54,26 @@ pub(super) fn pack_paymaster_and_data(
     }
 }
 
-pub(super) fn ensure_u48(v: u64, label: &'static str) -> Result<()> {
+pub(crate) fn ensure_u48(v: u64, label: &'static str) -> Result<()> {
     if v > 0xFFFF_FFFF_FFFF {
         anyhow::bail!("{label} must fit in uint48");
     }
     Ok(())
 }
 
-pub(super) fn u48_be_bytes(v: u64) -> [u8; 6] {
+pub(crate) fn u48_be_bytes(v: u64) -> [u8; 6] {
     let b = v.to_be_bytes();
     [b[2], b[3], b[4], b[5], b[6], b[7]]
 }
 
-pub(super) fn hex_bytes0x(bytes: &Bytes) -> String {
+pub(crate) fn hex_bytes0x(bytes: &Bytes) -> String {
     if bytes.is_empty() {
         return "0x".to_string();
     }
     format!("0x{}", hex::encode(bytes.as_ref()))
 }
 
-pub(super) fn redact_url(url: &str) -> String {
-    // Avoid leaking embedded API keys.
+pub(crate) fn redact_url(url: &str) -> String {
     url.split('?').next().unwrap_or(url).to_string()
 }
 
@@ -135,3 +127,4 @@ mod tests {
         assert_eq!(hex_bytes0x(&Bytes::from(vec![0x12, 0x34])), "0x1234");
     }
 }
+

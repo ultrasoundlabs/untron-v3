@@ -4,11 +4,11 @@ alloy::sol! {
         function getNonce(address sender, uint192 key) external view returns (uint256);
     }
 
-    interface HubModule {
+    interface Safe4337Module {
         function executeUserOp(address to, uint256 value, bytes data, uint8 operation) external;
     }
 
-    /// EIP-712 struct hashed by the module (see `HubModule._getSafeOp`).
+    /// EIP-712 struct hashed by the module (see `Safe4337Module._getSafeOp`).
     struct SafeOp {
         address safe;
         uint256 nonce;
@@ -25,3 +25,4 @@ alloy::sol! {
         address entryPoint;
     }
 }
+

@@ -5,10 +5,14 @@ mod util;
 
 use crate::{
     config::AppConfig,
-    hub::HubUserOpSender,
     indexer::IndexerApi,
     metrics::RelayerTelemetry,
     tron::{address::TronAddress, grpc::TronGrpc, proof::TronTxProofBuilder, wallet::TronWallet},
+};
+use aa::paymaster::PaymasterService;
+use aa::{
+    PaymasterFinalizationMode, Safe4337UserOpSender, Safe4337UserOpSenderConfig,
+    Safe4337UserOpSenderOptions,
 };
 use alloy::{
     primitives::{FixedBytes, U256},
@@ -137,7 +141,30 @@ impl Relayer {
         let hub_provider = DynProvider::new(provider);
         let hub_contract_address = cfg.hub.untron_v3;
 
-        let hub_sender = Arc::new(Mutex::new(HubUserOpSender::new(cfg.hub.clone()).await?));
+        let hub_sender_cfg = Safe4337UserOpSenderConfig {
+            rpc_url: cfg.hub.rpc_url.clone(),
+            chain_id: cfg.hub.chain_id,
+            entrypoint: cfg.hub.entrypoint,
+            safe: cfg.hub.safe,
+            safe_4337_module: cfg.hub.safe_4337_module,
+            bundler_urls: cfg.hub.bundler_urls.clone(),
+            owner_private_key: cfg.hub.owner_private_key,
+            paymasters: cfg
+                .hub
+                .paymasters
+                .iter()
+                .map(|pm| PaymasterService {
+                    url: pm.url.clone(),
+                    context: pm.context.clone(),
+                })
+                .collect(),
+            options: Safe4337UserOpSenderOptions {
+                check_bundler_entrypoints: true,
+                paymaster_finalization: PaymasterFinalizationMode::SkipIfStubFinal,
+            },
+        };
+
+        let hub_sender = Arc::new(Mutex::new(Safe4337UserOpSender::new(hub_sender_cfg).await?));
         let hub = HubExecutor::new(hub_sender, cfg.hub.untron_v3, telemetry.clone());
 
         let mut tron_read =

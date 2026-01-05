@@ -143,11 +143,8 @@ pub mod hub_realtors_api;
 pub mod hub_swap_rates_api;
 pub mod hub_tokens_rescued_api;
 pub mod introspection_api;
-pub mod receiver_usdt_balances_api;
-pub mod receiver_usdt_indexer_status_api;
 pub mod receiver_usdt_transfer_actionability_api;
 pub mod stream_cursor_api;
-pub mod stream_ingest_summary_api;
 pub mod unaccounted_receiver_usdt_transfers_api;
 
 pub mod configuration;

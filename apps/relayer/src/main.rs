@@ -1,5 +1,4 @@
 mod config;
-mod hub;
 mod indexer;
 mod metrics;
 mod observability;
