@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     } = config::load_config()?;
     let dbh = db::Db::connect(&database_url, db_max_connections).await?;
     // Keep this in sync with the latest migration file number.
-    let _schema_version = db::ensure_schema_version(&dbh, 5).await?;
+    let _schema_version = db::ensure_schema_version(&dbh, 7).await?;
 
     let shutdown = CancellationToken::new();
 

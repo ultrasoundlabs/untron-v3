@@ -10,7 +10,8 @@ use utoipa::OpenApi;
     paths(
         crate::api::realtor::get_realtor,
         crate::api::realtor::post_realtor,
-        crate::api::payout_config::post_payout_config
+        crate::api::payout_config::post_payout_config,
+        crate::api::leases::get_lease
     ),
     components(
         schemas(
@@ -20,6 +21,10 @@ use utoipa::OpenApi;
             crate::api::SetPayoutConfigResponse,
             crate::api::RealtorInfoResponse,
             crate::api::RealtorTargetPairResponse,
+            crate::api::LeaseViewResponse,
+            crate::api::LeasePayoutConfigView,
+            crate::api::LeasePayoutConfigVersionView,
+            crate::api::LeaseClaimView,
             crate::api::ErrorResponse
         )
     ),

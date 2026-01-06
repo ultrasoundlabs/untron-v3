@@ -47,6 +47,42 @@ function setGatewayServers(spec: OpenAPIObject): OpenAPIObject {
   return out;
 }
 
+function ensureOperationIds(spec: OpenAPIObject): OpenAPIObject {
+  const out: OpenAPIObject = structuredClone(spec);
+
+  const used = new Set<string>();
+  for (const ops of Object.values(out.paths ?? {})) {
+    if (!ops || typeof ops !== "object") continue;
+    for (const op of Object.values(ops as any)) {
+      if (!op || typeof op !== "object") continue;
+      const id = (op as any).operationId;
+      if (typeof id === "string" && id.trim()) used.add(id);
+    }
+  }
+
+  for (const [path, ops] of Object.entries(out.paths ?? {})) {
+    if (!ops || typeof ops !== "object") continue;
+    for (const [method, op] of Object.entries(ops as any)) {
+      if (!op || typeof op !== "object") continue;
+      const existing = (op as any).operationId;
+      if (typeof existing === "string" && existing.trim()) continue;
+
+      let base = path.replace(/^\//, "").replaceAll("/", "_");
+      if (!base) base = "root";
+      base = `${base}_${method}`;
+      let candidate = base;
+      let i = 2;
+      while (used.has(candidate)) {
+        candidate = `${base}_${i++}`;
+      }
+      (op as any).operationId = candidate;
+      used.add(candidate);
+    }
+  }
+
+  return out;
+}
+
 function progenitorFriendly(spec: OpenAPIObject): OpenAPIObject {
   const out: OpenAPIObject = structuredClone(spec);
 
@@ -58,12 +94,12 @@ function progenitorFriendly(spec: OpenAPIObject): OpenAPIObject {
       delete node.format;
     }
 
-    // If a schema looks like Postgres json/jsonb, coerce to a generic object.
-    if (!node.type && (node.format === "jsonb" || node.format === "json")) {
+    // If a schema looks like Postgres json/jsonb, coerce to a generic JSON payload.
+    // (Values may be objects, arrays, strings, etc.)
+    if (node.format === "jsonb" || node.format === "json") {
       const desc = typeof node.description === "string" ? node.description : undefined;
       for (const k of Object.keys(node)) delete node[k];
-      node.type = "object";
-      node.additionalProperties = {};
+      node.allOf = [{ $ref: "#/components/schemas/PgJson" }];
       if (desc) node.description = desc;
       return;
     }
@@ -97,9 +133,13 @@ function progenitorFriendly(spec: OpenAPIObject): OpenAPIObject {
   // Normalize Postgres NUMERIC -> stable schema, then rely on Progenitor replacement.
   out.components ??= {};
   out.components.schemas ??= {};
+  (out.components.schemas as any).PgJson ??= {
+    type: "object",
+    additionalProperties: {},
+    description: "Postgres JSON/JSONB encoded as raw JSON.",
+  };
   (out.components.schemas as any).PgNumeric ??= {
     type: "number",
-    format: "numeric",
     description: "Postgres NUMERIC encoded as a JSON number.",
   };
 
@@ -171,6 +211,17 @@ export function mergeOpenapi3WithPrefix(
 }
 
 export async function convertSwagger2ToOpenapi3(swagger2: Swagger2): Promise<OpenAPIObject> {
+  // Some deployments already expose OpenAPI 3 (PostgREST supports this). In that
+  // case, skip the Swagger2->OpenAPI3 conversion.
+  if (
+    swagger2 &&
+    typeof swagger2 === "object" &&
+    typeof (swagger2 as any).openapi === "string" &&
+    (swagger2 as any).openapi.startsWith("3.")
+  ) {
+    return swagger2 as OpenAPIObject;
+  }
+
   const converter = await loadSwagger2Openapi();
   const { openapi } = await converter.convertObj(swagger2, {
     patch: true,
@@ -190,6 +241,7 @@ export async function buildMergedOpenapi3(params: {
   indexer = keepGetOnly(indexer);
   indexer = setGatewayServers(indexer);
   indexer = progenitorFriendly(indexer);
+  indexer = ensureOperationIds(indexer);
 
   let merged: OpenAPIObject = indexer;
 

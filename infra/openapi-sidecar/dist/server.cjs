@@ -25,9 +25,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/next.js
+// node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/next.js
 var require_next = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/next.js"(exports2, module2) {
+  "node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/next.js"(exports2, module2) {
     "use strict";
     function makeNext() {
       if (typeof process === "object" && typeof process.nextTick === "function") {
@@ -44,9 +44,9 @@ var require_next = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/maybe.js
+// node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/maybe.js
 var require_maybe = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/maybe.js"(exports2, module2) {
+  "node_modules/.pnpm/call-me-maybe@1.0.2/node_modules/call-me-maybe/src/maybe.js"(exports2, module2) {
     "use strict";
     var next = require_next();
     module2.exports = function maybe(cb, promise) {
@@ -68,9 +68,9 @@ var require_maybe = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/utils.js
+// node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/utils.js
 var require_utils = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/utils.js"(exports2, module2) {
+  "node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/utils.js"(exports2, module2) {
     var DebounceTimers = class {
       constructor(cb, defaultDelay) {
         this.cb = cb;
@@ -131,9 +131,9 @@ var require_utils = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request-options.js
+// node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request-options.js
 var require_request_options = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request-options.js"(exports2, module2) {
+  "node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request-options.js"(exports2, module2) {
     var { assertIsObject } = require_utils();
     function initializeOptions(options) {
       assertIsObject(options, "options");
@@ -165,9 +165,9 @@ var require_request_options = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request.js
+// node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request.js
 var require_request = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request.js"(exports2, module2) {
+  "node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/request.js"(exports2, module2) {
     var { URL: URL2 } = require("url");
     var { EventEmitter } = require("events");
     var _extend = require("util")._extend;
@@ -682,9 +682,9 @@ var require_request = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/http.js
+// node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/http.js
 var require_http = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/http.js"(exports2, module2) {
+  "node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/http.js"(exports2, module2) {
     var {
       HttpRequest,
       ClientRequest
@@ -702,9 +702,9 @@ var require_http = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/https.js
+// node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/https.js
 var require_https = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/https.js"(exports2, module2) {
+  "node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/https.js"(exports2, module2) {
     var {
       HttpsRequest,
       ClientRequest
@@ -722,9 +722,9 @@ var require_https = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/index.js
+// node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/index.js
 var require_lib = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/index.js"(exports2, module2) {
+  "node_modules/.pnpm/http2-client@1.3.5/node_modules/http2-client/lib/index.js"(exports2, module2) {
     var {
       HttpRequestManager,
       HTTP2OutgoingMessage,
@@ -748,9 +748,9 @@ var require_lib = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/node-fetch-h2@2.3.0/node_modules/node-fetch-h2/lib/index.js
+// node_modules/.pnpm/node-fetch-h2@2.3.0/node_modules/node-fetch-h2/lib/index.js
 var require_lib2 = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/node-fetch-h2@2.3.0/node_modules/node-fetch-h2/lib/index.js"(exports2, module2) {
+  "node_modules/.pnpm/node-fetch-h2@2.3.0/node_modules/node-fetch-h2/lib/index.js"(exports2, module2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     function _interopDefault(ex) {
@@ -1844,9 +1844,9 @@ var require_lib2 = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/PlainValue-ec8e588e.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/PlainValue-ec8e588e.js
 var require_PlainValue_ec8e588e = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/PlainValue-ec8e588e.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/PlainValue-ec8e588e.js"(exports2) {
     "use strict";
     var Char = {
       ANCHOR: "&",
@@ -2539,9 +2539,9 @@ ${ctx}
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/parse-cst.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/parse-cst.js
 var require_parse_cst = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/parse-cst.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/parse-cst.js"(exports2) {
     "use strict";
     var PlainValue = require_PlainValue_ec8e588e();
     var BlankLine = class extends PlainValue.Node {
@@ -3971,9 +3971,9 @@ var require_parse_cst = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/resolveSeq-d03cb037.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/resolveSeq-d03cb037.js
 var require_resolveSeq_d03cb037 = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/resolveSeq-d03cb037.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/resolveSeq-d03cb037.js"(exports2) {
     "use strict";
     var PlainValue = require_PlainValue_ec8e588e();
     function addCommentBefore(str, indent, comment) {
@@ -5766,9 +5766,9 @@ ${ca}` : ca;
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/warnings-1000a372.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/warnings-1000a372.js
 var require_warnings_1000a372 = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/warnings-1000a372.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/warnings-1000a372.js"(exports2) {
     "use strict";
     var PlainValue = require_PlainValue_ec8e588e();
     var resolveSeq = require_resolveSeq_d03cb037();
@@ -6110,9 +6110,9 @@ ${pair.comment}` : item.comment;
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Schema-88e323a7.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Schema-88e323a7.js
 var require_Schema_88e323a7 = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Schema-88e323a7.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Schema-88e323a7.js"(exports2) {
     "use strict";
     var PlainValue = require_PlainValue_ec8e588e();
     var resolveSeq = require_resolveSeq_d03cb037();
@@ -6563,9 +6563,9 @@ var require_Schema_88e323a7 = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Document-9b4560a1.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Document-9b4560a1.js
 var require_Document_9b4560a1 = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Document-9b4560a1.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/Document-9b4560a1.js"(exports2) {
     "use strict";
     var PlainValue = require_PlainValue_ec8e588e();
     var resolveSeq = require_resolveSeq_d03cb037();
@@ -7198,9 +7198,9 @@ ${cbNode.commentBefore}` : cb;
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/index.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/index.js
 var require_dist = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/index.js"(exports2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/dist/index.js"(exports2) {
     "use strict";
     var parseCst = require_parse_cst();
     var Document$1 = require_Document_9b4560a1();
@@ -7268,16 +7268,16 @@ var require_dist = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/index.js
+// node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/index.js
 var require_yaml = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/index.js"(exports2, module2) {
+  "node_modules/.pnpm/yaml@1.10.2/node_modules/yaml/index.js"(exports2, module2) {
     module2.exports = require_dist().YAML;
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/jptr.js
+// node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/jptr.js
 var require_jptr = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/jptr.js"(exports2, module2) {
+  "node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/jptr.js"(exports2, module2) {
     "use strict";
     function jpescape(s) {
       return s.replace(/\~/g, "~0").replace(/\//g, "~1");
@@ -7342,9 +7342,9 @@ var require_jptr = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/isref.js
+// node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/isref.js
 var require_isref = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/isref.js"(exports2, module2) {
+  "node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/isref.js"(exports2, module2) {
     "use strict";
     function isRef(obj, key) {
       return key === "$ref" && (!!obj && typeof obj[key] === "string");
@@ -7355,9 +7355,9 @@ var require_isref = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/clone.js
+// node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/clone.js
 var require_clone = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/clone.js"(exports2, module2) {
+  "node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/clone.js"(exports2, module2) {
     "use strict";
     function nop(obj) {
       return obj;
@@ -7411,9 +7411,9 @@ var require_clone = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/recurse.js
+// node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/recurse.js
 var require_recurse = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/recurse.js"(exports2, module2) {
+  "node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/recurse.js"(exports2, module2) {
     "use strict";
     var jpescape = require_jptr().jpescape;
     function defaultState() {
@@ -7467,9 +7467,9 @@ var require_recurse = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/dereference.js
+// node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/dereference.js
 var require_dereference = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/dereference.js"(exports2, module2) {
+  "node_modules/.pnpm/reftools@1.1.9/node_modules/reftools/lib/dereference.js"(exports2, module2) {
     "use strict";
     var recurse = require_recurse().recurse;
     var clone = require_clone().shallowClone;
@@ -7554,9 +7554,9 @@ var require_dereference = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/fast-safe-stringify@2.1.1/node_modules/fast-safe-stringify/index.js
+// node_modules/.pnpm/fast-safe-stringify@2.1.1/node_modules/fast-safe-stringify/index.js
 var require_fast_safe_stringify = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/fast-safe-stringify@2.1.1/node_modules/fast-safe-stringify/index.js"(exports2, module2) {
+  "node_modules/.pnpm/fast-safe-stringify@2.1.1/node_modules/fast-safe-stringify/index.js"(exports2, module2) {
     module2.exports = stringify;
     stringify.default = stringify;
     stringify.stable = deterministicStringify;
@@ -7748,9 +7748,9 @@ var require_fast_safe_stringify = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/oas-kit-common@1.0.8/node_modules/oas-kit-common/index.js
+// node_modules/.pnpm/oas-kit-common@1.0.8/node_modules/oas-kit-common/index.js
 var require_oas_kit_common = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/oas-kit-common@1.0.8/node_modules/oas-kit-common/index.js"(exports2, module2) {
+  "node_modules/.pnpm/oas-kit-common@1.0.8/node_modules/oas-kit-common/index.js"(exports2, module2) {
     "use strict";
     var sjs = require_fast_safe_stringify();
     var colour = process.env.NODE_DISABLE_COLORS ? { red: "", yellow: "", green: "", normal: "" } : { red: "\x1B[31m", yellow: "\x1B[33;1m", green: "\x1B[32m", normal: "\x1B[0m" };
@@ -7864,9 +7864,9 @@ var require_oas_kit_common = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/oas-resolver@2.5.6/node_modules/oas-resolver/index.js
+// node_modules/.pnpm/oas-resolver@2.5.6/node_modules/oas-resolver/index.js
 var require_oas_resolver = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/oas-resolver@2.5.6/node_modules/oas-resolver/index.js"(exports2, module2) {
+  "node_modules/.pnpm/oas-resolver@2.5.6/node_modules/oas-resolver/index.js"(exports2, module2) {
     "use strict";
     var fs = require("fs");
     var path = require("path");
@@ -8309,9 +8309,9 @@ var require_oas_resolver = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/oas-schema-walker@1.1.5/node_modules/oas-schema-walker/index.js
+// node_modules/.pnpm/oas-schema-walker@1.1.5/node_modules/oas-schema-walker/index.js
 var require_oas_schema_walker = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/oas-schema-walker@1.1.5/node_modules/oas-schema-walker/index.js"(exports2, module2) {
+  "node_modules/.pnpm/oas-schema-walker@1.1.5/node_modules/oas-schema-walker/index.js"(exports2, module2) {
     "use strict";
     function getDefaultState() {
       return { depth: 0, seen: /* @__PURE__ */ new WeakMap(), top: true, combine: false, allowRefSiblings: false };
@@ -8413,9 +8413,9 @@ var require_oas_schema_walker = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/lib/statusCodes.js
+// node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/lib/statusCodes.js
 var require_statusCodes = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/lib/statusCodes.js"(exports2, module2) {
+  "node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/lib/statusCodes.js"(exports2, module2) {
     "use strict";
     var http = require("http");
     var ours = {
@@ -8436,9 +8436,9 @@ var require_statusCodes = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/package.json
+// node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/package.json
 var require_package = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/package.json"(exports2, module2) {
+  "node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/package.json"(exports2, module2) {
     module2.exports = {
       name: "swagger2openapi",
       version: "7.0.8",
@@ -8505,9 +8505,9 @@ var require_package = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/index.js
+// node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/index.js
 var require_swagger2openapi = __commonJS({
-  "../../Desktop/untron-v3/node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/index.js"(exports2, module2) {
+  "node_modules/.pnpm/swagger2openapi@7.0.8/node_modules/swagger2openapi/index.js"(exports2, module2) {
     "use strict";
     var fs = require("fs");
     var url = require("url");
@@ -9904,7 +9904,7 @@ var require_swagger2openapi = __commonJS({
   }
 });
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/@hono+node-server@1.19.7_hono@4.11.3/node_modules/@hono/node-server/dist/index.mjs
+// node_modules/.pnpm/@hono+node-server@1.19.7_hono@4.11.3/node_modules/@hono/node-server/dist/index.mjs
 var import_http = require("http");
 var import_http2 = require("http2");
 var import_http22 = require("http2");
@@ -10466,7 +10466,7 @@ var serve = (options, listeningListener) => {
   return server;
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/compose.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/compose.js
 var compose = (middleware, onError, onNotFound) => {
   return (context, next) => {
     let index = -1;
@@ -10510,10 +10510,10 @@ var compose = (middleware, onError, onNotFound) => {
   };
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/request/constants.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/request/constants.js
 var GET_MATCH_RESULT = /* @__PURE__ */ Symbol();
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/body.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/body.js
 var parseBody = async (request, options = /* @__PURE__ */ Object.create(null)) => {
   const { all = false, dot = false } = options;
   const headers = request instanceof HonoRequest ? request.raw.headers : request.headers;
@@ -10582,7 +10582,7 @@ var handleParsingNestedValues = (form, key, value) => {
   });
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/url.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/url.js
 var splitPath = (path) => {
   const paths = path.split("/");
   if (paths[0] === "") {
@@ -10784,7 +10784,7 @@ var getQueryParams = (url, key) => {
 };
 var decodeURIComponent_ = decodeURIComponent;
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/request.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/request.js
 var tryDecodeURIComponent = (str) => tryDecode(str, decodeURIComponent_);
 var HonoRequest = class {
   /**
@@ -11052,7 +11052,7 @@ var HonoRequest = class {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/html.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/html.js
 var HtmlEscapedCallbackPhase = {
   Stringify: 1,
   BeforeStream: 2,
@@ -11094,7 +11094,7 @@ var resolveCallback = async (str, phase, preserveCallbacks, context, buffer) => 
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/context.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/context.js
 var TEXT_PLAIN = "text/plain; charset=UTF-8";
 var setDefaultContentType = (contentType, headers) => {
   return {
@@ -11500,7 +11500,7 @@ var Context = class {
   };
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router.js
 var METHOD_NAME_ALL = "ALL";
 var METHOD_NAME_ALL_LOWERCASE = "all";
 var METHODS = ["get", "post", "put", "delete", "options", "patch"];
@@ -11508,10 +11508,10 @@ var MESSAGE_MATCHER_IS_ALREADY_BUILT = "Can not add a route since the matcher is
 var UnsupportedPathError = class extends Error {
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/constants.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/utils/constants.js
 var COMPOSED_HANDLER = "__COMPOSED_HANDLER";
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/hono-base.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/hono-base.js
 var notFoundHandler = (c) => {
   return c.text("404 Not Found", 404);
 };
@@ -11882,7 +11882,7 @@ var Hono = class _Hono {
   };
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/matcher.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/matcher.js
 var emptyParam = [];
 function match(method, path) {
   const matchers = this.buildAllMatchers();
@@ -11903,7 +11903,7 @@ function match(method, path) {
   return match2(method, path);
 }
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/node.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/node.js
 var LABEL_REG_EXP_STR = "[^/]+";
 var ONLY_WILDCARD_REG_EXP_STR = ".*";
 var TAIL_WILDCARD_REG_EXP_STR = "(?:|/.*)";
@@ -12011,7 +12011,7 @@ var Node = class _Node {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/trie.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/trie.js
 var Trie = class {
   #context = { varIndex: 0 };
   #root = new Node();
@@ -12067,7 +12067,7 @@ var Trie = class {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/router.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/reg-exp-router/router.js
 var nullMatcher = [/^$/, [], /* @__PURE__ */ Object.create(null)];
 var wildcardRegExpCache = /* @__PURE__ */ Object.create(null);
 function buildWildcardRegExp(path) {
@@ -12246,7 +12246,7 @@ var RegExpRouter = class {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/smart-router/router.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/smart-router/router.js
 var SmartRouter = class {
   name = "SmartRouter";
   #routers = [];
@@ -12301,7 +12301,7 @@ var SmartRouter = class {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/trie-router/node.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/trie-router/node.js
 var emptyParams = /* @__PURE__ */ Object.create(null);
 var Node2 = class _Node2 {
   #methods;
@@ -12459,7 +12459,7 @@ var Node2 = class _Node2 {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/trie-router/router.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/router/trie-router/router.js
 var TrieRouter = class {
   name = "TrieRouter";
   #node;
@@ -12481,7 +12481,7 @@ var TrieRouter = class {
   }
 };
 
-// ../../Desktop/untron-v3/node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/hono.js
+// node_modules/.pnpm/hono@4.11.3/node_modules/hono/dist/hono.js
 var Hono2 = class extends Hono {
   /**
    * Creates an instance of the Hono class.
@@ -12496,7 +12496,7 @@ var Hono2 = class extends Hono {
   }
 };
 
-// ../../Desktop/untron-v3/infra/openapi-sidecar/src/convert.ts
+// infra/openapi-sidecar/src/convert.ts
 async function loadSwagger2Openapi() {
   const mod = await Promise.resolve().then(() => __toESM(require_swagger2openapi()));
   return mod?.default ?? mod;
@@ -12531,6 +12531,37 @@ function setGatewayServers(spec) {
   out.servers = [{ url: "/" }];
   return out;
 }
+function ensureOperationIds(spec) {
+  const out = structuredClone(spec);
+  const used = /* @__PURE__ */ new Set();
+  for (const ops of Object.values(out.paths ?? {})) {
+    if (!ops || typeof ops !== "object") continue;
+    for (const op of Object.values(ops)) {
+      if (!op || typeof op !== "object") continue;
+      const id = op.operationId;
+      if (typeof id === "string" && id.trim()) used.add(id);
+    }
+  }
+  for (const [path, ops] of Object.entries(out.paths ?? {})) {
+    if (!ops || typeof ops !== "object") continue;
+    for (const [method, op] of Object.entries(ops)) {
+      if (!op || typeof op !== "object") continue;
+      const existing = op.operationId;
+      if (typeof existing === "string" && existing.trim()) continue;
+      let base = path.replace(/^\//, "").replaceAll("/", "_");
+      if (!base) base = "root";
+      base = `${base}_${method}`;
+      let candidate = base;
+      let i = 2;
+      while (used.has(candidate)) {
+        candidate = `${base}_${i++}`;
+      }
+      op.operationId = candidate;
+      used.add(candidate);
+    }
+  }
+  return out;
+}
 function progenitorFriendly(spec) {
   const out = structuredClone(spec);
   deepWalk(out, (node) => {
@@ -12538,11 +12569,10 @@ function progenitorFriendly(spec) {
     if (node.type === "boolean" && typeof node.format === "string") {
       delete node.format;
     }
-    if (!node.type && (node.format === "jsonb" || node.format === "json")) {
+    if (node.format === "jsonb" || node.format === "json") {
       const desc = typeof node.description === "string" ? node.description : void 0;
       for (const k of Object.keys(node)) delete node[k];
-      node.type = "object";
-      node.additionalProperties = {};
+      node.allOf = [{ $ref: "#/components/schemas/PgJson" }];
       if (desc) node.description = desc;
       return;
     }
@@ -12570,9 +12600,13 @@ function progenitorFriendly(spec) {
   }
   out.components ??= {};
   out.components.schemas ??= {};
+  out.components.schemas.PgJson ??= {
+    type: "object",
+    additionalProperties: {},
+    description: "Postgres JSON/JSONB encoded as raw JSON."
+  };
   out.components.schemas.PgNumeric ??= {
     type: "number",
-    format: "numeric",
     description: "Postgres NUMERIC encoded as a JSON number."
   };
   deepWalk(out, (node) => {
@@ -12626,6 +12660,9 @@ function mergeOpenapi3WithPrefix(base, extra, collisionPrefix) {
   return out;
 }
 async function convertSwagger2ToOpenapi3(swagger2) {
+  if (swagger2 && typeof swagger2 === "object" && typeof swagger2.openapi === "string" && swagger2.openapi.startsWith("3.")) {
+    return swagger2;
+  }
   const converter = await loadSwagger2Openapi();
   const { openapi } = await converter.convertObj(swagger2, {
     patch: true,
@@ -12641,6 +12678,7 @@ async function buildMergedOpenapi3(params) {
   indexer = keepGetOnly(indexer);
   indexer = setGatewayServers(indexer);
   indexer = progenitorFriendly(indexer);
+  indexer = ensureOperationIds(indexer);
   let merged = indexer;
   if (realtor && typeof realtor === "object" && typeof realtor.openapi === "string") {
     if (realtor.openapi.startsWith("3.")) {
@@ -12660,13 +12698,13 @@ async function buildMergedOpenapi3(params) {
   return merged;
 }
 
-// ../../Desktop/untron-v3/infra/openapi-sidecar/src/branding.ts
+// infra/openapi-sidecar/src/branding.ts
 var DEFAULT_OPENAPI_INFO = {
   title: "Untron V3 API",
   description: "Universal API for interacting with Untron V3 cross-chain protocol. Includes the indexer endpoints for querying data about the protocol and realtor services for creating and managing leases in it."
 };
 
-// ../../Desktop/untron-v3/infra/openapi-sidecar/src/server.ts
+// infra/openapi-sidecar/src/server.ts
 var UPSTREAM_OPENAPI_URL = (process.env.UPSTREAM_OPENAPI_URL ?? "http://postgrest:3000/").trim();
 var REALTOR_OPENAPI_URL = (process.env.REALTOR_OPENAPI_URL ?? "").trim();
 var CACHE_SECONDS = Number.parseInt(process.env.CACHE_SECONDS ?? "30", 10);

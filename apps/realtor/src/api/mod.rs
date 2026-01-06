@@ -1,4 +1,5 @@
 mod error;
+pub(crate) mod leases;
 mod offer;
 pub(crate) mod payout_config;
 pub(crate) mod realtor;
@@ -10,6 +11,7 @@ pub use error::{ApiError, ErrorResponse};
 pub use payout_config::post_payout_config;
 pub use realtor::{get_realtor, post_realtor};
 pub use types::{
-    CreateLeaseRequest, CreateLeaseResponse, RealtorInfoResponse, RealtorTargetPairResponse,
+    CreateLeaseRequest, CreateLeaseResponse, LeaseClaimView, LeasePayoutConfigVersionView,
+    LeasePayoutConfigView, LeaseViewResponse, RealtorInfoResponse, RealtorTargetPairResponse,
     SetPayoutConfigRequest, SetPayoutConfigResponse,
 };

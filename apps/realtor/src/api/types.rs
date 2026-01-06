@@ -202,3 +202,153 @@ pub struct RealtorInfoResponse {
     #[schema(example = 0)]
     pub arbitrary_lessee_flat_fee: u64,
 }
+
+/// Realtor-side aggregated view of a lease in the Untron V3 protocol.
+///
+/// This response is designed to be stable for clients:
+/// - Uint256-like values are returned as decimal strings.
+/// - Source-of-truth data comes from the indexer API (PostgREST views).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LeaseViewResponse {
+    /// Lease id (uint256, decimal string).
+    #[schema(example = "1")]
+    pub lease_id: String,
+
+    /// Receiver salt (bytes32 hex).
+    #[schema(
+        example = "0x0000000000000000000000000000000000000000000000000000000000000000",
+        pattern = "^0x[0-9a-fA-F]{64}$"
+    )]
+    pub receiver_salt: String,
+
+    /// Realtor (EVM address) that created this lease.
+    #[schema(
+        example = "0x0000000000000000000000000000000000000004",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub realtor: String,
+
+    /// Whether this lease was created by this realtor service instance.
+    #[schema(example = true)]
+    pub is_owned_by_this_realtor: bool,
+
+    /// Current lessee (EVM address) that controls payout config updates.
+    #[schema(
+        example = "0x0000000000000000000000000000000000000001",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub lessee: String,
+
+    /// Lease start time on hub chain (unix seconds).
+    #[schema(example = 1700000000)]
+    pub start_time: u64,
+
+    /// Earliest timestamp when the lease is nukeable (unix seconds).
+    #[schema(example = 1700000000)]
+    pub nukeable_after: u64,
+
+    /// Lease fee (ppm).
+    #[schema(example = 10000)]
+    pub lease_fee_ppm: u32,
+
+    /// Flat fee (USDT units) (uint256, decimal string).
+    #[schema(example = "0")]
+    pub flat_fee: String,
+
+    /// Current per-lease nonce used for payout config signatures (uint256, decimal string).
+    #[schema(example = "0")]
+    pub lease_nonce: String,
+
+    /// Current payout config (if available in indexer).
+    #[schema(nullable = true)]
+    pub payout_config_current: Option<LeasePayoutConfigView>,
+
+    /// Payout config history (KV versions ordered by valid_from_seq).
+    pub payout_config_history: Vec<LeasePayoutConfigVersionView>,
+
+    /// Claims emitted by this lease (current state per claim_id).
+    pub claims: Vec<LeaseClaimView>,
+
+    /// Total number of claims.
+    #[schema(example = 0)]
+    pub claims_total: u64,
+
+    /// Number of filled claims.
+    #[schema(example = 0)]
+    pub claims_filled: u64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct LeasePayoutConfigView {
+    #[schema(example = 1, minimum = 1)]
+    pub target_chain_id: u64,
+    #[schema(
+        example = "0x0000000000000000000000000000000000000002",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub target_token: String,
+    #[schema(
+        example = "0x0000000000000000000000000000000000000003",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub beneficiary: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LeasePayoutConfigVersionView {
+    pub config: LeasePayoutConfigView,
+    #[schema(example = 0)]
+    pub valid_from_seq: u64,
+    #[schema(nullable = true)]
+    pub valid_to_seq: Option<u64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LeaseClaimView {
+    /// Claim id (uint256, decimal string).
+    #[schema(example = "0")]
+    pub claim_id: String,
+    /// Claim lifecycle status.
+    #[schema(example = "created")]
+    pub status: String,
+    /// Queue index (uint256, decimal string).
+    #[schema(example = "0")]
+    pub queue_index: String,
+    /// USDT-denominated claim amount (uint256, decimal string).
+    #[schema(example = "0")]
+    pub amount_usdt: String,
+    #[schema(example = 1, minimum = 1)]
+    pub target_chain_id: u64,
+    #[schema(
+        example = "0x0000000000000000000000000000000000000002",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub target_token: String,
+    #[schema(
+        example = "0x0000000000000000000000000000000000000003",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub beneficiary: String,
+    /// Origin code (matches `UntronV3Index.ClaimOrigin`).
+    #[schema(example = 0)]
+    pub origin: i32,
+    /// Origin identifier (txId for pre-entitle, receiver_salt for receiver pull, etc.)
+    #[schema(example = "0x")]
+    pub origin_id: String,
+    /// Origin actor (EVM address).
+    #[schema(example = "0x0000000000000000000000000000000000000000")]
+    pub origin_actor: String,
+    /// Origin token/address (string; Tron token for receiver pull; zero address otherwise).
+    #[schema(example = "0x0000000000000000000000000000000000000000")]
+    pub origin_token: String,
+    /// Origin timestamp (seconds).
+    #[schema(example = 0)]
+    pub origin_timestamp: i64,
+    /// Raw amount before fees (uint256, decimal string).
+    #[schema(example = "0")]
+    pub origin_raw_amount: String,
+    #[schema(example = 0)]
+    pub valid_from_seq: u64,
+    #[schema(nullable = true)]
+    pub valid_to_seq: Option<u64>,
+}

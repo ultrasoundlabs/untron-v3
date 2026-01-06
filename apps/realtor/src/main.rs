@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
             "/payout_config",
             axum::routing::post(api::post_payout_config),
         )
+        .route("/leases/{lease_id}", get(api::leases::get_lease))
         .route("/openapi.json", get(openapi_json))
         .route(
             "/healthz",

@@ -14,12 +14,13 @@ pub struct BridgerPair {
 
 impl IndexerApi {
     pub fn new(base_url: &str, timeout: Duration) -> Result<Self> {
+        let base_url = base_url.trim_end_matches('/').to_string();
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
             .context("build indexer http client")?;
         Ok(Self {
-            client: Client::new_with_client(base_url.trim_end_matches('/'), client),
+            client: Client::new_with_client(&base_url, client),
         })
     }
 
@@ -235,6 +236,22 @@ impl IndexerApi {
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("hub_chains_get by target_chain_id: {e:?}"))?
+            .into_inner();
+        Ok(rows.into_iter().next())
+    }
+
+    /// Fetches the aggregated `api.lease_view` row (single PostgREST request).
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn lease_view_row(&self, lease_id: u64) -> Result<Option<types::LeaseView>> {
+        let lease_filter = format!("eq.{lease_id}");
+        let rows = self
+            .client
+            .lease_view_get()
+            .lease_id(lease_filter)
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("lease_view_get by lease_id: {e:?}"))?
             .into_inner();
         Ok(rows.into_iter().next())
     }

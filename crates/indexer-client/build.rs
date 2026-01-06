@@ -16,6 +16,7 @@ fn main() {
         .with_unknown_crates(UnknownPolicy::Allow);
 
     settings.with_replacement("PgNumeric", "serde_json::Number", std::iter::empty());
+    settings.with_replacement("PgJson", "serde_json::Value", std::iter::empty());
 
     let mut generator = Generator::new(&settings);
     let tokens = generator.generate_tokens(&spec).expect("generate tokens");
