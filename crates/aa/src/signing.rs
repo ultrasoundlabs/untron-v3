@@ -31,7 +31,8 @@ pub(crate) fn safeop_digest(
 
     let verification_gas_limit = u128::try_from(op.verification_gas_limit)
         .context("verificationGasLimit overflows uint128")?;
-    let call_gas_limit = u128::try_from(op.call_gas_limit).context("callGasLimit overflows uint128")?;
+    let call_gas_limit =
+        u128::try_from(op.call_gas_limit).context("callGasLimit overflows uint128")?;
     let max_priority_fee = u128::try_from(op.max_priority_fee_per_gas)
         .context("maxPriorityFeePerGas overflows uint128")?;
     let max_fee = u128::try_from(op.max_fee_per_gas).context("maxFeePerGas overflows uint128")?;
@@ -128,7 +129,8 @@ mod tests {
 
         let digest = safeop_digest(chain_id, module, entry, &op).unwrap();
         let sig64 = k256::ecdsa::Signature::from_slice(&sig[12..12 + 64]).unwrap();
-        verify_key.verify_prehash(digest.as_slice(), &sig64).unwrap();
+        verify_key
+            .verify_prehash(digest.as_slice(), &sig64)
+            .unwrap();
     }
 }
-

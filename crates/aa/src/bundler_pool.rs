@@ -190,4 +190,3 @@ mod tests {
         assert_eq!(rotate_order(5, 3), vec![2, 0, 1]);
     }
 }
-

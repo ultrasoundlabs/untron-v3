@@ -267,4 +267,3 @@ mod tests {
         assert_eq!(order, vec![2, 0, 1]);
     }
 }
-

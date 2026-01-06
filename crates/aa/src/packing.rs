@@ -11,7 +11,10 @@ pub(crate) fn add_gas_buffer(v: U256, pct: u64) -> Result<U256> {
         .context("overflow adding gas buffer")
 }
 
-pub(crate) fn pack_init_code(factory: Option<Address>, factory_data: Option<&Bytes>) -> Result<Vec<u8>> {
+pub(crate) fn pack_init_code(
+    factory: Option<Address>,
+    factory_data: Option<&Bytes>,
+) -> Result<Vec<u8>> {
     match factory {
         None => Ok(Vec::new()),
         Some(f) => {
@@ -37,7 +40,8 @@ pub(crate) fn pack_paymaster_and_data(
                 .context("paymaster_verification_gas_limit must be set when paymaster is set")?;
             let post = paymaster_post_op_gas_limit
                 .context("paymaster_post_op_gas_limit must be set when paymaster is set")?;
-            let data = paymaster_data.context("paymaster_data must be set when paymaster is set")?;
+            let data =
+                paymaster_data.context("paymaster_data must be set when paymaster is set")?;
 
             let ver_u128 = u128::try_from(ver)
                 .context("paymaster_verification_gas_limit overflows uint128")?;
@@ -127,4 +131,3 @@ mod tests {
         assert_eq!(hex_bytes0x(&Bytes::from(vec![0x12, 0x34])), "0x1234");
     }
 }
-

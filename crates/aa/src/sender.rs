@@ -208,7 +208,10 @@ impl Safe4337UserOpSender {
         IEntryPointNonces::new(self.cfg.entrypoint, &self.provider)
     }
 
-    async fn send_self_paid(&mut self, mut userop: PackedUserOperation) -> Result<Safe4337UserOpSubmission> {
+    async fn send_self_paid(
+        &mut self,
+        mut userop: PackedUserOperation,
+    ) -> Result<Safe4337UserOpSubmission> {
         userop.signature = self.sign_userop(&userop)?.into();
 
         let estimate = self
@@ -273,7 +276,9 @@ impl Safe4337UserOpSender {
         );
         userop.paymaster_post_op_gas_limit = stub.paymaster_post_op_gas_limit;
         if userop.paymaster_post_op_gas_limit.is_none() {
-            anyhow::bail!("pm_getPaymasterStubData missing paymasterPostOpGasLimit (required for v0.7)");
+            anyhow::bail!(
+                "pm_getPaymasterStubData missing paymasterPostOpGasLimit (required for v0.7)"
+            );
         }
 
         userop.signature = self.sign_userop(&userop)?.into();
@@ -300,7 +305,8 @@ impl Safe4337UserOpSender {
                 }
 
                 if stub.is_final != Some(true) {
-                    let pm_userop_final = to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
+                    let pm_userop_final =
+                        to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
                     let final_data = pool
                         .get_data(idx, &pm_userop_final, self.cfg.entrypoint, self.chain_id)
                         .await?;
@@ -325,7 +331,8 @@ impl Safe4337UserOpSender {
                 }
             }
             PaymasterFinalizationMode::AlwaysFetchFinal => {
-                let pm_userop = to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
+                let pm_userop =
+                    to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
                 let final_data = pool
                     .get_data(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
                     .await?;

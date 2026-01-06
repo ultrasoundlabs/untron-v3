@@ -25,4 +25,3 @@ alloy::sol! {
         address entryPoint;
     }
 }
-
