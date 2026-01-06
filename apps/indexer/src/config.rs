@@ -76,11 +76,11 @@ struct BaseEnv {
 
     block_timestamp_cache_size: usize,
 
-    #[serde(rename = "INDEXER_PROGRESS_INTERVAL_SECS")]
+    #[serde(rename = "indexer_progress_interval_secs")]
     progress_interval_secs: u64,
 
     /// Optional: only run this stream ("hub" | "controller" | "all").
-    #[serde(rename = "INDEXER_STREAM")]
+    #[serde(rename = "indexer_stream")]
     stream: Option<String>,
 }
 
@@ -100,13 +100,13 @@ impl Default for BaseEnv {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 struct RetryEnv {
-    #[serde(rename = "RPC_MAX_RATE_LIMIT_RETRIES")]
+    #[serde(rename = "rpc_max_rate_limit_retries")]
     max_rate_limit_retries: u32,
 
-    #[serde(rename = "RPC_INITIAL_BACKOFF_MS")]
+    #[serde(rename = "rpc_initial_backoff_ms")]
     initial_backoff_ms: u64,
 
-    #[serde(rename = "RPC_COMPUTE_UNITS_PER_SECOND")]
+    #[serde(rename = "rpc_compute_units_per_second")]
     compute_units_per_second: u64,
 }
 
@@ -123,28 +123,28 @@ impl Default for RetryEnv {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 struct ReceiverUsdtEnv {
-    #[serde(rename = "TRC20_ENABLED")]
+    #[serde(rename = "trc20_enabled")]
     enabled: bool,
 
-    #[serde(rename = "PREKNOWN_RECEIVER_SALTS", default)]
+    #[serde(default)]
     preknown_receiver_salts: String,
 
-    #[serde(rename = "UNTRON_CONTROLLER_CREATE2_PREFIX")]
+    #[serde(rename = "untron_controller_create2_prefix")]
     controller_create2_prefix: String,
 
-    #[serde(rename = "TRC20_POLL_INTERVAL_SECS")]
+    #[serde(rename = "trc20_poll_interval_secs")]
     poll_interval_secs: u64,
 
-    #[serde(rename = "TRC20_CHUNK_BLOCKS")]
+    #[serde(rename = "trc20_chunk_blocks")]
     chunk_blocks: u64,
 
-    #[serde(rename = "TRC20_TO_BATCH_SIZE")]
+    #[serde(rename = "trc20_to_batch_size")]
     to_batch_size: usize,
 
-    #[serde(rename = "TRC20_BACKFILL_CONCURRENCY")]
+    #[serde(rename = "trc20_backfill_concurrency")]
     backfill_concurrency: usize,
 
-    #[serde(rename = "TRC20_DISCOVERY_INTERVAL_SECS")]
+    #[serde(rename = "trc20_discovery_interval_secs")]
     discovery_interval_secs: u64,
 }
 

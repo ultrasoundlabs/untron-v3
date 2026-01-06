@@ -71,82 +71,58 @@ pub struct JobConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 struct Env {
-    #[serde(rename = "INDEXER_API_BASE_URL")]
     indexer_api_base_url: String,
 
-    #[serde(rename = "INDEXER_TIMEOUT_SECS")]
     indexer_timeout_secs: u64,
 
-    #[serde(rename = "INDEXER_MAX_HEAD_LAG_BLOCKS")]
     indexer_max_head_lag_blocks: u64,
 
-    #[serde(rename = "HUB_RPC_URL")]
     hub_rpc_url: String,
 
-    #[serde(rename = "HUB_CHAIN_ID")]
     hub_chain_id: Option<u64>,
 
-    #[serde(rename = "HUB_UNTRON_V3_ADDRESS")]
     hub_untron_v3_address: String,
 
-    #[serde(rename = "HUB_ENTRYPOINT_ADDRESS")]
     hub_entrypoint_address: String,
 
-    #[serde(rename = "HUB_SAFE_ADDRESS")]
     hub_safe_address: String,
 
-    #[serde(rename = "HUB_SAFE_4337_MODULE_ADDRESS")]
     hub_safe_4337_module_address: String,
 
-    #[serde(rename = "HUB_OWNER_PRIVATE_KEY_HEX")]
     hub_owner_private_key_hex: String,
 
-    #[serde(rename = "HUB_BUNDLER_URLS", default)]
+    #[serde(default)]
     hub_bundler_urls: String,
 
-    #[serde(rename = "HUB_PAYMASTERS_JSON", default)]
+    #[serde(default)]
     hub_paymasters_json: String,
 
-    #[serde(rename = "TRON_GRPC_URL")]
     tron_grpc_url: String,
 
-    #[serde(rename = "TRON_API_KEY")]
     tron_api_key: Option<String>,
 
-    #[serde(rename = "TRON_PRIVATE_KEY_HEX")]
     tron_private_key_hex: String,
 
-    #[serde(rename = "TRON_CONTROLLER_ADDRESS")]
     tron_controller_address: String,
 
-    #[serde(rename = "TRON_BLOCK_LAG")]
     tron_block_lag: u64,
 
-    #[serde(rename = "TRON_FEE_LIMIT_SUN")]
     tron_fee_limit_sun: i64,
 
-    #[serde(rename = "RELAYER_TICK_INTERVAL_SECS")]
     relayer_tick_interval_secs: u64,
 
-    #[serde(rename = "TRON_FINALITY_BLOCKS")]
     tron_finality_blocks: u64,
 
-    #[serde(rename = "TRON_TIP_PROOF_RESEND_BLOCKS")]
     tron_tip_proof_resend_blocks: u64,
 
-    #[serde(rename = "PROCESS_CONTROLLER_MAX_EVENTS")]
     process_controller_max_events: u64,
 
-    #[serde(rename = "FILL_MAX_CLAIMS")]
     fill_max_claims: u64,
 
-    #[serde(rename = "CONTROLLER_REBALANCE_THRESHOLD_USDT")]
     controller_rebalance_threshold_usdt: String,
 
-    #[serde(rename = "CONTROLLER_REBALANCE_KEEP_USDT")]
     controller_rebalance_keep_usdt: String,
 
-    #[serde(rename = "PULL_LIQUIDITY_PPM")]
     pull_liquidity_ppm: u64,
 }
 

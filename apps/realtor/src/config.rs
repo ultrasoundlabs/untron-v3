@@ -62,61 +62,44 @@ pub struct LeasingDefaults {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 struct Env {
-    #[serde(rename = "API_BIND")]
     api_bind: String,
 
-    #[serde(rename = "INDEXER_API_BASE_URL")]
     indexer_api_base_url: String,
 
-    #[serde(rename = "INDEXER_TIMEOUT_SECS")]
     indexer_timeout_secs: u64,
 
-    #[serde(rename = "HUB_RPC_URL")]
     hub_rpc_url: String,
 
-    #[serde(rename = "HUB_CHAIN_ID")]
     hub_chain_id: Option<u64>,
 
-    #[serde(rename = "HUB_UNTRON_V3_ADDRESS")]
     hub_untron_v3_address: String,
 
-    #[serde(rename = "HUB_ENTRYPOINT_ADDRESS")]
     hub_entrypoint_address: String,
 
-    #[serde(rename = "HUB_SAFE_ADDRESS")]
     hub_safe_address: String,
 
-    #[serde(rename = "HUB_SAFE_4337_MODULE_ADDRESS")]
     hub_safe_4337_module_address: String,
 
-    #[serde(rename = "HUB_OWNER_PRIVATE_KEY_HEX")]
     hub_owner_private_key_hex: String,
 
-    #[serde(rename = "HUB_BUNDLER_URLS", default)]
+    #[serde(default)]
     hub_bundler_urls: String,
 
-    #[serde(rename = "HUB_PAYMASTERS_JSON", default)]
+    #[serde(default)]
     hub_paymasters_json: String,
 
-    #[serde(rename = "LEASE_DEFAULT_LESSEE")]
     lease_default_lessee: String,
 
-    #[serde(rename = "LEASE_DEFAULT_FEE_PPM")]
     lease_default_fee_ppm: u32,
 
-    #[serde(rename = "LEASE_DEFAULT_FLAT_FEE")]
     lease_default_flat_fee: u64,
 
-    #[serde(rename = "LEASE_DEFAULT_DURATION_SECS")]
     lease_default_duration_secs: u64,
 
-    #[serde(rename = "LEASE_DEFAULT_TARGET_CHAIN_ID")]
     lease_default_target_chain_id: u64,
 
-    #[serde(rename = "LEASE_DEFAULT_TARGET_TOKEN")]
     lease_default_target_token: String,
 
-    #[serde(rename = "LEASE_DEFAULT_BENEFICIARY")]
     lease_default_beneficiary: String,
 }
 
