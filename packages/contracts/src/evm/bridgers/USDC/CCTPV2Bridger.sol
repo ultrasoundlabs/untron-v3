@@ -33,8 +33,8 @@ interface ITokenMessengerV2 {
 
 /// @title CCTPV2Bridger
 /// @notice Simple, stateless CCTP V2 bridger (USDC-only).
-/// @dev Uses Standard Transfer params: destinationCaller=0x0 (anyone can relay),
-///      maxFee=0, minFinalityThreshold=2000 (standard finality).
+/// @dev Uses Fast Transfer params: destinationCaller=0x0 (anyone can relay),
+///      maxFee=1 bps (rounded up), minFinalityThreshold=1000 (fast finality).
 /// @author Ultrasound Labs
 contract CCTPV2Bridger is IBridger, Ownable {
     error NotUntron();
@@ -64,8 +64,8 @@ contract CCTPV2Bridger is IBridger, Ownable {
     /// @dev Needed because Circle domain id `0` (Ethereum) is valid.
     mapping(uint256 => bool) public isSupportedChainId;
 
-    uint32 internal constant _FINALITY_STANDARD = 2000; // standard finality
-    uint256 internal constant _MAX_FEE = 0;
+    uint32 internal constant _FINALITY_STANDARD = 1000; // fast finality
+    uint256 internal constant _ONE_BPS_DENOMINATOR = 10_000;
 
     /// @notice Creates a new CCTP V2 bridger instance.
     /// @param untron The UntronV3 contract allowed to call `bridge`.
@@ -106,14 +106,15 @@ contract CCTPV2Bridger is IBridger, Ownable {
 
         uint32 destinationDomain = _circleDomainForChainId(targetChainId);
 
-        // `amount` is the desired mint amount on destination; pay no fees.
-        uint256 maxFee = _MAX_FEE;
-        uint256 burnAmount = amount;
+        // `amount` is the desired mint amount on destination; provide the maxFee from this contract's balance.
+        uint256 maxFee = amount / _ONE_BPS_DENOMINATOR;
+        if (amount % _ONE_BPS_DENOMINATOR != 0) ++maxFee;
+        uint256 burnAmount = amount + maxFee;
 
         uint256 balance = USDC.balanceOf(address(this));
         if (balance < burnAmount) revert InsufficientUsdcBalance(balance, burnAmount);
 
-        // Approve TokenMessengerV2 to pull `burnAmount` USDC from this contract to burn.
+        // Approve TokenMessengerV2 to pull `burnAmount` USDC from this contract to burn (amount + fee).
         if (!USDC.approve(address(TOKEN_MESSENGER_V2), burnAmount)) revert ApproveFailed();
 
         // Convert EVM address to bytes32 (left-padded) as required by CCTP.
@@ -126,7 +127,7 @@ contract CCTPV2Bridger is IBridger, Ownable {
                 mintRecipient,
                 token,
                 bytes32(0), // destinationCaller = 0 => anyone can call receiveMessage on destination
-                maxFee, // maxFee = 0
+                maxFee, // maxFee = 1 bps (rounded up)
                 _FINALITY_STANDARD
             );
     }
