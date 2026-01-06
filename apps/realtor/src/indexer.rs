@@ -157,4 +157,85 @@ impl IndexerApi {
             .into_inner();
         Ok(rows.into_iter().next())
     }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn hub_lease(&self, lease_id: u64) -> Result<Option<types::HubLeases>> {
+        let lease_filter = format!("eq.{lease_id}");
+        let rows = self
+            .client
+            .hub_leases_get()
+            .lease_id(lease_filter)
+            .valid_to_seq("is.null")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_leases_get by lease_id: {e:?}"))?
+            .into_inner();
+        Ok(rows.into_iter().next())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn hub_lease_nonce(&self, lease_id: u64) -> Result<Option<types::HubLeaseNonces>> {
+        let lease_filter = format!("eq.{lease_id}");
+        let rows = self
+            .client
+            .hub_lease_nonces_get()
+            .lease_id(lease_filter)
+            .valid_to_seq("is.null")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_lease_nonces_get by lease_id: {e:?}"))?
+            .into_inner();
+        Ok(rows.into_iter().next())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn hub_protocol_config(&self) -> Result<Option<types::HubProtocolConfig>> {
+        let rows = self
+            .client
+            .hub_protocol_config_get()
+            .valid_to_seq("is.null")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_protocol_config_get: {e:?}"))?
+            .into_inner();
+        Ok(rows.into_iter().next())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn hub_swap_rate(
+        &self,
+        target_token_lower_hex: &str,
+    ) -> Result<Option<types::HubSwapRates>> {
+        let token_filter = format!("eq.{target_token_lower_hex}");
+        let rows = self
+            .client
+            .hub_swap_rates_get()
+            .target_token(token_filter)
+            .valid_to_seq("is.null")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_swap_rates_get by target_token: {e:?}"))?
+            .into_inner();
+        Ok(rows.into_iter().next())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn hub_chain(&self, target_chain_id: u64) -> Result<Option<types::HubChains>> {
+        let chain_filter = format!("eq.{target_chain_id}");
+        let rows = self
+            .client
+            .hub_chains_get()
+            .target_chain_id(chain_filter)
+            .valid_to_seq("is.null")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_chains_get by target_chain_id: {e:?}"))?
+            .into_inner();
+        Ok(rows.into_iter().next())
+    }
 }

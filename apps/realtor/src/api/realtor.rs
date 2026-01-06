@@ -1,253 +1,21 @@
-mod offer;
-mod receiver_salt;
-mod userop;
-
-use crate::api::offer::compute_offer;
-use crate::api::receiver_salt::{
+use super::offer::compute_offer;
+use super::receiver_salt::{
     ensure_receiver_is_free, normalize_receiver_salt_hex, pick_receiver_salt_for_beneficiary,
 };
-use crate::api::userop::send_userop;
+use super::userop::send_userop;
+use super::{
+    ApiError, CreateLeaseRequest, CreateLeaseResponse, ErrorResponse, RealtorInfoResponse,
+    RealtorTargetPairResponse,
+};
 use crate::util::parse_bytes32;
 use crate::{AppState, now_unix_seconds};
 use alloy::primitives::Address;
 use alloy::primitives::U256;
 use alloy::sol_types::SolCall;
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use serde::{Deserialize, Serialize};
+use axum::{Json, extract::State};
 use std::sync::Arc;
 use std::time::Instant;
 use untron_v3_bindings::untron_v3::UntronV3;
-use utoipa::ToSchema;
-
-#[derive(Debug)]
-pub enum ApiError {
-    BadRequest(String),
-    Forbidden(String),
-    Conflict(String),
-    TooManyRequests(String),
-    Upstream(String),
-    Internal(String),
-}
-
-impl ApiError {
-    fn kind(&self) -> &'static str {
-        match self {
-            Self::BadRequest(_) => "bad_request",
-            Self::Forbidden(_) => "forbidden",
-            Self::Conflict(_) => "conflict",
-            Self::TooManyRequests(_) => "too_many_requests",
-            Self::Upstream(_) => "upstream",
-            Self::Internal(_) => "internal",
-        }
-    }
-
-    fn status_code(&self) -> StatusCode {
-        match self {
-            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
-            Self::Forbidden(_) => StatusCode::FORBIDDEN,
-            Self::Conflict(_) => StatusCode::CONFLICT,
-            Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
-            Self::Upstream(_) => StatusCode::BAD_GATEWAY,
-            Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let kind = self.kind();
-        let status = self.status_code();
-        let msg = match self {
-            Self::BadRequest(m)
-            | Self::Forbidden(m)
-            | Self::Conflict(m)
-            | Self::TooManyRequests(m)
-            | Self::Upstream(m)
-            | Self::Internal(m) => m,
-        };
-
-        match status {
-            s if s.is_server_error() => {
-                tracing::warn!(%kind, status = s.as_u16(), error = %msg, "api error");
-            }
-            _ => {
-                tracing::info!(%kind, status = status.as_u16(), error = %msg, "api error");
-            }
-        }
-
-        (status, Json(serde_json::json!({ "error": msg }))).into_response()
-    }
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateLeaseRequest {
-    #[serde(default)]
-    /// Optional receiver salt (bytes32 hex).
-    ///
-    /// - If omitted, server selects an available salt.
-    /// - If provided, must exist in indexer `receiver_salt_candidates`.
-    #[schema(
-        example = "0x0000000000000000000000000000000000000000000000000000000000000000",
-        pattern = "^0x[0-9a-fA-F]{64}$",
-        nullable = true
-    )]
-    pub receiver_salt: Option<String>,
-
-    #[serde(default)]
-    /// Optional lessee address.
-    ///
-    /// - If omitted, the zero address is used.
-    /// - If provided, `arbitrary_lessee_flat_fee` is added to the flat fee.
-    #[schema(
-        example = "0x0000000000000000000000000000000000000001",
-        pattern = "^0x[0-9a-fA-F]{40}$",
-        nullable = true
-    )]
-    pub lessee: Option<String>,
-
-    /// Required lease duration in seconds.
-    ///
-    /// Must be `<= max_duration_seconds` when `max_duration_seconds != 0`.
-    #[schema(example = 2592000, minimum = 1)]
-    pub duration_seconds: u64,
-
-    /// Destination EVM chainId.
-    ///
-    /// Must have a configured bridger route for `(target_chain_id,target_token)`.
-    #[schema(example = 1, minimum = 1)]
-    pub target_chain_id: u64,
-
-    /// Target settlement token (EVM address on hub chain).
-    ///
-    /// Must have a configured bridger route for `(target_chain_id,target_token)`.
-    #[schema(
-        example = "0x0000000000000000000000000000000000000002",
-        pattern = "^0x[0-9a-fA-F]{40}$"
-    )]
-    pub target_token: String,
-
-    /// Beneficiary address (EVM).
-    #[schema(
-        example = "0x0000000000000000000000000000000000000003",
-        pattern = "^0x[0-9a-fA-F]{40}$"
-    )]
-    pub beneficiary: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct CreateLeaseResponse {
-    /// Receiver salt selected/used for the lease (bytes32 hex).
-    #[schema(
-        example = "0x0000000000000000000000000000000000000000000000000000000000000000",
-        pattern = "^0x[0-9a-fA-F]{64}$"
-    )]
-    pub receiver_salt: String,
-    /// UserOperation hash.
-    #[schema(example = "0x0000000000000000000000000000000000000000000000000000000000000000")]
-    pub userop_hash: String,
-    /// Safe4337 nonce used for the submitted UserOperation.
-    #[schema(example = "0")]
-    pub nonce: String,
-    /// Unix timestamp after which the lease is nukeable, computed as `now + duration_seconds`.
-    #[schema(example = 1700000000)]
-    pub nukeable_after: u64,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RealtorTargetPairResponse {
-    /// Destination EVM chainId.
-    #[schema(example = 1, minimum = 1)]
-    pub target_chain_id: u64,
-    /// Target settlement token (EVM address on hub chain).
-    #[schema(
-        example = "0x0000000000000000000000000000000000000002",
-        pattern = "^0x[0-9a-fA-F]{40}$"
-    )]
-    pub target_token: String,
-    /// Effective lease fee in PPM for this pair (currently not pair-specific).
-    #[schema(example = 10000)]
-    pub effective_fee_ppm: u32,
-    /// Effective flat fee for this pair including any env-configured per-pair additional flat fee.
-    ///
-    /// Does not include `arbitrary_lessee_flat_fee` (which depends on the request).
-    #[schema(example = 0)]
-    pub effective_flat_fee: u64,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RealtorInfoResponse {
-    /// Hub Safe address for this realtor instance.
-    #[schema(
-        example = "0x0000000000000000000000000000000000000004",
-        pattern = "^0x[0-9a-fA-F]{40}$"
-    )]
-    pub safe: String,
-    /// UntronV3 contract address on hub chain.
-    #[schema(
-        example = "0x0000000000000000000000000000000000000005",
-        pattern = "^0x[0-9a-fA-F]{40}$"
-    )]
-    pub untron_v3: String,
-
-    /// Whether this realtor is allowlisted on the hub.
-    ///
-    /// When false, `POST /realtor` returns `403`.
-    #[schema(example = true)]
-    pub allowed: bool,
-
-    /// Minimum lease fee PPM configured on hub for this realtor.
-    #[schema(example = 0)]
-    pub min_fee_ppm: u32,
-    /// Minimum flat fee configured on hub for this realtor.
-    #[schema(example = 0)]
-    pub min_flat_fee: u64,
-    /// Maximum allowed lease duration in seconds.
-    ///
-    /// If 0, no max is enforced by this service.
-    #[schema(example = 2592000)]
-    pub max_duration_seconds: u64,
-
-    /// Rate limit: max leases in window.
-    #[schema(example = 0)]
-    pub lease_rate_max_leases: u64,
-    /// Rate limit: window size in seconds.
-    #[schema(example = 0)]
-    pub lease_rate_window_seconds: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Rate limit: remaining leases in window (if reported by indexer).
-    #[schema(nullable = true)]
-    pub lease_rate_remaining: Option<u64>,
-
-    /// Default lease fee PPM from this service's env.
-    #[schema(example = 10000)]
-    pub default_fee_ppm: u32,
-    /// Default flat fee from this service's env (before min and adders).
-    #[schema(example = 0)]
-    pub default_flat_fee: u64,
-    /// Default duration seconds from this service's env (used only to compute effective_duration_seconds).
-    #[schema(example = 2592000)]
-    pub default_duration_seconds: u64,
-
-    /// Effective duration seconds used for informational purposes (currently derived from defaults and max).
-    ///
-    /// `POST /realtor` requires `duration_seconds` explicitly.
-    #[schema(example = 2592000)]
-    pub effective_duration_seconds: u64,
-
-    /// Supported (target_chain_id,target_token) pairs from the current bridger routing table.
-    pub supported_pairs: Vec<RealtorTargetPairResponse>,
-
-    /// Additional flat fee added when a non-null `lessee` is provided in `POST /realtor`.
-    #[schema(example = 0)]
-    pub arbitrary_lessee_flat_fee: u64,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ErrorResponse {
-    /// Error message string.
-    #[schema(example = "bad request")]
-    pub error: String,
-}
 
 #[utoipa::path(
     get,
@@ -309,7 +77,7 @@ pub async fn get_realtor(
             });
         }
         Ok(Json(RealtorInfoResponse {
-            safe: format!("{:#x}", state.cfg.hub.safe),
+            realtor_address: format!("{:#x}", state.cfg.hub.safe),
             untron_v3: format!("{:#x}", state.cfg.hub.untron_v3),
             allowed: offer.allowed,
             min_fee_ppm: offer.min_fee_ppm,
@@ -409,9 +177,7 @@ pub async fn post_realtor(
             .indexer
             .bridger_pair_is_supported(&target_token_hex_lower, req.target_chain_id)
             .await
-            .map_err(|e| {
-                ApiError::Upstream(format!("indexer hub_bridgers by pair: {e}"))
-            })?;
+            .map_err(|e| ApiError::Upstream(format!("indexer hub_bridgers by pair: {e}")))?;
         if !pair_supported {
             return Err(ApiError::BadRequest(format!(
                 "unsupported target_token/target_chain_id pair (no bridger configured): target_token={target_token_hex_lower} target_chain_id={}",
@@ -439,7 +205,9 @@ pub async fn post_realtor(
             None => pick_receiver_salt_for_beneficiary(&state, now, beneficiary)
                 .await?
                 .ok_or_else(|| {
-                    ApiError::Conflict("no free receiver salts available (all are leased)".to_string())
+                    ApiError::Conflict(
+                        "no free receiver salts available (all are leased)".to_string(),
+                    )
                 })?,
         };
 
@@ -504,7 +272,6 @@ pub async fn post_realtor(
         Ok(Json(CreateLeaseResponse {
             receiver_salt: receiver_salt_hex,
             userop_hash,
-            nonce,
             nukeable_after,
         }))
     }

@@ -80,6 +80,10 @@ async fn main() -> anyhow::Result<()> {
     let request_id_header = HeaderName::from_static("x-request-id");
     let app = Router::new()
         .route("/realtor", get(api::get_realtor).post(api::post_realtor))
+        .route(
+            "/payout_config",
+            axum::routing::post(api::post_payout_config),
+        )
         .route("/openapi.json", get(openapi_json))
         .route(
             "/healthz",
