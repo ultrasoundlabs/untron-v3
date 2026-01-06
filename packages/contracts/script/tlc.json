@@ -1,9 +1,9 @@
 {
   "blockRangeProver": "0x0000000000000000000000000000000000000000",
-  "initialBlockNumber": "78811163",
-  "initialBlockHash": "0x0000000004b2901b2563bb8c83c5fea0ce35f6a29ff935ccc040e650d13ba854",
-  "initialTxTrieRoot": "0xc41fc2ddbe7ac1cd7a3562ad74e49ced8464c45f5641b067ac8ce1888dc3aaf8",
-  "initialTimestamp": 1767096366,
+  "initialBlockNumber": "79018415",
+  "initialBlockHash": "0x0000000004b5b9aff8c5e8c2318748db1565bbafd17d6dc99f12ffc62590327b",
+  "initialTxTrieRoot": "0xec22786097336755fe289af3422ce5dea2101b7d636123ff7a229263bff51422",
+  "initialTimestamp": 1767718290,
   "srs": [
     "0x022939a4a06cbc7b384096c1af8657ec435173af",
     "0x04d7c791ace5750943fc8330b4a285b365dcbb42",

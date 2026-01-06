@@ -2,7 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {Call} from "../../../src/evm/SwapExecutor.sol";
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 
 import {MockBridger, ReentrantBridger} from "./UntronV3TestUtils.sol";
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
@@ -149,7 +150,7 @@ contract UntronV3FillTest is UntronV3TestBase {
         _untron.enqueueClaim(address(_tokenX), 10, 1, block.chainid, address(0xB0B));
         _usdt.mint(address(_untron), 10);
 
-        vm.expectRevert(UntronV3.RateNotSet.selector);
+        vm.expectRevert(UntronV3Base.RateNotSet.selector);
         _untron.fill(address(_tokenX), 1, noCalls);
 
         // Missing bridger is detected during planning (before swap transfer).
@@ -161,7 +162,7 @@ contract UntronV3FillTest is UntronV3TestBase {
         uint256 untronUsdtBefore = _usdt.balanceOf(address(_untron));
         assertEq(_usdt.balanceOf(address(_untron.SWAP_EXECUTOR())), 0);
 
-        vm.expectRevert(UntronV3.NoBridger.selector);
+        vm.expectRevert(UntronV3Base.NoBridger.selector);
         _untron.fill(address(_tokenX), 10, noCalls);
 
         assertEq(_usdt.balanceOf(address(_untron)), untronUsdtBefore);

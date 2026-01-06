@@ -2,7 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 
@@ -139,7 +140,7 @@ contract UntronV3SubjectivePreEntitleTest is UntronV3TestBase {
         bytes32 txId = keccak256("tx_subjective_exists");
         _untron.subjectivePreEntitle(txId, leaseId, 10);
 
-        vm.expectRevert(UntronV3.SubjectivePreEntitlementAlreadyExists.selector);
+        vm.expectRevert(UntronV3Base.SubjectivePreEntitlementAlreadyExists.selector);
         _untron.subjectivePreEntitle(txId, leaseId, 10);
         vm.stopPrank();
     }

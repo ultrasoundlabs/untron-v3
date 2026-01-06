@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
 import {ITronTxReader} from "../../../src/evm/interfaces/ITronTxReader.sol";
 import {IBridger} from "../../../src/evm/bridgers/interfaces/IBridger.sol";
 import {Call} from "../../../src/evm/SwapExecutor.sol";
@@ -117,8 +117,28 @@ contract ReentrantBridger is IBridger {
 }
 
 contract UntronV3Harness is UntronV3 {
-    constructor(address controllerAddress, bytes1 create2Prefix, address receiverImplOverride)
-        UntronV3(controllerAddress, create2Prefix, receiverImplOverride)
+    constructor(
+        address controllerAddress,
+        bytes1 create2Prefix,
+        address receiverImplOverride,
+        address adminFacet,
+        address leaseFacet,
+        address entitleFacet,
+        address controllerFacet,
+        address lpFacet,
+        address fillFacet
+    )
+        UntronV3(
+            controllerAddress,
+            create2Prefix,
+            receiverImplOverride,
+            adminFacet,
+            leaseFacet,
+            entitleFacet,
+            controllerFacet,
+            lpFacet,
+            fillFacet
+        )
     {}
 
     function pushControllerEvent(bytes32 sig, bytes calldata data, uint64 blockNumber, uint64 blockTimestamp) external {

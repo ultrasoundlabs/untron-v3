@@ -4,8 +4,9 @@ pragma solidity ^0.8.27;
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {Call} from "../../../src/evm/SwapExecutor.sol";
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
-import {UntronV3Index} from "../../../src/evm/UntronV3Index.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
+import {UntronV3Index} from "../../../src/evm/hub/index/UntronV3Index.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
@@ -90,7 +91,9 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         _untron.withdraw(1);
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
+        _untron.relayControllerEventChain(
+            _emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3Base.ControllerEvent[](0)
+        );
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
         _untron.processControllerEvents(1);
@@ -101,7 +104,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         vm.expectRevert(Pausable.EnforcedPause.selector);
         _untron.setPayoutConfigWithSig(
             1,
-            UntronV3.PayoutConfig({
+            UntronV3Base.PayoutConfig({
                 targetChainId: block.chainid, targetToken: address(_usdt), beneficiary: address(0x1234)
             }),
             block.timestamp + 1 days,
@@ -132,7 +135,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         vm.startPrank(lp);
         _usdt.approve(address(_untron), amount);
 
-        vm.expectRevert(UntronV3.LpNotAllowlisted.selector);
+        vm.expectRevert(UntronV3Base.LpNotAllowlisted.selector);
         _untron.deposit(amount);
         vm.stopPrank();
 
@@ -160,7 +163,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         _untron.rescueTokens(address(other), 5);
         assertEq(other.balanceOf(address(this)), 5);
 
-        vm.expectRevert(UntronV3.CannotRescueUSDT.selector);
+        vm.expectRevert(UntronV3Base.CannotRescueUSDT.selector);
         _untron.rescueTokens(address(_usdt), 1);
     }
 
@@ -193,10 +196,10 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
         assertEq(_untron.protocolPnl(), 1);
 
-        vm.expectRevert(UntronV3.ZeroAmount.selector);
+        vm.expectRevert(UntronV3Base.ZeroAmount.selector);
         _untron.withdrawProtocolProfit(0);
 
-        vm.expectRevert(UntronV3.InsufficientProtocolProfit.selector);
+        vm.expectRevert(UntronV3Base.InsufficientProtocolProfit.selector);
         _untron.withdrawProtocolProfit(2);
 
         uint256 ownerBalBefore = _usdt.balanceOf(address(this));
@@ -244,7 +247,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
     }
 
     function testDepositToPnlRevertsOnZeroAmount() public {
-        vm.expectRevert(UntronV3.ZeroAmount.selector);
+        vm.expectRevert(UntronV3Base.ZeroAmount.selector);
         _untron.depositToPnl(0);
     }
 
@@ -258,7 +261,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
 
         _untron.setChainDeprecated(block.chainid, true);
 
-        vm.expectRevert(UntronV3.ChainDeprecated.selector);
+        vm.expectRevert(UntronV3Base.ChainDeprecated.selector);
         _untron.createLease(
             keccak256("salt_chain_deprecated_2"),
             address(0xBEEF),
@@ -271,7 +274,7 @@ contract UntronV3AdminAndPauseTest is UntronV3TestBase {
         );
 
         vm.prank(address(0xBEEF));
-        vm.expectRevert(UntronV3.ChainDeprecated.selector);
+        vm.expectRevert(UntronV3Base.ChainDeprecated.selector);
         _untron.setPayoutConfig(leaseId, block.chainid, address(_usdt), address(0xCA11));
     }
 }

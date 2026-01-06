@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 
@@ -20,7 +21,7 @@ contract UntronV3PayoutConfigTest is UntronV3TestBase {
         );
 
         vm.prank(address(0xCA11));
-        vm.expectRevert(UntronV3.NotLessee.selector);
+        vm.expectRevert(UntronV3Base.NotLessee.selector);
         _untron.setPayoutConfig(leaseId, block.chainid, address(_usdt), address(0x1111));
     }
 
@@ -39,7 +40,7 @@ contract UntronV3PayoutConfigTest is UntronV3TestBase {
             address(0xB0B)
         );
 
-        UntronV3.PayoutConfig memory cfg = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory cfg = UntronV3Base.PayoutConfig({
             targetChainId: block.chainid, targetToken: address(_usdt), beneficiary: address(0x1111)
         });
         uint256 deadline = block.timestamp + 1 days;
@@ -49,7 +50,7 @@ contract UntronV3PayoutConfigTest is UntronV3TestBase {
         assertEq(_untron.leaseNonces(leaseId), 1);
 
         // Replay with same signature should fail (nonce mismatch changes digest).
-        vm.expectRevert(UntronV3.InvalidSignature.selector);
+        vm.expectRevert(UntronV3Base.InvalidSignature.selector);
         _untron.setPayoutConfigWithSig(leaseId, cfg, deadline, sig);
     }
 
@@ -67,59 +68,59 @@ contract UntronV3PayoutConfigTest is UntronV3TestBase {
             address(0xB0B)
         );
 
-        UntronV3.PayoutConfig memory cfgLocalUsdt = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory cfgLocalUsdt = UntronV3Base.PayoutConfig({
             targetChainId: block.chainid, targetToken: address(_usdt), beneficiary: address(0x1111)
         });
 
         // Wrong signer.
         uint256 wrongKey = 0xCAFE;
         bytes memory wrongSig = _signPayoutConfigUpdate(wrongKey, leaseId, cfgLocalUsdt, block.timestamp + 1 days);
-        vm.expectRevert(UntronV3.InvalidSignature.selector);
+        vm.expectRevert(UntronV3Base.InvalidSignature.selector);
         _untron.setPayoutConfigWithSig(leaseId, cfgLocalUsdt, block.timestamp + 1 days, wrongSig);
 
         // Expired deadline.
-        vm.expectRevert(UntronV3.SignatureExpired.selector);
+        vm.expectRevert(UntronV3Base.SignatureExpired.selector);
         _untron.setPayoutConfigWithSig(leaseId, cfgLocalUsdt, block.timestamp - 1, hex"");
 
         // Unroutable: missing swap rate.
-        UntronV3.PayoutConfig memory cfgNeedsSwap = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory cfgNeedsSwap = UntronV3Base.PayoutConfig({
             targetChainId: block.chainid, targetToken: address(_tokenX), beneficiary: address(0x2222)
         });
-        vm.expectRevert(UntronV3.RateNotSet.selector);
+        vm.expectRevert(UntronV3Base.RateNotSet.selector);
         _untron.setPayoutConfigWithSig(leaseId, cfgNeedsSwap, block.timestamp + 1 days, hex"");
 
         // Unroutable: missing bridger.
         uint256 otherChainId = block.chainid + 1;
-        UntronV3.PayoutConfig memory cfgNeedsBridge = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory cfgNeedsBridge = UntronV3Base.PayoutConfig({
             targetChainId: otherChainId, targetToken: address(_usdt), beneficiary: address(0x3333)
         });
-        vm.expectRevert(UntronV3.NoBridger.selector);
+        vm.expectRevert(UntronV3Base.NoBridger.selector);
         _untron.setPayoutConfigWithSig(leaseId, cfgNeedsBridge, block.timestamp + 1 days, hex"");
 
         // Deprecated chain.
         _untron.setChainDeprecated(otherChainId, true);
-        vm.expectRevert(UntronV3.ChainDeprecated.selector);
+        vm.expectRevert(UntronV3Base.ChainDeprecated.selector);
         _untron.setPayoutConfigWithSig(leaseId, cfgNeedsBridge, block.timestamp + 1 days, hex"");
     }
 
     function testPayoutConfigRateLimitConfigValidity() public {
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitConfigInvalid.selector);
         _untron.setLesseePayoutConfigRateLimit(0, 1);
 
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitConfigInvalid.selector);
         _untron.setLesseePayoutConfigRateLimit(1, 0);
 
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitConfigInvalid.selector);
         _untron.setLesseePayoutConfigRateLimit(uint256(type(uint32).max) + 1, 1);
 
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitConfigInvalid.selector);
         _untron.setLesseePayoutConfigRateLimit(1, uint256(type(uint32).max) + 1);
     }
 
     function _signPayoutConfigUpdate(
         uint256 lesseeKey,
         uint256 leaseId,
-        UntronV3.PayoutConfig memory config,
+        UntronV3Base.PayoutConfig memory config,
         uint256 deadline
     ) internal view returns (bytes memory signature) {
         uint256 nonce = _untron.leaseNonces(leaseId);

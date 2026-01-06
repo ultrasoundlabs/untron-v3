@@ -1,7 +1,7 @@
 use super::{HubIntent, TronIntent};
 use crate::tron::wallet::encode_is_event_chain_tip;
 use anyhow::{Context, Result};
-use untron_v3_bindings::untron_v3::UntronV3::ControllerEvent;
+use untron_v3_bindings::untron_v3::UntronV3Base::ControllerEvent;
 
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{parse_bytes32, parse_hex_bytes, parse_txid32, u256_to_u64};

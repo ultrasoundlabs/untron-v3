@@ -11,7 +11,7 @@ pub use controller_sync::{
 pub use hub_ops::{execute_hub_intent, plan_pre_entitle, plan_process_controller_events};
 pub use liquidity::{LiquidityIntent, execute_liquidity_intent, plan_liquidity};
 pub use rebalance::{execute_controller_rebalance, plan_controller_rebalance};
-use untron_v3_bindings::untron_v3::UntronV3::ControllerEvent;
+use untron_v3_bindings::untron_v3::UntronV3Base::ControllerEvent;
 
 pub const JOB_CONTROLLER_TIP_PROOF: &str = "controller_tip_proof";
 pub const JOB_RELAY_CONTROLLER_CHAIN: &str = "relay_controller_chain";

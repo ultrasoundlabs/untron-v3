@@ -7,7 +7,7 @@ import "forge-std/console2.sol";
 
 import {StatefulTronTxReader} from "../src/evm/StatefulTronTxReader.sol";
 import {MockStatefulTronTxReader} from "../src/evm/mocks/MockStatefulTronTxReader.sol";
-import {UntronV3} from "../src/evm/UntronV3.sol";
+import {UntronV3} from "../src/evm/hub/UntronV3.sol";
 import {CCTPV2Bridger} from "../src/evm/bridgers/USDC/CCTPV2Bridger.sol";
 import {USDT0Bridger} from "../src/evm/bridgers/USDT0/USDT0Bridger.sol";
 import {UntronDeployer} from "./UntronDeployer.sol";

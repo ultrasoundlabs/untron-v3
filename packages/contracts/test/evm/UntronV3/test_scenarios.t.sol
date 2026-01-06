@@ -2,7 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {Call} from "../../../src/evm/SwapExecutor.sol";
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
@@ -45,7 +46,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
         (, uint256 amountUsdt,,,) = _untron.claimsByTargetToken(address(_usdt), claimIndex);
         assertEq(amountUsdt, 0);
 
-        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3.PayoutConfig memory p) =
+        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3Base.PayoutConfig memory p) =
             _untron.leases(leaseId);
         assertEq(recognizedRaw, 100);
         assertEq(backedRaw, 0);
@@ -131,7 +132,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
         _untron.processControllerEvents(1);
 
         assertEq(_untron.lastReceiverPullTimestampByToken(salt, address(0)), t2);
-        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3.PayoutConfig memory p) =
+        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3Base.PayoutConfig memory p) =
             _untron.leases(leaseId);
         assertEq(recognizedRaw, 100);
         assertEq(backedRaw, 100);
@@ -149,7 +150,7 @@ contract UntronV3ScenarioTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             trc20Data
         );
-        vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
+        vm.expectRevert(UntronV3Base.DepositNotAfterLastReceiverPull.selector);
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 }

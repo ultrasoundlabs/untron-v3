@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Call} from "../../../src/evm/SwapExecutor.sol";
-import {UntronV3Index} from "../../../src/evm/UntronV3Index.sol";
+import {UntronV3Index} from "../../../src/evm/hub/index/UntronV3Index.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 

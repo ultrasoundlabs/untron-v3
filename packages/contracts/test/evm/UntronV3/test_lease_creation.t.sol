@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
@@ -27,7 +28,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
 
     function testCreateLeaseRevertsForNonRealtor() public {
         vm.prank(address(0x1234));
-        vm.expectRevert(UntronV3.NotRealtor.selector);
+        vm.expectRevert(UntronV3Base.NotRealtor.selector);
         _untron.createLease(
             keccak256("salt"),
             address(0xBEEF),
@@ -46,7 +47,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
 
         uint256 minFee = 200;
 
-        vm.expectRevert(UntronV3.LeaseFeeTooLow.selector);
+        vm.expectRevert(UntronV3Base.LeaseFeeTooLow.selector);
         _untron.createLease(
             keccak256("salt_fee_low"),
             address(0xBEEF),
@@ -72,7 +73,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         );
         assertEq(leaseId, 1);
 
-        vm.expectRevert(UntronV3.LeaseFeeTooLow.selector);
+        vm.expectRevert(UntronV3Base.LeaseFeeTooLow.selector);
         _untron.createLease(
             keccak256("salt_fee_too_high"),
             address(0xBEEF),
@@ -86,7 +87,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
     }
 
     function testCreateLeaseEnforcesTimeframe() public {
-        vm.expectRevert(UntronV3.InvalidLeaseTimeframe.selector);
+        vm.expectRevert(UntronV3Base.InvalidLeaseTimeframe.selector);
         _untron.createLease(
             keccak256("salt_timeframe"),
             address(0xBEEF),
@@ -114,7 +115,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         assertEq(leaseNum1, 0);
 
         vm.warp(t0 + 500);
-        vm.expectRevert(UntronV3.LeaseNotNukeableYet.selector);
+        vm.expectRevert(UntronV3Base.LeaseNotNukeableYet.selector);
         _untron.createLease(
             salt, address(0xBEEF), uint64(block.timestamp + 1 days), 0, 0, block.chainid, address(_usdt), address(0xB0B)
         );
@@ -218,7 +219,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         );
 
         // Token != USDT requires swap rate.
-        vm.expectRevert(UntronV3.RateNotSet.selector);
+        vm.expectRevert(UntronV3Base.RateNotSet.selector);
         _untron.createLease(
             keccak256("salt_route_swap_missing"),
             address(0xBEEF),
@@ -232,7 +233,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
 
         // Chain != local requires bridger (even for USDT).
         uint256 otherChainId = block.chainid + 1;
-        vm.expectRevert(UntronV3.NoBridger.selector);
+        vm.expectRevert(UntronV3Base.NoBridger.selector);
         _untron.createLease(
             keccak256("salt_route_bridge_missing"),
             address(0xBEEF),
@@ -268,7 +269,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         assertEq(_untron.protocolFloorFlatFee(), 10);
         assertEq(_untron.realtorMinFlatFee(address(this)), 20);
 
-        vm.expectRevert(UntronV3.LeaseFlatFeeTooLow.selector);
+        vm.expectRevert(UntronV3Base.LeaseFlatFeeTooLow.selector);
         _untron.createLease(
             keccak256("salt_flat_fee_too_low"),
             address(0xBEEF),
@@ -301,7 +302,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         // forge-lint: disable-next-line(unsafe-typecast)
         assertEq(_untron.effectiveMaxLeaseDurationSeconds(address(this)), uint32(1 days));
 
-        vm.expectRevert(UntronV3.LeaseDurationTooLong.selector);
+        vm.expectRevert(UntronV3Base.LeaseDurationTooLong.selector);
         _untron.createLease(
             keccak256("salt_duration_too_long"),
             address(0xBEEF),
@@ -321,7 +322,7 @@ contract UntronV3LeaseCreationTest is UntronV3TestBase {
         // forge-lint: disable-next-line(unsafe-typecast)
         assertEq(_untron.effectiveMaxLeaseDurationSeconds(address(this)), uint32(6 hours));
 
-        vm.expectRevert(UntronV3.LeaseDurationTooLong.selector);
+        vm.expectRevert(UntronV3Base.LeaseDurationTooLong.selector);
         _untron.createLease(
             keccak256("salt_duration_realtor_too_long"),
             address(0xBEEF),

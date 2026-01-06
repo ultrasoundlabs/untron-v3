@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
@@ -20,15 +21,17 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             callData
         );
 
-        vm.expectRevert(UntronV3.NotEventChainTip.selector);
-        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
+        vm.expectRevert(UntronV3Base.NotEventChainTip.selector);
+        _untron.relayControllerEventChain(
+            _emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3Base.ControllerEvent[](0)
+        );
     }
 
     function testRelayControllerEventChainDecodesSelectors() public {
         bytes32 tipOld = _untron.lastControllerEventTip();
         bytes32 tipNew = keccak256("new_tip");
 
-        UntronV3.ControllerEvent[] memory events = new UntronV3.ControllerEvent[](0);
+        UntronV3Base.ControllerEvent[] memory events = new UntronV3Base.ControllerEvent[](0);
         bytes21 controllerTron = _untron.evmToTron(_untron.CONTROLLER_ADDRESS());
 
         // Direct selector.
@@ -42,7 +45,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             controllerTron,
             isTip
         );
-        vm.expectRevert(UntronV3.EventRelayNoProgress.selector);
+        vm.expectRevert(UntronV3Base.EventRelayNoProgress.selector);
         _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
 
         // Multicall wrapper selector (also EventRelayNoProgress because tip==tipOld).
@@ -57,7 +60,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             controllerTron,
             multicall
         );
-        vm.expectRevert(UntronV3.EventRelayNoProgress.selector);
+        vm.expectRevert(UntronV3Base.EventRelayNoProgress.selector);
         _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
 
         // Unknown selector.
@@ -70,7 +73,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             controllerTron,
             wrongSel
         );
-        vm.expectRevert(UntronV3.NotEventChainTip.selector);
+        vm.expectRevert(UntronV3Base.NotEventChainTip.selector);
         _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
 
         // Too-short calldata (<4 bytes).
@@ -82,7 +85,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             controllerTron,
             hex"01"
         );
-        vm.expectRevert(UntronV3.TronInvalidCalldataLength.selector);
+        vm.expectRevert(UntronV3Base.TronInvalidCalldataLength.selector);
         _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, events);
     }
 
@@ -102,18 +105,20 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
             controllerTron,
             callData
         );
-        vm.expectRevert(UntronV3.EventTipMismatch.selector);
-        _untron.relayControllerEventChain(_emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3.ControllerEvent[](0));
+        vm.expectRevert(UntronV3Base.EventTipMismatch.selector);
+        _untron.relayControllerEventChain(
+            _emptyBlocks(), hex"", new bytes32[](0), 0, new UntronV3Base.ControllerEvent[](0)
+        );
 
         // Correct events hash-link to tipNew.
-        UntronV3.ControllerEvent[] memory events = new UntronV3.ControllerEvent[](2);
-        events[0] = UntronV3.ControllerEvent({
+        UntronV3Base.ControllerEvent[] memory events = new UntronV3Base.ControllerEvent[](2);
+        events[0] = UntronV3Base.ControllerEvent({
             sig: keccak256("E0(uint256)"),
             data: abi.encode(uint256(1)),
             blockNumber: uint64(10),
             blockTimestamp: uint64(100)
         });
-        events[1] = UntronV3.ControllerEvent({
+        events[1] = UntronV3Base.ControllerEvent({
             sig: keccak256("E1(address)"),
             data: abi.encode(address(0xBEEF)),
             blockNumber: uint64(11),
@@ -228,8 +233,8 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
 
         assertEq(_untron.lastReceiverPullTimestampByToken(salt, _untron.tronUsdt()), t2);
 
-        (,,,,,,, uint256 r1, uint256 b1, uint256 u1, UntronV3.PayoutConfig memory p1) = _untron.leases(lease1Id);
-        (,,,,,,, uint256 r2, uint256 b2, uint256 u2, UntronV3.PayoutConfig memory p2) = _untron.leases(lease2Id);
+        (,,,,,,, uint256 r1, uint256 b1, uint256 u1, UntronV3Base.PayoutConfig memory p1) = _untron.leases(lease1Id);
+        (,,,,,,, uint256 r2, uint256 b2, uint256 u2, UntronV3Base.PayoutConfig memory p2) = _untron.leases(lease2Id);
 
         assertEq(r1, 100);
         assertEq(b1, 100);
@@ -268,7 +273,7 @@ contract UntronV3ControllerEventsTest is UntronV3TestBase {
         assertEq(amountUsdt, 99);
         assertEq(gotLeaseId, leaseId);
 
-        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3.PayoutConfig memory p) =
+        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3Base.PayoutConfig memory p) =
             _untron.leases(leaseId);
         assertEq(recognizedRaw, 100);
         assertEq(backedRaw, 100);

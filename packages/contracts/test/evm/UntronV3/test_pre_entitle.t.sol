@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
@@ -88,7 +89,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             TronCalldataUtils.evmToTronAddress(_untron.tronUsdt()),
             data
         );
-        vm.expectRevert(UntronV3.DepositAlreadyProcessed.selector);
+        vm.expectRevert(UntronV3Base.DepositAlreadyProcessed.selector);
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
@@ -114,7 +115,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             data
         );
 
-        vm.expectRevert(UntronV3.NotTronUsdt.selector);
+        vm.expectRevert(UntronV3Base.NotTronUsdt.selector);
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
@@ -135,7 +136,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             data
         );
 
-        vm.expectRevert(UntronV3.InvalidReceiverForSalt.selector);
+        vm.expectRevert(UntronV3Base.InvalidReceiverForSalt.selector);
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
@@ -157,7 +158,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
             data
         );
 
-        vm.expectRevert(UntronV3.NoActiveLease.selector);
+        vm.expectRevert(UntronV3Base.NoActiveLease.selector);
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
     }
 
@@ -240,7 +241,7 @@ contract UntronV3PreEntitleTest is UntronV3TestBase {
         address expectedTargetToken,
         address expectedBeneficiary
     ) internal view {
-        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3.PayoutConfig memory p) =
+        (,,,,,,, uint256 recognizedRaw, uint256 backedRaw, uint256 unbackedRaw, UntronV3Base.PayoutConfig memory p) =
             _untron.leases(leaseId);
         assertEq(recognizedRaw, expectedRecognizedRaw);
         assertEq(backedRaw, expectedBackedRaw);

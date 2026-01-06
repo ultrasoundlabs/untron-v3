@@ -9,7 +9,7 @@ use alloy::sol_types::{SolCall, SolStruct};
 use axum::{Json, extract::State};
 use std::sync::Arc;
 use std::time::Instant;
-use untron_v3_bindings::untron_v3::UntronV3;
+use untron_v3_bindings::untron_v3::{UntronV3, UntronV3Base};
 
 alloy::sol! {
     interface IERC1271 {
@@ -262,7 +262,7 @@ pub async fn post_payout_config(
 
         let call = UntronV3::setPayoutConfigWithSigCall {
             leaseId: U256::from(req.lease_id),
-            config: UntronV3::PayoutConfig {
+            config: UntronV3Base::PayoutConfig {
                 targetChainId: U256::from(req.target_chain_id),
                 targetToken: target_token,
                 beneficiary,

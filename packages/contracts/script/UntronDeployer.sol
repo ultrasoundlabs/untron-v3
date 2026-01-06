@@ -5,7 +5,13 @@ import {UntronScriptBase} from "./UntronScriptBase.sol";
 
 import {TronLightClient} from "../src/evm/TronLightClient.sol";
 import {TronTxReader} from "../src/evm/TronTxReader.sol";
-import {UntronV3} from "../src/evm/UntronV3.sol";
+import {UntronV3} from "../src/evm/hub/UntronV3.sol";
+import {UntronV3AdminFacet} from "../src/evm/hub/UntronV3AdminFacet.sol";
+import {UntronV3LeaseFacet} from "../src/evm/hub/UntronV3LeaseFacet.sol";
+import {UntronV3EntitleFacet} from "../src/evm/hub/UntronV3EntitleFacet.sol";
+import {UntronV3ControllerFacet} from "../src/evm/hub/UntronV3ControllerFacet.sol";
+import {UntronV3LpFacet} from "../src/evm/hub/UntronV3LpFacet.sol";
+import {UntronV3FillFacet} from "../src/evm/hub/UntronV3FillFacet.sol";
 import {CCTPV2Bridger} from "../src/evm/bridgers/USDC/CCTPV2Bridger.sol";
 import {USDT0Bridger} from "../src/evm/bridgers/USDT0/USDT0Bridger.sol";
 import {IBlockRangeProver} from "../src/evm/blockRangeProvers/interfaces/IBlockRangeProver.sol";
@@ -19,7 +25,24 @@ abstract contract UntronDeployer is UntronScriptBase {
         internal
         returns (UntronV3 untron)
     {
-        untron = new UntronV3(controllerAddress, create2Prefix, tronReceiverImpl);
+        UntronV3AdminFacet adminFacet = new UntronV3AdminFacet();
+        UntronV3LeaseFacet leaseFacet = new UntronV3LeaseFacet();
+        UntronV3EntitleFacet entitleFacet = new UntronV3EntitleFacet();
+        UntronV3ControllerFacet controllerFacet = new UntronV3ControllerFacet();
+        UntronV3LpFacet lpFacet = new UntronV3LpFacet();
+        UntronV3FillFacet fillFacet = new UntronV3FillFacet();
+
+        untron = new UntronV3(
+            controllerAddress,
+            create2Prefix,
+            tronReceiverImpl,
+            address(adminFacet),
+            address(leaseFacet),
+            address(entitleFacet),
+            address(controllerFacet),
+            address(lpFacet),
+            address(fillFacet)
+        );
     }
 
     function _deployTronLightClient(

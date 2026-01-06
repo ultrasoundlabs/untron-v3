@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
 
-import {UntronV3} from "../src/evm/UntronV3.sol";
+import {UntronV3} from "../src/evm/hub/UntronV3.sol";
 import {UntronDeployer} from "./UntronDeployer.sol";
 
 contract DeployUntronV3Script is UntronDeployer {

@@ -2,10 +2,17 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {MockTronTxReader, UntronV3Harness} from "./UntronV3TestUtils.sol";
+import {UntronV3AdminFacet} from "../../../src/evm/hub/UntronV3AdminFacet.sol";
+import {UntronV3LeaseFacet} from "../../../src/evm/hub/UntronV3LeaseFacet.sol";
+import {UntronV3EntitleFacet} from "../../../src/evm/hub/UntronV3EntitleFacet.sol";
+import {UntronV3ControllerFacet} from "../../../src/evm/hub/UntronV3ControllerFacet.sol";
+import {UntronV3LpFacet} from "../../../src/evm/hub/UntronV3LpFacet.sol";
+import {UntronV3FillFacet} from "../../../src/evm/hub/UntronV3FillFacet.sol";
 
 contract UntronV3ProtocolPnlTest is Test {
     MockTronTxReader internal _reader;
@@ -17,7 +24,24 @@ contract UntronV3ProtocolPnlTest is Test {
 
     function setUp() public {
         _reader = new MockTronTxReader();
-        _untron = new UntronV3Harness(_CONTROLLER, 0xff, _RECEIVER_IMPL_OVERRIDE);
+        UntronV3AdminFacet adminFacet = new UntronV3AdminFacet();
+        UntronV3LeaseFacet leaseFacet = new UntronV3LeaseFacet();
+        UntronV3EntitleFacet entitleFacet = new UntronV3EntitleFacet();
+        UntronV3ControllerFacet controllerFacet = new UntronV3ControllerFacet();
+        UntronV3LpFacet lpFacet = new UntronV3LpFacet();
+        UntronV3FillFacet fillFacet = new UntronV3FillFacet();
+
+        _untron = new UntronV3Harness(
+            _CONTROLLER,
+            0xff,
+            _RECEIVER_IMPL_OVERRIDE,
+            address(adminFacet),
+            address(leaseFacet),
+            address(entitleFacet),
+            address(controllerFacet),
+            address(lpFacet),
+            address(fillFacet)
+        );
         _untron.setTronReader(address(_reader));
         _untron.setUsdt(_DUMMY_USDT);
         _untron.setRealtor(address(this), true);
@@ -135,7 +159,7 @@ contract UntronV3ProtocolPnlTest is Test {
             trc20Data
         );
 
-        vm.expectRevert(UntronV3.DepositNotAfterLastReceiverPull.selector);
+        vm.expectRevert(UntronV3Base.DepositNotAfterLastReceiverPull.selector);
         _untron.preEntitle(salt, _emptyBlocks(), hex"", new bytes32[](0), 0);
 
         _reader.setNextCallData(

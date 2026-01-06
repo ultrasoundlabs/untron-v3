@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
 
-import {UntronV3} from "../src/evm/UntronV3.sol";
+import {UntronV3} from "../src/evm/hub/UntronV3.sol";
 import {CCTPV2Bridger} from "../src/evm/bridgers/USDC/CCTPV2Bridger.sol";
 import {USDT0Bridger} from "../src/evm/bridgers/USDT0/USDT0Bridger.sol";
 import {UntronDeployer} from "./UntronDeployer.sol";

@@ -2,11 +2,38 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
+import {UntronV3AdminFacet} from "../../../src/evm/hub/UntronV3AdminFacet.sol";
+import {UntronV3LeaseFacet} from "../../../src/evm/hub/UntronV3LeaseFacet.sol";
+import {UntronV3EntitleFacet} from "../../../src/evm/hub/UntronV3EntitleFacet.sol";
+import {UntronV3ControllerFacet} from "../../../src/evm/hub/UntronV3ControllerFacet.sol";
+import {UntronV3LpFacet} from "../../../src/evm/hub/UntronV3LpFacet.sol";
+import {UntronV3FillFacet} from "../../../src/evm/hub/UntronV3FillFacet.sol";
 
 contract UntronV3PayoutConfigHarness is UntronV3 {
-    constructor(address controllerAddress, bytes1 create2Prefix, address receiverImplOverride)
-        UntronV3(controllerAddress, create2Prefix, receiverImplOverride)
+    constructor(
+        address controllerAddress,
+        bytes1 create2Prefix,
+        address receiverImplOverride,
+        address adminFacet,
+        address leaseFacet,
+        address entitleFacet,
+        address controllerFacet,
+        address lpFacet,
+        address fillFacet
+    )
+        UntronV3(
+            controllerAddress,
+            create2Prefix,
+            receiverImplOverride,
+            adminFacet,
+            leaseFacet,
+            entitleFacet,
+            controllerFacet,
+            lpFacet,
+            fillFacet
+        )
     {}
 }
 
@@ -18,7 +45,24 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
     address internal constant _RECEIVER_IMPL_OVERRIDE = address(0xBEEF);
 
     function setUp() public {
-        _untron = new UntronV3PayoutConfigHarness(_CONTROLLER, 0xff, _RECEIVER_IMPL_OVERRIDE);
+        UntronV3AdminFacet adminFacet = new UntronV3AdminFacet();
+        UntronV3LeaseFacet leaseFacet = new UntronV3LeaseFacet();
+        UntronV3EntitleFacet entitleFacet = new UntronV3EntitleFacet();
+        UntronV3ControllerFacet controllerFacet = new UntronV3ControllerFacet();
+        UntronV3LpFacet lpFacet = new UntronV3LpFacet();
+        UntronV3FillFacet fillFacet = new UntronV3FillFacet();
+
+        _untron = new UntronV3PayoutConfigHarness(
+            _CONTROLLER,
+            0xff,
+            _RECEIVER_IMPL_OVERRIDE,
+            address(adminFacet),
+            address(leaseFacet),
+            address(entitleFacet),
+            address(controllerFacet),
+            address(lpFacet),
+            address(fillFacet)
+        );
         _untron.setUsdt(_DUMMY_USDT);
         _untron.setRealtor(address(this), true);
     }
@@ -32,7 +76,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
         vm.startPrank(lessee);
         _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x1111));
         _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x2222));
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitExceeded.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitExceeded.selector);
         _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x3333));
         vm.stopPrank();
 
@@ -49,13 +93,13 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
 
         _untron.setLesseePayoutConfigRateLimit(2, 1 hours);
 
-        UntronV3.PayoutConfig memory c1 = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory c1 = UntronV3Base.PayoutConfig({
             targetChainId: block.chainid, targetToken: _DUMMY_USDT, beneficiary: address(0x1111)
         });
-        UntronV3.PayoutConfig memory c2 = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory c2 = UntronV3Base.PayoutConfig({
             targetChainId: block.chainid, targetToken: _DUMMY_USDT, beneficiary: address(0x2222)
         });
-        UntronV3.PayoutConfig memory c3 = UntronV3.PayoutConfig({
+        UntronV3Base.PayoutConfig memory c3 = UntronV3Base.PayoutConfig({
             targetChainId: block.chainid, targetToken: _DUMMY_USDT, beneficiary: address(0x3333)
         });
 
@@ -65,11 +109,11 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
         _untron.setPayoutConfigWithSig(leaseId, c2, deadline, _signPayoutConfigUpdate(lesseeKey, leaseId, c2, deadline));
 
         vm.prank(lessee);
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitExceeded.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitExceeded.selector);
         _untron.setPayoutConfig(leaseId, block.chainid, _DUMMY_USDT, address(0x9999));
 
         bytes memory sig3 = _signPayoutConfigUpdate(lesseeKey, leaseId, c3, deadline);
-        vm.expectRevert(UntronV3.PayoutConfigRateLimitExceeded.selector);
+        vm.expectRevert(UntronV3Base.PayoutConfigRateLimitExceeded.selector);
         _untron.setPayoutConfigWithSig(leaseId, c3, deadline, sig3);
     }
 
@@ -99,7 +143,7 @@ contract UntronV3PayoutConfigRateLimitTest is Test {
     function _signPayoutConfigUpdate(
         uint256 lesseeKey,
         uint256 leaseId,
-        UntronV3.PayoutConfig memory config,
+        UntronV3Base.PayoutConfig memory config,
         uint256 deadline
     ) internal view returns (bytes memory signature) {
         uint256 nonce = _untron.leaseNonces(leaseId);

@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {UntronV3} from "../../../src/evm/UntronV3.sol";
+import {UntronV3} from "../../../src/evm/hub/UntronV3.sol";
+import {UntronV3Base} from "../../../src/evm/hub/UntronV3Base.sol";
 
 import {UntronV3TestBase} from "./UntronV3TestBase.t.sol";
 
 contract UntronV3RateLimitTest is UntronV3TestBase {
     function testRealtorLeaseRateLimitConfigValidity() public {
-        vm.expectRevert(UntronV3.LeaseRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.LeaseRateLimitConfigInvalid.selector);
         _untron.setRealtorLeaseRateLimit(address(this), 0, 1);
 
-        vm.expectRevert(UntronV3.LeaseRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.LeaseRateLimitConfigInvalid.selector);
         _untron.setRealtorLeaseRateLimit(address(this), 1, 0);
 
-        vm.expectRevert(UntronV3.LeaseRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.LeaseRateLimitConfigInvalid.selector);
         _untron.setRealtorLeaseRateLimit(address(this), uint256(type(uint32).max) + 1, 1);
 
-        vm.expectRevert(UntronV3.LeaseRateLimitConfigInvalid.selector);
+        vm.expectRevert(UntronV3Base.LeaseRateLimitConfigInvalid.selector);
         _untron.setRealtorLeaseRateLimit(address(this), 1, uint256(type(uint32).max) + 1);
     }
 
@@ -44,7 +45,7 @@ contract UntronV3RateLimitTest is UntronV3TestBase {
             address(0xB0B)
         );
 
-        vm.expectRevert(UntronV3.LeaseRateLimitExceeded.selector);
+        vm.expectRevert(UntronV3Base.LeaseRateLimitExceeded.selector);
         _untron.createLease(
             keccak256("salt3"),
             address(0xBEEF),

@@ -6,6 +6,12 @@ import {TronCalldataUtils} from "../../../src/utils/TronCalldataUtils.sol";
 
 import {MockERC20} from "../../tron/mocks/MockERC20.sol";
 import {MockSwapRouter, MockTronTxReader, UntronV3Harness} from "./UntronV3TestUtils.sol";
+import {UntronV3AdminFacet} from "../../../src/evm/hub/UntronV3AdminFacet.sol";
+import {UntronV3LeaseFacet} from "../../../src/evm/hub/UntronV3LeaseFacet.sol";
+import {UntronV3EntitleFacet} from "../../../src/evm/hub/UntronV3EntitleFacet.sol";
+import {UntronV3ControllerFacet} from "../../../src/evm/hub/UntronV3ControllerFacet.sol";
+import {UntronV3LpFacet} from "../../../src/evm/hub/UntronV3LpFacet.sol";
+import {UntronV3FillFacet} from "../../../src/evm/hub/UntronV3FillFacet.sol";
 
 abstract contract UntronV3TestBase is Test {
     MockTronTxReader internal _reader;
@@ -20,7 +26,24 @@ abstract contract UntronV3TestBase is Test {
 
     function setUp() public virtual {
         _reader = new MockTronTxReader();
-        _untron = new UntronV3Harness(_CONTROLLER, 0xff, _RECEIVER_IMPL_OVERRIDE);
+        UntronV3AdminFacet adminFacet = new UntronV3AdminFacet();
+        UntronV3LeaseFacet leaseFacet = new UntronV3LeaseFacet();
+        UntronV3EntitleFacet entitleFacet = new UntronV3EntitleFacet();
+        UntronV3ControllerFacet controllerFacet = new UntronV3ControllerFacet();
+        UntronV3LpFacet lpFacet = new UntronV3LpFacet();
+        UntronV3FillFacet fillFacet = new UntronV3FillFacet();
+
+        _untron = new UntronV3Harness(
+            _CONTROLLER,
+            0xff,
+            _RECEIVER_IMPL_OVERRIDE,
+            address(adminFacet),
+            address(leaseFacet),
+            address(entitleFacet),
+            address(controllerFacet),
+            address(lpFacet),
+            address(fillFacet)
+        );
         _untron.setTronReader(address(_reader));
 
         _usdt = new MockERC20("USDT", "USDT", 6);
