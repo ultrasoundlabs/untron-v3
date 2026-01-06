@@ -7,6 +7,7 @@ use aa::Safe4337UserOpSender;
 use alloy::primitives::{Address, U256};
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -40,6 +41,7 @@ impl HubExecutor {
         name: &'static str,
         data: Vec<u8>,
     ) -> Result<()> {
+        let start = Instant::now();
         let submission = {
             let mut sender = self.sender.lock().await;
             sender.send_call(self.untron_v3, data).await
@@ -47,12 +49,16 @@ impl HubExecutor {
 
         match submission {
             Ok(sub) => {
+                self.telemetry
+                    .hub_submit_ms(name, true, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_ok();
                 state.hub_pending_nonce = Some(sub.nonce);
                 tracing::info!(userop_hash = %sub.userop_hash, %name, "submitted hub userop");
                 Ok(())
             }
             Err(err) => {
+                self.telemetry
+                    .hub_submit_ms(name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
                 Err(err)
             }
@@ -86,6 +92,7 @@ impl TronExecutor {
         data: Vec<u8>,
         call_value_sun: i64,
     ) -> Result<[u8; 32]> {
+        let start = Instant::now();
         let mut grpc = self.grpc.lock().await;
         let txid = self
             .wallet
@@ -94,10 +101,14 @@ impl TronExecutor {
 
         match txid {
             Ok(txid) => {
+                self.telemetry
+                    .tron_broadcast_ms(true, start.elapsed().as_millis() as u64);
                 self.telemetry.tron_tx_ok();
                 Ok(txid)
             }
             Err(err) => {
+                self.telemetry
+                    .tron_broadcast_ms(false, start.elapsed().as_millis() as u64);
                 self.telemetry.tron_tx_err();
                 Err(err)
             }

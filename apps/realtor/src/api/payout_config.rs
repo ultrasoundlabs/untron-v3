@@ -283,8 +283,16 @@ pub async fn post_payout_config(
 
     let ms = start.elapsed().as_millis() as u64;
     match &result {
-        Ok(_) => state.telemetry.http_ok("post_payout_config", ms),
-        Err(e) => state.telemetry.http_err("post_payout_config", e.kind(), ms),
+        Ok(_) => state
+            .telemetry
+            .http_ok("POST", "post_payout_config", 200, ms),
+        Err(e) => state.telemetry.http_err(
+            "POST",
+            "post_payout_config",
+            e.kind(),
+            e.status_code().as_u16(),
+            ms,
+        ),
     }
     result
 }

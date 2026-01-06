@@ -26,6 +26,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 use untron_v3_bindings::untron_v3::UntronV3::UntronV3Instance;
 
 use self::{
@@ -131,7 +132,11 @@ impl RelayerContext {
 
 impl Relayer {
     pub async fn new(cfg: AppConfig, telemetry: RelayerTelemetry) -> Result<Self> {
-        let indexer = Arc::new(IndexerApi::new(&cfg.indexer.base_url, cfg.indexer.timeout)?);
+        let indexer = Arc::new(IndexerApi::new(
+            &cfg.indexer.base_url,
+            cfg.indexer.timeout,
+            telemetry.clone(),
+        )?);
 
         let transport = BuiltInConnectionString::connect(&cfg.hub.rpc_url)
             .await
@@ -258,14 +263,33 @@ impl Relayer {
     }
 
     async fn collect_tick(&self) -> Result<Tick> {
-        let hub_head = self
-            .ctx
-            .hub_provider
-            .get_block_number()
-            .await
-            .context("hub head")?;
+        let hub_span = tracing::debug_span!("hub.rpc", op = "get_block_number");
+        let hub_start = std::time::Instant::now();
+        let hub_head_res = async {
+            self.ctx
+                .hub_provider
+                .get_block_number()
+                .await
+                .context("hub head")
+        }
+        .instrument(hub_span)
+        .await;
+        self.ctx.telemetry.hub_rpc_ms(
+            "get_block_number",
+            hub_head_res.is_ok(),
+            hub_start.elapsed().as_millis() as u64,
+        );
+        let hub_head = hub_head_res?;
+
         let mut tron = self.ctx.tron_read.clone();
-        let tron_head = tron_head_block(&mut tron).await?;
+        let tron_start = std::time::Instant::now();
+        let tron_head_res = tron_head_block(&mut tron).await;
+        self.ctx.telemetry.tron_grpc_ms(
+            "get_now_block2",
+            tron_head_res.is_ok(),
+            tron_start.elapsed().as_millis() as u64,
+        );
+        let tron_head = tron_head_res?;
         Ok(Tick {
             hub_head,
             tron_head,

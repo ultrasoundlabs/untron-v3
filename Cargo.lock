@@ -3006,8 +3006,6 @@ dependencies = [
  "hex",
  "lru",
  "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
  "serde",
  "serde_json",
  "sha2",
@@ -3016,8 +3014,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
+ "untron-observability",
  "untron-v3-bindings",
 ]
 
@@ -4352,8 +4349,6 @@ dependencies = [
  "hex",
  "k256",
  "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
  "reqwest",
  "serde",
  "serde_json",
@@ -4361,8 +4356,7 @@ dependencies = [
  "tokio-util",
  "tower-http",
  "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
+ "untron-observability",
  "untron-v3-bindings",
  "untron-v3-indexer-client",
  "utoipa",
@@ -4473,8 +4467,6 @@ dependencies = [
  "hex",
  "k256",
  "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
  "prost 0.14.1",
  "prost-types 0.14.1",
  "reqwest",
@@ -4488,8 +4480,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
+ "untron-observability",
  "untron-v3-bindings",
  "untron-v3-indexer-client",
 ]
@@ -6251,6 +6242,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
+name = "untron-observability"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "http 1.4.0",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "untron-v3-bindings"
 version = "0.1.0"
 dependencies = [
@@ -6266,6 +6273,8 @@ dependencies = [
  "chrono",
  "futures-core",
  "openapiv3",
+ "opentelemetry",
+ "opentelemetry-http",
  "prettyplease",
  "progenitor",
  "progenitor-client",
@@ -6274,6 +6283,8 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "syn 2.0.112",
+ "tracing",
+ "tracing-opentelemetry",
  "typify",
 ]
 

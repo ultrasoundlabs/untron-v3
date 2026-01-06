@@ -2,7 +2,6 @@ mod api;
 mod config;
 mod indexer;
 mod metrics;
-mod observability;
 mod openapi;
 mod util;
 
@@ -32,7 +31,10 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let cfg = config::load_config()?;
-    let otel = observability::init("realtor")?;
+    let otel = untron_observability::init(untron_observability::Config {
+        service_name: "realtor",
+        service_version: env!("CARGO_PKG_VERSION"),
+    })?;
 
     tracing::info!("realtor starting");
     tracing::info!(
@@ -43,7 +45,12 @@ async fn main() -> anyhow::Result<()> {
         "config loaded"
     );
 
-    let indexer = IndexerApi::new(&cfg.indexer.base_url, cfg.indexer.timeout)?;
+    let telemetry = RealtorTelemetry::new();
+    let indexer = IndexerApi::new(
+        &cfg.indexer.base_url,
+        cfg.indexer.timeout,
+        telemetry.clone(),
+    )?;
     let sender_cfg = Safe4337UserOpSenderConfig {
         rpc_url: cfg.hub.rpc_url.clone(),
         chain_id: cfg.hub.chain_id,
@@ -67,8 +74,6 @@ async fn main() -> anyhow::Result<()> {
         },
     };
     let sender = Safe4337UserOpSender::new(sender_cfg).await?;
-    let telemetry = RealtorTelemetry::new();
-
     let state = AppState {
         cfg,
         indexer,
@@ -104,12 +109,14 @@ async fn main() -> anyhow::Result<()> {
                         .get("x-request-id")
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("-");
-                    tracing::info_span!(
+                    let span = tracing::info_span!(
                         "http.request",
                         request_id = %request_id,
                         method = %req.method(),
                         path = %matched
-                    )
+                    );
+                    untron_observability::set_span_parent_from_headers(&span, req.headers());
+                    span
                 })
                 .on_response(
                     |res: &Response<_>, latency: std::time::Duration, span: &tracing::Span| {

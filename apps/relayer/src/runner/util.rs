@@ -2,6 +2,7 @@ use crate::{metrics::RelayerTelemetry, tron::grpc::TronGrpc};
 use alloy::primitives::{FixedBytes, U256};
 use anyhow::{Context, Result};
 use std::time::Instant;
+use tracing::Instrument;
 
 pub(super) async fn run_job<T, F, Fut>(
     telemetry: &RelayerTelemetry,
@@ -12,15 +13,20 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
+    let span = tracing::info_span!("job", job = name);
     let start = Instant::now();
-    match f().await {
+    let res = async move { f().await }.instrument(span.clone()).await;
+    let ms = start.elapsed().as_millis() as u64;
+
+    match res {
         Ok(v) => {
-            telemetry.job_ok(name, start.elapsed().as_millis() as u64);
+            telemetry.job_ok(name, ms);
+            tracing::info!(parent: &span, ms, "job ok");
             Ok(v)
         }
         Err(err) => {
-            telemetry.job_err(name, start.elapsed().as_millis() as u64);
-            tracing::error!(job = name, err = %err, "job failed");
+            telemetry.job_err(name, ms);
+            tracing::error!(parent: &span, ms, err = %err, "job failed");
             Err(err)
         }
     }

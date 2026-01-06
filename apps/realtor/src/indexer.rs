@@ -1,9 +1,12 @@
 use anyhow::{Context, Result};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use untron_v3_indexer_client::{Client, types};
+
+use crate::metrics::RealtorTelemetry;
 
 pub struct IndexerApi {
     client: Client,
+    telemetry: RealtorTelemetry,
 }
 
 #[derive(Debug, Clone)]
@@ -13,7 +16,7 @@ pub struct BridgerPair {
 }
 
 impl IndexerApi {
-    pub fn new(base_url: &str, timeout: Duration) -> Result<Self> {
+    pub fn new(base_url: &str, timeout: Duration, telemetry: RealtorTelemetry) -> Result<Self> {
         let base_url = base_url.trim_end_matches('/').to_string();
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -21,7 +24,20 @@ impl IndexerApi {
             .context("build indexer http client")?;
         Ok(Self {
             client: Client::new_with_client(&base_url, client),
+            telemetry,
         })
+    }
+
+    async fn timed<T>(
+        &self,
+        op: &'static str,
+        f: impl std::future::Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let start = Instant::now();
+        let res = f.await;
+        self.telemetry
+            .indexer_http_ms(op, res.is_ok(), start.elapsed().as_millis() as u64);
+        res
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
@@ -31,16 +47,19 @@ impl IndexerApi {
     ) -> Result<bool> {
         let beneficiary_filter = format!("eq.{beneficiary_addr_lower_hex}");
         let rows = self
-            .client
-            .hub_claims_get()
-            .beneficiary(beneficiary_filter)
-            .status("eq.filled")
-            .select("lease_id")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_claims_get filled by beneficiary: {e:?}"))?
-            .into_inner();
+            .timed("hub_claims_get_filled_by_beneficiary", async {
+                self.client
+                    .hub_claims_get()
+                    .beneficiary(beneficiary_filter)
+                    .status("eq.filled")
+                    .select("lease_id")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_claims_get filled by beneficiary: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(!rows.is_empty())
     }
 
@@ -51,14 +70,17 @@ impl IndexerApi {
     ) -> Result<Option<types::RealtorEffectiveConfig>> {
         let realtor_filter = format!("eq.{realtor_addr_lower_hex}");
         let rows = self
-            .client
-            .realtor_effective_config_get()
-            .realtor(realtor_filter)
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("realtor_effective_config_get: {e:?}"))?
-            .into_inner();
+            .timed("realtor_effective_config_get", async {
+                self.client
+                    .realtor_effective_config_get()
+                    .realtor(realtor_filter)
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("realtor_effective_config_get: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
@@ -70,36 +92,42 @@ impl IndexerApi {
         require_free: bool,
         require_nonzero_balance: bool,
     ) -> Result<Vec<types::ReceiverSaltCandidates>> {
-        let mut req = self
-            .client
-            .receiver_salt_candidates_get()
-            .order(order)
-            .limit(limit.to_string());
+        self.timed("receiver_salt_candidates_get", async {
+            let mut req = self
+                .client
+                .receiver_salt_candidates_get()
+                .order(order)
+                .limit(limit.to_string());
 
-        if require_free {
-            req = req.is_free("eq.true");
-        }
-        if require_nonzero_balance {
-            req = req.has_balance("eq.true");
-        }
+            if require_free {
+                req = req.is_free("eq.true");
+            }
+            if require_nonzero_balance {
+                req = req.has_balance("eq.true");
+            }
 
-        req.send()
-            .await
-            .map_err(|e| anyhow::anyhow!("receiver_salt_candidates_get: {e:?}"))
-            .map(|r| r.into_inner())
+            req.send()
+                .await
+                .map_err(|e| anyhow::anyhow!("receiver_salt_candidates_get: {e:?}"))
+                .map(|r| r.into_inner())
+        })
+        .await
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
     pub async fn bridger_pairs_current(&self) -> Result<Vec<BridgerPair>> {
         let rows = self
-            .client
-            .hub_bridgers_get()
-            .valid_to_seq("is.null")
-            .select("target_token,target_chain_id")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_bridgers_get current: {e:?}"))?
-            .into_inner();
+            .timed("hub_bridgers_get_current", async {
+                self.client
+                    .hub_bridgers_get()
+                    .valid_to_seq("is.null")
+                    .select("target_token,target_chain_id")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_bridgers_get current: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
 
         let mut out = Vec::new();
         for r in rows {
@@ -127,17 +155,20 @@ impl IndexerApi {
         let token_filter = format!("eq.{}", target_token);
         let chain_filter = format!("eq.{}", target_chain_id);
         let rows = self
-            .client
-            .hub_bridgers_get()
-            .target_token(token_filter)
-            .target_chain_id(chain_filter)
-            .valid_to_seq("is.null")
-            .select("target_token")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_bridgers_get by pair: {e:?}"))?
-            .into_inner();
+            .timed("hub_bridgers_get_by_pair", async {
+                self.client
+                    .hub_bridgers_get()
+                    .target_token(token_filter)
+                    .target_chain_id(chain_filter)
+                    .valid_to_seq("is.null")
+                    .select("target_token")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_bridgers_get by pair: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(!rows.is_empty())
     }
 
@@ -148,14 +179,17 @@ impl IndexerApi {
     ) -> Result<Option<types::ReceiverSaltCandidates>> {
         let receiver_salt_filter = format!("eq.{receiver_salt_hex}");
         let rows = self
-            .client
-            .receiver_salt_candidates_get()
-            .receiver_salt(receiver_salt_filter)
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("receiver_salt_candidates_get by salt: {e:?}"))?
-            .into_inner();
+            .timed("receiver_salt_candidates_get_by_salt", async {
+                self.client
+                    .receiver_salt_candidates_get()
+                    .receiver_salt(receiver_salt_filter)
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("receiver_salt_candidates_get by salt: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
@@ -163,15 +197,18 @@ impl IndexerApi {
     pub async fn hub_lease(&self, lease_id: u64) -> Result<Option<types::HubLeases>> {
         let lease_filter = format!("eq.{lease_id}");
         let rows = self
-            .client
-            .hub_leases_get()
-            .lease_id(lease_filter)
-            .valid_to_seq("is.null")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_leases_get by lease_id: {e:?}"))?
-            .into_inner();
+            .timed("hub_leases_get_by_lease_id", async {
+                self.client
+                    .hub_leases_get()
+                    .lease_id(lease_filter)
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_leases_get by lease_id: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
@@ -179,29 +216,35 @@ impl IndexerApi {
     pub async fn hub_lease_nonce(&self, lease_id: u64) -> Result<Option<types::HubLeaseNonces>> {
         let lease_filter = format!("eq.{lease_id}");
         let rows = self
-            .client
-            .hub_lease_nonces_get()
-            .lease_id(lease_filter)
-            .valid_to_seq("is.null")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_lease_nonces_get by lease_id: {e:?}"))?
-            .into_inner();
+            .timed("hub_lease_nonces_get_by_lease_id", async {
+                self.client
+                    .hub_lease_nonces_get()
+                    .lease_id(lease_filter)
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_lease_nonces_get by lease_id: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
     pub async fn hub_protocol_config(&self) -> Result<Option<types::HubProtocolConfig>> {
         let rows = self
-            .client
-            .hub_protocol_config_get()
-            .valid_to_seq("is.null")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_protocol_config_get: {e:?}"))?
-            .into_inner();
+            .timed("hub_protocol_config_get", async {
+                self.client
+                    .hub_protocol_config_get()
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_protocol_config_get: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
@@ -212,15 +255,18 @@ impl IndexerApi {
     ) -> Result<Option<types::HubSwapRates>> {
         let token_filter = format!("eq.{target_token_lower_hex}");
         let rows = self
-            .client
-            .hub_swap_rates_get()
-            .target_token(token_filter)
-            .valid_to_seq("is.null")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_swap_rates_get by target_token: {e:?}"))?
-            .into_inner();
+            .timed("hub_swap_rates_get_by_token", async {
+                self.client
+                    .hub_swap_rates_get()
+                    .target_token(token_filter)
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_swap_rates_get by target_token: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
@@ -228,15 +274,18 @@ impl IndexerApi {
     pub async fn hub_chain(&self, target_chain_id: u64) -> Result<Option<types::HubChains>> {
         let chain_filter = format!("eq.{target_chain_id}");
         let rows = self
-            .client
-            .hub_chains_get()
-            .target_chain_id(chain_filter)
-            .valid_to_seq("is.null")
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("hub_chains_get by target_chain_id: {e:?}"))?
-            .into_inner();
+            .timed("hub_chains_get_by_chain_id", async {
+                self.client
+                    .hub_chains_get()
+                    .target_chain_id(chain_filter)
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_chains_get by target_chain_id: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 
@@ -245,14 +294,17 @@ impl IndexerApi {
     pub async fn lease_view_row(&self, lease_id: u64) -> Result<Option<types::LeaseView>> {
         let lease_filter = format!("eq.{lease_id}");
         let rows = self
-            .client
-            .lease_view_get()
-            .lease_id(lease_filter)
-            .limit("1")
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("lease_view_get by lease_id: {e:?}"))?
-            .into_inner();
+            .timed("lease_view_get_by_lease_id", async {
+                self.client
+                    .lease_view_get()
+                    .lease_id(lease_filter)
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("lease_view_get by lease_id: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
         Ok(rows.into_iter().next())
     }
 }

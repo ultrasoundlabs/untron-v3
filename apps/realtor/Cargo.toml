@@ -15,17 +15,14 @@ serde_json = "1.0.148"
 tokio = { version = "1.49.0", features = ["full"] }
 tokio-util = "0.7.16"
 tracing = "0.1.44"
-tracing-opentelemetry = "0.32.0"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 tower-http = { version = "0.6.8", features = ["trace", "request-id"] }
 opentelemetry = "0.31.0"
-opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["trace", "metrics"] }
 alloy = { version = "1.2.1", features = ["full", "json", "serde", "contract", "sol-types", "eip712"] }
 alloy-provider = { version = "1.2", features = ["erc4337-api"] }
 k256 = "0.13.4"
 untron-v3-indexer-client = { path = "../../crates/indexer-client" }
 untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }
+untron-observability = { path = "../../crates/observability" }
 utoipa = "5.4.0"
 utoipa-axum = "0.2.0"

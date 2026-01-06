@@ -3,7 +3,6 @@ mod db;
 mod domain;
 mod event_chain;
 mod metrics;
-mod observability;
 mod receiver_usdt;
 mod rpc;
 mod shared;
@@ -17,7 +16,10 @@ use tracing::info;
 async fn main() -> Result<()> {
     dotenv().ok();
 
-    let otel = observability::init("indexer")?;
+    let otel = untron_observability::init(untron_observability::Config {
+        service_name: "indexer",
+        service_version: env!("CARGO_PKG_VERSION"),
+    })?;
 
     let config::AppConfig {
         database_url,
@@ -133,13 +135,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    match fatal {
-        Some(e) => Err(e),
-        None => {
-            otel.shutdown().await;
-            Ok(())
-        }
-    }
+    otel.shutdown().await;
+    fatal.map_or(Ok(()), Err)
 }
 
 async fn shutdown_signal() -> Result<()> {

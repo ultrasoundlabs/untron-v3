@@ -1,7 +1,6 @@
 mod config;
 mod indexer;
 mod metrics;
-mod observability;
 mod runner;
 mod tron;
 
@@ -13,7 +12,10 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let cfg = config::load_config()?;
-    let otel = observability::init("relayer")?;
+    let otel = untron_observability::init(untron_observability::Config {
+        service_name: "relayer",
+        service_version: env!("CARGO_PKG_VERSION"),
+    })?;
     let telemetry = metrics::RelayerTelemetry::new();
 
     tracing::info!("relayer starting");
@@ -64,13 +66,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    match fatal {
-        Some(e) => Err(e),
-        None => {
-            otel.shutdown().await;
-            Ok(())
-        }
-    }
+    otel.shutdown().await;
+    fatal.map_or(Ok(()), Err)
 }
 
 async fn shutdown_signal() -> Result<()> {

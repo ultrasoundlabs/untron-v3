@@ -11,6 +11,16 @@ docker compose -f infra/docker-compose.yml up -d
 - Swagger UI: `http://localhost:8080/docs`
 - OpenAPI (3.x): `http://localhost:8080/openapi.json`
 
+### Observability (Prometheus + Grafana + Tempo)
+
+```bash
+docker compose -f infra/docker-compose.yml --profile observability up -d
+```
+
+- Grafana: `http://localhost:3000` (admin/admin)
+- Prometheus: `http://localhost:9090`
+- Tempo: `http://localhost:3200`
+
 Optional services (profiles):
 
 ```bash

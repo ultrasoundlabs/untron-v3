@@ -18,6 +18,12 @@ struct Inner {
     tron_tx_errors_total: Counter<u64>,
 
     job_ms: Histogram<u64>,
+    hub_submit_ms: Histogram<u64>,
+    tron_broadcast_ms: Histogram<u64>,
+    indexer_http_ms: Histogram<u64>,
+    hub_rpc_ms: Histogram<u64>,
+    tron_proof_ms: Histogram<u64>,
+    tron_grpc_ms: Histogram<u64>,
 }
 
 impl RelayerTelemetry {
@@ -55,6 +61,42 @@ impl RelayerTelemetry {
             .with_unit("ms")
             .build();
 
+        let hub_submit_ms = meter
+            .u64_histogram("relayer.hub_submit_ms")
+            .with_description("Hub userop submission runtime")
+            .with_unit("ms")
+            .build();
+
+        let tron_broadcast_ms = meter
+            .u64_histogram("relayer.tron_broadcast_ms")
+            .with_description("Tron transaction broadcast runtime")
+            .with_unit("ms")
+            .build();
+
+        let indexer_http_ms = meter
+            .u64_histogram("relayer.indexer_http_ms")
+            .with_description("Indexer (PostgREST) HTTP request runtime")
+            .with_unit("ms")
+            .build();
+
+        let hub_rpc_ms = meter
+            .u64_histogram("relayer.hub_rpc_ms")
+            .with_description("Hub chain JSON-RPC call runtime")
+            .with_unit("ms")
+            .build();
+
+        let tron_proof_ms = meter
+            .u64_histogram("relayer.tron_proof_ms")
+            .with_description("Tron proof build runtime")
+            .with_unit("ms")
+            .build();
+
+        let tron_grpc_ms = meter
+            .u64_histogram("relayer.tron_grpc_ms")
+            .with_description("Tron gRPC call runtime")
+            .with_unit("ms")
+            .build();
+
         Self {
             inner: Arc::new(Inner {
                 jobs_total,
@@ -64,6 +106,12 @@ impl RelayerTelemetry {
                 tron_txs_total,
                 tron_tx_errors_total,
                 job_ms,
+                hub_submit_ms,
+                tron_broadcast_ms,
+                indexer_http_ms,
+                hub_rpc_ms,
+                tron_proof_ms,
+                tron_grpc_ms,
             }),
         }
     }
@@ -95,5 +143,47 @@ impl RelayerTelemetry {
 
     pub fn tron_tx_err(&self) {
         self.inner.tron_tx_errors_total.add(1, &[]);
+    }
+
+    pub fn hub_submit_ms(&self, name: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            KeyValue::new("name", name),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.hub_submit_ms.record(ms, &attrs);
+    }
+
+    pub fn tron_broadcast_ms(&self, ok: bool, ms: u64) {
+        let attrs = [KeyValue::new("status", if ok { "ok" } else { "err" })];
+        self.inner.tron_broadcast_ms.record(ms, &attrs);
+    }
+
+    pub fn indexer_http_ms(&self, op: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            KeyValue::new("op", op),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.indexer_http_ms.record(ms, &attrs);
+    }
+
+    pub fn hub_rpc_ms(&self, op: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            KeyValue::new("op", op),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.hub_rpc_ms.record(ms, &attrs);
+    }
+
+    pub fn tron_proof_ms(&self, ok: bool, ms: u64) {
+        let attrs = [KeyValue::new("status", if ok { "ok" } else { "err" })];
+        self.inner.tron_proof_ms.record(ms, &attrs);
+    }
+
+    pub fn tron_grpc_ms(&self, op: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            KeyValue::new("op", op),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.tron_grpc_ms.record(ms, &attrs);
     }
 }

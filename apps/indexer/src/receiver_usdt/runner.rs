@@ -3,6 +3,7 @@ use crate::{
     config::{ReceiverUsdtConfig, Stream, StreamConfig},
     db::{self, ResolvedStream},
     receiver_usdt::range,
+    receiver_usdt::telemetry::ReceiverUsdtTelemetry,
     rpc::RpcProviders,
     shared::{r#async, r#async::timed_await_or_cancel, timestamps},
 };
@@ -45,6 +46,8 @@ struct ProcessCtx<'a> {
     timestamps_state: &'a mut timestamps::TimestampState,
     progress: &'a mut ProgressReporter,
     receiver_usdt_cfg: &'a ReceiverUsdtConfig,
+    telemetry: &'a ReceiverUsdtTelemetry,
+    mode: &'static str,
     chain_id_i64: i64,
 }
 
@@ -332,6 +335,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         RunnerMode::Tail => "receiver_usdt_tail",
         RunnerMode::Backfill => "receiver_usdt_backfill",
     };
+    let telemetry = ReceiverUsdtTelemetry::new();
     let mut progress = ProgressReporter::new_receiver_usdt(
         label,
         progress_interval,
@@ -347,6 +351,8 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         timestamps_state: &mut timestamps_state,
         progress: &mut progress,
         receiver_usdt_cfg,
+        telemetry: &telemetry,
+        mode: label,
         chain_id_i64,
     };
 
@@ -530,11 +536,13 @@ async fn process_block_range(
         }
 
         for chunk in to_addrs.chunks(batch_size) {
-            match range::process_token_range(
+            let res = range::process_token_range(
                 ctx.dbh,
                 ctx.shutdown,
                 ctx.provider,
                 ctx.timestamps_state,
+                ctx.telemetry,
+                ctx.mode,
                 range::ReceiverSet {
                     to_addrs: chunk,
                     addr_to_salt: receiver_map,
@@ -547,10 +555,24 @@ async fn process_block_range(
                     to_block: seg_to,
                 },
             )
-            .await?
-            {
-                Some(metrics) => ctx.progress.observe_range(metrics),
-                None => return Ok(None),
+            .await;
+
+            match res {
+                Ok(Some(metrics)) => {
+                    ctx.telemetry.observe_range(
+                        ctx.mode,
+                        token_tron.as_str(),
+                        chunk.len() as u64,
+                        metrics.logs,
+                        metrics.rows,
+                        metrics.rpc_ms,
+                        metrics.db_ms,
+                        metrics.total_ms,
+                    );
+                    ctx.progress.observe_range(metrics);
+                }
+                Ok(None) => return Ok(None),
+                Err(e) => return Err(e),
             }
         }
     }

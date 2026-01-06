@@ -1,5 +1,6 @@
 [workspace]
 members = [
   "apps/indexer", "apps/realtor", "apps/relayer",
+  "crates/observability",
 ]
 resolver = "2"

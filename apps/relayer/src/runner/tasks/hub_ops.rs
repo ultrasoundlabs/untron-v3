@@ -11,6 +11,7 @@ use alloy::{
     primitives::{FixedBytes, U256},
     sol_types::SolCall,
 };
+use std::time::Instant;
 
 fn pre_entitle_finalized(
     block_number: u64,
@@ -23,8 +24,23 @@ fn pre_entitle_finalized(
 
 pub async fn plan_process_controller_events(ctx: &RelayerContext) -> Result<Plan<HubIntent>> {
     let hub_contract = ctx.hub_contract();
-    let next_idx = hub_contract.nextControllerEventIndex().call().await?;
-    let last_seq = hub_contract.lastControllerEventSeq().call().await?;
+    let start = Instant::now();
+    let next_idx_res = hub_contract.nextControllerEventIndex().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "nextControllerEventIndex",
+        next_idx_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let next_idx = next_idx_res?;
+
+    let start = Instant::now();
+    let last_seq_res = hub_contract.lastControllerEventSeq().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "lastControllerEventSeq",
+        last_seq_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let last_seq = last_seq_res?;
     if next_idx >= last_seq {
         return Ok(Plan::none());
     }
@@ -65,12 +81,14 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         let txid = parse_txid32(txid_hex)?;
         let txid_b32 = FixedBytes::from_slice(&txid);
 
-        if hub_contract
-            .depositProcessed(txid_b32)
-            .call()
-            .await
-            .context("hub depositProcessed")?
-        {
+        let start = Instant::now();
+        let processed_res = hub_contract.depositProcessed(txid_b32).call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "depositProcessed",
+            processed_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        if processed_res.context("hub depositProcessed")? {
             continue;
         }
 
@@ -98,7 +116,11 @@ pub async fn execute_hub_intent(
     let data = match intent {
         HubIntent::RelayControllerEventChain { proof_txid, events } => {
             let mut tron = ctx.tron_read.clone();
-            let bundle = ctx.tron_proof.build(&mut tron, proof_txid).await?;
+            let start = Instant::now();
+            let bundle_res = ctx.tron_proof.build(&mut tron, proof_txid).await;
+            ctx.telemetry
+                .tron_proof_ms(bundle_res.is_ok(), start.elapsed().as_millis() as u64);
+            let bundle = bundle_res?;
             let blocks: [alloy::primitives::Bytes; 20] =
                 std::array::from_fn(|i| bundle.blocks[i].clone().into());
 
@@ -120,7 +142,11 @@ pub async fn execute_hub_intent(
             txid,
         } => {
             let mut tron = ctx.tron_read.clone();
-            let bundle = ctx.tron_proof.build(&mut tron, txid).await?;
+            let start = Instant::now();
+            let bundle_res = ctx.tron_proof.build(&mut tron, txid).await;
+            ctx.telemetry
+                .tron_proof_ms(bundle_res.is_ok(), start.elapsed().as_millis() as u64);
+            let bundle = bundle_res?;
             let blocks: [alloy::primitives::Bytes; 20] =
                 std::array::from_fn(|i| bundle.blocks[i].clone().into());
             preEntitleCall {

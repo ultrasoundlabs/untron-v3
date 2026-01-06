@@ -98,8 +98,12 @@ pub async fn get_realtor(
 
     let ms = start.elapsed().as_millis() as u64;
     match &result {
-        Ok(_) => state.telemetry.http_ok("get_realtor", ms),
-        Err(e) => state.telemetry.http_err("get_realtor", e.kind(), ms),
+        Ok(_) => state.telemetry.http_ok("GET", "get_realtor", 200, ms),
+        Err(e) => {
+            state
+                .telemetry
+                .http_err("GET", "get_realtor", e.kind(), e.status_code().as_u16(), ms)
+        }
     }
     result
 }
@@ -279,8 +283,14 @@ pub async fn post_realtor(
 
     let ms = start.elapsed().as_millis() as u64;
     match &result {
-        Ok(_) => state.telemetry.http_ok("post_realtor", ms),
-        Err(e) => state.telemetry.http_err("post_realtor", e.kind(), ms),
+        Ok(_) => state.telemetry.http_ok("POST", "post_realtor", 200, ms),
+        Err(e) => state.telemetry.http_err(
+            "POST",
+            "post_realtor",
+            e.kind(),
+            e.status_code().as_u16(),
+            ms,
+        ),
     }
     result
 }

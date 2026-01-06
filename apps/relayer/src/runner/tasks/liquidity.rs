@@ -6,6 +6,7 @@ use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub enum LiquidityIntent {
@@ -76,7 +77,14 @@ pub async fn plan_liquidity(
     }
 
     let hub_contract = ctx.hub_contract();
-    let usdt_balance = hub_contract.usdtBalance().call().await?;
+    let start = Instant::now();
+    let usdt_balance_res = hub_contract.usdtBalance().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "usdtBalance",
+        usdt_balance_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let usdt_balance = usdt_balance_res?;
     let first_amt = number_to_u256(
         claims[0]
             .amount_usdt

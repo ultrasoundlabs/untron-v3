@@ -52,6 +52,48 @@ services:
     depends_on:
       - postgres_exporter
 
+  tempo:
+    image: grafana/tempo:2.7.0
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200" # Tempo query/UI API
+    expose:
+      - "4317" # OTLP gRPC
+      - "4318" # OTLP HTTP
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otelcol
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+
   pgweb:
     image: sosedoff/pgweb:0.17.0
     restart: unless-stopped
@@ -200,3 +242,6 @@ services:
 
 volumes:
   db_data:
+  grafana_data:
+  prometheus_data:
+  tempo_data:

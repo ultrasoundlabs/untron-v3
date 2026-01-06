@@ -13,6 +13,7 @@ struct Inner {
     http_requests_total: Counter<u64>,
     http_request_errors_total: Counter<u64>,
     http_request_ms: Histogram<u64>,
+    indexer_http_ms: Histogram<u64>,
 
     leases_created_total: Counter<u64>,
     userops_sent_total: Counter<u64>,
@@ -39,6 +40,12 @@ impl RealtorTelemetry {
             .with_unit("ms")
             .build();
 
+        let indexer_http_ms = meter
+            .u64_histogram("realtor.indexer_http_ms")
+            .with_description("Indexer (PostgREST) HTTP request runtime")
+            .with_unit("ms")
+            .build();
+
         let leases_created_total = meter
             .u64_counter("realtor.leases_created_total")
             .with_description("Total successful lease creations")
@@ -62,6 +69,7 @@ impl RealtorTelemetry {
                 http_requests_total,
                 http_request_errors_total,
                 http_request_ms,
+                indexer_http_ms,
                 leases_created_total,
                 userops_sent_total,
                 receiver_salt_zero_balance_fallback_total,
@@ -70,14 +78,30 @@ impl RealtorTelemetry {
         }
     }
 
-    pub fn http_ok(&self, route: &'static str, ms: u64) {
-        let attrs = [KeyValue::new("route", route), KeyValue::new("status", "ok")];
+    pub fn http_ok(&self, method: &'static str, route: &'static str, status_code: u16, ms: u64) {
+        let attrs = [
+            KeyValue::new("method", method),
+            KeyValue::new("route", route),
+            KeyValue::new("status_code", status_code.to_string()),
+        ];
         self.inner.http_requests_total.add(1, &attrs);
         self.inner.http_request_ms.record(ms, &attrs);
     }
 
-    pub fn http_err(&self, route: &'static str, kind: &'static str, ms: u64) {
-        let attrs = [KeyValue::new("route", route), KeyValue::new("status", kind)];
+    pub fn http_err(
+        &self,
+        method: &'static str,
+        route: &'static str,
+        kind: &'static str,
+        status_code: u16,
+        ms: u64,
+    ) {
+        let attrs = [
+            KeyValue::new("method", method),
+            KeyValue::new("route", route),
+            KeyValue::new("kind", kind),
+            KeyValue::new("status_code", status_code.to_string()),
+        ];
         self.inner.http_requests_total.add(1, &attrs);
         self.inner.http_request_errors_total.add(1, &attrs);
         self.inner.http_request_ms.record(ms, &attrs);
@@ -102,5 +126,13 @@ impl RealtorTelemetry {
         self.inner
             .receiver_salt_balance_picker_fallback_total
             .add(1, &[]);
+    }
+
+    pub fn indexer_http_ms(&self, op: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            KeyValue::new("op", op),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.indexer_http_ms.record(ms, &attrs);
     }
 }

@@ -6,6 +6,7 @@ use tracing::{Instrument, debug};
 
 use crate::{
     db::receiver_usdt as db,
+    receiver_usdt::telemetry::ReceiverUsdtTelemetry,
     shared::{
         r#async,
         progress::RangeMetrics,
@@ -32,6 +33,8 @@ pub(crate) async fn process_token_range(
     shutdown: &CancellationToken,
     provider: &alloy::providers::DynProvider,
     timestamps_state: &mut TimestampState,
+    telemetry: &ReceiverUsdtTelemetry,
+    mode: &'static str,
     receivers: ReceiverSet<'_>,
     range: TokenRange<'_>,
 ) -> Result<Option<RangeMetrics>> {
@@ -82,6 +85,7 @@ pub(crate) async fn process_token_range(
 
         let Some((raw_logs, rpc_ms)) = r#async::timed_await_or_cancel(shutdown, async {
             provider.get_logs(&filter).await.map_err(|e| {
+                telemetry.error(mode, token_tron, "rpc");
                 anyhow::Error::new(e).context(format!(
                     "eth_getLogs receiver_usdt Transfer [{from_block}..{to_block}]"
                 ))
@@ -98,6 +102,10 @@ pub(crate) async fn process_token_range(
             timestamps_state
                 .populate_timestamps(shutdown, provider, &logs, &[])
                 .await
+                .map_err(|e| {
+                    telemetry.error(mode, token_tron, "timestamp");
+                    e
+                })
                 .context("timestamp enrichment")
         })
         .await?
@@ -112,10 +120,10 @@ pub(crate) async fn process_token_range(
         let token = token_tron.to_string();
         let mut rows = Vec::with_capacity(logs.len());
         for l in logs {
-            let decoded = l
-                .log
-                .log_decode::<ERC20::Transfer>()
-                .map_err(|e| anyhow::anyhow!("Transfer decode failed: {e}"))?;
+            let decoded = l.log.log_decode::<ERC20::Transfer>().map_err(|e| {
+                telemetry.error(mode, token_tron, "decode");
+                anyhow::anyhow!("Transfer decode failed: {e}")
+            })?;
 
             let from: alloy::primitives::Address = decoded.inner.data.from;
             let to: alloy::primitives::Address = decoded.inner.data.to;
@@ -146,7 +154,10 @@ pub(crate) async fn process_token_range(
         let decode_ms = decode_start.elapsed().as_millis() as u64;
 
         let db_start = Instant::now();
-        db::insert_transfers(dbh, &rows).await?;
+        db::insert_transfers(dbh, &rows).await.map_err(|e| {
+            telemetry.error(mode, token_tron, "db");
+            e
+        })?;
         let db_ms = db_start.elapsed().as_millis() as u64;
         let total_ms = start.elapsed().as_millis() as u64;
 

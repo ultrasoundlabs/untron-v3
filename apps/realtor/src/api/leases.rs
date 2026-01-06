@@ -159,8 +159,12 @@ pub async fn get_lease(
 
     let ms = start.elapsed().as_millis() as u64;
     match &result {
-        Ok(_) => state.telemetry.http_ok("get_lease", ms),
-        Err(e) => state.telemetry.http_err("get_lease", e.kind(), ms),
+        Ok(_) => state.telemetry.http_ok("GET", "get_lease", 200, ms),
+        Err(e) => {
+            state
+                .telemetry
+                .http_err("GET", "get_lease", e.kind(), e.status_code().as_u16(), ms)
+        }
     }
     result
 }

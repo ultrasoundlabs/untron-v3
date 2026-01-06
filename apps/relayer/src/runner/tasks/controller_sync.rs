@@ -6,6 +6,7 @@ use untron_v3_bindings::untron_v3::UntronV3Base::ControllerEvent;
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{parse_bytes32, parse_hex_bytes, parse_txid32, u256_to_u64};
 use crate::runner::{RelayerContext, RelayerState, Tick};
+use std::time::Instant;
 
 fn plan_controller_tip_proof_decision(
     tip_hex: String,
@@ -139,12 +140,26 @@ pub async fn plan_relay_controller_chain(
     }
 
     let hub_contract = ctx.hub_contract();
-    let hub_tip = hub_contract.lastControllerEventTip().call().await?;
+    let start = Instant::now();
+    let hub_tip_res = hub_contract.lastControllerEventTip().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "lastControllerEventTip",
+        hub_tip_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let hub_tip = hub_tip_res?;
     if hub_tip == target_tip_b32 {
         return Ok(Plan::none());
     }
 
-    let hub_seq_u256 = hub_contract.lastControllerEventSeq().call().await?;
+    let start = Instant::now();
+    let hub_seq_u256_res = hub_contract.lastControllerEventSeq().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "lastControllerEventSeq",
+        hub_seq_u256_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let hub_seq_u256 = hub_seq_u256_res?;
     let hub_seq = u256_to_u64(hub_seq_u256).context("hub lastControllerEventSeq out of range")?;
     let target_seq_u64 = u64::try_from(target_seq).context("controller event_seq out of range")?;
     if hub_seq >= target_seq_u64 {
