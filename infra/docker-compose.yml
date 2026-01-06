@@ -87,16 +87,20 @@ services:
       PGRST_ADMIN_SERVER_PORT: 3001
       PGRST_ADMIN_SERVER_HOST: 0.0.0.0
 
-  swagger:
-    image: swaggerapi/swagger-ui:v5.31.0
+  scalar:
+    image: scalarapi/api-reference:latest
     restart: unless-stopped
     expose:
-      - "8080" # we expose swagger through caddy for clean PostgREST+Swagger multi-path
+      - "8080"
     environment:
-      BASE_URL: /docs
-      SWAGGER_JSON_URL: /openapi.json
-      VALIDATOR_URL: ""
-      SUPPORTED_SUBMIT_METHODS: '["get","post"]'
+      # This is Scalar's main config mechanism in the Docker image
+      # (you can also mount files into /docs instead)
+      API_REFERENCE_CONFIG: >
+        {
+          "sources": [
+            { "url": "/openapi.json", "title": "Untron API", "default": true }
+          ]
+        }
 
   openapi_sidecar:
     image: node:20-slim
@@ -185,7 +189,7 @@ services:
     depends_on:
       postgrest:
         condition: service_started
-      swagger:
+      scalar:
         condition: service_started
       openapi_sidecar:
         condition: service_healthy

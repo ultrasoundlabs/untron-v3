@@ -17,6 +17,6 @@ use utoipa::OpenApi;
             crate::api::ErrorResponse
         )
     ),
-    tags((name = "realtor", description = "Realtor API (Axum service)"))
+    tags((name = "realtor", description = "Realtor API"))
 )]
 pub struct RealtorApiDoc;

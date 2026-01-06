@@ -9,9 +9,9 @@
     reverse_proxy realtor:3000
   }
 
-  # Swagger UI
-  handle /docs* {
-    reverse_proxy swagger:8080
+  # API docs reference powered by Scalar
+  handle_path /docs* {
+    reverse_proxy scalar:8080
   }
 
   # Everything else goes to PostgREST (including "/" which serves the raw OpenAPI)
