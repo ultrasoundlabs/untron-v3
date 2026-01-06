@@ -1,6 +1,7 @@
 use crate::{config::Stream, db, domain};
 use alloy::{providers::Provider, rpc::types::BlockNumberOrTag};
 use anyhow::{Context, Result};
+use serde_json::Value;
 use tracing::{debug, warn};
 
 pub async fn detect_reorg_start(
@@ -123,12 +124,30 @@ async fn get_block_hash_opt(
     provider: &impl Provider,
     block_number: u64,
 ) -> Result<Option<domain::BlockHash>> {
-    let rpc_block = provider
-        .get_block_by_number(BlockNumberOrTag::Number(block_number))
+    // Tron JSON-RPC block responses are not Ethereum-typed (e.g. `stateRoot: "0x"`), which can
+    // break strict decoding. For reorg detection we only need the block hash, so fetch raw JSON.
+    let block: Option<Value> = provider
+        .client()
+        .request(
+            "eth_getBlockByNumber",
+            (BlockNumberOrTag::Number(block_number), false),
+        )
         .await
+        .map_err(anyhow::Error::new)
         .with_context(|| format!("get_block_by_number({block_number})"))?;
 
-    Ok(rpc_block.map(|b| domain::BlockHash(b.header.hash)))
+    let Some(block) = block else {
+        return Ok(None);
+    };
+
+    let hash = block
+        .get("hash")
+        .and_then(|v| v.as_str())
+        .context("missing block.hash")?;
+    let b256: alloy::primitives::B256 = hash
+        .parse()
+        .with_context(|| format!("invalid block.hash: {hash}"))?;
+    Ok(Some(domain::BlockHash::from(b256)))
 }
 
 // Returns `Some(reason)` when a mismatch is not confirmed (and we should avoid invalidation).

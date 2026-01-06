@@ -6,6 +6,7 @@ WORKDIR /repo
 
 # Copy only what this crate needs (keeps build context small with a good .dockerignore).
 COPY crates/bindings ./crates/bindings
+COPY crates/observability ./crates/observability
 COPY apps/indexer ./apps/indexer
 
 WORKDIR /repo/apps/indexer

@@ -1,4 +1,6 @@
-use alloy::{providers::Provider, rpc::types::Filter, sol_types::SolEvent};
+use alloy::{
+    eips::BlockId, providers::Provider, rpc::types::Filter, sol_types::SolCall, sol_types::SolEvent,
+};
 use anyhow::{Context, Result};
 use std::{collections::HashMap, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -198,16 +200,32 @@ pub(crate) async fn fetch_receiver_init_code_hash(
 ) -> Result<alloy::primitives::B256> {
     let contract = UntronController::new(controller_address, provider.clone());
     let call = contract.receiverBytecode();
-    let bytes = r#async::await_or_cancel(shutdown, async {
-        call.call()
+
+    // Tron JSON-RPC accepts `data` but may reject `input` (and may even error if both are present).
+    // Alloy defaults to `input`, so normalize into `data`-only.
+    let request = call.clone().into_transaction_request().normalized_data();
+
+    let return_data = r#async::await_or_cancel(shutdown, async {
+        provider
+            .call(request)
+            .block(BlockId::latest())
             .await
-            .map_err(|e| anyhow::Error::new(e).context("UntronController.receiverBytecode()"))
+            .map_err(|e| anyhow::Error::new(e).context("eth_call(receiverBytecode)"))
     })
     .await?
     .unwrap_or_default();
-    if bytes.is_empty() {
+
+    if return_data.is_empty() {
         return Ok(alloy::primitives::B256::ZERO);
     }
 
-    Ok(alloy::primitives::keccak256(bytes))
+    let decoded = <UntronController::receiverBytecodeCall as SolCall>::abi_decode_returns(
+        return_data.as_ref(),
+    )
+    .map_err(|e| anyhow::Error::new(e).context("decode receiverBytecode() return"))?;
+    if decoded.is_empty() {
+        return Ok(alloy::primitives::B256::ZERO);
+    }
+
+    Ok(alloy::primitives::keccak256(decoded))
 }

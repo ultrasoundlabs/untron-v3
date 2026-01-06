@@ -2,6 +2,7 @@ use alloy::providers::Provider;
 use anyhow::{Context, Result};
 use futures::{StreamExt, stream};
 use lru::LruCache;
+use serde_json::Value;
 use std::{collections::HashSet, num::NonZeroUsize, sync::Arc};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
@@ -94,14 +95,24 @@ impl TimestampState {
                     _ = shutdown.cancelled() => Ok::<Option<(u64, u64)>, anyhow::Error>(None),
                     permit = sem.acquire_owned() => {
                         let _permit = permit.expect("semaphore closed");
-                        let block = provider
-                            .get_block_by_number(alloy::rpc::types::BlockNumberOrTag::Number(block_number))
+                        // Some EVM-compatible RPCs (notably Tron) return nonstandard block fields
+                        // (e.g. `stateRoot: "0x"`) that can fail strict typed decoding. We only
+                        // need the block timestamp, so fetch the block as raw JSON and parse it.
+                        let block: Option<Value> = provider
+                            .client()
+                            .request(
+                                "eth_getBlockByNumber",
+                                (alloy::rpc::types::BlockNumberOrTag::Number(block_number), false),
+                            )
                             .await
-                            .with_context(|| format!("get_block_by_number({block_number})"))?;
+                            .map_err(|e| anyhow::Error::new(e))
+                            .with_context(|| format!("eth_getBlockByNumber({block_number})"))?;
                         let Some(block) = block else {
                             anyhow::bail!("block {block_number} not found");
                         };
-                        Ok(Some((block_number, normalize_timestamp_seconds(block.header.inner.timestamp))))
+                        let ts = parse_block_timestamp(&block)
+                            .with_context(|| format!("parse block.timestamp for block {block_number}"))?;
+                        Ok(Some((block_number, normalize_timestamp_seconds(ts))))
                     }
                 }
             }
@@ -119,6 +130,31 @@ impl TimestampState {
 
         Ok(())
     }
+}
+
+fn parse_block_timestamp(block: &Value) -> Result<u64> {
+    let ts = block.get("timestamp").context("missing block.timestamp")?;
+
+    match ts {
+        Value::String(s) => parse_quantity_u64(s).context("timestamp is not a valid quantity"),
+        Value::Number(n) => n
+            .as_u64()
+            .context("timestamp JSON number is not representable as u64"),
+        _ => anyhow::bail!("timestamp has unexpected JSON type"),
+    }
+}
+
+fn parse_quantity_u64(value: &str) -> Result<u64> {
+    let trimmed = value.trim();
+    let Some(hex) = trimmed.strip_prefix("0x") else {
+        return trimmed
+            .parse::<u64>()
+            .with_context(|| format!("invalid decimal u64: {value}"));
+    };
+    if hex.is_empty() {
+        anyhow::bail!("invalid hex quantity: {value}");
+    }
+    u64::from_str_radix(hex, 16).with_context(|| format!("invalid hex quantity: {value}"))
 }
 
 pub fn normalize_timestamp_seconds(timestamp: u64) -> u64 {
