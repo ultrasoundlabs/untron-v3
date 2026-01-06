@@ -751,8 +751,8 @@ $$EVM USDT accounting token address on the hub chain$$;
 comment on column api.hub_protocol_config.tron_usdt is
 $$Tron USDT TRC-20 contract address (base58) accepted by `preEntitle`$$;
 comment on column api.hub_protocol_config.tron_reader is
-$$Trusted Tron transaction reader address used to verify + decode Tron
-transactions$$;
+$$EVM address (on the hub chain) of the trusted Tron transaction reader contract
+used to verify + decode Tron transactions$$;
 comment on column api.hub_protocol_config.floor_ppm is
 $$Protocol-wide minimum percentage fee floor (ppm)$$;
 comment on column api.hub_protocol_config.floor_flat_fee is

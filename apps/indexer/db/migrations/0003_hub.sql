@@ -38,7 +38,7 @@ create table if not exists hub.protocol_config_versions (
 
     usdt evm_address null,
     tron_usdt tron_address null,
-    tron_reader tron_address null,
+    tron_reader evm_address null,
 
     floor_ppm bigint null,
     floor_flat_fee u256 null,
@@ -326,7 +326,7 @@ create or replace function hub.protocol_config_apply(
     p_seq bigint,
     p_usdt evm_address,
     p_tron_usdt tron_address,
-    p_tron_reader tron_address,
+    p_tron_reader evm_address,
     p_floor_ppm bigint,
     p_floor_flat_fee u256,
     p_max_lease_duration_seconds bigint,
@@ -696,7 +696,7 @@ begin
       p_seq,
       null,
       null,
-      chain.tron_address_from_text(p_args->>'reader'),
+      (p_args->>'reader')::evm_address,
       null, null, null, null, null
     );
 
@@ -1052,7 +1052,7 @@ $$Hub protocol configuration snapshot (versioned singleton)
 This is a convenience "current config" object derived from multiple hub events:
 - `UsdtSet`              → `usdt` (EVM accounting token address on the hub chain)
 - `TronUsdtSet`          → `tron_usdt` (Tron USDT contract address)
-- `TronReaderSet`        → `tron_reader` (trusted Tron transaction reader contract)
+- `TronReaderSet`        → `tron_reader` (trusted Tron transaction reader contract on the hub chain)
 - `ProtocolFloorSet`     → `floor_ppm` (minimum percentage fee floor)
 - `ProtocolFlatFeeFloorSet` → `floor_flat_fee` (minimum flat fee floor)
 - `ProtocolMaxLeaseDurationSet` → `max_lease_duration_seconds`
@@ -1066,8 +1066,8 @@ configured)$$;
 comment on column hub.protocol_config_versions.tron_usdt is
 $$Tron USDT TRC-20 contract address (base58) (nullable until configured)$$;
 comment on column hub.protocol_config_versions.tron_reader is
-$$Trusted Tron transaction reader address (on the hub chain) used to
-verify/parse Tron transactions$$;
+$$EVM address (on the hub chain) of the trusted Tron transaction reader contract
+used to verify/parse Tron transactions$$;
 comment on column hub.protocol_config_versions.floor_ppm is
 $$Protocol-wide minimum percentage fee floor (parts-per-million of raw
 volume)$$;
