@@ -8,6 +8,8 @@ broadcast
 
 # Build outputs
 **/dist
+!infra/openapi-sidecar/dist
+!infra/openapi-sidecar/dist/**
 
 # Generated ABIs
 # Either track all ABIs…

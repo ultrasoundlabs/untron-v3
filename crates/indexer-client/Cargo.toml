@@ -1,20 +1,29 @@
 [package]
 name = "untron-v3-indexer-client"
-version = "14.2.0"
-authors = ["OpenAPI Generator team and contributors"]
-description = "Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe."
-# Override this license by providing a License Object in the OpenAPI.
-license = "Unlicense"
-edition = "2021"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Typed client for the Untron V3 Indexer (PostgREST) API."
 
 [dependencies]
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = "^1.0"
-serde_repr = "^0.1"
-url = "^2.5"
-reqwest = { version = "^0.12", default-features = false, features = ["json", "multipart"] }
+bytes = "1.10.1"
+chrono = { version = "0.4.42", default-features = false, features = ["serde"] }
+futures-core = "0.3.31"
+progenitor-client = "0.11.2"
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "stream"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.143"
+serde_urlencoded = "0.7.1"
 
 [features]
 default = ["native-tls"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
+
+[build-dependencies]
+openapiv3 = "2.0.0"
+prettyplease = "0.2.29"
+progenitor = "0.11.2"
+serde_json = "1.0.143"
+syn = "2.0.96"
+typify = "0.4.3"

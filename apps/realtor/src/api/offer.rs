@@ -37,37 +37,42 @@ pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, 
         .await
         .map_err(|e| ApiError::Upstream(format!("indexer realtor_effective_config: {e}")))?;
 
-    let allowed = cfg.as_ref().map(|r| r.allowed).unwrap_or(false);
+    let allowed = cfg.as_ref().and_then(|r| r.allowed).unwrap_or(false);
 
     let min_fee_ppm = cfg
         .as_ref()
-        .map(|r| i64_to_u32(r.min_fee_ppm, "min_fee_ppm"))
+        .and_then(|r| r.min_fee_ppm)
+        .map(|v| i64_to_u32(v, "min_fee_ppm"))
         .transpose()
         .map_err(|e| ApiError::Upstream(format!("indexer realtor min_fee_ppm: {e}")))?
         .unwrap_or(0);
 
     let min_flat_fee = cfg
         .as_ref()
-        .map(|r| number_to_u64(&r.min_flat_fee, "min_flat_fee"))
+        .and_then(|r| r.min_flat_fee.as_ref())
+        .map(|n| number_to_u64(n, "min_flat_fee"))
         .transpose()
         .map_err(|e| ApiError::Upstream(format!("indexer realtor min_flat_fee: {e}")))?
         .unwrap_or(0);
 
     let max_duration_secs = cfg
         .as_ref()
-        .map(|r| i64_to_u64(r.max_duration_seconds, "max_duration_seconds"))
+        .and_then(|r| r.max_duration_seconds)
+        .map(|v| i64_to_u64(v, "max_duration_seconds"))
         .transpose()
         .map_err(|e| ApiError::Upstream(format!("indexer realtor max_duration_seconds: {e}")))?
         .unwrap_or(0);
 
     let lease_rate_max_leases = cfg
         .as_ref()
-        .and_then(|r| number_to_u64(&r.lease_rate_max_leases, "lease_rate_max_leases").ok())
+        .and_then(|r| r.lease_rate_max_leases.as_ref())
+        .and_then(|n| number_to_u64(n, "lease_rate_max_leases").ok())
         .unwrap_or(0);
 
     let lease_rate_window_seconds = cfg
         .as_ref()
-        .and_then(|r| number_to_u64(&r.lease_rate_window_seconds, "lease_rate_window_seconds").ok())
+        .and_then(|r| r.lease_rate_window_seconds.as_ref())
+        .and_then(|n| number_to_u64(n, "lease_rate_window_seconds").ok())
         .unwrap_or(0);
 
     let default_fee_ppm = state.cfg.leasing.lease_fee_ppm;

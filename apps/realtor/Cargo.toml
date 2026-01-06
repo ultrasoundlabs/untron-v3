@@ -27,3 +27,5 @@ k256 = "0.13.4"
 untron-v3-indexer-client = { path = "../../crates/indexer-client" }
 untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }
+utoipa = "5.4.0"
+utoipa-axum = "0.2.0"

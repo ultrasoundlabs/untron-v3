@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 use untron_v3_bindings::untron_v3::UntronV3;
+use utoipa::ToSchema;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -77,13 +78,13 @@ impl IntoResponse for ApiError {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateLeaseRequest {
     #[serde(default)]
     pub receiver_salt: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CreateLeaseResponse {
     pub receiver_salt: String,
     pub userop_hash: String,
@@ -91,7 +92,7 @@ pub struct CreateLeaseResponse {
     pub nukeable_after: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RealtorInfoResponse {
     pub safe: String,
     pub untron_v3: String,
@@ -124,6 +125,25 @@ pub struct RealtorInfoResponse {
     pub suggested_receiver_salt: Option<String>,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/realtor",
+    tag = "realtor",
+    responses(
+        (status = 200, description = "OK", body = RealtorInfoResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 409, description = "Conflict", body = ErrorResponse),
+        (status = 429, description = "Too many requests", body = ErrorResponse),
+        (status = 502, description = "Upstream error", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    )
+)]
 pub async fn get_realtor(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<RealtorInfoResponse>, ApiError> {
@@ -170,6 +190,21 @@ pub async fn get_realtor(
     result
 }
 
+#[utoipa::path(
+    post,
+    path = "/realtor",
+    tag = "realtor",
+    request_body = CreateLeaseRequest,
+    responses(
+        (status = 200, description = "OK", body = CreateLeaseResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 409, description = "Conflict", body = ErrorResponse),
+        (status = 429, description = "Too many requests", body = ErrorResponse),
+        (status = 502, description = "Upstream error", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    )
+)]
 pub async fn post_realtor(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateLeaseRequest>,

@@ -21,7 +21,7 @@ fn collect_proto_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=protos");
-    println!("cargo:rerun-if-changed=indexer/openapi.json");
+    println!("cargo:rerun-if-changed=../../crates/indexer-client/openapi.json");
 
     let proto_root = PathBuf::from("protos");
     let mut protos = Vec::new();

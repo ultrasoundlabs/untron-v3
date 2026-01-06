@@ -1,7 +1,12 @@
 :8080 {
-  # GET-only OpenAPI for Swagger UI
+  # OpenAPI for Swagger UI (PostgREST GET-only + optional services)
   handle /openapi.json {
     reverse_proxy openapi_sidecar:5000
+  }
+
+  # Realtor API (enabled via docker compose --profile realtor)
+  handle /realtor* {
+    reverse_proxy realtor:3000
   }
 
   # Swagger UI

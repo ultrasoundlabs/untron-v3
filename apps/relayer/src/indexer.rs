@@ -1,12 +1,9 @@
 use anyhow::{Context, Result};
 use std::time::Duration;
-use untron_v3_indexer_client::{
-    apis::{self, configuration::Configuration},
-    models,
-};
+use untron_v3_indexer_client::{Client, types};
 
 pub struct IndexerApi {
-    cfg: Configuration,
+    client: Client,
 }
 
 impl IndexerApi {
@@ -16,19 +13,18 @@ impl IndexerApi {
             .build()
             .context("build indexer http client")?;
         Ok(Self {
-            cfg: Configuration {
-                base_path: base_url.trim_end_matches('/').to_string(),
-                client,
-                ..Default::default()
-            },
+            client: Client::new_with_client(base_url.trim_end_matches('/'), client),
         })
     }
 
     pub async fn health(&self) -> Result<()> {
-        let rows =
-            apis::health_api::health_get(&self.cfg, None, None, None, None, None, None, None, None)
-                .await
-                .context("indexer health_get")?;
+        let rows = self
+            .client
+            .health_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("indexer health_get: {e:?}"))?
+            .into_inner();
         let status = rows
             .first()
             .and_then(|r| r.status.as_deref())
@@ -39,95 +35,70 @@ impl IndexerApi {
         Ok(())
     }
 
-    pub async fn stream_ingest_summary(&self) -> Result<Vec<models::StreamIngestSummary>> {
-        apis::stream_ingest_summary_api::stream_ingest_summary_get(
-            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None,
-        )
-        .await
-        .context("stream_ingest_summary_get")
+    pub async fn stream_ingest_summary(&self) -> Result<Vec<types::StreamIngestSummary>> {
+        self.client
+            .stream_ingest_summary_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("stream_ingest_summary_get: {e:?}"))
+            .map(|r| r.into_inner())
     }
 
     pub async fn receiver_usdt_indexer_status(
         &self,
-    ) -> Result<Option<models::ReceiverUsdtIndexerStatus>> {
-        let rows = apis::receiver_usdt_indexer_status_api::receiver_usdt_indexer_status_get(
-            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None,
-        )
-        .await
-        .context("receiver_usdt_indexer_status_get")?;
+    ) -> Result<Option<types::ReceiverUsdtIndexerStatus>> {
+        let rows = self
+            .client
+            .receiver_usdt_indexer_status_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("receiver_usdt_indexer_status_get: {e:?}"))?
+            .into_inner();
         Ok(rows.into_iter().next())
     }
 
-    pub async fn receiver_usdt_balances(&self) -> Result<Vec<models::ReceiverUsdtBalances>> {
-        apis::receiver_usdt_balances_api::receiver_usdt_balances_get(
-            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None,
-        )
-        .await
-        .context("receiver_usdt_balances_get")
+    pub async fn receiver_usdt_balances(&self) -> Result<Vec<types::ReceiverUsdtBalances>> {
+        self.client
+            .receiver_usdt_balances_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("receiver_usdt_balances_get: {e:?}"))
+            .map(|r| r.into_inner())
     }
 
     pub async fn latest_event_appended(
         &self,
         stream: &str,
-    ) -> Result<Option<models::EventAppended>> {
+    ) -> Result<Option<types::EventAppended>> {
         let stream_filter = format!("eq.{stream}");
-        let rows = apis::event_appended_api::event_appended_get(
-            &self.cfg,
-            Some(stream_filter.as_str()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some("event_seq.desc"),
-            None,
-            None,
-            None,
-            Some("1"),
-            None,
-        )
-        .await
-        .context("event_appended_get latest")?;
+        let rows = self
+            .client
+            .event_appended_get()
+            .stream(stream_filter)
+            .order("event_seq.desc")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("event_appended_get latest: {e:?}"))?
+            .into_inner();
         Ok(rows.into_iter().next())
     }
 
     pub async fn controller_tip_proof(
         &self,
         proved_tip: &str,
-    ) -> Result<Option<models::ControllerTipProofs>> {
+    ) -> Result<Option<types::ControllerTipProofs>> {
         let proved_tip_filter = format!("eq.{proved_tip}");
-        let rows = apis::controller_tip_proofs_api::controller_tip_proofs_get(
-            &self.cfg,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(proved_tip_filter.as_str()),
-            None,
-            Some("block_number.desc"),
-            None,
-            None,
-            None,
-            Some("1"),
-            None,
-        )
-        .await
-        .context("controller_tip_proofs_get")?;
+        let rows = self
+            .client
+            .controller_tip_proofs_get()
+            .proved_tip(proved_tip_filter)
+            .order("block_number.desc")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("controller_tip_proofs_get: {e:?}"))?
+            .into_inner();
         Ok(rows.into_iter().next())
     }
 
@@ -135,170 +106,93 @@ impl IndexerApi {
         &self,
         from_exclusive: i64,
         limit: u64,
-    ) -> Result<Vec<models::EventAppended>> {
+    ) -> Result<Vec<types::EventAppended>> {
         let event_seq_filter = format!("gt.{from_exclusive}");
-        let limit_str = limit.to_string();
-        apis::event_appended_api::event_appended_get(
-            &self.cfg,
-            Some("eq.controller"),           // stream
-            Some(event_seq_filter.as_str()), // event_seq
-            None,                            // prev_tip
-            None,                            // new_tip
-            None,                            // event_signature
-            None,                            // abi_encoded_event_data
-            None,                            // event_type
-            None,                            // args
-            None,                            // block_number
-            None,                            // block_timestamp
-            None,                            // block_time
-            None,                            // block_hash
-            None,                            // tx_hash
-            None,                            // log_index
-            None,                            // select
-            Some("event_seq.asc"),           // order
-            None,                            // range
-            None,                            // range_unit
-            None,                            // offset
-            Some(limit_str.as_str()),        // limit
-            None,                            // prefer
-        )
-        .await
-        .context("event_appended_get controller range")
+        self.client
+            .event_appended_get()
+            .stream("eq.controller")
+            .event_seq(event_seq_filter)
+            .order("event_seq.asc")
+            .limit(limit.to_string())
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("event_appended_get controller range: {e:?}"))
+            .map(|r| r.into_inner())
     }
 
     pub async fn receiver_usdt_transfer_actionability_pre_entitle(
         &self,
         limit: u64,
-    ) -> Result<Vec<models::ReceiverUsdtTransferActionability>> {
-        let limit_str = limit.to_string();
-        apis::receiver_usdt_transfer_actionability_api::receiver_usdt_transfer_actionability_get(
-            &self.cfg,
-            None,                     // chain_id
-            None,                     // token
-            None,                     // receiver_salt
-            None,                     // sender
-            None,                     // recipient
-            None,                     // amount
-            None,                     // block_number
-            None,                     // block_timestamp
-            None,                     // block_time
-            None,                     // block_hash
-            None,                     // tx_hash
-            None,                     // log_index
-            None,                     // claim_origin
-            None,                     // claim_lease_id
-            None,                     // claim_id
-            None,                     // claim_status
-            None,                     // claim_amount_usdt
-            None,                     // expected_lease_id
-            None,                     // last_pull_timestamp
-            None,                     // preentitle_time_ok
-            Some("eq.pre_entitle"),   // recommended_action
-            None,                     // select
-            Some("block_number.asc"), // order
-            None,                     // range
-            None,                     // range_unit
-            None,                     // offset
-            Some(limit_str.as_str()), // limit
-            None,                     // prefer
-        )
-        .await
-        .context("receiver_usdt_transfer_actionability_get")
+    ) -> Result<Vec<types::ReceiverUsdtTransferActionability>> {
+        self.client
+            .receiver_usdt_transfer_actionability_get()
+            .recommended_action("eq.pre_entitle")
+            .order("block_number.asc")
+            .limit(limit.to_string())
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("receiver_usdt_transfer_actionability_get: {e:?}"))
+            .map(|r| r.into_inner())
     }
 
-    pub async fn hub_protocol_config(&self) -> Result<Option<models::HubProtocolConfig>> {
-        let rows = apis::hub_protocol_config_api::hub_protocol_config_get(
-            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None,
-        )
-        .await
-        .context("hub_protocol_config_get")?;
+    pub async fn hub_protocol_config(&self) -> Result<Option<types::HubProtocolConfig>> {
+        let rows = self
+            .client
+            .hub_protocol_config_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_protocol_config_get: {e:?}"))?
+            .into_inner();
         Ok(rows.into_iter().next())
     }
 
-    pub async fn controller_usdt(&self) -> Result<Option<models::ControllerUsdt>> {
-        let rows = apis::controller_usdt_api::controller_usdt_get(
-            &self.cfg, None, None, None, None, None, None, None, None, None, None,
-        )
-        .await
-        .context("controller_usdt_get")?;
+    pub async fn controller_usdt(&self) -> Result<Option<types::ControllerUsdt>> {
+        let rows = self
+            .client
+            .controller_usdt_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("controller_usdt_get: {e:?}"))?
+            .into_inner();
         Ok(rows.into_iter().next())
     }
 
-    pub async fn controller_payloads(&self) -> Result<Vec<models::ControllerPayloads>> {
-        apis::controller_payloads_api::controller_payloads_get(
-            &self.cfg, None, None, None, None, None, None, None, None, None, None, None,
-        )
-        .await
-        .context("controller_payloads_get")
+    pub async fn controller_payloads(&self) -> Result<Vec<types::ControllerPayloads>> {
+        self.client
+            .controller_payloads_get()
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("controller_payloads_get: {e:?}"))
+            .map(|r| r.into_inner())
     }
 
     pub async fn hub_claims_created_for_token(
         &self,
         target_token: &str,
         limit: u64,
-    ) -> Result<Vec<models::HubClaims>> {
+    ) -> Result<Vec<types::HubClaims>> {
         let token_filter = format!("eq.{target_token}");
-        let limit_str = limit.to_string();
-        apis::hub_claims_api::hub_claims_get(
-            &self.cfg,
-            None,                        // lease_id
-            None,                        // claim_id
-            None,                        // valid_from_seq
-            None,                        // valid_to_seq
-            Some(token_filter.as_str()), // target_token
-            None,                        // queue_index
-            None,                        // amount_usdt
-            None,                        // target_chain_id
-            None,                        // beneficiary
-            None,                        // origin
-            None,                        // origin_id
-            None,                        // origin_actor
-            None,                        // origin_token
-            None,                        // origin_timestamp
-            None,                        // origin_raw_amount
-            Some("eq.created"),          // status
-            None,                        // select
-            Some("queue_index.asc"),     // order
-            None,                        // range
-            None,                        // range_unit
-            None,                        // offset
-            Some(limit_str.as_str()),    // limit
-            None,                        // prefer
-        )
-        .await
-        .context("hub_claims_get(created)")
+        self.client
+            .hub_claims_get()
+            .target_token(token_filter)
+            .status("eq.created")
+            .order("queue_index.asc")
+            .limit(limit.to_string())
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_claims_get(created): {e:?}"))
+            .map(|r| r.into_inner())
     }
 
-    pub async fn hub_claims_created(&self, limit: u64) -> Result<Vec<models::HubClaims>> {
-        let limit_str = limit.to_string();
-        apis::hub_claims_api::hub_claims_get(
-            &self.cfg,
-            None,                                     // lease_id
-            None,                                     // claim_id
-            None,                                     // valid_from_seq
-            None,                                     // valid_to_seq
-            None,                                     // target_token
-            None,                                     // queue_index
-            None,                                     // amount_usdt
-            None,                                     // target_chain_id
-            None,                                     // beneficiary
-            None,                                     // origin
-            None,                                     // origin_id
-            None,                                     // origin_actor
-            None,                                     // origin_token
-            None,                                     // origin_timestamp
-            None,                                     // origin_raw_amount
-            Some("eq.created"),                       // status
-            None,                                     // select
-            Some("target_token.asc,queue_index.asc"), // order
-            None,                                     // range
-            None,                                     // range_unit
-            None,                                     // offset
-            Some(limit_str.as_str()),                 // limit
-            None,                                     // prefer
-        )
-        .await
-        .context("hub_claims_get(created all)")
+    pub async fn hub_claims_created(&self, limit: u64) -> Result<Vec<types::HubClaims>> {
+        self.client
+            .hub_claims_get()
+            .status("eq.created")
+            .order("target_token.asc,queue_index.asc")
+            .limit(limit.to_string())
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_claims_get(created all): {e:?}"))
+            .map(|r| r.into_inner())
     }
 }

@@ -421,7 +421,9 @@ impl Relayer {
         let mut controller_ok = false;
 
         for s in summaries {
-            let stream = s.stream.unwrap_or_default();
+            let Some(stream) = s.stream else {
+                continue;
+            };
             let caught_up = s.is_projection_caught_up.unwrap_or(false);
             let Some(max_block) = s.max_block_number else {
                 continue;
@@ -432,7 +434,7 @@ impl Relayer {
 
             if matches!(
                 stream,
-                untron_v3_indexer_client::models::stream_ingest_summary::Stream::Hub
+                untron_v3_indexer_client::types::StreamIngestSummaryStream::Hub
             ) {
                 let max_block_u64 =
                     u64::try_from(max_block).context("hub max_block_number out of range")?;
@@ -440,7 +442,7 @@ impl Relayer {
                 hub_ok = lag <= self.ctx.cfg.indexer.max_head_lag_blocks;
             } else if matches!(
                 stream,
-                untron_v3_indexer_client::models::stream_ingest_summary::Stream::Controller
+                untron_v3_indexer_client::types::StreamIngestSummaryStream::Controller
             ) {
                 let max_block_u64 =
                     u64::try_from(max_block).context("controller max_block_number out of range")?;

@@ -3,6 +3,7 @@ mod config;
 mod indexer;
 mod metrics;
 mod observability;
+mod openapi;
 mod util;
 
 use crate::config::AppConfig;
@@ -13,6 +14,7 @@ use aa::{
     PaymasterFinalizationMode, Safe4337UserOpSender, Safe4337UserOpSenderConfig,
     Safe4337UserOpSenderOptions,
 };
+use axum::Json;
 use axum::extract::MatchedPath;
 use axum::http::{Request, Response, header::HeaderName};
 use axum::{Router, routing::get};
@@ -23,6 +25,7 @@ use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
+use utoipa::OpenApi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -77,6 +80,11 @@ async fn main() -> anyhow::Result<()> {
     let request_id_header = HeaderName::from_static("x-request-id");
     let app = Router::new()
         .route("/realtor", get(api::get_realtor).post(api::post_realtor))
+        .route("/openapi.json", get(openapi_json))
+        .route(
+            "/healthz",
+            get(|| async { Json(serde_json::json!({ "ok": true })) }),
+        )
         .with_state(Arc::new(state))
         .route_layer(
             TraceLayer::new_for_http()
@@ -123,6 +131,10 @@ async fn main() -> anyhow::Result<()> {
     shutdown.cancel();
     otel.shutdown().await;
     Ok(())
+}
+
+async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    Json(openapi::RealtorApiDoc::openapi())
 }
 
 pub fn now_unix_seconds() -> Result<u64, String> {
