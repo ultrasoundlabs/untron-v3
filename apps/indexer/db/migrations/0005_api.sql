@@ -318,7 +318,8 @@ Relayer helper views (PostgREST API).
 These views exist to let automation safely answer:
 - "Is the indexer caught up (projection-wise), per stream?"
 - "Is the receiver USDT transfer indexer still backfilling?"
-- "What is the net USDT balance per receiver (derived from indexed transfers and pulls)?"
+- "What is the net USDT balance per receiver
+   (derived from indexed transfers and pulls)?"
 
 All data is derived from canonical rows only and is therefore reorg-safe.
 */
@@ -458,7 +459,8 @@ left join incoming i on i.receiver_salt = w.receiver_salt
 left join pulled p on p.receiver_salt = w.receiver_salt;
 
 comment on view api.receiver_usdt_balances is
-$$Net receiver USDT balances derived from indexed transfer logs and pull ledgers.
+$$Net receiver USDT balances derived from indexed transfer logs and pull
+ledgers.
 
 This is a deterministic approximation of each receiver's USDT balance:
   sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)

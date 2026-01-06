@@ -1,5 +1,5 @@
 /*
- * Untron Indexed Data API
+ * Untron V3 Indexer API
  *
  * Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe.
  *
@@ -23,9 +23,16 @@ pub enum ReceiverUsdtIndexerStatusGetError {
 }
 
 
-/// Receiver USDT transfer indexer status (tail + backfill). See DB migration `0006_relayer_helpers.sql` for semantics.
-pub async fn receiver_usdt_indexer_status_get(configuration: &configuration::Configuration, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::ReceiverUsdtIndexerStatus>, Error<ReceiverUsdtIndexerStatusGetError>> {
+/// The TRC-20 receiver transfer indexer has two moving parts: - a single shared tail cursor (`ctl.receiver_usdt_tail_cursor.next_block`), and - per-receiver backfill cursors (`ctl.receiver_watchlist.backfill_next_block`).  Relayers should generally avoid acting on receiver-transfer-derived state unless: - `min_backfill_next_block` is NULL (no pending backfills), and - `tail_next_block` is close to the Tron head (with the relayer's own head check).
+pub async fn receiver_usdt_indexer_status_get(configuration: &configuration::Configuration, stream: Option<&str>, tail_next_block: Option<&str>, tail_updated_at: Option<&str>, min_backfill_next_block: Option<&str>, receiver_count: Option<&str>, backfill_pending_receivers: Option<&str>, watchlist_updated_at: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::ReceiverUsdtIndexerStatus>, Error<ReceiverUsdtIndexerStatusGetError>> {
     // add a prefix to parameters to efficiently prevent name collisions
+    let p_query_stream = stream;
+    let p_query_tail_next_block = tail_next_block;
+    let p_query_tail_updated_at = tail_updated_at;
+    let p_query_min_backfill_next_block = min_backfill_next_block;
+    let p_query_receiver_count = receiver_count;
+    let p_query_backfill_pending_receivers = backfill_pending_receivers;
+    let p_query_watchlist_updated_at = watchlist_updated_at;
     let p_query_select = select;
     let p_query_order = order;
     let p_header_range = range;
@@ -37,6 +44,27 @@ pub async fn receiver_usdt_indexer_status_get(configuration: &configuration::Con
     let uri_str = format!("{}/receiver_usdt_indexer_status", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
+    if let Some(ref param_value) = p_query_stream {
+        req_builder = req_builder.query(&[("stream", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_tail_next_block {
+        req_builder = req_builder.query(&[("tail_next_block", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_tail_updated_at {
+        req_builder = req_builder.query(&[("tail_updated_at", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_min_backfill_next_block {
+        req_builder = req_builder.query(&[("min_backfill_next_block", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_receiver_count {
+        req_builder = req_builder.query(&[("receiver_count", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_backfill_pending_receivers {
+        req_builder = req_builder.query(&[("backfill_pending_receivers", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_watchlist_updated_at {
+        req_builder = req_builder.query(&[("watchlist_updated_at", &param_value.to_string())]);
+    }
     if let Some(ref param_value) = p_query_select {
         req_builder = req_builder.query(&[("select", &param_value.to_string())]);
     }

@@ -1,5 +1,5 @@
 /*
- * Untron Indexed Data API
+ * Untron V3 Indexer API
  *
  * Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe.
  *
@@ -23,9 +23,16 @@ pub enum ReceiverUsdtBalancesGetError {
 }
 
 
-/// Net receiver USDT balances derived from indexed transfers and pull ledgers. See DB migration `0006_relayer_helpers.sql` for semantics.
-pub async fn receiver_usdt_balances_get(configuration: &configuration::Configuration, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::ReceiverUsdtBalances>, Error<ReceiverUsdtBalancesGetError>> {
+/// This is a deterministic approximation of each receiver's USDT balance:   sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)  It assumes receiver addresses do not have other outflows besides controller pulls.
+pub async fn receiver_usdt_balances_get(configuration: &configuration::Configuration, receiver_salt: Option<&str>, receiver: Option<&str>, receiver_evm: Option<&str>, token: Option<&str>, incoming_amount: Option<&str>, pulled_amount: Option<&str>, balance_amount: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::ReceiverUsdtBalances>, Error<ReceiverUsdtBalancesGetError>> {
     // add a prefix to parameters to efficiently prevent name collisions
+    let p_query_receiver_salt = receiver_salt;
+    let p_query_receiver = receiver;
+    let p_query_receiver_evm = receiver_evm;
+    let p_query_token = token;
+    let p_query_incoming_amount = incoming_amount;
+    let p_query_pulled_amount = pulled_amount;
+    let p_query_balance_amount = balance_amount;
     let p_query_select = select;
     let p_query_order = order;
     let p_header_range = range;
@@ -37,6 +44,27 @@ pub async fn receiver_usdt_balances_get(configuration: &configuration::Configura
     let uri_str = format!("{}/receiver_usdt_balances", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
+    if let Some(ref param_value) = p_query_receiver_salt {
+        req_builder = req_builder.query(&[("receiver_salt", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_receiver {
+        req_builder = req_builder.query(&[("receiver", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_receiver_evm {
+        req_builder = req_builder.query(&[("receiver_evm", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_token {
+        req_builder = req_builder.query(&[("token", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_incoming_amount {
+        req_builder = req_builder.query(&[("incoming_amount", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_pulled_amount {
+        req_builder = req_builder.query(&[("pulled_amount", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_balance_amount {
+        req_builder = req_builder.query(&[("balance_amount", &param_value.to_string())]);
+    }
     if let Some(ref param_value) = p_query_select {
         req_builder = req_builder.query(&[("select", &param_value.to_string())]);
     }

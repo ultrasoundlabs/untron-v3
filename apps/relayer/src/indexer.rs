@@ -41,7 +41,8 @@ impl IndexerApi {
 
     pub async fn stream_ingest_summary(&self) -> Result<Vec<models::StreamIngestSummary>> {
         apis::stream_ingest_summary_api::stream_ingest_summary_get(
-            &self.cfg, None, None, None, None, None, None, None,
+            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None,
         )
         .await
         .context("stream_ingest_summary_get")
@@ -51,7 +52,8 @@ impl IndexerApi {
         &self,
     ) -> Result<Option<models::ReceiverUsdtIndexerStatus>> {
         let rows = apis::receiver_usdt_indexer_status_api::receiver_usdt_indexer_status_get(
-            &self.cfg, None, None, None, None, None, None, None,
+            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
         )
         .await
         .context("receiver_usdt_indexer_status_get")?;
@@ -60,7 +62,8 @@ impl IndexerApi {
 
     pub async fn receiver_usdt_balances(&self) -> Result<Vec<models::ReceiverUsdtBalances>> {
         apis::receiver_usdt_balances_api::receiver_usdt_balances_get(
-            &self.cfg, None, None, None, None, None, None, None,
+            &self.cfg, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
         )
         .await
         .context("receiver_usdt_balances_get")

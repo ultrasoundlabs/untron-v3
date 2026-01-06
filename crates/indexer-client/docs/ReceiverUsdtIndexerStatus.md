@@ -4,7 +4,7 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**stream** | Option<**String**> |  | [optional]
+**stream** | Option<**String**> | Note: This is a Primary Key.<pk/> | [optional]
 **tail_next_block** | Option<**i64**> |  | [optional]
 **tail_updated_at** | Option<**String**> |  | [optional]
 **min_backfill_next_block** | Option<**i64**> |  | [optional]

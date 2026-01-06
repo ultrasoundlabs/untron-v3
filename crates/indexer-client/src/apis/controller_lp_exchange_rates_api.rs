@@ -1,5 +1,5 @@
 /*
- * Untron Indexed Data API
+ * Untron V3 Indexer API
  *
  * Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe.
  *

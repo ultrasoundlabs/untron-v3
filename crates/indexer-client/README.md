@@ -69,8 +69,13 @@ Class | Method | HTTP request | Description
 *HubSwapRatesApi* | [**hub_swap_rates_get**](docs/HubSwapRatesApi.md#hub_swap_rates_get) | **GET** /hub_swap_rates | Current swap rates for settlement tokens (KV)
 *HubTokensRescuedApi* | [**hub_tokens_rescued_get**](docs/HubTokensRescuedApi.md#hub_tokens_rescued_get) | **GET** /hub_tokens_rescued | Hub token rescue ledger (append-only)
 *IntrospectionApi* | [**root_get**](docs/IntrospectionApi.md#root_get) | **GET** / | OpenAPI description (this document)
+*RealtorEffectiveConfigApi* | [**realtor_effective_config_get**](docs/RealtorEffectiveConfigApi.md#realtor_effective_config_get) | **GET** /realtor_effective_config | Realtor effective config (protocol floors + realtor overrides + rate remaining).
+*ReceiverSaltCandidatesApi* | [**receiver_salt_candidates_get**](docs/ReceiverSaltCandidatesApi.md#receiver_salt_candidates_get) | **GET** /receiver_salt_candidates | Receiver salt candidates for realtor selection.
+*ReceiverUsdtBalancesApi* | [**receiver_usdt_balances_get**](docs/ReceiverUsdtBalancesApi.md#receiver_usdt_balances_get) | **GET** /receiver_usdt_balances | Net receiver USDT balances derived from indexed transfer logs and pull ledgers.
+*ReceiverUsdtIndexerStatusApi* | [**receiver_usdt_indexer_status_get**](docs/ReceiverUsdtIndexerStatusApi.md#receiver_usdt_indexer_status_get) | **GET** /receiver_usdt_indexer_status | Receiver USDT transfer indexer status (tail + backfill).
 *ReceiverUsdtTransferActionabilityApi* | [**receiver_usdt_transfer_actionability_get**](docs/ReceiverUsdtTransferActionabilityApi.md#receiver_usdt_transfer_actionability_get) | **GET** /receiver_usdt_transfer_actionability | Receiver USDT deposits + actionability hints (preEntitle vs pull)
 *StreamCursorApi* | [**stream_cursor_get**](docs/StreamCursorApi.md#stream_cursor_get) | **GET** /stream_cursor | Projection cursors (per stream)
+*StreamIngestSummaryApi* | [**stream_ingest_summary_get**](docs/StreamIngestSummaryApi.md#stream_ingest_summary_get) | **GET** /stream_ingest_summary | Per-stream ingestion/projection summary for relayers.
 *UnaccountedReceiverUsdtTransfersApi* | [**unaccounted_receiver_usdt_transfers_get**](docs/UnaccountedReceiverUsdtTransfersApi.md#unaccounted_receiver_usdt_transfers_get) | **GET** /unaccounted_receiver_usdt_transfers | Unaccounted receiver USDT deposits
 
 
@@ -107,8 +112,13 @@ Class | Method | HTTP request | Description
  - [HubRealtors](docs/HubRealtors.md)
  - [HubSwapRates](docs/HubSwapRates.md)
  - [HubTokensRescued](docs/HubTokensRescued.md)
+ - [RealtorEffectiveConfig](docs/RealtorEffectiveConfig.md)
+ - [ReceiverSaltCandidates](docs/ReceiverSaltCandidates.md)
+ - [ReceiverUsdtBalances](docs/ReceiverUsdtBalances.md)
+ - [ReceiverUsdtIndexerStatus](docs/ReceiverUsdtIndexerStatus.md)
  - [ReceiverUsdtTransferActionability](docs/ReceiverUsdtTransferActionability.md)
  - [StreamCursor](docs/StreamCursor.md)
+ - [StreamIngestSummary](docs/StreamIngestSummary.md)
  - [UnaccountedReceiverUsdtTransfers](docs/UnaccountedReceiverUsdtTransfers.md)
 
 

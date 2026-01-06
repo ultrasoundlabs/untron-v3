@@ -1,5 +1,5 @@
 /*
- * Untron Indexed Data API
+ * Untron V3 Indexer API
  *
  * Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe.
  *
@@ -11,10 +11,12 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// ReceiverUsdtIndexerStatus : Receiver USDT transfer indexer status (tail + backfill).  The TRC-20 receiver transfer indexer has two moving parts: - a single shared tail cursor (`ctl.receiver_usdt_tail_cursor.next_block`), and - per-receiver backfill cursors (`ctl.receiver_watchlist.backfill_next_block`).  Relayers should generally avoid acting on receiver-transfer-derived state unless: - `min_backfill_next_block` is NULL (no pending backfills), and - `tail_next_block` is close to the Tron head (with the relayer's own head check).
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReceiverUsdtIndexerStatus {
+    /// Note: This is a Primary Key.<pk/>
     #[serde(rename = "stream", skip_serializing_if = "Option::is_none")]
-    pub stream: Option<String>,
+    pub stream: Option<Stream>,
     #[serde(rename = "tail_next_block", skip_serializing_if = "Option::is_none")]
     pub tail_next_block: Option<i64>,
     #[serde(rename = "tail_updated_at", skip_serializing_if = "Option::is_none")]
@@ -30,6 +32,7 @@ pub struct ReceiverUsdtIndexerStatus {
 }
 
 impl ReceiverUsdtIndexerStatus {
+    /// Receiver USDT transfer indexer status (tail + backfill).  The TRC-20 receiver transfer indexer has two moving parts: - a single shared tail cursor (`ctl.receiver_usdt_tail_cursor.next_block`), and - per-receiver backfill cursors (`ctl.receiver_watchlist.backfill_next_block`).  Relayers should generally avoid acting on receiver-transfer-derived state unless: - `min_backfill_next_block` is NULL (no pending backfills), and - `tail_next_block` is close to the Tron head (with the relayer's own head check).
     pub fn new() -> ReceiverUsdtIndexerStatus {
         ReceiverUsdtIndexerStatus {
             stream: None,
@@ -40,6 +43,20 @@ impl ReceiverUsdtIndexerStatus {
             backfill_pending_receivers: None,
             watchlist_updated_at: None,
         }
+    }
+}
+/// Note: This is a Primary Key.<pk/>
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub enum Stream {
+    #[serde(rename = "hub")]
+    Hub,
+    #[serde(rename = "controller")]
+    Controller,
+}
+
+impl Default for Stream {
+    fn default() -> Stream {
+        Self::Hub
     }
 }
 

@@ -11,50 +11,39 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// HubRealtors : Current realtor allowlist + realtor config (KV)  Realtors are addresses allowed to create leases on the hub (`UntronV3.createLease`).
+/// RealtorEffectiveConfig : Realtor effective config (protocol floors + realtor overrides + rate remaining).  This view merges the protocol-wide floor limits with the current realtor row and returns: - `allowed` - `min_fee_ppm`, `min_flat_fee`, `max_duration_seconds` (effective minima/maxima) - `lease_rate_*` and `lease_rate_remaining` (best-effort, computed from current leases within the window)
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct HubRealtors {
-    /// Realtor address (EVM)  Note: This is a Primary Key.<pk/>
+pub struct RealtorEffectiveConfig {
     #[serde(rename = "realtor", skip_serializing_if = "Option::is_none")]
     pub realtor: Option<String>,
-    /// Event sequence at which this realtor snapshot became current  Note: This is a Primary Key.<pk/>
-    #[serde(rename = "valid_from_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_from_seq: Option<i64>,
-    #[serde(rename = "valid_to_seq", skip_serializing_if = "Option::is_none")]
-    pub valid_to_seq: Option<i64>,
-    /// Whether this address is currently allowlisted to create leases
     #[serde(rename = "allowed", skip_serializing_if = "Option::is_none")]
     pub allowed: Option<bool>,
-    /// Realtor-specific minimum percentage fee floor (ppm)
     #[serde(rename = "min_fee_ppm", skip_serializing_if = "Option::is_none")]
     pub min_fee_ppm: Option<i64>,
-    /// Realtor-specific minimum flat fee floor (USDT units)
     #[serde(rename = "min_flat_fee", skip_serializing_if = "Option::is_none")]
     pub min_flat_fee: Option<serde_json::Number>,
-    /// Realtor-specific maximum lease duration in seconds (NULL means no override)
-    #[serde(rename = "max_lease_duration_seconds", skip_serializing_if = "Option::is_none")]
-    pub max_lease_duration_seconds: Option<i64>,
-    /// Max lease creations allowed per window (NULL/0 means disabled)
+    #[serde(rename = "max_duration_seconds", skip_serializing_if = "Option::is_none")]
+    pub max_duration_seconds: Option<i64>,
     #[serde(rename = "lease_rate_max_leases", skip_serializing_if = "Option::is_none")]
     pub lease_rate_max_leases: Option<serde_json::Number>,
-    /// Window size (seconds) for lease creation rate limiting (NULL/0 means disabled)
     #[serde(rename = "lease_rate_window_seconds", skip_serializing_if = "Option::is_none")]
     pub lease_rate_window_seconds: Option<serde_json::Number>,
+    #[serde(rename = "lease_rate_remaining", skip_serializing_if = "Option::is_none")]
+    pub lease_rate_remaining: Option<serde_json::Number>,
 }
 
-impl HubRealtors {
-    /// Current realtor allowlist + realtor config (KV)  Realtors are addresses allowed to create leases on the hub (`UntronV3.createLease`).
-    pub fn new() -> HubRealtors {
-        HubRealtors {
+impl RealtorEffectiveConfig {
+    /// Realtor effective config (protocol floors + realtor overrides + rate remaining).  This view merges the protocol-wide floor limits with the current realtor row and returns: - `allowed` - `min_fee_ppm`, `min_flat_fee`, `max_duration_seconds` (effective minima/maxima) - `lease_rate_*` and `lease_rate_remaining` (best-effort, computed from current leases within the window)
+    pub fn new() -> RealtorEffectiveConfig {
+        RealtorEffectiveConfig {
             realtor: None,
-            valid_from_seq: None,
-            valid_to_seq: None,
             allowed: None,
             min_fee_ppm: None,
             min_flat_fee: None,
-            max_lease_duration_seconds: None,
+            max_duration_seconds: None,
             lease_rate_max_leases: None,
             lease_rate_window_seconds: None,
+            lease_rate_remaining: None,
         }
     }
 }

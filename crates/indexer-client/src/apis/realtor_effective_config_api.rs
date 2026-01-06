@@ -15,26 +15,25 @@ use crate::{apis::ResponseContent, models};
 use super::{Error, configuration, ContentType};
 
 
-/// struct for typed errors of method [`hub_realtors_get`]
+/// struct for typed errors of method [`realtor_effective_config_get`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum HubRealtorsGetError {
+pub enum RealtorEffectiveConfigGetError {
     UnknownValue(serde_json::Value),
 }
 
 
-/// Realtors are addresses allowed to create leases on the hub (`UntronV3.createLease`).
-pub async fn hub_realtors_get(configuration: &configuration::Configuration, realtor: Option<&str>, valid_from_seq: Option<&str>, valid_to_seq: Option<&str>, allowed: Option<&str>, min_fee_ppm: Option<&str>, min_flat_fee: Option<&str>, max_lease_duration_seconds: Option<&str>, lease_rate_max_leases: Option<&str>, lease_rate_window_seconds: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::HubRealtors>, Error<HubRealtorsGetError>> {
+/// This view merges the protocol-wide floor limits with the current realtor row and returns: - `allowed` - `min_fee_ppm`, `min_flat_fee`, `max_duration_seconds` (effective minima/maxima) - `lease_rate_*` and `lease_rate_remaining` (best-effort, computed from current leases within the window)
+pub async fn realtor_effective_config_get(configuration: &configuration::Configuration, realtor: Option<&str>, allowed: Option<&str>, min_fee_ppm: Option<&str>, min_flat_fee: Option<&str>, max_duration_seconds: Option<&str>, lease_rate_max_leases: Option<&str>, lease_rate_window_seconds: Option<&str>, lease_rate_remaining: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::RealtorEffectiveConfig>, Error<RealtorEffectiveConfigGetError>> {
     // add a prefix to parameters to efficiently prevent name collisions
     let p_query_realtor = realtor;
-    let p_query_valid_from_seq = valid_from_seq;
-    let p_query_valid_to_seq = valid_to_seq;
     let p_query_allowed = allowed;
     let p_query_min_fee_ppm = min_fee_ppm;
     let p_query_min_flat_fee = min_flat_fee;
-    let p_query_max_lease_duration_seconds = max_lease_duration_seconds;
+    let p_query_max_duration_seconds = max_duration_seconds;
     let p_query_lease_rate_max_leases = lease_rate_max_leases;
     let p_query_lease_rate_window_seconds = lease_rate_window_seconds;
+    let p_query_lease_rate_remaining = lease_rate_remaining;
     let p_query_select = select;
     let p_query_order = order;
     let p_header_range = range;
@@ -43,17 +42,11 @@ pub async fn hub_realtors_get(configuration: &configuration::Configuration, real
     let p_query_limit = limit;
     let p_header_prefer = prefer;
 
-    let uri_str = format!("{}/hub_realtors", configuration.base_path);
+    let uri_str = format!("{}/realtor_effective_config", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
     if let Some(ref param_value) = p_query_realtor {
         req_builder = req_builder.query(&[("realtor", &param_value.to_string())]);
-    }
-    if let Some(ref param_value) = p_query_valid_from_seq {
-        req_builder = req_builder.query(&[("valid_from_seq", &param_value.to_string())]);
-    }
-    if let Some(ref param_value) = p_query_valid_to_seq {
-        req_builder = req_builder.query(&[("valid_to_seq", &param_value.to_string())]);
     }
     if let Some(ref param_value) = p_query_allowed {
         req_builder = req_builder.query(&[("allowed", &param_value.to_string())]);
@@ -64,14 +57,17 @@ pub async fn hub_realtors_get(configuration: &configuration::Configuration, real
     if let Some(ref param_value) = p_query_min_flat_fee {
         req_builder = req_builder.query(&[("min_flat_fee", &param_value.to_string())]);
     }
-    if let Some(ref param_value) = p_query_max_lease_duration_seconds {
-        req_builder = req_builder.query(&[("max_lease_duration_seconds", &param_value.to_string())]);
+    if let Some(ref param_value) = p_query_max_duration_seconds {
+        req_builder = req_builder.query(&[("max_duration_seconds", &param_value.to_string())]);
     }
     if let Some(ref param_value) = p_query_lease_rate_max_leases {
         req_builder = req_builder.query(&[("lease_rate_max_leases", &param_value.to_string())]);
     }
     if let Some(ref param_value) = p_query_lease_rate_window_seconds {
         req_builder = req_builder.query(&[("lease_rate_window_seconds", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_lease_rate_remaining {
+        req_builder = req_builder.query(&[("lease_rate_remaining", &param_value.to_string())]);
     }
     if let Some(ref param_value) = p_query_select {
         req_builder = req_builder.query(&[("select", &param_value.to_string())]);
@@ -113,12 +109,12 @@ pub async fn hub_realtors_get(configuration: &configuration::Configuration, real
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `Vec&lt;models::HubRealtors&gt;`"))),
-            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::HubRealtors&gt;`")))),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `Vec&lt;models::RealtorEffectiveConfig&gt;`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::RealtorEffectiveConfig&gt;`")))),
         }
     } else {
         let content = resp.text().await?;
-        let entity: Option<HubRealtorsGetError> = serde_json::from_str(&content).ok();
+        let entity: Option<RealtorEffectiveConfigGetError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }

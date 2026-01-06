@@ -20,7 +20,8 @@ create index if not exists hub_lease_current_by_receiver_salt_lease_number
 on hub.lease_versions (receiver_salt, lease_number desc)
 where valid_to_seq is null;
 
--- Rate-limit window scans (realtor + start_time >= ... ORDER BY start_time DESC).
+-- Rate-limit window scans
+-- (realtor + start_time >= ... ORDER BY start_time DESC).
 create index if not exists hub_lease_current_by_realtor_start_time
 on hub.lease_versions (realtor, start_time desc)
 where valid_to_seq is null;
@@ -130,17 +131,20 @@ begin
   return null;
 end $$;
 
-drop trigger if exists trg_receiver_usdt_transfers_insert on ctl.receiver_usdt_transfers;
+drop trigger if exists trg_receiver_usdt_transfers_insert
+on ctl.receiver_usdt_transfers;
 create trigger trg_receiver_usdt_transfers_insert
 after insert on ctl.receiver_usdt_transfers
 for each row execute function ctl.on_receiver_usdt_transfers_change();
 
-drop trigger if exists trg_receiver_usdt_transfers_update on ctl.receiver_usdt_transfers;
+drop trigger if exists trg_receiver_usdt_transfers_update
+on ctl.receiver_usdt_transfers;
 create trigger trg_receiver_usdt_transfers_update
 after update on ctl.receiver_usdt_transfers
 for each row execute function ctl.on_receiver_usdt_transfers_change();
 
-drop trigger if exists trg_receiver_usdt_transfers_delete on ctl.receiver_usdt_transfers;
+drop trigger if exists trg_receiver_usdt_transfers_delete
+on ctl.receiver_usdt_transfers;
 create trigger trg_receiver_usdt_transfers_delete
 after delete on ctl.receiver_usdt_transfers
 for each row execute function ctl.on_receiver_usdt_transfers_change();
@@ -204,17 +208,20 @@ begin
   return null;
 end $$;
 
-drop trigger if exists trg_pulled_from_receiver_ledger_insert on ctl.pulled_from_receiver_ledger;
+drop trigger if exists trg_pulled_from_receiver_ledger_insert
+on ctl.pulled_from_receiver_ledger;
 create trigger trg_pulled_from_receiver_ledger_insert
 after insert on ctl.pulled_from_receiver_ledger
 for each row execute function ctl.on_pulled_from_receiver_ledger_change();
 
-drop trigger if exists trg_pulled_from_receiver_ledger_update on ctl.pulled_from_receiver_ledger;
+drop trigger if exists trg_pulled_from_receiver_ledger_update
+on ctl.pulled_from_receiver_ledger;
 create trigger trg_pulled_from_receiver_ledger_update
 after update on ctl.pulled_from_receiver_ledger
 for each row execute function ctl.on_pulled_from_receiver_ledger_change();
 
-drop trigger if exists trg_pulled_from_receiver_ledger_delete on ctl.pulled_from_receiver_ledger;
+drop trigger if exists trg_pulled_from_receiver_ledger_delete
+on ctl.pulled_from_receiver_ledger;
 create trigger trg_pulled_from_receiver_ledger_delete
 after delete on ctl.pulled_from_receiver_ledger
 for each row execute function ctl.on_pulled_from_receiver_ledger_change();
@@ -267,7 +274,9 @@ end $$;
 -- API VIEW UPGRADES / NEW HIGH-LEVEL VIEWS
 -- =============================================================================
 
--- Overwrite api.receiver_usdt_balances to read from the cache instead of aggregating.
+-- Overwrite api.receiver_usdt_balances to read from the cache instead of
+-- aggregating.
+drop view if exists api.receiver_usdt_balances;
 create or replace view api.receiver_usdt_balances as
 with current_usdt as (
     select u.usdt
@@ -371,12 +380,13 @@ select
 from realtors r
 left join protocol p on true;
 
--- Candidate receiver salts with balance + free status for a single-query selection.
+-- Candidate receiver salts with balance + free status for a single-query
+-- selection.
 create or replace view api.receiver_salt_candidates as
 select
-  cr.receiver_salt,
-  cr.receiver,
-  cr.receiver_evm,
+    cr.receiver_salt,
+    coalesce(w.receiver, cr.receiver) as receiver,
+    w.receiver_evm,
 
     coalesce(b.balance_amount, 0::public.u256) as balance_amount,
     (
@@ -389,18 +399,21 @@ select
         or l.nukeable_after <= extract(epoch from now())::bigint
     ) as is_free
 from api.controller_receivers cr
+left join ctl.receiver_watchlist w
+    on w.receiver_salt = cr.receiver_salt
 left join api.receiver_usdt_balances b
     on b.receiver_salt = cr.receiver_salt
 left join lateral (
     select lv.nukeable_after
     from hub.lease_versions lv
     where lv.valid_to_seq is null and lv.receiver_salt = cr.receiver_salt
-  order by lv.lease_number desc
-  limit 1
+    order by lv.lease_number desc
+    limit 1
 ) l on true;
 
 comment on view api.receiver_usdt_balances is
-$$Net receiver USDT balances derived from indexed transfer logs and pull ledgers.
+$$Net receiver USDT balances derived from indexed transfer logs and pull
+ledgers.
 
 This is a deterministic approximation of each receiver's USDT balance:
   sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)
@@ -408,7 +421,8 @@ This is a deterministic approximation of each receiver's USDT balance:
 It assumes receiver addresses do not have other outflows besides controller pulls.$$;
 
 comment on view api.realtor_effective_config is
-$$Realtor effective config (protocol floors + realtor overrides + rate remaining).
+$$Realtor effective config
+(protocol floors + realtor overrides + rate remaining).
 
 This view merges the protocol-wide floor limits with the current realtor row and returns:
 - `allowed`
@@ -427,7 +441,8 @@ Computed fields:
 - `has_balance`: `balance_amount > 0`
 - `is_free`: receiver has no current lease or lease is nukeable (based on `nukeable_after <= now`)$$;
 
--- Ensure PostgREST anon role can read new api views (no-ops if roles don't exist).
+-- Ensure PostgREST anon role can read new api views
+-- (no-ops if roles don't exist).
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'pgrst_anon') then

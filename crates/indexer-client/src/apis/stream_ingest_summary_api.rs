@@ -1,5 +1,5 @@
 /*
- * Untron Indexed Data API
+ * Untron V3 Indexer API
  *
  * Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe.
  *
@@ -23,9 +23,18 @@ pub enum StreamIngestSummaryGetError {
 }
 
 
-/// Per-stream ingestion/projection summary for relayers. See DB migration `0006_relayer_helpers.sql` for semantics.
-pub async fn stream_ingest_summary_get(configuration: &configuration::Configuration, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::StreamIngestSummary>, Error<StreamIngestSummaryGetError>> {
+/// This view is intentionally minimal: - It does NOT attempt to query RPC head (that stays in the relayer). - It DOES let relayers detect when projections are behind ingestion (`is_projection_caught_up = false`),   which would make derived \"current state\" views stale.
+pub async fn stream_ingest_summary_get(configuration: &configuration::Configuration, stream: Option<&str>, applied_through_seq: Option<&str>, tip: Option<&str>, updated_at: Option<&str>, max_event_seq: Option<&str>, max_block_number: Option<&str>, max_block_timestamp: Option<&str>, max_block_time: Option<&str>, is_projection_caught_up: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::StreamIngestSummary>, Error<StreamIngestSummaryGetError>> {
     // add a prefix to parameters to efficiently prevent name collisions
+    let p_query_stream = stream;
+    let p_query_applied_through_seq = applied_through_seq;
+    let p_query_tip = tip;
+    let p_query_updated_at = updated_at;
+    let p_query_max_event_seq = max_event_seq;
+    let p_query_max_block_number = max_block_number;
+    let p_query_max_block_timestamp = max_block_timestamp;
+    let p_query_max_block_time = max_block_time;
+    let p_query_is_projection_caught_up = is_projection_caught_up;
     let p_query_select = select;
     let p_query_order = order;
     let p_header_range = range;
@@ -37,6 +46,33 @@ pub async fn stream_ingest_summary_get(configuration: &configuration::Configurat
     let uri_str = format!("{}/stream_ingest_summary", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
+    if let Some(ref param_value) = p_query_stream {
+        req_builder = req_builder.query(&[("stream", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_applied_through_seq {
+        req_builder = req_builder.query(&[("applied_through_seq", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_tip {
+        req_builder = req_builder.query(&[("tip", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_updated_at {
+        req_builder = req_builder.query(&[("updated_at", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_max_event_seq {
+        req_builder = req_builder.query(&[("max_event_seq", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_max_block_number {
+        req_builder = req_builder.query(&[("max_block_number", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_max_block_timestamp {
+        req_builder = req_builder.query(&[("max_block_timestamp", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_max_block_time {
+        req_builder = req_builder.query(&[("max_block_time", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_is_projection_caught_up {
+        req_builder = req_builder.query(&[("is_projection_caught_up", &param_value.to_string())]);
+    }
     if let Some(ref param_value) = p_query_select {
         req_builder = req_builder.query(&[("select", &param_value.to_string())]);
     }

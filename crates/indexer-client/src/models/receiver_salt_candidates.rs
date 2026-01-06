@@ -11,37 +11,36 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// ReceiverUsdtBalances : Net receiver USDT balances derived from indexed transfer logs and pull ledgers.  This is a deterministic approximation of each receiver's USDT balance:   sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)  It assumes receiver addresses do not have other outflows besides controller pulls.
+/// ReceiverSaltCandidates : Receiver salt candidates for realtor selection.  Joins: - `api.controller_receivers` (allowed salts) - `api.receiver_usdt_balances` (cached balance view) - latest hub lease by receiver_salt (for `nukeable_after`)  Computed fields: - `has_balance`: `balance_amount > 0` - `is_free`: receiver has no current lease or lease is nukeable (based on `nukeable_after <= now`)
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ReceiverUsdtBalances {
-    /// Note: This is a Primary Key.<pk/>
+pub struct ReceiverSaltCandidates {
     #[serde(rename = "receiver_salt", skip_serializing_if = "Option::is_none")]
     pub receiver_salt: Option<String>,
     #[serde(rename = "receiver", skip_serializing_if = "Option::is_none")]
     pub receiver: Option<String>,
     #[serde(rename = "receiver_evm", skip_serializing_if = "Option::is_none")]
     pub receiver_evm: Option<String>,
-    #[serde(rename = "token", skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-    #[serde(rename = "incoming_amount", skip_serializing_if = "Option::is_none")]
-    pub incoming_amount: Option<serde_json::Number>,
-    #[serde(rename = "pulled_amount", skip_serializing_if = "Option::is_none")]
-    pub pulled_amount: Option<serde_json::Number>,
     #[serde(rename = "balance_amount", skip_serializing_if = "Option::is_none")]
     pub balance_amount: Option<serde_json::Number>,
+    #[serde(rename = "has_balance", skip_serializing_if = "Option::is_none")]
+    pub has_balance: Option<bool>,
+    #[serde(rename = "nukeable_after", skip_serializing_if = "Option::is_none")]
+    pub nukeable_after: Option<i64>,
+    #[serde(rename = "is_free", skip_serializing_if = "Option::is_none")]
+    pub is_free: Option<bool>,
 }
 
-impl ReceiverUsdtBalances {
-    /// Net receiver USDT balances derived from indexed transfer logs and pull ledgers.  This is a deterministic approximation of each receiver's USDT balance:   sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)  It assumes receiver addresses do not have other outflows besides controller pulls.
-    pub fn new() -> ReceiverUsdtBalances {
-        ReceiverUsdtBalances {
+impl ReceiverSaltCandidates {
+    /// Receiver salt candidates for realtor selection.  Joins: - `api.controller_receivers` (allowed salts) - `api.receiver_usdt_balances` (cached balance view) - latest hub lease by receiver_salt (for `nukeable_after`)  Computed fields: - `has_balance`: `balance_amount > 0` - `is_free`: receiver has no current lease or lease is nukeable (based on `nukeable_after <= now`)
+    pub fn new() -> ReceiverSaltCandidates {
+        ReceiverSaltCandidates {
             receiver_salt: None,
             receiver: None,
             receiver_evm: None,
-            token: None,
-            incoming_amount: None,
-            pulled_amount: None,
             balance_amount: None,
+            has_balance: None,
+            nukeable_after: None,
+            is_free: None,
         }
     }
 }

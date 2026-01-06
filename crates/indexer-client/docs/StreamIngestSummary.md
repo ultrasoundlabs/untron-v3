@@ -4,7 +4,7 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**stream** | Option<**String**> |  | [optional]
+**stream** | Option<**String**> | Note: This is a Primary Key.<pk/> | [optional]
 **applied_through_seq** | Option<**i64**> |  | [optional]
 **tip** | Option<**String**> |  | [optional]
 **updated_at** | Option<**String**> |  | [optional]

@@ -1,5 +1,5 @@
 /*
- * Untron Indexed Data API
+ * Untron V3 Indexer API
  *
  * Read-only HTTP API served by PostgREST.  This schema contains only views. Each view exposes either: - canonical raw event data (`api.event_appended`), or - \"current state\" derived from events (views over `hub.*` and `ctl.*` versioned tables), or - append-only ledgers for actions (views over `hub.*_ledger` and `ctl.*_ledger` tables).  The underlying protocol is Untron V3: - hub (EVM): `UntronV3Index` emits a hash-chained event stream - controller (Tron): `UntronControllerIndex` emits a hash-chained event stream  All state shown here is derived deterministically from those streams and is reorg-safe.
  *
@@ -11,10 +11,12 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// StreamIngestSummary : Per-stream ingestion/projection summary for relayers.  This view is intentionally minimal: - It does NOT attempt to query RPC head (that stays in the relayer). - It DOES let relayers detect when projections are behind ingestion (`is_projection_caught_up = false`),   which would make derived \"current state\" views stale.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StreamIngestSummary {
+    /// Note: This is a Primary Key.<pk/>
     #[serde(rename = "stream", skip_serializing_if = "Option::is_none")]
-    pub stream: Option<String>,
+    pub stream: Option<Stream>,
     #[serde(rename = "applied_through_seq", skip_serializing_if = "Option::is_none")]
     pub applied_through_seq: Option<i64>,
     #[serde(rename = "tip", skip_serializing_if = "Option::is_none")]
@@ -34,6 +36,7 @@ pub struct StreamIngestSummary {
 }
 
 impl StreamIngestSummary {
+    /// Per-stream ingestion/projection summary for relayers.  This view is intentionally minimal: - It does NOT attempt to query RPC head (that stays in the relayer). - It DOES let relayers detect when projections are behind ingestion (`is_projection_caught_up = false`),   which would make derived \"current state\" views stale.
     pub fn new() -> StreamIngestSummary {
         StreamIngestSummary {
             stream: None,
@@ -46,6 +49,20 @@ impl StreamIngestSummary {
             max_block_time: None,
             is_projection_caught_up: None,
         }
+    }
+}
+/// Note: This is a Primary Key.<pk/>
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub enum Stream {
+    #[serde(rename = "hub")]
+    Hub,
+    #[serde(rename = "controller")]
+    Controller,
+}
+
+impl Default for Stream {
+    fn default() -> Stream {
+        Self::Hub
     }
 }
 

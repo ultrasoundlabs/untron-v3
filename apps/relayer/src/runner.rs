@@ -430,12 +430,18 @@ impl Relayer {
                 continue;
             }
 
-            if stream == "hub" {
+            if matches!(
+                stream,
+                untron_v3_indexer_client::models::stream_ingest_summary::Stream::Hub
+            ) {
                 let max_block_u64 =
                     u64::try_from(max_block).context("hub max_block_number out of range")?;
                 let lag = tick.hub_head.saturating_sub(max_block_u64);
                 hub_ok = lag <= self.ctx.cfg.indexer.max_head_lag_blocks;
-            } else if stream == "controller" {
+            } else if matches!(
+                stream,
+                untron_v3_indexer_client::models::stream_ingest_summary::Stream::Controller
+            ) {
                 let max_block_u64 =
                     u64::try_from(max_block).context("controller max_block_number out of range")?;
                 let lag = tick.tron_head.saturating_sub(max_block_u64);

@@ -15,19 +15,24 @@ use crate::{apis::ResponseContent, models};
 use super::{Error, configuration, ContentType};
 
 
-/// struct for typed errors of method [`controller_usdt_transfers_get`]
+/// struct for typed errors of method [`receiver_salt_candidates_get`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ControllerUsdtTransfersGetError {
+pub enum ReceiverSaltCandidatesGetError {
     UnknownValue(serde_json::Value),
 }
 
 
-pub async fn controller_usdt_transfers_get(configuration: &configuration::Configuration, event_seq: Option<&str>, recipient: Option<&str>, amount: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::ControllerUsdtTransfers>, Error<ControllerUsdtTransfersGetError>> {
+/// Joins: - `api.controller_receivers` (allowed salts) - `api.receiver_usdt_balances` (cached balance view) - latest hub lease by receiver_salt (for `nukeable_after`)  Computed fields: - `has_balance`: `balance_amount > 0` - `is_free`: receiver has no current lease or lease is nukeable (based on `nukeable_after <= now`)
+pub async fn receiver_salt_candidates_get(configuration: &configuration::Configuration, receiver_salt: Option<&str>, receiver: Option<&str>, receiver_evm: Option<&str>, balance_amount: Option<&str>, has_balance: Option<&str>, nukeable_after: Option<&str>, is_free: Option<&str>, select: Option<&str>, order: Option<&str>, range: Option<&str>, range_unit: Option<&str>, offset: Option<&str>, limit: Option<&str>, prefer: Option<&str>) -> Result<Vec<models::ReceiverSaltCandidates>, Error<ReceiverSaltCandidatesGetError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_query_event_seq = event_seq;
-    let p_query_recipient = recipient;
-    let p_query_amount = amount;
+    let p_query_receiver_salt = receiver_salt;
+    let p_query_receiver = receiver;
+    let p_query_receiver_evm = receiver_evm;
+    let p_query_balance_amount = balance_amount;
+    let p_query_has_balance = has_balance;
+    let p_query_nukeable_after = nukeable_after;
+    let p_query_is_free = is_free;
     let p_query_select = select;
     let p_query_order = order;
     let p_header_range = range;
@@ -36,17 +41,29 @@ pub async fn controller_usdt_transfers_get(configuration: &configuration::Config
     let p_query_limit = limit;
     let p_header_prefer = prefer;
 
-    let uri_str = format!("{}/controller_usdt_transfers", configuration.base_path);
+    let uri_str = format!("{}/receiver_salt_candidates", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
-    if let Some(ref param_value) = p_query_event_seq {
-        req_builder = req_builder.query(&[("event_seq", &param_value.to_string())]);
+    if let Some(ref param_value) = p_query_receiver_salt {
+        req_builder = req_builder.query(&[("receiver_salt", &param_value.to_string())]);
     }
-    if let Some(ref param_value) = p_query_recipient {
-        req_builder = req_builder.query(&[("recipient", &param_value.to_string())]);
+    if let Some(ref param_value) = p_query_receiver {
+        req_builder = req_builder.query(&[("receiver", &param_value.to_string())]);
     }
-    if let Some(ref param_value) = p_query_amount {
-        req_builder = req_builder.query(&[("amount", &param_value.to_string())]);
+    if let Some(ref param_value) = p_query_receiver_evm {
+        req_builder = req_builder.query(&[("receiver_evm", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_balance_amount {
+        req_builder = req_builder.query(&[("balance_amount", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_has_balance {
+        req_builder = req_builder.query(&[("has_balance", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_nukeable_after {
+        req_builder = req_builder.query(&[("nukeable_after", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_is_free {
+        req_builder = req_builder.query(&[("is_free", &param_value.to_string())]);
     }
     if let Some(ref param_value) = p_query_select {
         req_builder = req_builder.query(&[("select", &param_value.to_string())]);
@@ -88,12 +105,12 @@ pub async fn controller_usdt_transfers_get(configuration: &configuration::Config
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `Vec&lt;models::ControllerUsdtTransfers&gt;`"))),
-            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::ControllerUsdtTransfers&gt;`")))),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `Vec&lt;models::ReceiverSaltCandidates&gt;`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::ReceiverSaltCandidates&gt;`")))),
         }
     } else {
         let content = resp.text().await?;
-        let entity: Option<ControllerUsdtTransfersGetError> = serde_json::from_str(&content).ok();
+        let entity: Option<ReceiverSaltCandidatesGetError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }

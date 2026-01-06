@@ -1,19 +1,19 @@
-# \ReceiverUsdtBalancesApi
+# \ReceiverSaltCandidatesApi
 
 All URIs are relative to *http://0.0.0.0:3000*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**receiver_usdt_balances_get**](ReceiverUsdtBalancesApi.md#receiver_usdt_balances_get) | **GET** /receiver_usdt_balances | Net receiver USDT balances derived from indexed transfer logs and pull ledgers.
+[**receiver_salt_candidates_get**](ReceiverSaltCandidatesApi.md#receiver_salt_candidates_get) | **GET** /receiver_salt_candidates | Receiver salt candidates for realtor selection.
 
 
 
-## receiver_usdt_balances_get
+## receiver_salt_candidates_get
 
-> Vec<models::ReceiverUsdtBalances> receiver_usdt_balances_get(receiver_salt, receiver, receiver_evm, token, incoming_amount, pulled_amount, balance_amount, select, order, range, range_unit, offset, limit, prefer)
-Net receiver USDT balances derived from indexed transfer logs and pull ledgers.
+> Vec<models::ReceiverSaltCandidates> receiver_salt_candidates_get(receiver_salt, receiver, receiver_evm, balance_amount, has_balance, nukeable_after, is_free, select, order, range, range_unit, offset, limit, prefer)
+Receiver salt candidates for realtor selection.
 
-This is a deterministic approximation of each receiver's USDT balance:   sum(incoming TRC-20 transfers into the receiver) - sum(controller pulls from that receiver)  It assumes receiver addresses do not have other outflows besides controller pulls.
+Joins: - `api.controller_receivers` (allowed salts) - `api.receiver_usdt_balances` (cached balance view) - latest hub lease by receiver_salt (for `nukeable_after`)  Computed fields: - `has_balance`: `balance_amount > 0` - `is_free`: receiver has no current lease or lease is nukeable (based on `nukeable_after <= now`)
 
 ### Parameters
 
@@ -23,10 +23,10 @@ Name | Type | Description  | Required | Notes
 **receiver_salt** | Option<**String**> |  |  |
 **receiver** | Option<**String**> |  |  |
 **receiver_evm** | Option<**String**> |  |  |
-**token** | Option<**String**> |  |  |
-**incoming_amount** | Option<**String**> |  |  |
-**pulled_amount** | Option<**String**> |  |  |
 **balance_amount** | Option<**String**> |  |  |
+**has_balance** | Option<**String**> |  |  |
+**nukeable_after** | Option<**String**> |  |  |
+**is_free** | Option<**String**> |  |  |
 **select** | Option<**String**> | Filtering Columns |  |
 **order** | Option<**String**> | Ordering |  |
 **range** | Option<**String**> | Limiting and Pagination |  |
@@ -37,7 +37,7 @@ Name | Type | Description  | Required | Notes
 
 ### Return type
 
-[**Vec<models::ReceiverUsdtBalances>**](receiver_usdt_balances.md)
+[**Vec<models::ReceiverSaltCandidates>**](receiver_salt_candidates.md)
 
 ### Authorization
 
