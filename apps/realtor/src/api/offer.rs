@@ -21,11 +21,6 @@ pub(super) struct Offer {
     pub(super) effective_fee_ppm: u32,
     pub(super) effective_flat_fee: u64,
     pub(super) effective_duration_seconds: u64,
-
-    pub(super) lessee: Address,
-    pub(super) target_chain_id: u64,
-    pub(super) target_token: Address,
-    pub(super) beneficiary: Address,
 }
 
 pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, ApiError> {
@@ -109,10 +104,6 @@ pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, 
         effective_fee_ppm,
         effective_flat_fee,
         effective_duration_seconds,
-        lessee: state.cfg.leasing.lessee,
-        target_chain_id: state.cfg.leasing.target_chain_id,
-        target_token: state.cfg.leasing.target_token,
-        beneficiary: state.cfg.leasing.beneficiary,
     })
 }
 

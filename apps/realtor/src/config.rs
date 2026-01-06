@@ -1,6 +1,7 @@
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -49,14 +50,12 @@ pub struct HubConfig {
 
 #[derive(Debug, Clone)]
 pub struct LeasingDefaults {
-    pub lessee: Address,
     pub lease_fee_ppm: u32,
     pub flat_fee: u64,
     pub duration_seconds: u64,
 
-    pub target_chain_id: u64,
-    pub target_token: Address,
-    pub beneficiary: Address,
+    pub pair_additional_flat_fees: HashMap<(u64, Address), u64>,
+    pub arbitrary_lessee_flat_fee: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,19 +87,17 @@ struct Env {
     #[serde(default)]
     hub_paymasters_json: String,
 
-    lease_default_lessee: String,
-
     lease_default_fee_ppm: u32,
 
     lease_default_flat_fee: u64,
 
     lease_default_duration_secs: u64,
 
-    lease_default_target_chain_id: u64,
+    #[serde(default)]
+    lease_pair_additional_flat_fees_json: String,
 
-    lease_default_target_token: String,
-
-    lease_default_beneficiary: String,
+    #[serde(default)]
+    lease_arbitrary_lessee_flat_fee: u64,
 }
 
 impl Default for Env {
@@ -118,15 +115,20 @@ impl Default for Env {
             hub_owner_private_key_hex: String::new(),
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
-            lease_default_lessee: String::new(),
             lease_default_fee_ppm: 10_000,
             lease_default_flat_fee: 0,
             lease_default_duration_secs: 60 * 60 * 24 * 30,
-            lease_default_target_chain_id: 0,
-            lease_default_target_token: String::new(),
-            lease_default_beneficiary: String::new(),
+            lease_pair_additional_flat_fees_json: String::new(),
+            lease_arbitrary_lessee_flat_fee: 0,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct PairAdditionalFlatFeeEnv {
+    target_chain_id: u64,
+    target_token: String,
+    additional_flat_fee: u64,
 }
 
 fn parse_address(label: &str, s: &str) -> Result<Address> {
@@ -177,6 +179,27 @@ fn parse_paymasters_json(s: &str) -> Result<Vec<PaymasterServiceConfig>> {
     Ok(v)
 }
 
+fn parse_pair_additional_flat_fees_json(s: &str) -> Result<HashMap<(u64, Address), u64>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let v: Vec<PairAdditionalFlatFeeEnv> =
+        serde_json::from_str(trimmed).context("parse LEASE_PAIR_ADDITIONAL_FLAT_FEES_JSON")?;
+    let mut out = HashMap::new();
+    for e in v {
+        if e.target_chain_id == 0 {
+            anyhow::bail!("LEASE_PAIR_ADDITIONAL_FLAT_FEES_JSON target_chain_id must be non-zero");
+        }
+        let token = parse_address(
+            "LEASE_PAIR_ADDITIONAL_FLAT_FEES_JSON.target_token",
+            &e.target_token,
+        )?;
+        out.insert((e.target_chain_id, token), e.additional_flat_fee);
+    }
+    Ok(out)
+}
+
 pub fn load_config() -> Result<AppConfig> {
     let env: Env = envy::from_env().context("load realtor env config")?;
 
@@ -203,18 +226,8 @@ pub fn load_config() -> Result<AppConfig> {
         parse_hex_32("HUB_OWNER_PRIVATE_KEY_HEX", &env.hub_owner_private_key_hex)?;
     let bundlers = parse_csv("HUB_BUNDLER_URLS", &env.hub_bundler_urls)?;
     let paymasters = parse_paymasters_json(&env.hub_paymasters_json)?;
-
-    let default_lessee = parse_address("LEASE_DEFAULT_LESSEE", &env.lease_default_lessee)?;
-    let default_target_token = parse_address(
-        "LEASE_DEFAULT_TARGET_TOKEN",
-        &env.lease_default_target_token,
-    )?;
-    let default_beneficiary =
-        parse_address("LEASE_DEFAULT_BENEFICIARY", &env.lease_default_beneficiary)?;
-    let default_target_chain_id = env.lease_default_target_chain_id;
-    if default_target_chain_id == 0 {
-        anyhow::bail!("LEASE_DEFAULT_TARGET_CHAIN_ID must be set (and non-zero)");
-    }
+    let pair_additional_flat_fees =
+        parse_pair_additional_flat_fees_json(&env.lease_pair_additional_flat_fees_json)?;
 
     Ok(AppConfig {
         api: ApiConfig { bind },
@@ -234,13 +247,11 @@ pub fn load_config() -> Result<AppConfig> {
             paymasters,
         },
         leasing: LeasingDefaults {
-            lessee: default_lessee,
             lease_fee_ppm: env.lease_default_fee_ppm,
             flat_fee: env.lease_default_flat_fee,
             duration_seconds: env.lease_default_duration_secs.max(1),
-            target_chain_id: default_target_chain_id,
-            target_token: default_target_token,
-            beneficiary: default_beneficiary,
+            pair_additional_flat_fees,
+            arbitrary_lessee_flat_fee: env.lease_arbitrary_lessee_flat_fee,
         },
     })
 }

@@ -6,6 +6,12 @@ pub struct IndexerApi {
     client: Client,
 }
 
+#[derive(Debug, Clone)]
+pub struct BridgerPair {
+    pub target_token: String,
+    pub target_chain_id: u64,
+}
+
 impl IndexerApi {
     pub fn new(base_url: &str, timeout: Duration) -> Result<Self> {
         let client = reqwest::Client::builder()
@@ -80,6 +86,58 @@ impl IndexerApi {
             .await
             .map_err(|e| anyhow::anyhow!("receiver_salt_candidates_get: {e:?}"))
             .map(|r| r.into_inner())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn bridger_pairs_current(&self) -> Result<Vec<BridgerPair>> {
+        let rows = self
+            .client
+            .hub_bridgers_get()
+            .valid_to_seq("is.null")
+            .select("target_token,target_chain_id")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_bridgers_get current: {e:?}"))?
+            .into_inner();
+
+        let mut out = Vec::new();
+        for r in rows {
+            let Some(target_token) = r.target_token else {
+                continue;
+            };
+            let Some(target_chain_id) = r.target_chain_id.and_then(|v| u64::try_from(v).ok())
+            else {
+                continue;
+            };
+            out.push(BridgerPair {
+                target_token,
+                target_chain_id,
+            });
+        }
+        Ok(out)
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn bridger_pair_is_supported(
+        &self,
+        target_token: &str,
+        target_chain_id: u64,
+    ) -> Result<bool> {
+        let token_filter = format!("eq.{}", target_token);
+        let chain_filter = format!("eq.{}", target_chain_id);
+        let rows = self
+            .client
+            .hub_bridgers_get()
+            .target_token(token_filter)
+            .target_chain_id(chain_filter)
+            .valid_to_seq("is.null")
+            .select("target_token")
+            .limit("1")
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("hub_bridgers_get by pair: {e:?}"))?
+            .into_inner();
+        Ok(!rows.is_empty())
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
