@@ -25,7 +25,10 @@ pub(super) fn looks_like_transient(err: &Error) -> bool {
         || msg.contains("502")
         || msg.contains("504")
         || msg.contains("connection reset")
+        || msg.contains("connection closed")
+        || msg.contains("closed before message completed")
         || msg.contains("connection refused")
         || msg.contains("broken pipe")
+        || msg.contains("sendrequest")
         || msg.contains("temporarily unavailable")
 }

@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
         block_header_concurrency,
         block_timestamp_cache_size,
         progress_interval,
+        progress_tail_lag_blocks,
     } = config::load_config()?;
     let dbh = db::Db::connect(&database_url, db_max_connections).await?;
     // Keep this in sync with the latest migration file number.
@@ -75,6 +76,7 @@ async fn main() -> Result<()> {
                 block_header_concurrency,
                 block_timestamp_cache_size,
                 progress_interval,
+                progress_tail_lag_blocks,
             })
             .await
         });
@@ -100,6 +102,7 @@ async fn main() -> Result<()> {
                     block_header_concurrency,
                     block_timestamp_cache_size,
                     progress_interval,
+                    progress_tail_lag_blocks,
                     shutdown,
                 })
                 .await

@@ -78,6 +78,7 @@ pub struct RunStreamParams {
     pub block_header_concurrency: usize,
     pub block_timestamp_cache_size: usize,
     pub progress_interval: Duration,
+    pub progress_tail_lag_blocks: u64,
 }
 
 pub async fn run_stream(params: RunStreamParams) -> Result<()> {
@@ -90,6 +91,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
         block_header_concurrency,
         block_timestamp_cache_size,
         progress_interval,
+        progress_tail_lag_blocks,
     } = params;
     let (stream, chain_id, contract_address_db) = resolved.into_parts();
     let contract_address_rpc = resolve_rpc_contract_address(stream, contract_address_db.as_str())?;
@@ -113,6 +115,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
         stream.as_str(),
         progress_interval,
         cfg.chunk_blocks.max(1),
+        progress_tail_lag_blocks,
     );
     let telemetry = StreamTelemetry::new(stream, chain_id);
 
@@ -139,6 +142,8 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
 
     let mut transient_attempts: u32 = 0;
     let mut transient_backoff = TRANSIENT_BACKOFF_INITIAL;
+    let mut head_attempts: u32 = 0;
+    let mut head_backoff = TRANSIENT_BACKOFF_INITIAL;
 
     loop {
         tokio::select! {
@@ -149,16 +154,37 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
             _ = ticker.tick() => {}
         }
 
-        let Some((head, head_ms)) = timed_await_or_cancel(&shutdown, async {
+        let head_res = timed_await_or_cancel(&shutdown, async {
             state.provider.get_block_number().await.map_err(|e| {
                 state.telemetry.rpc_error("eth_blockNumber");
                 anyhow::Error::new(e).context("eth_blockNumber")
             })
         })
-        .await?
-        else {
+        .await;
+
+        let Some((head, head_ms)) = (match head_res {
+            Ok(opt) => opt,
+            Err(e) if errors::looks_like_transient(&e) => {
+                head_attempts = head_attempts.saturating_add(1);
+                progress.on_transient_retry();
+                warn!(
+                    stream = state.stream.as_str(),
+                    attempt = head_attempts,
+                    backoff_ms = head_backoff.as_millis() as u64,
+                    err = %e,
+                    "transient RPC error; retrying eth_blockNumber"
+                );
+                r#async::sleep_or_cancel(&shutdown, head_backoff).await?;
+                head_backoff = (head_backoff * 2).min(TRANSIENT_BACKOFF_MAX);
+                continue;
+            }
+            Err(e) => return Err(e),
+        }) else {
             return Ok(());
         };
+
+        head_attempts = 0;
+        head_backoff = TRANSIENT_BACKOFF_INITIAL;
         state
             .telemetry
             .observe_rpc_latency_ms("eth_blockNumber", head_ms);
@@ -176,7 +202,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
         progress.update_event_chain_chunk_blocks(state.chunk_current);
         progress.maybe_report(head, safe_head, from_block);
 
-        if let Some(reorg_start) = r#async::await_or_cancel(&shutdown, async {
+        let reorg_res = r#async::await_or_cancel(&shutdown, async {
             reorg::detect_reorg_start(
                 &dbh,
                 &state.provider,
@@ -186,9 +212,23 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
             )
             .await
         })
-        .await?
-        .flatten()
-        {
+        .await;
+
+        let reorg_start = match reorg_res {
+            Ok(None) => return Ok(()),
+            Ok(Some(v)) => v,
+            Err(e) if errors::looks_like_transient(&e) => {
+                warn!(
+                    stream = state.stream.as_str(),
+                    err = %e,
+                    "transient RPC error; skipping reorg check this tick"
+                );
+                None
+            }
+            Err(e) => return Err(e),
+        };
+
+        if let Some(reorg_start) = reorg_start {
             warn!(
                 stream = state.stream.as_str(),
                 reorg_start, "reorg detected; invalidating"

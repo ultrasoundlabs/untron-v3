@@ -25,6 +25,7 @@ pub struct RunReceiverUsdtParams {
     pub block_header_concurrency: usize,
     pub block_timestamp_cache_size: usize,
     pub progress_interval: Duration,
+    pub progress_tail_lag_blocks: u64,
     pub shutdown: CancellationToken,
 }
 
@@ -37,6 +38,7 @@ struct LoopCtx<'a> {
     block_header_concurrency: usize,
     block_timestamp_cache_size: usize,
     progress_interval: Duration,
+    progress_tail_lag_blocks: u64,
 }
 
 struct ProcessCtx<'a> {
@@ -104,6 +106,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         block_header_concurrency,
         block_timestamp_cache_size,
         progress_interval,
+        progress_tail_lag_blocks,
         shutdown,
     } = params;
     let (stream, chain_id, contract_address_db) = resolved.into_parts();
@@ -198,6 +201,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
                     block_header_concurrency,
                     block_timestamp_cache_size,
                     progress_interval,
+                    progress_tail_lag_blocks,
                 },
                 RunnerMode::Tail,
             )
@@ -223,6 +227,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
                     block_header_concurrency,
                     block_timestamp_cache_size,
                     progress_interval,
+                    progress_tail_lag_blocks,
                 },
                 RunnerMode::Backfill,
             )
@@ -325,6 +330,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         block_header_concurrency,
         block_timestamp_cache_size,
         progress_interval,
+        progress_tail_lag_blocks,
     } = ctx;
 
     let mut timestamps_state =
@@ -341,6 +347,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         progress_interval,
         0,
         receiver_usdt_cfg.to_batch_size.max(1),
+        progress_tail_lag_blocks,
     );
 
     let batch_size = receiver_usdt_cfg.to_batch_size.max(1);
@@ -399,11 +406,19 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                 let receiver_count = snapshot.to_addrs.len();
 
                 let safe_head = head.saturating_sub(controller_cfg.confirmations);
+                // If we don't know any receivers yet, there's nothing to scan, so treat this as
+                // effectively tailing (idle) for progress purposes even though the cursor is still
+                // at the deployment block.
+                let progress_next_block = if receiver_count == 0 {
+                    safe_head.saturating_add(1)
+                } else {
+                    from_block
+                };
                 report_receiver_usdt_progress(
                     process_ctx.progress,
                     head,
                     safe_head,
-                    from_block,
+                    progress_next_block,
                     receiver_count,
                     batch_size,
                 );

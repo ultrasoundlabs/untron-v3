@@ -7,11 +7,15 @@ enum Stage {
     Tail,
 }
 
-fn stage(next_block: u64, safe_head: u64) -> Stage {
-    if next_block <= safe_head {
-        Stage::Backfill
-    } else {
+fn stage(next_block: u64, safe_head: u64, tail_lag_blocks: u64) -> Stage {
+    if next_block > safe_head {
+        return Stage::Tail;
+    }
+    let backlog_blocks = safe_head.saturating_sub(next_block).saturating_add(1);
+    if backlog_blocks <= tail_lag_blocks {
         Stage::Tail
+    } else {
+        Stage::Backfill
     }
 }
 
@@ -77,6 +81,7 @@ pub struct ProgressReporter {
     label: &'static str,
     interval: Duration,
     kind: Extra,
+    tail_lag_blocks: u64,
 
     started_at: Instant,
     last_report_at: Instant,
@@ -96,8 +101,18 @@ pub struct ProgressReporter {
 }
 
 impl ProgressReporter {
-    pub fn new_event_chain(label: &'static str, interval: Duration, chunk_blocks: u64) -> Self {
-        Self::new(label, interval, Extra::EventChain { chunk_blocks })
+    pub fn new_event_chain(
+        label: &'static str,
+        interval: Duration,
+        chunk_blocks: u64,
+        tail_lag_blocks: u64,
+    ) -> Self {
+        Self::new(
+            label,
+            interval,
+            Extra::EventChain { chunk_blocks },
+            tail_lag_blocks,
+        )
     }
 
     pub fn new_receiver_usdt(
@@ -105,6 +120,7 @@ impl ProgressReporter {
         interval: Duration,
         receiver_count: usize,
         batch_size: usize,
+        tail_lag_blocks: u64,
     ) -> Self {
         Self::new(
             label,
@@ -113,15 +129,17 @@ impl ProgressReporter {
                 receiver_count,
                 batch_size,
             },
+            tail_lag_blocks,
         )
     }
 
-    fn new(label: &'static str, interval: Duration, kind: Extra) -> Self {
+    fn new(label: &'static str, interval: Duration, kind: Extra, tail_lag_blocks: u64) -> Self {
         let now = Instant::now();
         Self {
             label,
             interval: interval.max(Duration::from_secs(1)),
             kind,
+            tail_lag_blocks,
             started_at: now,
             last_report_at: now,
             last_stage: None,
@@ -182,7 +200,7 @@ impl ProgressReporter {
 
     pub fn maybe_report(&mut self, head: u64, safe_head: u64, next_block: u64) {
         let now = Instant::now();
-        let current_stage = stage(next_block, safe_head);
+        let current_stage = stage(next_block, safe_head, self.tail_lag_blocks);
 
         let should_report = now.duration_since(self.last_report_at) >= self.interval
             || self.last_stage.map(|s| s != current_stage).unwrap_or(true)

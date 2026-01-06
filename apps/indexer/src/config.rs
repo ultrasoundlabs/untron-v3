@@ -63,6 +63,11 @@ pub struct AppConfig {
 
     /// How often each stream emits an INFO progress summary while running.
     pub progress_interval: Duration,
+
+    /// Consider the stream "tailing" for progress logs when the backlog is within this many
+    /// blocks of `safe_head`. Useful for fast chains where always being exactly at the tip is
+    /// unrealistic and causes log stage flapping.
+    pub progress_tail_lag_blocks: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +84,9 @@ struct BaseEnv {
     #[serde(rename = "indexer_progress_interval_secs")]
     progress_interval_secs: u64,
 
+    #[serde(rename = "indexer_progress_tail_lag_blocks")]
+    progress_tail_lag_blocks: u64,
+
     /// Optional: only run this stream ("hub" | "controller" | "all").
     #[serde(rename = "indexer_stream")]
     stream: Option<String>,
@@ -92,6 +100,7 @@ impl Default for BaseEnv {
             block_header_concurrency: DEFAULT_BLOCK_HEADER_CONCURRENCY,
             block_timestamp_cache_size: DEFAULT_BLOCK_TIMESTAMP_CACHE_SIZE,
             progress_interval_secs: DEFAULT_PROGRESS_INTERVAL_SECS,
+            progress_tail_lag_blocks: DEFAULT_PROGRESS_TAIL_LAG_BLOCKS,
             stream: None,
         }
     }
@@ -238,6 +247,7 @@ pub fn load_config() -> Result<AppConfig> {
         block_header_concurrency: base.block_header_concurrency,
         block_timestamp_cache_size: base.block_timestamp_cache_size,
         progress_interval: Duration::from_secs(base.progress_interval_secs.max(1)),
+        progress_tail_lag_blocks: base.progress_tail_lag_blocks,
     })
 }
 
@@ -340,6 +350,7 @@ const DEFAULT_DB_MAX_CONNECTIONS: u32 = 5;
 const DEFAULT_BLOCK_HEADER_CONCURRENCY: usize = 16;
 const DEFAULT_BLOCK_TIMESTAMP_CACHE_SIZE: usize = 2048;
 const DEFAULT_PROGRESS_INTERVAL_SECS: u64 = 5;
+const DEFAULT_PROGRESS_TAIL_LAG_BLOCKS: u64 = 0;
 
 const DEFAULT_RPC_MAX_RATE_LIMIT_RETRIES: u32 = 8;
 const DEFAULT_RPC_INITIAL_BACKOFF_MS: u64 = 250;
