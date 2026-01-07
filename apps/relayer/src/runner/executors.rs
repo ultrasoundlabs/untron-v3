@@ -136,6 +136,8 @@ impl TronExecutor {
         data: Vec<u8>,
         call_value_sun: i64,
     ) -> Result<[u8; 32]> {
+        const MIN_ENERGY_RENTAL_AMOUNT: u64 = 32_000;
+
         let signed = self
             .wallet
             .build_and_sign_trigger_smart_contract(
@@ -170,7 +172,7 @@ impl TronExecutor {
                 .energy_required
                 .saturating_sub(parsed.energy_available());
 
-            if shortfall > 0 {
+            if shortfall >= MIN_ENERGY_RENTAL_AMOUNT {
                 let addr = self.wallet.address();
                 let addr_hex41 = format!("0x{}", hex::encode(addr.prefixed_bytes()));
                 let addr_evm_hex = format!("0x{}", hex::encode(addr.evm().as_slice()));
@@ -228,6 +230,12 @@ impl TronExecutor {
                         "all energy rental providers failed; falling back to paying TRX fees"
                     );
                 }
+            } else if shortfall > 0 {
+                tracing::debug!(
+                    energy = shortfall,
+                    min_energy = MIN_ENERGY_RENTAL_AMOUNT,
+                    "energy shortfall below minimum rental amount; skipping rental"
+                );
             }
         }
 

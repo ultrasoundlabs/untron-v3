@@ -49,6 +49,11 @@ fn default_method() -> String {
 pub struct JsonApiResponseMapping {
     /// JSON pointer to a truthy success flag (bool/number/string).
     pub success_pointer: String,
+    /// Optional exact-match requirement for `success_pointer`.
+    /// If present, success is determined by equality with this value (with light normalization).
+    /// Otherwise, the value at `success_pointer` is interpreted as truthy.
+    #[serde(default)]
+    pub success_equals: Option<Value>,
     /// Optional JSON pointer to an order id / request id.
     #[serde(default)]
     pub order_id_pointer: Option<String>,
@@ -88,14 +93,15 @@ impl JsonApiRentalProvider {
         let mut body = self.cfg.body.clone();
         render_in_place(&mut body, ctx);
 
+        let url = render_str(&self.cfg.url, ctx);
         let mut req = match self.cfg.method.to_uppercase().as_str() {
-            "POST" => self.client.post(&self.cfg.url),
-            "GET" => self.client.get(&self.cfg.url),
+            "POST" => self.client.post(url),
+            "GET" => self.client.get(url),
             other => anyhow::bail!("unsupported rental provider method: {other}"),
         };
 
         for (k, v) in &self.cfg.headers {
-            req = req.header(k, v);
+            req = req.header(k, render_str(v, ctx));
         }
 
         // Keep it simple: JSON body for POST. GET bodies are ignored.
@@ -141,7 +147,11 @@ fn interpret_json_response(
         .pointer(&cfg.response.success_pointer)
         .cloned()
         .unwrap_or(Value::Null);
-    let ok = is_truthy(&ok_val);
+    let ok = if let Some(expected) = &cfg.response.success_equals {
+        is_equalish(&ok_val, expected)
+    } else {
+        is_truthy(&ok_val)
+    };
 
     let order_id = cfg
         .response
@@ -177,6 +187,20 @@ fn is_truthy(v: &Value) -> bool {
             let t = s.trim().to_ascii_lowercase();
             matches!(t.as_str(), "true" | "1" | "ok" | "success" | "yes")
         }
+        _ => false,
+    }
+}
+
+fn is_equalish(actual: &Value, expected: &Value) -> bool {
+    if actual == expected {
+        return true;
+    }
+
+    match (actual, expected) {
+        (Value::Number(a), Value::String(e)) => e.trim() == a.to_string(),
+        (Value::String(a), Value::Number(e)) => a.trim() == e.to_string(),
+        (Value::Bool(a), Value::String(e)) => e.trim().eq_ignore_ascii_case(&a.to_string()),
+        (Value::String(a), Value::Bool(e)) => a.trim().eq_ignore_ascii_case(&e.to_string()),
         _ => false,
     }
 }
@@ -264,6 +288,7 @@ mod tests {
             body: serde_json::json!({}),
             response: JsonApiResponseMapping {
                 success_pointer: "/success".to_string(),
+                success_equals: None,
                 order_id_pointer: Some("/data/orderId".to_string()),
                 error_pointer: Some("/error".to_string()),
             },
@@ -276,6 +301,30 @@ mod tests {
     }
 
     #[test]
+    fn interpret_json_response_success_equals_controls_ok() {
+        let cfg = JsonApiRentalProviderConfig {
+            name: "p1".to_string(),
+            url: "http://example".to_string(),
+            method: "POST".to_string(),
+            headers: BTreeMap::new(),
+            body: serde_json::json!({}),
+            response: JsonApiResponseMapping {
+                success_pointer: "/code".to_string(),
+                success_equals: Some(serde_json::json!(200)),
+                order_id_pointer: None,
+                error_pointer: Some("/message".to_string()),
+            },
+        };
+
+        let res = interpret_json_response(&cfg, 200, r#"{"code":200,"message":"ok"}"#);
+        assert!(res.ok);
+
+        let res = interpret_json_response(&cfg, 200, r#"{"code":500,"message":"nope"}"#);
+        assert!(!res.ok);
+        assert_eq!(res.error.as_deref(), Some("nope"));
+    }
+
+    #[test]
     fn interpret_json_response_false_success_extracts_error() {
         let cfg = JsonApiRentalProviderConfig {
             name: "p1".to_string(),
@@ -285,6 +334,7 @@ mod tests {
             body: serde_json::json!({}),
             response: JsonApiResponseMapping {
                 success_pointer: "/ok".to_string(),
+                success_equals: None,
                 order_id_pointer: None,
                 error_pointer: Some("/error/message".to_string()),
             },
@@ -306,6 +356,7 @@ mod tests {
             body: serde_json::json!({}),
             response: JsonApiResponseMapping {
                 success_pointer: "/success".to_string(),
+                success_equals: None,
                 order_id_pointer: None,
                 error_pointer: None,
             },
@@ -326,6 +377,7 @@ mod tests {
             body: serde_json::json!({}),
             response: JsonApiResponseMapping {
                 success_pointer: "/success".to_string(),
+                success_equals: None,
                 order_id_pointer: None,
                 error_pointer: None,
             },
