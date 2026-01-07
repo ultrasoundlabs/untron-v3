@@ -256,19 +256,23 @@ fn merkle_proof_sha256(
     let mut bit = 0u32;
 
     while level.len() > 1 {
-        let is_right = (idx & 1) == 1;
-        if is_right {
-            index_bits |= U256::from(1u64) << bit;
-        }
+        // Tron txTrieRoot uses a "carry-up" Merkle tree:
+        // when a level has an odd count, the final node is promoted unchanged to the next level
+        // (it is NOT duplicated and hashed with itself).
+        //
+        // That means a path can "skip" a level with no sibling/hash step.
+        let has_no_sibling = (level.len() & 1) == 1 && idx == level.len() - 1;
+        if !has_no_sibling {
+            let is_right = (idx & 1) == 1;
+            if is_right {
+                index_bits |= U256::from(1u64) << bit;
+            }
 
-        let sibling_idx = if is_right { idx - 1 } else { idx + 1 };
-        let sibling = if sibling_idx < level.len() {
-            level[sibling_idx]
-        } else {
-            // Duplicate last node when odd.
-            level[idx]
-        };
-        proof.push(sibling);
+            let sibling_idx = if is_right { idx - 1 } else { idx + 1 };
+            let sibling = level[sibling_idx];
+            proof.push(sibling);
+            bit += 1;
+        }
 
         let mut next = Vec::with_capacity(level.len().div_ceil(2));
         for j in (0..level.len()).step_by(2) {
@@ -276,13 +280,14 @@ fn merkle_proof_sha256(
             let right = if j + 1 < level.len() {
                 level[j + 1]
             } else {
-                left
+                // Promote last node when odd.
+                next.push(left);
+                break;
             };
             next.push(sha256_concat(left, right));
         }
 
         idx /= 2;
-        bit += 1;
         level = next;
     }
 
@@ -302,7 +307,83 @@ mod tests {
     use super::*;
     use crate::address::TronAddress;
     use crate::protocol::{BlockExtention, BlockHeader, Transaction, TransactionExtention};
+    use k256::ecdsa::signature::DigestVerifier;
+    use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
     use prost::Message;
+    use serde::Deserialize;
+    use std::path::PathBuf;
+
+    fn workspace_path(rel: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel)
+    }
+
+    fn decode_hex0x(s: &str) -> Vec<u8> {
+        let s = s.strip_prefix("0x").unwrap_or(s);
+        hex::decode(s).expect("valid hex")
+    }
+
+    #[derive(Deserialize)]
+    struct TronHeadersSampleFixture {
+        #[allow(dead_code)]
+        network: String,
+        #[serde(rename = "indices")]
+        #[allow(dead_code)]
+        indices: Vec<usize>,
+        #[serde(rename = "blockNumbers")]
+        #[allow(dead_code)]
+        block_numbers: Vec<String>,
+        #[serde(rename = "blockHeaderRawBytes")]
+        block_header_raw_bytes: Vec<String>,
+        #[serde(rename = "witnessSignatures")]
+        witness_signatures: Vec<String>,
+    }
+
+    fn load_tron_headers_sample_fixture() -> TronHeadersSampleFixture {
+        let path = workspace_path("testdata/fixtures/tron_headers_78000000_78000099.sample.json");
+        let json = std::fs::read_to_string(path).expect("read tron fixture json");
+        serde_json::from_str(&json).expect("parse tron fixture json")
+    }
+
+    #[derive(Deserialize)]
+    struct Trc20TxSampleFixture {
+        #[serde(rename = "txId")]
+        tx_id: String,
+        #[serde(rename = "txLeaf")]
+        tx_leaf: String,
+        #[serde(rename = "encodedTx")]
+        encoded_tx: String,
+        #[serde(rename = "tronTokenEvm")]
+        tron_token_evm: String,
+        #[serde(rename = "fromTron")]
+        from_tron: String,
+        #[serde(rename = "toTron")]
+        to_tron: String,
+        #[serde(rename = "amount")]
+        amount: String,
+        #[serde(rename = "isTransferFrom")]
+        is_transfer_from: bool,
+        #[serde(rename = "success")]
+        success: bool,
+        #[serde(rename = "selector")]
+        selector: String,
+    }
+
+    #[derive(Deserialize)]
+    struct Trc20TxSampleFile {
+        #[allow(dead_code)]
+        network: String,
+        #[allow(dead_code)]
+        #[serde(rename = "blockNumber")]
+        block_number: String,
+        #[serde(rename = "tx")]
+        tx: Trc20TxSampleFixture,
+    }
+
+    fn load_trc20_sample_fixture() -> Trc20TxSampleFile {
+        let path = workspace_path("testdata/fixtures/trc20_tx_78115149.sample.json");
+        let json = std::fs::read_to_string(path).expect("read trc20 fixture json");
+        serde_json::from_str(&json).expect("parse trc20 fixture json")
+    }
 
     #[test]
     fn encode_varint_fixed_rejects_unexpected_len() {
@@ -320,7 +401,11 @@ mod tests {
 
         for leaf_index in 0..leaves.len() {
             let (proof, index_bits, root) = merkle_proof_sha256(&leaves, leaf_index).unwrap();
-            assert_eq!(proof.len(), 2);
+            let expected_len = match leaf_index {
+                2 => 1,
+                _ => 2,
+            };
+            assert_eq!(proof.len(), expected_len);
 
             let mut cur = leaves[leaf_index];
             for (bit, sib) in proof.into_iter().enumerate() {
@@ -334,6 +419,33 @@ mod tests {
 
             assert_eq!(cur, root);
         }
+    }
+
+    #[test]
+    fn merkle_proof_carry_up_skips_unpaired_levels() {
+        let leaves = vec![
+            sha256_bytes32(b"a"),
+            sha256_bytes32(b"b"),
+            sha256_bytes32(b"c"),
+            sha256_bytes32(b"d"),
+            sha256_bytes32(b"e"),
+        ];
+
+        // The last leaf in an odd-sized tree is promoted twice (5 -> 3 -> 2),
+        // so it only has a single hashing step at the final level (2 -> 1).
+        let (proof, index_bits, root) = merkle_proof_sha256(&leaves, 4).unwrap();
+        assert_eq!(proof.len(), 1);
+
+        let mut cur = leaves[4];
+        for (bit, sib) in proof.into_iter().enumerate() {
+            let is_right = ((index_bits >> bit) & U256::from(1u64)) == U256::from(1u64);
+            cur = if is_right {
+                sha256_concat(sib, cur)
+            } else {
+                sha256_concat(cur, sib)
+            };
+        }
+        assert_eq!(cur, root);
     }
 
     #[test]
@@ -373,6 +485,315 @@ mod tests {
         assert_eq!(out[107], 0x12);
         assert_eq!(out[108], 0x41);
         assert_eq!(&out[109..], vec![0x44u8; 65].as_slice());
+    }
+
+    #[test]
+    fn encode_block_header_stateful_matches_real_mainnet_fixture_bytes() {
+        let fixture = load_tron_headers_sample_fixture();
+        assert_eq!(
+            fixture.block_header_raw_bytes.len(),
+            fixture.witness_signatures.len()
+        );
+        assert!(!fixture.block_header_raw_bytes.is_empty());
+
+        for i in 0..fixture.block_header_raw_bytes.len() {
+            let raw_bytes = decode_hex0x(&fixture.block_header_raw_bytes[i]);
+            let sig_bytes = decode_hex0x(&fixture.witness_signatures[i]);
+            assert_eq!(sig_bytes.len(), 65, "fixture signature len mismatch at {i}");
+
+            // These fixtures are what Solidity uses in `StatefulTronTxReader` tests:
+            // `abi.encodePacked(0x0a69, raw, 0x1241, sig)`.
+            let raw = crate::protocol::block_header::Raw::decode(raw_bytes.as_slice())
+                .expect("decode BlockHeader_raw");
+            let header = BlockHeader {
+                raw_data: Some(raw),
+                witness_signature: sig_bytes.clone(),
+            };
+
+            let encoded =
+                encode_block_header_stateful(&header).expect("encode_block_header_stateful");
+
+            let mut expected = Vec::with_capacity(174);
+            expected.extend_from_slice(&[0x0a, 0x69]);
+            expected.extend_from_slice(&raw_bytes);
+            expected.extend_from_slice(&[0x12, 0x41]);
+            expected.extend_from_slice(&sig_bytes);
+
+            assert_eq!(
+                encoded, expected,
+                "encoded header mismatch at fixture index {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn tx_id_and_leaf_match_real_mainnet_fixture() {
+        let fixture = load_trc20_sample_fixture();
+        let tx0 = fixture.tx;
+
+        let encoded_tx_bytes = decode_hex0x(&tx0.encoded_tx);
+        let expected_leaf = FixedBytes::<32>::from_slice(&decode_hex0x(&tx0.tx_leaf));
+        let expected_txid = FixedBytes::<32>::from_slice(&decode_hex0x(&tx0.tx_id));
+
+        // txLeaf = sha256(encodedTxBytes)
+        let leaf = sha256_bytes32(&encoded_tx_bytes);
+        assert_eq!(leaf, expected_leaf, "txLeaf mismatch");
+
+        // txId = sha256(Transaction.raw_data bytes)
+        let tx = crate::protocol::Transaction::decode(encoded_tx_bytes.as_slice())
+            .expect("decode Transaction");
+        // Ensure our prost encoding matches the fixture bytes (cross-language stability check).
+        assert_eq!(
+            tx.encode_to_vec(),
+            encoded_tx_bytes,
+            "Transaction encoding mismatch"
+        );
+
+        let raw = tx.raw_data.expect("fixture tx has raw_data");
+        let raw_bytes = raw.encode_to_vec();
+        let txid = sha256_bytes32(&raw_bytes);
+        assert_eq!(txid, expected_txid, "txId mismatch");
+    }
+
+    #[test]
+    fn trigger_smart_contract_elements_match_trc20_fixture() {
+        let fixture = load_trc20_sample_fixture();
+        let tx0 = fixture.tx;
+
+        let encoded_tx_bytes = decode_hex0x(&tx0.encoded_tx);
+        let tx = crate::protocol::Transaction::decode(encoded_tx_bytes.as_slice())
+            .expect("decode Transaction");
+
+        let ret0 = tx.ret.first().cloned().unwrap_or_default();
+        let success = ret0.ret == 0 && ret0.contract_ret == 1;
+        assert_eq!(success, tx0.success, "success mismatch");
+
+        let raw = tx.raw_data.expect("fixture tx has raw_data");
+        assert_eq!(raw.contract.len(), 1, "expected exactly 1 contract");
+        let contract0 = raw.contract.first().expect("contract[0]");
+
+        // TriggerSmartContract = 31
+        assert_eq!(contract0.r#type, 31, "unexpected contract type");
+
+        let any = contract0
+            .parameter
+            .as_ref()
+            .expect("missing contract parameter");
+        let trigger = crate::protocol::TriggerSmartContract::decode(any.value.as_slice())
+            .expect("decode TriggerSmartContract");
+
+        let expected_owner = decode_hex0x(&tx0.from_tron);
+        assert_eq!(
+            trigger.owner_address, expected_owner,
+            "owner_address mismatch"
+        );
+
+        let token_evm = decode_hex0x(&tx0.tron_token_evm);
+        assert_eq!(token_evm.len(), 20, "tronTokenEvm must be 20 bytes");
+        let mut expected_contract = vec![0x41u8];
+        expected_contract.extend_from_slice(&token_evm);
+        assert_eq!(
+            trigger.contract_address, expected_contract,
+            "contract_address mismatch"
+        );
+
+        let expected_selector = decode_hex0x(&tx0.selector);
+        assert_eq!(expected_selector.len(), 4, "selector must be 4 bytes");
+        assert!(
+            trigger.data.len() >= 4,
+            "expected TriggerSmartContract.data to have at least 4 bytes"
+        );
+        assert_eq!(
+            &trigger.data[..4],
+            expected_selector.as_slice(),
+            "selector mismatch"
+        );
+
+        // Basic sanity: the fixture "toTron" appears in calldata for transfer(address,uint256).
+        let expected_to = decode_hex0x(&tx0.to_tron);
+        assert_eq!(expected_to.len(), 21, "toTron must be 21 bytes");
+        let to20 = &expected_to[1..];
+        assert!(
+            trigger.data.windows(20).any(|w| w == to20),
+            "toTron (20-byte) not found in calldata"
+        );
+
+        // The amount is ABI-encoded as uint256 big-endian; ensure it appears as a 32-byte word.
+        let amount: u128 = tx0.amount.parse().expect("amount fits u128");
+        let mut amount_word = [0u8; 32];
+        amount_word[16..].copy_from_slice(&amount.to_be_bytes());
+        assert!(
+            trigger.data.windows(32).any(|w| w == amount_word),
+            "amount word not found in calldata"
+        );
+
+        assert_eq!(
+            tx0.is_transfer_from, false,
+            "fixture expects transfer (not transferFrom)"
+        );
+    }
+
+    #[test]
+    fn tx_signature_verifies_over_raw_data_not_full_transaction_bytes() {
+        let fixture = load_trc20_sample_fixture();
+        let tx0 = fixture.tx;
+
+        let encoded_tx_bytes = decode_hex0x(&tx0.encoded_tx);
+        let tx = crate::protocol::Transaction::decode(encoded_tx_bytes.as_slice())
+            .expect("decode Transaction");
+
+        let sig_bytes = tx.signature.first().expect("fixture tx has signature[0]");
+        assert_eq!(sig_bytes.len(), 65, "expected 65-byte tx signature");
+
+        let sig = Signature::try_from(&sig_bytes[..64]).expect("parse r||s signature");
+        let mut v = sig_bytes[64];
+        // Normalize 27/28 -> 0/1 if needed.
+        if v >= 27 {
+            v -= 27;
+        }
+        let recid = RecoveryId::try_from(v).expect("valid recovery id");
+
+        let raw = tx.raw_data.expect("fixture tx has raw_data");
+        let raw_bytes = raw.encode_to_vec();
+        let digest = Sha256::new_with_prefix(&raw_bytes);
+
+        let vk = VerifyingKey::recover_from_digest(digest.clone(), &sig, recid)
+            .expect("recover verifying key from signature");
+        vk.verify_digest(digest, &sig)
+            .expect("signature verifies over sha256(raw_data)");
+
+        // Safety check: signature should not verify over the full Transaction bytes.
+        let wrong = vk.verify_digest(Sha256::new_with_prefix(&encoded_tx_bytes), &sig);
+        assert!(
+            wrong.is_err(),
+            "signature unexpectedly verified over full tx bytes"
+        );
+    }
+
+    #[derive(Deserialize)]
+    struct TronTxProofFixture {
+        #[allow(dead_code)]
+        network: String,
+        #[serde(rename = "blockNumber")]
+        #[allow(dead_code)]
+        block_number: String,
+        #[serde(rename = "txId")]
+        tx_id: String,
+        #[serde(rename = "targetIndex")]
+        target_index: usize,
+        #[serde(rename = "encodedTx")]
+        encoded_tx: String,
+        #[serde(rename = "txLeaf")]
+        tx_leaf: String,
+        #[serde(rename = "headerTxTrieRoot")]
+        header_tx_trie_root: String,
+        #[serde(rename = "leaves")]
+        leaves: Vec<String>,
+        #[serde(rename = "proof")]
+        proof: Vec<String>,
+        #[serde(rename = "indexBits")]
+        index_bits: String,
+        #[serde(rename = "blocks")]
+        blocks: Vec<String>,
+    }
+
+    #[test]
+    fn tron_tx_proof_fixture_end_to_end_if_present() {
+        let default_path = workspace_path(
+            "testdata/fixtures/tron_tx_proof_78812179_1d649769f0ecf78bd6812226d067144bca18b4d01fb34cfdb260fd51cc3072db.json",
+        );
+
+        let path = std::env::var("TRON_TX_PROOF_FIXTURE")
+            .ok()
+            .map(PathBuf::from)
+            .unwrap_or(default_path);
+
+        if !path.exists() {
+            eprintln!(
+                "skipping: set TRON_TX_PROOF_FIXTURE to a generated fixture path (missing {})",
+                path.display()
+            );
+            return;
+        }
+
+        let json = std::fs::read_to_string(&path).expect("read tx proof fixture json");
+        let fixture: TronTxProofFixture =
+            serde_json::from_str(&json).expect("parse tx proof fixture json");
+
+        // Basic tx invariants.
+        let encoded_tx_bytes = decode_hex0x(&fixture.encoded_tx);
+        let expected_leaf = FixedBytes::<32>::from_slice(&decode_hex0x(&fixture.tx_leaf));
+        let leaf = sha256_bytes32(&encoded_tx_bytes);
+        assert_eq!(leaf, expected_leaf, "txLeaf mismatch");
+
+        let tx = crate::protocol::Transaction::decode(encoded_tx_bytes.as_slice())
+            .expect("decode Transaction");
+        let raw = tx.raw_data.expect("fixture tx has raw_data");
+        let raw_bytes = raw.encode_to_vec();
+        let txid = sha256_bytes32(&raw_bytes);
+        let expected_txid = FixedBytes::<32>::from_slice(&decode_hex0x(&fixture.tx_id));
+        assert_eq!(txid, expected_txid, "txId mismatch");
+
+        // Merkle proof invariants (recompute from leaves).
+        let leaves = fixture
+            .leaves
+            .iter()
+            .map(|h| FixedBytes::<32>::from_slice(&decode_hex0x(h)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            leaves.get(fixture.target_index).copied(),
+            Some(expected_leaf),
+            "leaf at targetIndex mismatch"
+        );
+
+        let (proof, index_bits, root) = merkle_proof_sha256(&leaves, fixture.target_index).unwrap();
+        let expected_root =
+            FixedBytes::<32>::from_slice(&decode_hex0x(&fixture.header_tx_trie_root));
+        assert_eq!(root, expected_root, "computed root != header txTrieRoot");
+
+        let expected_proof = fixture
+            .proof
+            .iter()
+            .map(|h| FixedBytes::<32>::from_slice(&decode_hex0x(h)))
+            .collect::<Vec<_>>();
+        assert_eq!(proof, expected_proof, "proof mismatch");
+
+        let expected_index_bits_u256 =
+            U256::from_str_radix(&fixture.index_bits, 10).expect("parse indexBits as decimal U256");
+        assert_eq!(index_bits, expected_index_bits_u256, "indexBits mismatch");
+
+        // Header encoding invariants: each block should roundtrip through our stateful encoder.
+        assert_eq!(fixture.blocks.len(), 20, "expected 20 blocks");
+        for (i, b) in fixture.blocks.iter().enumerate() {
+            let block_bytes = decode_hex0x(b);
+            assert_eq!(
+                block_bytes.len(),
+                174,
+                "encoded block length mismatch at {i}"
+            );
+            assert_eq!(&block_bytes[..2], &[0x0a, 0x69], "prefix mismatch at {i}");
+            assert_eq!(
+                &block_bytes[107..109],
+                &[0x12, 0x41],
+                "sig framing mismatch at {i}"
+            );
+
+            let raw_bytes = &block_bytes[2..107];
+            let sig_bytes = block_bytes[109..].to_vec();
+
+            let raw = crate::protocol::block_header::Raw::decode(raw_bytes)
+                .expect("decode BlockHeader_raw");
+            let header = BlockHeader {
+                raw_data: Some(raw),
+                witness_signature: sig_bytes,
+            };
+            let re_encoded =
+                encode_block_header_stateful(&header).expect("encode_block_header_stateful");
+            assert_eq!(
+                re_encoded, block_bytes,
+                "block header encoding mismatch at {i}"
+            );
+        }
     }
 
     #[test]

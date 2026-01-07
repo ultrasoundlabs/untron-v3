@@ -6057,6 +6057,8 @@ dependencies = [
  "k256",
  "prost 0.14.1",
  "prost-types 0.14.1",
+ "serde",
+ "serde_json",
  "sha2",
  "tonic 0.14.2",
  "tonic-prost",

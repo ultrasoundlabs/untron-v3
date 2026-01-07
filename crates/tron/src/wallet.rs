@@ -192,6 +192,9 @@ fn encode_u256(v: U256) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k256::ecdsa::signature::DigestVerifier;
+    use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
+    use prost::Message;
 
     #[test]
     fn encode_is_event_chain_tip_layout() {
@@ -244,5 +247,37 @@ mod tests {
         assert_eq!(&out[100..132], s1.as_slice());
         assert_eq!(&out[132..164], s2.as_slice());
         assert_eq!(out.len(), 164);
+    }
+
+    #[test]
+    fn tx_signing_is_over_raw_data_sha256() {
+        let private_key = [0x11u8; 32];
+        let key = SigningKey::from_slice(&private_key).unwrap();
+
+        // Build a minimal-but-non-empty raw tx so encoding is deterministic.
+        let raw = crate::protocol::transaction::Raw {
+            timestamp: 1,
+            expiration: 2,
+            fee_limit: 3,
+            ..Default::default()
+        };
+        let raw_bytes = raw.encode_to_vec();
+        let digest = Sha256::new_with_prefix(&raw_bytes);
+
+        let (rec_sig, recid) = key.sign_digest_recoverable(digest.clone()).unwrap();
+        let mut sig65 = rec_sig.to_bytes().to_vec();
+        sig65.push(recid.to_byte() + 27);
+
+        // txId is sha256(raw_data bytes)
+        let txid = Sha256::digest(&raw_bytes);
+        assert_eq!(txid.as_slice().len(), 32);
+
+        // Verify/recover.
+        let sig = Signature::try_from(&sig65[..64]).unwrap();
+        let v = sig65[64] - 27;
+        let recid2 = RecoveryId::try_from(v).unwrap();
+        let recovered = VerifyingKey::recover_from_digest(digest.clone(), &sig, recid2).unwrap();
+        assert_eq!(recovered, *key.verifying_key(), "recovered key mismatch");
+        recovered.verify_digest(digest, &sig).unwrap();
     }
 }

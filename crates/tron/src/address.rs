@@ -1,5 +1,4 @@
 use alloy::primitives::Address;
-use sha2::{Digest, Sha256};
 use std::fmt;
 use std::str::FromStr;
 
@@ -60,19 +59,7 @@ impl TronAddress {
         let mut payload = [0u8; 21];
         payload[0] = Self::MAINNET_PREFIX;
         payload[1..].copy_from_slice(self.0.as_slice());
-
-        let mut hasher = Sha256::new();
-        hasher.update(payload);
-        let first = hasher.finalize_reset();
-        hasher.update(first);
-        let second = hasher.finalize();
-        let checksum = &second[..4];
-
-        let mut with_checksum = [0u8; 25];
-        with_checksum[..21].copy_from_slice(&payload);
-        with_checksum[21..].copy_from_slice(checksum);
-
-        bs58::encode(with_checksum).into_string()
+        bs58::encode(payload).with_check().into_string()
     }
 
     /// 0x41 || addr20 (21 bytes), for Tron gRPC `owner_address`/`contract_address`.
@@ -145,18 +132,7 @@ mod tests {
         payload[0] = 0x42;
         payload[1..].copy_from_slice(addr20.as_slice());
 
-        let mut hasher = Sha256::new();
-        hasher.update(payload);
-        let first = hasher.finalize_reset();
-        hasher.update(first);
-        let second = hasher.finalize();
-        let checksum = &second[..4];
-
-        let mut with_checksum = [0u8; 25];
-        with_checksum[..21].copy_from_slice(&payload);
-        with_checksum[21..].copy_from_slice(checksum);
-
-        let s = bs58::encode(with_checksum).into_string();
+        let s = bs58::encode(payload).with_check().into_string();
         let err = TronAddress::from_base58check(&s).unwrap_err().to_string();
         assert!(err.contains("unexpected Tron address prefix"));
     }

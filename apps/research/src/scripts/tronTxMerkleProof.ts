@@ -14,6 +14,45 @@ function toHex0x(buf: Uint8Array | Buffer): string {
   return `0x${Buffer.from(buf).toString("hex")}`;
 }
 
+function sha256Concat(a: Buffer, b: Buffer): Buffer {
+  return Buffer.from(sha256(Buffer.concat([a, b])));
+}
+
+function computeMerkleRootCarryUp(leaves: Buffer[]): Buffer {
+  if (leaves.length === 0) throw new Error("empty merkle tree");
+  let level = leaves.slice();
+  while (level.length > 1) {
+    const next: Buffer[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      const left = level[i]!;
+      const right = level[i + 1];
+      if (!right) {
+        // Tron txTrieRoot uses a carry-up rule (no self-duplication).
+        next.push(left);
+      } else {
+        next.push(sha256Concat(left, right));
+      }
+    }
+    level = next;
+  }
+  return level[0]!;
+}
+
+function computeMerkleRootDuplicateLast(leaves: Buffer[]): Buffer {
+  if (leaves.length === 0) throw new Error("empty merkle tree");
+  let level = leaves.slice();
+  while (level.length > 1) {
+    const next: Buffer[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      const left = level[i]!;
+      const right = level[i + 1] ?? left;
+      next.push(sha256Concat(left, right));
+    }
+    level = next;
+  }
+  return level[0]!;
+}
+
 class MerkleNode {
   digest: Buffer;
   left?: MerkleNode;
@@ -76,7 +115,7 @@ class InMemoryMerkleTree {
       decompose(this.leaves.length)[0]!
     );
     this.leaves.push(tail);
-    const parentDigest = Buffer.from(sha256(Buffer.concat([node.digest, tail.digest])));
+    const parentDigest = sha256Concat(node.digest, tail.digest);
 
     if (node.isRoot()) {
       this.root = new MerkleNode(parentDigest, node, tail);
@@ -90,7 +129,7 @@ class InMemoryMerkleTree {
 
     let ptr = curr;
     while (true) {
-      ptr.digest = Buffer.from(sha256(Buffer.concat([ptr.left!.digest, ptr.right!.digest])));
+      ptr.digest = sha256Concat(ptr.left!.digest, ptr.right!.digest);
       if (!ptr.parent) break;
       ptr = ptr.parent;
     }
@@ -182,6 +221,10 @@ async function main() {
   const calculatedRootHex = toHex0x(result.root);
   const headerRootHex = toHex0x(headerRoot);
 
+  const leafDigests = tree.leaves.map((l) => l.digest);
+  const carryUpRoot = computeMerkleRootCarryUp(leafDigests);
+  const duplicateLastRoot = computeMerkleRootDuplicateLast(leafDigests);
+
   if (calculatedRootHex !== headerRootHex) {
     throw new Error(
       `Merkle root mismatch! Calculated: ${calculatedRootHex}, Header: ${headerRootHex}`
@@ -196,6 +239,16 @@ async function main() {
         proof: result.proof.map(toHex0x),
         index: result.index.toString(),
         totalLeaves: result.totalLeaves.toString(),
+        diagnostics: {
+          txCount: block.transactions.length,
+          targetIndex,
+          proofLen: result.proof.length,
+          headerRoot: headerRootHex,
+          carryUpRoot: toHex0x(carryUpRoot),
+          duplicateLastRoot: toHex0x(duplicateLastRoot),
+          carryUpMatchesHeader: toHex0x(carryUpRoot) === headerRootHex,
+          duplicateLastMatchesHeader: toHex0x(duplicateLastRoot) === headerRootHex,
+        },
       },
       null,
       2
