@@ -141,14 +141,8 @@ services:
     expose:
       - "8080"
     environment:
-      # This is Scalar's main config mechanism in the Docker image
-      # (you can also mount files into /docs instead)
-      API_REFERENCE_CONFIG: >
-        {
-          "sources": [
-            { "url": "/openapi.json", "title": "Untron API", "default": true }
-          ]
-        }
+      CDN_URL: ${SCALAR_CDN_URL:-/scalar.js}
+      API_REFERENCE_CONFIG: ${SCALAR_API_REFERENCE_CONFIG:-{"pathRouting":{"basePath":"/docs"},"sources":[{"url":"/openapi.json","title":"Untron API","default":true}]}}
 
   openapi_sidecar:
     image: node:20-slim
