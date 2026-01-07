@@ -257,15 +257,11 @@ impl PaymasterPool {
         }
 
         let env: JsonRpcEnvelope<T> = serde_json::from_str(&text).context("decode jsonrpc")?;
-        if let Some(v) = env.jsonrpc.as_deref() {
-            if v != "2.0" {
+        if let Some(v) = env.jsonrpc.as_deref() && v != "2.0" {
                 anyhow::bail!("unexpected jsonrpc version: {v}");
-            }
         }
-        if let Some(v) = &env.id {
-            if v != &Value::from(id) {
+        if let Some(v) = &env.id && v != &Value::from(id) {
                 anyhow::bail!("jsonrpc id mismatch (expected {id}, got {v})");
-            }
         }
         if let Some(err) = env.error {
             anyhow::bail!(
