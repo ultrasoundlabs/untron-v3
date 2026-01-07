@@ -10,6 +10,8 @@ use std::time::Duration;
 use alloy::rpc::types::eth::erc4337::{PackedUserOperation, SendUserOperation};
 use alloy::rpc::types::eth::erc4337::{SendUserOperationResponse, UserOperationGasEstimation};
 
+use crate::packing::redact_url;
+
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
@@ -27,9 +29,13 @@ impl BundlerPool {
 
         let mut providers = Vec::with_capacity(urls.len());
         for url in &urls {
-            let transport = BuiltInConnectionString::connect(url)
-                .await
-                .with_context(|| format!("connect bundler rpc: {url}"))?;
+            let transport =
+                tokio::time::timeout(RPC_TIMEOUT, BuiltInConnectionString::connect(url))
+                    .await
+                    .map_err(|_| {
+                        anyhow::anyhow!("timed out connecting bundler rpc: {}", redact_url(url))
+                    })?
+                    .with_context(|| format!("connect bundler rpc: {}", redact_url(url)))?;
             let client = RpcClient::builder().transport(transport, false);
             let provider = ProviderBuilder::default().connect_client(client);
             providers.push(DynProvider::new(provider));
@@ -58,6 +64,7 @@ impl BundlerPool {
         let order = rotate_order(self.next_idx, self.providers.len());
         for idx in order {
             let url = &self.urls[idx];
+            let url = redact_url(url);
             let provider = &self.providers[idx];
 
             let fut = provider.estimate_user_operation_gas(
@@ -102,6 +109,7 @@ impl BundlerPool {
         let order = rotate_order(self.next_idx, self.providers.len());
         for idx in order {
             let url = &self.urls[idx];
+            let url = redact_url(url);
             let provider = &self.providers[idx];
 
             let fut = provider.send_user_operation(
@@ -141,6 +149,7 @@ impl BundlerPool {
         let order = rotate_order(self.next_idx, self.providers.len());
         for idx in order {
             let url = &self.urls[idx];
+            let url = redact_url(url);
             let provider = &self.providers[idx];
 
             let fut = provider.supported_entry_points();

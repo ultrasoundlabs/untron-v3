@@ -43,9 +43,41 @@ pub struct PaymasterUserOp {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SponsorInfo {
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+fn deserialize_sponsor<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<SponsorInfo>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v: Option<Value> = Option::deserialize(deserializer)?;
+    let Some(v) = v else {
+        return Ok(None);
+    };
+
+    match v {
+        Value::String(name) => Ok(Some(SponsorInfo { name, icon: None })),
+        Value::Object(_) => {
+            let info: SponsorInfo = serde_json::from_value(v).map_err(serde::de::Error::custom)?;
+            Ok(Some(info))
+        }
+        other => Err(serde::de::Error::custom(format!(
+            "invalid sponsor type: {other}"
+        ))),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaymasterStubDataResult {
     #[serde(default)]
-    pub sponsor: Option<String>,
+    #[serde(deserialize_with = "deserialize_sponsor")]
+    pub sponsor: Option<SponsorInfo>,
 
     #[serde(default)]
     pub paymaster: Option<Address>,
@@ -208,6 +240,10 @@ impl PaymasterPool {
 
         #[derive(Deserialize)]
         struct JsonRpcEnvelope<T> {
+            #[serde(default)]
+            jsonrpc: Option<String>,
+            #[serde(default)]
+            id: Option<Value>,
             result: Option<T>,
             error: Option<JsonRpcError>,
         }
@@ -221,6 +257,16 @@ impl PaymasterPool {
         }
 
         let env: JsonRpcEnvelope<T> = serde_json::from_str(&text).context("decode jsonrpc")?;
+        if let Some(v) = env.jsonrpc.as_deref() {
+            if v != "2.0" {
+                anyhow::bail!("unexpected jsonrpc version: {v}");
+            }
+        }
+        if let Some(v) = &env.id {
+            if v != &Value::from(id) {
+                anyhow::bail!("jsonrpc id mismatch (expected {id}, got {v})");
+            }
+        }
         if let Some(err) = env.error {
             anyhow::bail!(
                 "jsonrpc error {}: {} ({:?})",

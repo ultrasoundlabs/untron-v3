@@ -14,7 +14,17 @@ use k256::ecdsa::SigningKey;
 
 use alloy::rpc::types::eth::erc4337::PackedUserOperation;
 
-const DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT: u64 = 500_000;
+const GAS_BUFFER_PCT: u64 = 10;
+const PAYMASTER_POST_OP_GAS_BUFFER_PCT: u64 = 10;
+
+// ERC-4337 bundler sanity checks expect paymasterVerificationGasLimit < MAX_VERIFICATION_GAS (500_000).
+const MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE: u64 = 500_000;
+const DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT: u64 = 450_000;
+
+fn cap_paymaster_verification_gas_limit(v: U256) -> (U256, bool) {
+    let max = U256::from(MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE - 1);
+    if v > max { (max, true) } else { (v, false) }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymasterFinalizationMode {
@@ -220,9 +230,10 @@ impl Safe4337UserOpSender {
             .await
             .context("bundler estimate userop gas")?;
 
-        userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, 10)?;
-        userop.verification_gas_limit = add_gas_buffer(estimate.verification_gas, 10)?;
-        userop.pre_verification_gas = add_gas_buffer(estimate.pre_verification_gas, 10)?;
+        userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+        userop.verification_gas_limit = add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+        userop.pre_verification_gas =
+            add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
 
         userop.signature = self.sign_userop(&userop)?.into();
 
@@ -255,7 +266,8 @@ impl Safe4337UserOpSender {
         {
             tracing::info!(
                 paymaster = %redact_url(&svc.url),
-                sponsor = %s,
+                sponsor = %s.name,
+                icon = ?s.icon,
                 "paymaster stub sponsor"
             );
         }
@@ -270,16 +282,16 @@ impl Safe4337UserOpSender {
 
         userop.paymaster = Some(paymaster);
         userop.paymaster_data = Some(paymaster_data);
-        userop.paymaster_verification_gas_limit = Some(
-            stub.paymaster_verification_gas_limit
-                .unwrap_or(U256::from(DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT)),
-        );
-        userop.paymaster_post_op_gas_limit = stub.paymaster_post_op_gas_limit;
-        if userop.paymaster_post_op_gas_limit.is_none() {
-            anyhow::bail!(
-                "pm_getPaymasterStubData missing paymasterPostOpGasLimit (required for v0.7)"
-            );
-        }
+        let stub_pm_ver = stub.paymaster_verification_gas_limit;
+        userop.paymaster_verification_gas_limit =
+            Some(stub_pm_ver.unwrap_or(U256::from(DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT)));
+
+        let stub_pm_post = stub.paymaster_post_op_gas_limit;
+        let pm_post = stub_pm_post.context(
+            "pm_getPaymasterStubData missing paymasterPostOpGasLimit (required for v0.7)",
+        )?;
+        userop.paymaster_post_op_gas_limit =
+            Some(add_gas_buffer(pm_post, PAYMASTER_POST_OP_GAS_BUFFER_PCT)?);
 
         userop.signature = self.sign_userop(&userop)?.into();
         let estimate = self
@@ -288,22 +300,28 @@ impl Safe4337UserOpSender {
             .await
             .context("bundler estimate userop gas")?;
 
-        userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, 10)?;
-        userop.verification_gas_limit = add_gas_buffer(estimate.verification_gas, 10)?;
-        userop.pre_verification_gas = add_gas_buffer(estimate.pre_verification_gas, 10)?;
+        userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+        userop.verification_gas_limit = add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+        userop.pre_verification_gas =
+            add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
+
+        let pm_ver_base = match userop.paymaster_verification_gas_limit {
+            Some(v) if v > estimate.paymaster_verification_gas => v,
+            _ => estimate.paymaster_verification_gas,
+        };
+        let (pm_ver, capped) =
+            cap_paymaster_verification_gas_limit(add_gas_buffer(pm_ver_base, GAS_BUFFER_PCT)?);
+        if capped {
+            tracing::warn!(
+                paymaster = %redact_url(&svc.url),
+                pm_ver = %pm_ver,
+                "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
+            );
+        }
+        userop.paymaster_verification_gas_limit = Some(pm_ver);
 
         match self.cfg.options.paymaster_finalization {
             PaymasterFinalizationMode::SkipIfStubFinal => {
-                let paymaster_provided_ver = stub.paymaster_verification_gas_limit;
-                if stub.is_final == Some(true) && paymaster_provided_ver.is_some() {
-                } else {
-                    let pm_ver = match userop.paymaster_verification_gas_limit {
-                        Some(v) if v > estimate.paymaster_verification_gas => v,
-                        _ => estimate.paymaster_verification_gas,
-                    };
-                    userop.paymaster_verification_gas_limit = Some(add_gas_buffer(pm_ver, 10)?);
-                }
-
                 if stub.is_final != Some(true) {
                     let pm_userop_final =
                         to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
@@ -328,6 +346,37 @@ impl Safe4337UserOpSender {
                         );
                     }
                     userop.paymaster_data = Some(paymaster_data);
+
+                    userop.signature = self.sign_userop(&userop)?.into();
+                    let estimate = self
+                        .bundlers
+                        .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
+                        .await
+                        .context("bundler re-estimate userop gas after paymaster finalization")?;
+
+                    userop.call_gas_limit =
+                        add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+                    userop.verification_gas_limit =
+                        add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+                    userop.pre_verification_gas =
+                        add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
+
+                    let pm_ver_base = match userop.paymaster_verification_gas_limit {
+                        Some(v) if v > estimate.paymaster_verification_gas => v,
+                        _ => estimate.paymaster_verification_gas,
+                    };
+                    let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
+                        pm_ver_base,
+                        GAS_BUFFER_PCT,
+                    )?);
+                    if capped {
+                        tracing::warn!(
+                            paymaster = %redact_url(&svc.url),
+                            pm_ver = %pm_ver,
+                            "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
+                        );
+                    }
+                    userop.paymaster_verification_gas_limit = Some(pm_ver);
                 }
             }
             PaymasterFinalizationMode::AlwaysFetchFinal => {
@@ -337,14 +386,55 @@ impl Safe4337UserOpSender {
                     .get_data(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
                     .await?;
 
-                let paymaster = final_data
-                    .paymaster
-                    .context("pm_getPaymasterData missing paymaster")?;
+                if let Some(p) = final_data.paymaster
+                    && p != paymaster
+                {
+                    anyhow::bail!("pm_getPaymasterData returned unexpected paymaster address");
+                }
                 let paymaster_data = final_data
                     .paymaster_data
                     .context("pm_getPaymasterData missing paymasterData")?;
+                let final_len = paymaster_data.len();
+                if final_len != stub_len {
+                    tracing::warn!(
+                        paymaster = %redact_url(&svc.url),
+                        stub_len,
+                        final_len,
+                        "paymasterData length differs between stub and final; bundler preVerificationGas may be off"
+                    );
+                }
                 userop.paymaster = Some(paymaster);
                 userop.paymaster_data = Some(paymaster_data);
+
+                userop.signature = self.sign_userop(&userop)?.into();
+                let estimate = self
+                    .bundlers
+                    .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
+                    .await
+                    .context("bundler re-estimate userop gas after paymaster finalization")?;
+
+                userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+                userop.verification_gas_limit =
+                    add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+                userop.pre_verification_gas =
+                    add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
+
+                let pm_ver_base = match userop.paymaster_verification_gas_limit {
+                    Some(v) if v > estimate.paymaster_verification_gas => v,
+                    _ => estimate.paymaster_verification_gas,
+                };
+                let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
+                    pm_ver_base,
+                    GAS_BUFFER_PCT,
+                )?);
+                if capped {
+                    tracing::warn!(
+                        paymaster = %redact_url(&svc.url),
+                        pm_ver = %pm_ver,
+                        "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
+                    );
+                }
+                userop.paymaster_verification_gas_limit = Some(pm_ver);
             }
         }
 
