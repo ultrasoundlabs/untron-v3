@@ -2,6 +2,7 @@ use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::time::Duration;
+use tron::JsonApiRentalProviderConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaymasterServiceConfig {
@@ -50,7 +51,10 @@ pub struct TronConfig {
     pub controller_address: String,
 
     pub block_lag: u64,
-    pub fee_limit_sun: i64,
+    /// Extra headroom on computed fee_limit (ppm, i.e. 100_000 = +10%).
+    pub fee_limit_headroom_ppm: u64,
+    /// Optional list of external energy rental providers.
+    pub energy_rental_providers: Vec<JsonApiRentalProviderConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +111,11 @@ struct Env {
 
     tron_block_lag: u64,
 
-    tron_fee_limit_sun: i64,
+    #[serde(default)]
+    tron_fee_limit_headroom_ppm: u64,
+
+    #[serde(default)]
+    tron_energy_rental_apis_json: String,
 
     relayer_tick_interval_secs: u64,
 
@@ -146,7 +154,8 @@ impl Default for Env {
             tron_private_key_hex: String::new(),
             tron_controller_address: String::new(),
             tron_block_lag: 0,
-            tron_fee_limit_sun: 30_000_000,
+            tron_fee_limit_headroom_ppm: 100_000,
+            tron_energy_rental_apis_json: String::new(),
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
@@ -207,6 +216,29 @@ fn parse_paymasters_json(s: &str) -> Result<Vec<PaymasterServiceConfig>> {
     Ok(v)
 }
 
+fn parse_tron_energy_rental_apis_json(s: &str) -> Result<Vec<JsonApiRentalProviderConfig>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut v: Vec<JsonApiRentalProviderConfig> =
+        serde_json::from_str(trimmed).context("parse TRON_ENERGY_RENTAL_APIS_JSON")?;
+    for p in &mut v {
+        p.name = p.name.trim().to_string();
+        p.url = p.url.trim().to_string();
+        if p.name.is_empty() {
+            anyhow::bail!("TRON_ENERGY_RENTAL_APIS_JSON contains an empty provider name");
+        }
+        if p.url.is_empty() {
+            anyhow::bail!("TRON_ENERGY_RENTAL_APIS_JSON contains an empty provider url");
+        }
+        if p.method.trim().is_empty() {
+            p.method = "POST".to_string();
+        }
+    }
+    Ok(v)
+}
+
 pub fn load_config() -> Result<AppConfig> {
     let env: Env = envy::from_env().context("load relayer env config")?;
 
@@ -262,7 +294,10 @@ pub fn load_config() -> Result<AppConfig> {
             private_key: parse_hex_32("TRON_PRIVATE_KEY_HEX", &env.tron_private_key_hex)?,
             controller_address: env.tron_controller_address,
             block_lag: env.tron_block_lag,
-            fee_limit_sun: env.tron_fee_limit_sun.max(0),
+            fee_limit_headroom_ppm: env.tron_fee_limit_headroom_ppm.min(1_000_000),
+            energy_rental_providers: parse_tron_energy_rental_apis_json(
+                &env.tron_energy_rental_apis_json,
+            )?,
         },
         jobs: JobConfig {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),
@@ -326,6 +361,38 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("must be a JSON object"));
+    }
+
+    #[test]
+    fn parse_tron_energy_rental_apis_json_empty_ok() {
+        assert!(
+            parse_tron_energy_rental_apis_json("   ")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn parse_tron_energy_rental_apis_json_validates_name_and_url() {
+        let ok = r#"[{"name":" p1 ","url":" https://r.example ","method":"POST","headers":{},"body":{},"response":{"success_pointer":"/ok"}}]"#;
+        let v = parse_tron_energy_rental_apis_json(ok).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].name, "p1");
+        assert_eq!(v[0].url, "https://r.example");
+
+        let err = parse_tron_energy_rental_apis_json(
+            r#"[{"name":" ","url":"x","method":"POST","headers":{},"body":{},"response":{"success_pointer":"/ok"}}]"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("empty provider name"));
+
+        let err = parse_tron_energy_rental_apis_json(
+            r#"[{"name":"x","url":" ","method":"POST","headers":{},"body":{},"response":{"success_pointer":"/ok"}}]"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("empty provider url"));
     }
 
     #[test]

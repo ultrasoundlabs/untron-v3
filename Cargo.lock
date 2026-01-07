@@ -6057,6 +6057,7 @@ dependencies = [
  "k256",
  "prost 0.14.1",
  "prost-types 0.14.1",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",

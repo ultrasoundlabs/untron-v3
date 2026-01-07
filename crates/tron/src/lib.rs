@@ -1,11 +1,20 @@
 pub mod address;
 pub mod grpc;
 pub mod proof;
+pub mod rental;
+pub mod resources;
+pub mod sender;
 pub mod wallet;
 
 pub use address::TronAddress;
 pub use grpc::TronGrpc;
 pub use proof::{TronTxProofBuilder, TronTxProofBundle};
+pub use rental::{
+    JsonApiRentalProvider, JsonApiRentalProviderConfig, RentalAttempt, RentalContext,
+    RentalResourceKind,
+};
+pub use resources::{AccountResources, ChainFees, TxCostQuote};
+pub use sender::{FeePolicy, SignedTronTx};
 pub use wallet::TronWallet;
 
 pub mod protocol {

@@ -671,6 +671,23 @@ mod tests {
     }
 
     #[derive(Deserialize)]
+    struct TronTxProofCostFixture {
+        #[serde(rename = "energyFeeSunPerEnergy")]
+        energy_fee_sun_per_energy: Option<String>,
+        #[serde(rename = "txFeeSunPerByte")]
+        tx_fee_sun_per_byte: Option<String>,
+        #[serde(rename = "energyRequired")]
+        energy_required: Option<String>,
+        #[serde(rename = "txSizeBytes")]
+        tx_size_bytes: Option<u64>,
+        #[serde(rename = "computedFeeLimitSun")]
+        computed_fee_limit_sun: Option<String>,
+        #[serde(rename = "accountResource")]
+        #[allow(dead_code)]
+        account_resource: Option<serde_json::Value>,
+    }
+
+    #[derive(Deserialize)]
     struct TronTxProofFixture {
         #[allow(dead_code)]
         network: String,
@@ -695,6 +712,9 @@ mod tests {
         index_bits: String,
         #[serde(rename = "blocks")]
         blocks: Vec<String>,
+        #[serde(default)]
+        #[serde(rename = "cost")]
+        cost: Option<TronTxProofCostFixture>,
     }
 
     #[test]
@@ -761,6 +781,45 @@ mod tests {
         let expected_index_bits_u256 =
             U256::from_str_radix(&fixture.index_bits, 10).expect("parse indexBits as decimal U256");
         assert_eq!(index_bits, expected_index_bits_u256, "indexBits mismatch");
+
+        if let Some(cost) = fixture.cost {
+            let energy_fee: u64 = cost
+                .energy_fee_sun_per_energy
+                .as_deref()
+                .expect("fixture.cost.energyFeeSunPerEnergy missing")
+                .parse()
+                .expect("energyFeeSunPerEnergy decimal");
+            let tx_fee: u64 = cost
+                .tx_fee_sun_per_byte
+                .as_deref()
+                .expect("fixture.cost.txFeeSunPerByte missing")
+                .parse()
+                .expect("txFeeSunPerByte decimal");
+            let energy_required: u64 = cost
+                .energy_required
+                .as_deref()
+                .expect("fixture.cost.energyRequired missing")
+                .parse()
+                .expect("energyRequired decimal");
+            let fees = crate::resources::ChainFees {
+                energy_fee_sun_per_energy: energy_fee,
+                tx_fee_sun_per_byte: tx_fee,
+            };
+            let tx_size = cost.tx_size_bytes.unwrap_or(encoded_tx_bytes.len() as u64);
+            assert_eq!(
+                tx_size,
+                u64::try_from(encoded_tx_bytes.len()).unwrap(),
+                "fixture txSizeBytes mismatch"
+            );
+            let computed = crate::resources::quote_fee_limit_sun(energy_required, tx_size, fees);
+            if let Some(s) = cost.computed_fee_limit_sun {
+                let expected_from_fixture: u64 = s.parse().expect("computedFeeLimitSun decimal");
+                assert_eq!(
+                    computed, expected_from_fixture,
+                    "computedFeeLimitSun mismatch"
+                );
+            }
+        }
 
         // Header encoding invariants: each block should roundtrip through our stateful encoder.
         assert_eq!(fixture.blocks.len(), 20, "expected 20 blocks");

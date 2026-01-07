@@ -22,7 +22,9 @@ use std::{
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use tron::{TronAddress, TronGrpc, TronTxProofBuilder, TronWallet};
+use tron::{
+    FeePolicy, JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, TronWallet,
+};
 use untron_v3_bindings::untron_v3::UntronV3::UntronV3Instance;
 
 use self::{
@@ -69,6 +71,7 @@ pub struct RelayerState {
     delayed_tron: HashMap<&'static str, u64>,
     tip_proof_resend_after: HashMap<FixedBytes<32>, u64>,
     rebalance_cursor: usize,
+    energy_rental_cursor: usize,
     hub_pending_nonce: Option<U256>,
 }
 
@@ -175,12 +178,27 @@ impl Relayer {
 
         let tron_controller = TronAddress::parse_text(&cfg.tron.controller_address)
             .context("parse TRON_CONTROLLER_ADDRESS")?;
-        let tron_wallet = Arc::new(TronWallet::new(
-            cfg.tron.private_key,
-            cfg.tron.fee_limit_sun,
-        )?);
+        let tron_wallet = Arc::new(TronWallet::new(cfg.tron.private_key)?);
         let tron_grpc_write = Arc::new(Mutex::new(tron_read.clone()));
-        let tron_write = TronExecutor::new(tron_grpc_write, tron_wallet.clone(), telemetry.clone());
+        let fee_policy = FeePolicy {
+            // No env config: cap is effectively disabled.
+            fee_limit_cap_sun: i64::MAX as u64,
+            fee_limit_headroom_ppm: cfg.tron.fee_limit_headroom_ppm,
+        };
+        let energy_rental = cfg
+            .tron
+            .energy_rental_providers
+            .clone()
+            .into_iter()
+            .map(JsonApiRentalProvider::new)
+            .collect::<Vec<_>>();
+        let tron_write = TronExecutor::new(
+            tron_grpc_write,
+            tron_wallet.clone(),
+            fee_policy,
+            energy_rental,
+            telemetry.clone(),
+        );
         let tron_proof = Arc::new(TronTxProofBuilder::new(cfg.jobs.tron_finality_blocks));
 
         Ok(Self {
@@ -201,6 +219,7 @@ impl Relayer {
                 delayed_tron: HashMap::new(),
                 tip_proof_resend_after: HashMap::new(),
                 rebalance_cursor: 0,
+                energy_rental_cursor: 0,
                 hub_pending_nonce: None,
             },
         })
@@ -547,6 +566,7 @@ mod tests {
             delayed_tron: HashMap::new(),
             tip_proof_resend_after: HashMap::new(),
             rebalance_cursor: 0,
+            energy_rental_cursor: 0,
             hub_pending_nonce: None,
         }
     }

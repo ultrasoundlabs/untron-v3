@@ -117,7 +117,7 @@ pub async fn execute_controller_rebalance(
 
         match ctx
             .tron_write
-            .broadcast_trigger_smart_contract(ctx.tron_controller, data, 0)
+            .broadcast_trigger_smart_contract(state, ctx.tron_controller, data, 0)
             .await
         {
             Ok(txid) => {

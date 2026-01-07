@@ -1,26 +1,19 @@
-use super::protocol::{Transaction, TriggerSmartContract};
+use super::protocol::TriggerSmartContract;
 use super::{address::TronAddress, grpc::TronGrpc};
 use alloy::primitives::{Address, FixedBytes, U256, keccak256};
 use anyhow::{Context, Result};
 use k256::ecdsa::SigningKey;
-use prost::Message;
-use sha2::{Digest, Sha256};
 
 pub struct TronWallet {
-    key: SigningKey,
-    address: TronAddress,
-    fee_limit_sun: i64,
+    pub(crate) key: SigningKey,
+    pub(crate) address: TronAddress,
 }
 
 impl TronWallet {
-    pub fn new(private_key: [u8; 32], fee_limit_sun: i64) -> Result<Self> {
+    pub fn new(private_key: [u8; 32]) -> Result<Self> {
         let key = SigningKey::from_slice(&private_key).context("invalid TRON private key")?;
         let address = tron_address_from_signing_key(&key);
-        Ok(Self {
-            key,
-            address,
-            fee_limit_sun: fee_limit_sun.max(0),
-        })
+        Ok(Self { key, address })
     }
 
     pub fn address(&self) -> TronAddress {
@@ -33,57 +26,30 @@ impl TronWallet {
         contract: TronAddress,
         data: Vec<u8>,
         call_value_sun: i64,
+        fee_policy: crate::sender::FeePolicy,
     ) -> Result<[u8; 32]> {
         let account = grpc
             .get_account(self.address.prefixed_bytes().to_vec())
             .await
             .context("get Tron account")?;
 
+        let signed = self
+            .build_and_sign_trigger_smart_contract(grpc, contract, data, call_value_sun, fee_policy)
+            .await
+            .context("build_and_sign_trigger_smart_contract")?;
+
+        let fee_limit_i64 = i64::try_from(signed.fee_limit_sun).unwrap_or(i64::MAX);
         let balance = account.balance;
-        if balance < self.fee_limit_sun {
+        if balance < fee_limit_i64 {
             anyhow::bail!(
                 "insufficient TRX for fee_limit: balance={} sun, fee_limit={} sun",
                 balance,
-                self.fee_limit_sun
+                fee_limit_i64
             );
         }
 
-        let tx_ext = grpc
-            .trigger_contract(TriggerSmartContract {
-                owner_address: self.address.prefixed_bytes().to_vec(),
-                contract_address: contract.prefixed_bytes().to_vec(),
-                call_value: call_value_sun,
-                data,
-                call_token_value: 0,
-                token_id: 0,
-            })
-            .await
-            .context("trigger_contract")?;
-
-        let mut tx = tx_ext.transaction.context("node returned no transaction")?;
-        let mut raw = tx.raw_data.take().context("node returned no raw_data")?;
-        raw.fee_limit = self.fee_limit_sun;
-
-        let raw_bytes = raw.encode_to_vec();
-        let txid = Sha256::digest(&raw_bytes);
-
-        let (rec_sig, recid) = self
-            .key
-            .clone()
-            .sign_digest_recoverable(Sha256::new_with_prefix(&raw_bytes))
-            .context("sign Tron tx")?;
-
-        let mut sig65 = rec_sig.to_bytes().to_vec();
-        sig65.push(recid.to_byte() + 27);
-
-        let signed = Transaction {
-            raw_data: Some(raw),
-            signature: vec![sig65],
-            ret: tx.ret,
-        };
-
         let ret = grpc
-            .broadcast_transaction(signed)
+            .broadcast_transaction(signed.tx)
             .await
             .context("broadcast_transaction")?;
 
@@ -94,9 +60,7 @@ impl TronWallet {
             );
         }
 
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&txid);
-        Ok(out)
+        Ok(signed.txid)
     }
 }
 
@@ -195,6 +159,7 @@ mod tests {
     use k256::ecdsa::signature::DigestVerifier;
     use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
     use prost::Message;
+    use sha2::{Digest, Sha256};
 
     #[test]
     fn encode_is_event_chain_tip_layout() {

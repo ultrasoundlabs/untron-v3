@@ -245,7 +245,7 @@ pub async fn execute_liquidity_intent(
 
 pub async fn execute_pull_from_receivers(
     ctx: &RelayerContext,
-    _state: &mut RelayerState,
+    state: &mut RelayerState,
     _tick: &Tick,
     intent: TronIntent,
 ) -> Result<()> {
@@ -265,7 +265,7 @@ pub async fn execute_pull_from_receivers(
 
     let txid = ctx
         .tron_write
-        .broadcast_trigger_smart_contract(ctx.tron_controller, data, 0)
+        .broadcast_trigger_smart_contract(state, ctx.tron_controller, data, 0)
         .await?;
 
     tracing::info!(

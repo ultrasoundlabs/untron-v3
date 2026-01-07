@@ -20,7 +20,7 @@ import { parseEnv } from "../lib/env.js";
 import { log } from "../lib/logger.js";
 import { createTronClients } from "@untron/tron-protocol";
 import type { BlockExtention, NumberMessage } from "@untron/tron-protocol/api";
-import { BlockHeader_raw, Transaction, Transaction_raw } from "@untron/tron-protocol/tron";
+import { Account, BlockHeader_raw, Transaction, Transaction_raw } from "@untron/tron-protocol/tron";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -125,6 +125,37 @@ async function fetchBlock(wallet: any, callOpts: any, num: number): Promise<Bloc
   });
 }
 
+async function getChainParameters(wallet: any, callOpts: any): Promise<any> {
+  return await new Promise((resolve, reject) => {
+    wallet.getChainParameters({}, callOpts.metadata, (err: any, res: any) =>
+      err || !res
+        ? reject(err ?? new Error("Empty response from getChainParameters"))
+        : resolve(res)
+    );
+  });
+}
+
+async function estimateEnergy(wallet: any, callOpts: any, msg: any): Promise<any> {
+  return await new Promise((resolve, reject) => {
+    wallet.estimateEnergy(msg, callOpts.metadata, (err: any, res: any) =>
+      err || !res ? reject(err ?? new Error("Empty response from estimateEnergy")) : resolve(res)
+    );
+  });
+}
+
+async function getAccountResource(wallet: any, callOpts: any, address: Buffer): Promise<any> {
+  return await new Promise((resolve, reject) => {
+    wallet.getAccountResource(
+      Account.fromPartial({ address }),
+      callOpts.metadata,
+      (err: any, res: any) =>
+        err || !res
+          ? reject(err ?? new Error("Empty response from getAccountResource"))
+          : resolve(res)
+    );
+  });
+}
+
 async function main() {
   const env = parseEnv(
     z.object({
@@ -214,6 +245,57 @@ async function main() {
     blocks.push(packEncodedHeader(raw, sig));
   }
 
+  // Cost model reference data (for offline Rust tests).
+  const chainParams = await getChainParameters(wallet, callOpts);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const txDecoded: any = Transaction.decode(encodedTx!);
+  const c0: any = txDecoded.rawData.contract[0];
+  const any0: any = c0.parameter;
+  // @ts-expect-error - generated types are loose
+  const { TriggerSmartContract } = await import(
+    "@untron/tron-protocol/core/contract/smart_contract"
+  );
+  const trigger = TriggerSmartContract.decode(any0.value);
+
+  const energyRequiredMsg = await estimateEnergy(
+    wallet,
+    callOpts,
+    TriggerSmartContract.fromPartial({
+      ownerAddress: trigger.ownerAddress,
+      contractAddress: trigger.contractAddress,
+      callValue: trigger.callValue,
+      data: trigger.data,
+      callTokenValue: trigger.callTokenValue,
+      tokenId: trigger.tokenId,
+    })
+  );
+
+  const acctRes = await getAccountResource(wallet, callOpts, Buffer.from(trigger.ownerAddress));
+
+  const energyFeeRaw = (chainParams.chainParameter ?? []).find(
+    (p: any) => p.key === "getEnergyFee"
+  )?.value;
+  const txFeeRaw = (chainParams.chainParameter ?? []).find(
+    (p: any) => p.key === "getTransactionFee"
+  )?.value;
+
+  const energyFee = energyFeeRaw != null ? BigInt(energyFeeRaw.toString()) : null;
+  const txFee = txFeeRaw != null ? BigInt(txFeeRaw.toString()) : null;
+
+  const txSizeBytes = encodedTx!.length;
+  const energyRequired = BigInt((energyRequiredMsg.energyRequired ?? 0).toString());
+  const computedFeeLimitSun =
+    (energyFee ?? 0n) * energyRequired + (txFee ?? 0n) * BigInt(txSizeBytes);
+
+  const acctOut = {
+    energyUsed: (acctRes.EnergyUsed ?? acctRes.energyUsed ?? 0).toString(),
+    energyLimit: (acctRes.EnergyLimit ?? acctRes.energyLimit ?? 0).toString(),
+    netUsed: (acctRes.NetUsed ?? acctRes.netUsed ?? 0).toString(),
+    netLimit: (acctRes.NetLimit ?? acctRes.netLimit ?? 0).toString(),
+    freeNetUsed: (acctRes.freeNetUsed ?? acctRes.FreeNetUsed ?? 0).toString(),
+    freeNetLimit: (acctRes.freeNetLimit ?? acctRes.FreeNetLimit ?? 0).toString(),
+  };
+
   const out = {
     network: "tron-mainnet",
     blockNumber: String(blockNumber),
@@ -228,6 +310,14 @@ async function main() {
     indexBits: indexBits.toString(10),
     root: toHex0x(root),
     blocks: blocks.map(toHex0x),
+    cost: {
+      energyFeeSunPerEnergy: energyFee != null ? energyFee.toString() : null,
+      txFeeSunPerByte: txFee != null ? txFee.toString() : null,
+      energyRequired: energyRequired.toString(),
+      txSizeBytes,
+      computedFeeLimitSun: computedFeeLimitSun.toString(),
+      accountResource: acctOut,
+    },
   };
 
   writeFileSync(outPath, JSON.stringify(out, null, 2));

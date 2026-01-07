@@ -101,7 +101,7 @@ pub async fn execute_controller_tip_proof(
     let data = encode_is_event_chain_tip(tip);
     let txid = ctx
         .tron_write
-        .broadcast_trigger_smart_contract(ctx.tron_controller, data, 0)
+        .broadcast_trigger_smart_contract(state, ctx.tron_controller, data, 0)
         .await?;
 
     tracing::info!(

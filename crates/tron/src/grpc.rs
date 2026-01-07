@@ -1,6 +1,7 @@
 use super::protocol::{
-    Account, BlockExtention, BytesMessage, EmptyMessage, NumberMessage, Return, Transaction,
-    TransactionExtention, TransactionInfo, TriggerSmartContract, wallet_client::WalletClient,
+    Account, AccountResourceMessage, BlockExtention, BytesMessage, ChainParameters, EmptyMessage,
+    EstimateEnergyMessage, NumberMessage, Return, Transaction, TransactionExtention,
+    TransactionInfo, TriggerSmartContract, wallet_client::WalletClient,
 };
 use anyhow::{Context, Result};
 use std::str::FromStr;
@@ -112,6 +113,42 @@ impl TronGrpc {
             }))
             .await
             .context("GetAccount")?;
+        Ok(resp.into_inner())
+    }
+
+    pub async fn get_account_resource(
+        &mut self,
+        address_prefixed: Vec<u8>,
+    ) -> Result<AccountResourceMessage> {
+        let resp = self
+            .wallet
+            .get_account_resource(self.req(Account {
+                address: address_prefixed,
+                ..Default::default()
+            }))
+            .await
+            .context("GetAccountResource")?;
+        Ok(resp.into_inner())
+    }
+
+    pub async fn get_chain_parameters(&mut self) -> Result<ChainParameters> {
+        let resp = self
+            .wallet
+            .get_chain_parameters(self.req(EmptyMessage {}))
+            .await
+            .context("GetChainParameters")?;
+        Ok(resp.into_inner())
+    }
+
+    pub async fn estimate_energy(
+        &mut self,
+        msg: TriggerSmartContract,
+    ) -> Result<EstimateEnergyMessage> {
+        let resp = self
+            .wallet
+            .estimate_energy(self.req(msg))
+            .await
+            .context("EstimateEnergy")?;
         Ok(resp.into_inner())
     }
 }
