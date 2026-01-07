@@ -13,6 +13,7 @@ use aa::{
     PaymasterFinalizationMode, Safe4337UserOpSender, Safe4337UserOpSenderConfig,
     Safe4337UserOpSenderOptions,
 };
+use alloy::primitives::Address;
 use axum::Json;
 use axum::extract::MatchedPath;
 use axum::http::{Request, Response, header::HeaderName};
@@ -41,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
         bind = %cfg.api.bind,
         indexer = %cfg.indexer.base_url,
         hub_rpc = %cfg.hub.rpc_url,
-        safe = %cfg.hub.safe,
+        safe = %cfg.hub.safe.unwrap_or(Address::ZERO),
         "config loaded"
     );
 
@@ -57,6 +58,7 @@ async fn main() -> anyhow::Result<()> {
         entrypoint: cfg.hub.entrypoint,
         safe: cfg.hub.safe,
         safe_4337_module: cfg.hub.safe_4337_module,
+        safe_deployment: cfg.hub.safe_deployment.clone(),
         bundler_urls: cfg.hub.bundler_urls.clone(),
         owner_private_key: cfg.hub.owner_private_key,
         paymasters: cfg
@@ -74,6 +76,9 @@ async fn main() -> anyhow::Result<()> {
         },
     };
     let sender = Safe4337UserOpSender::new(sender_cfg).await?;
+    tracing::info!(safe = %sender.safe_address(), "hub safe ready");
+    let mut cfg = cfg;
+    cfg.hub.safe = Some(sender.safe_address());
     let state = AppState {
         cfg,
         indexer,

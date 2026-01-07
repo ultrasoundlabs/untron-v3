@@ -24,7 +24,13 @@ pub(super) struct Offer {
 }
 
 pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, ApiError> {
-    let safe_addr_lower = address_lower_hex(state.cfg.hub.safe);
+    let safe_addr_lower = address_lower_hex(
+        state
+            .cfg
+            .hub
+            .safe
+            .expect("hub safe must be resolved at startup"),
+    );
 
     let cfg = state
         .indexer

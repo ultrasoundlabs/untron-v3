@@ -43,7 +43,8 @@ fn select_receiver_salts(
         if acc >= desired {
             break;
         }
-        if bal.is_zero() {
+        // Skip dust: receivers keep 1 unit (0.000001 USDT) by design.
+        if bal <= U256::from(1u64) {
             continue;
         }
         selected.push(salt);
@@ -228,6 +229,17 @@ mod tests {
         let rows = vec![(b32(1), U256::from(10u64))];
         let selected = select_receiver_salts(rows, U256::ZERO).unwrap();
         assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn select_receiver_salts_skips_dust_balances() {
+        let rows = vec![
+            (b32(1), U256::from(1u64)),
+            (b32(2), U256::from(2u64)),
+            (b32(3), U256::from(0u64)),
+        ];
+        let selected = select_receiver_salts(rows, U256::from(2u64)).unwrap();
+        assert_eq!(selected, vec![b32(2)]);
     }
 }
 

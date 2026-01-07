@@ -233,9 +233,16 @@ impl TronExecutor {
 
         let ret = grpc.broadcast_transaction(signed.tx).await?;
         if !ret.result {
+            tracing::warn!(
+                tron_return_code = ret.code,
+                tron_return_message_hex = %format!("0x{}", hex::encode(&ret.message)),
+                tron_return_message_utf8 = %String::from_utf8_lossy(&ret.message),
+                "tron broadcast rejected"
+            );
             anyhow::bail!(
-                "broadcast failed: {}",
-                String::from_utf8_lossy(&ret.message)
+                "broadcast failed: msg_hex=0x{}, msg_utf8={}",
+                hex::encode(&ret.message),
+                String::from_utf8_lossy(&ret.message),
             );
         }
 

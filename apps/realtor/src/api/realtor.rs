@@ -77,7 +77,14 @@ pub async fn get_realtor(
             });
         }
         Ok(Json(RealtorInfoResponse {
-            realtor_address: format!("{:#x}", state.cfg.hub.safe),
+            realtor_address: format!(
+                "{:#x}",
+                state
+                    .cfg
+                    .hub
+                    .safe
+                    .expect("hub safe must be resolved at startup")
+            ),
             untron_v3: format!("{:#x}", state.cfg.hub.untron_v3),
             allowed: offer.allowed,
             min_fee_ppm: offer.min_fee_ppm,

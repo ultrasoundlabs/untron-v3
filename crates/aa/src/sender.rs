@@ -1,7 +1,8 @@
 use crate::bundler_pool::BundlerPool;
-use crate::contracts::{IEntryPointNonces, Safe4337Module};
+use crate::contracts::{IEntryPointDeposits, IEntryPointNonces, Safe4337Module};
 use crate::packing::{add_gas_buffer, hex_bytes0x, redact_url};
 use crate::paymaster::{PaymasterPool, PaymasterService, PaymasterUserOp};
+use crate::safe::{Safe4337Config, SafeDeterministicDeploymentConfig, ensure_safe_deployed};
 use crate::signing::sign_userop_with_key;
 use alloy::sol_types::SolCall;
 use alloy::{
@@ -20,6 +21,7 @@ const PAYMASTER_POST_OP_GAS_BUFFER_PCT: u64 = 10;
 // ERC-4337 bundler sanity checks expect paymasterVerificationGasLimit < MAX_VERIFICATION_GAS (500_000).
 const MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE: u64 = 500_000;
 const DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT: u64 = 450_000;
+const MIN_PRIORITY_FEE_WEI: u128 = 100_000;
 
 fn cap_paymaster_verification_gas_limit(v: U256) -> (U256, bool) {
     let max = U256::from(MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE - 1);
@@ -52,8 +54,9 @@ pub struct Safe4337UserOpSenderConfig {
     pub rpc_url: String,
     pub chain_id: Option<u64>,
     pub entrypoint: Address,
-    pub safe: Address,
+    pub safe: Option<Address>,
     pub safe_4337_module: Address,
+    pub safe_deployment: Option<SafeDeterministicDeploymentConfig>,
     pub bundler_urls: Vec<String>,
     pub owner_private_key: [u8; 32],
     pub paymasters: Vec<PaymasterService>,
@@ -65,6 +68,7 @@ pub struct Safe4337UserOpSender {
     provider: DynProvider,
     chain_id: u64,
     owner_key: SigningKey,
+    safe: Address,
     bundlers: BundlerPool,
     paymasters: Option<PaymasterPool>,
 }
@@ -92,6 +96,29 @@ impl Safe4337UserOpSender {
         let owner_key =
             SigningKey::from_slice(&cfg.owner_private_key).context("invalid owner private key")?;
 
+        let safe = match cfg.safe {
+            Some(addr) if addr != Address::ZERO => addr,
+            _ => {
+                let deploy = cfg
+                    .safe_deployment
+                    .clone()
+                    .context("HUB_SAFE_ADDRESS is not set; HUB_SAFE_PROXY_FACTORY_ADDRESS/HUB_SAFE_SINGLETON_ADDRESS/HUB_SAFE_MODULE_SETUP_ADDRESS must be set")?;
+                let safe_4337 = Safe4337Config {
+                    entrypoint: cfg.entrypoint,
+                    safe_4337_module: cfg.safe_4337_module,
+                };
+                ensure_safe_deployed(
+                    &cfg.rpc_url,
+                    chain_id,
+                    cfg.owner_private_key,
+                    &safe_4337,
+                    &deploy,
+                )
+                .await
+                .context("ensure safe deployed")?
+            }
+        };
+
         let mut bundlers = BundlerPool::new(cfg.bundler_urls.clone()).await?;
         if cfg.options.check_bundler_entrypoints {
             match bundlers.supported_entry_points().await {
@@ -116,11 +143,17 @@ impl Safe4337UserOpSender {
             Some(PaymasterPool::new(cfg.paymasters.clone())?)
         };
 
+        let cfg = Safe4337UserOpSenderConfig {
+            safe: Some(safe),
+            ..cfg
+        };
+
         Ok(Self {
             cfg,
             provider,
             chain_id,
             owner_key,
+            safe,
             bundlers,
             paymasters,
         })
@@ -128,10 +161,14 @@ impl Safe4337UserOpSender {
 
     pub async fn current_nonce(&self) -> Result<U256> {
         self.entrypoint()
-            .getNonce(self.cfg.safe, alloy::primitives::Uint::<192, 3>::ZERO)
+            .getNonce(self.safe, alloy::primitives::Uint::<192, 3>::ZERO)
             .call()
             .await
             .context("EntryPoint.getNonce")
+    }
+
+    pub fn safe_address(&self) -> Address {
+        self.safe
     }
 
     pub async fn send_call(
@@ -141,19 +178,35 @@ impl Safe4337UserOpSender {
     ) -> Result<Safe4337UserOpSubmission> {
         let nonce = self.current_nonce().await?;
 
-        let gas_price: u128 = self
+        // Prefer standard EIP-1559 fee estimation (eth_feeHistory). This avoids bundler-specific gas APIs.
+        let (max_fee_per_gas, max_priority_fee_per_gas) = match self
             .provider
-            .get_gas_price()
+            .estimate_eip1559_fees()
             .await
-            .context("eth_gasPrice")?;
-        let priority: u128 = self
-            .provider
-            .get_max_priority_fee_per_gas()
-            .await
-            .unwrap_or(gas_price / 10);
-
-        let max_fee_per_gas = U256::from(gas_price);
-        let max_priority_fee_per_gas = U256::from(priority);
+        {
+            Ok(est) => {
+                let mut max_fee = est.max_fee_per_gas;
+                let max_priority = est.max_priority_fee_per_gas.max(MIN_PRIORITY_FEE_WEI);
+                if max_fee < max_priority {
+                    max_fee = max_priority;
+                }
+                (U256::from(max_fee), U256::from(max_priority))
+            }
+            Err(err) => {
+                // Fallback for non-EIP-1559 chains / RPCs: eth_gasPrice with a 2x buffer.
+                tracing::warn!(err = %err, "estimate_eip1559_fees failed; falling back to eth_gasPrice");
+                let gas_price: u128 = self
+                    .provider
+                    .get_gas_price()
+                    .await
+                    .context("eth_gasPrice")?;
+                let max_fee = gas_price.saturating_mul(2);
+                (
+                    U256::from(max_fee),
+                    U256::from(MIN_PRIORITY_FEE_WEI.min(max_fee)),
+                )
+            }
+        };
 
         let call_data = Safe4337Module::executeUserOpCall {
             to,
@@ -164,7 +217,7 @@ impl Safe4337UserOpSender {
         .abi_encode();
 
         let base_userop = PackedUserOperation {
-            sender: self.cfg.safe,
+            sender: self.safe,
             nonce,
             factory: None,
             factory_data: None,
@@ -211,6 +264,14 @@ impl Safe4337UserOpSender {
             self.paymasters = Some(pool);
         }
 
+        if self.cfg.paymasters.is_empty() {
+            tracing::warn!(
+                safe = %self.safe,
+                entrypoint = %self.cfg.entrypoint,
+                "no paymasters configured; attempting self-paid userop"
+            );
+        }
+
         self.send_self_paid(base_userop).await
     }
 
@@ -218,10 +279,55 @@ impl Safe4337UserOpSender {
         IEntryPointNonces::new(self.cfg.entrypoint, &self.provider)
     }
 
+    fn entrypoint_deposits(
+        &self,
+    ) -> IEntryPointDeposits::IEntryPointDepositsInstance<&DynProvider> {
+        IEntryPointDeposits::new(self.cfg.entrypoint, &self.provider)
+    }
+
+    async fn preflight_self_paid(&self) -> Result<()> {
+        let deposit = self
+            .entrypoint_deposits()
+            .balanceOf(self.safe)
+            .call()
+            .await
+            .context("EntryPoint.balanceOf")?;
+        let eth_balance = self
+            .provider
+            .get_balance(self.safe)
+            .await
+            .context("eth_getBalance(safe)")?;
+
+        if deposit.is_zero() && eth_balance.is_zero() {
+            anyhow::bail!(
+                "safe has no EntryPoint deposit and no ETH balance (cannot self-pay userops): safe={:#x} entrypoint={:#x}; configure a paymaster (HUB_PAYMASTERS_JSON) or fund+deposit for self-paid userops",
+                self.safe,
+                self.cfg.entrypoint
+            );
+        }
+
+        if deposit.is_zero() {
+            tracing::warn!(
+                safe = %self.safe,
+                entrypoint = %self.cfg.entrypoint,
+                eth_balance = %eth_balance,
+                "safe has zero EntryPoint deposit; self-paid userops may fail unless deposit is funded"
+            );
+        }
+
+        Ok(())
+    }
+
     async fn send_self_paid(
         &mut self,
         mut userop: PackedUserOperation,
     ) -> Result<Safe4337UserOpSubmission> {
+        // If we're here, either no paymasters are configured or they all failed. Surface a clearer
+        // error than "eth_estimateUserOperationGas" if the Safe is unfunded.
+        if self.paymasters.is_none() {
+            self.preflight_self_paid().await?;
+        }
+
         userop.signature = self.sign_userop(&userop)?.into();
 
         let estimate = self
@@ -231,7 +337,8 @@ impl Safe4337UserOpSender {
             .context("bundler estimate userop gas")?;
 
         userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
-        userop.verification_gas_limit = add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+        userop.verification_gas_limit =
+            add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
         userop.pre_verification_gas =
             add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
 
@@ -301,13 +408,14 @@ impl Safe4337UserOpSender {
             .context("bundler estimate userop gas")?;
 
         userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
-        userop.verification_gas_limit = add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+        userop.verification_gas_limit =
+            add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
         userop.pre_verification_gas =
             add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
 
         let pm_ver_base = match userop.paymaster_verification_gas_limit {
-            Some(v) if v > estimate.paymaster_verification_gas => v,
-            _ => estimate.paymaster_verification_gas,
+            Some(v) if v > estimate.paymaster_verification_gas_limit => v,
+            _ => estimate.paymaster_verification_gas_limit,
         };
         let (pm_ver, capped) =
             cap_paymaster_verification_gas_limit(add_gas_buffer(pm_ver_base, GAS_BUFFER_PCT)?);
@@ -357,13 +465,13 @@ impl Safe4337UserOpSender {
                     userop.call_gas_limit =
                         add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
                     userop.verification_gas_limit =
-                        add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+                        add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
                     userop.pre_verification_gas =
                         add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
 
                     let pm_ver_base = match userop.paymaster_verification_gas_limit {
-                        Some(v) if v > estimate.paymaster_verification_gas => v,
-                        _ => estimate.paymaster_verification_gas,
+                        Some(v) if v > estimate.paymaster_verification_gas_limit => v,
+                        _ => estimate.paymaster_verification_gas_limit,
                     };
                     let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
                         pm_ver_base,
@@ -415,13 +523,13 @@ impl Safe4337UserOpSender {
 
                 userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
                 userop.verification_gas_limit =
-                    add_gas_buffer(estimate.verification_gas, GAS_BUFFER_PCT)?;
+                    add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
                 userop.pre_verification_gas =
                     add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
 
                 let pm_ver_base = match userop.paymaster_verification_gas_limit {
-                    Some(v) if v > estimate.paymaster_verification_gas => v,
-                    _ => estimate.paymaster_verification_gas,
+                    Some(v) if v > estimate.paymaster_verification_gas_limit => v,
+                    _ => estimate.paymaster_verification_gas_limit,
                 };
                 let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
                     pm_ver_base,

@@ -92,7 +92,8 @@ async fn main() -> Result<()> {
                 match res {
                     Ok(()) => warn!(stream = stream_label, "stream task exited; restarting"),
                     Err(e) => {
-                        error!(stream = stream_label, err = %e, "stream task failed; restarting")
+                        // Use Debug formatting for `anyhow::Error` to include the full cause chain.
+                        error!(stream = stream_label, err = ?e, "stream task failed; restarting")
                     }
                 }
 
@@ -137,7 +138,8 @@ async fn main() -> Result<()> {
 
                     match res {
                         Ok(()) => warn!("receiver_usdt task exited; restarting"),
-                        Err(e) => error!(err = %e, "receiver_usdt task failed; restarting"),
+                        // Use Debug formatting for `anyhow::Error` to include the full cause chain.
+                        Err(e) => error!(err = ?e, "receiver_usdt task failed; restarting"),
                     }
 
                     time::sleep(backoff).await;

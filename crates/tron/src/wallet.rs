@@ -4,6 +4,26 @@ use alloy::primitives::{Address, FixedBytes, U256, keccak256};
 use anyhow::{Context, Result};
 use k256::ecdsa::SigningKey;
 
+#[derive(Debug, Clone)]
+pub struct BroadcastedTronTx {
+    pub txid: [u8; 32],
+    pub result: crate::protocol::Return,
+}
+
+impl BroadcastedTronTx {
+    pub fn ok(&self) -> bool {
+        self.result.result
+    }
+
+    pub fn message_lossy(&self) -> String {
+        String::from_utf8_lossy(&self.result.message).into_owned()
+    }
+
+    pub fn message_hex(&self) -> String {
+        hex::encode(&self.result.message)
+    }
+}
+
 pub struct TronWallet {
     pub(crate) key: SigningKey,
     pub(crate) address: TronAddress,
@@ -28,6 +48,35 @@ impl TronWallet {
         call_value_sun: i64,
         fee_policy: crate::sender::FeePolicy,
     ) -> Result<[u8; 32]> {
+        let res = self
+            .broadcast_trigger_smart_contract_result(
+                grpc,
+                contract,
+                data,
+                call_value_sun,
+                fee_policy,
+            )
+            .await?;
+
+        if !res.ok() {
+            anyhow::bail!(
+                "broadcast failed: msg_hex=0x{}, msg_utf8={}",
+                res.message_hex(),
+                res.message_lossy()
+            );
+        }
+
+        Ok(res.txid)
+    }
+
+    pub async fn broadcast_trigger_smart_contract_result(
+        &self,
+        grpc: &mut TronGrpc,
+        contract: TronAddress,
+        data: Vec<u8>,
+        call_value_sun: i64,
+        fee_policy: crate::sender::FeePolicy,
+    ) -> Result<BroadcastedTronTx> {
         let account = grpc
             .get_account(self.address.prefixed_bytes().to_vec())
             .await
@@ -53,14 +102,10 @@ impl TronWallet {
             .await
             .context("broadcast_transaction")?;
 
-        if !ret.result {
-            anyhow::bail!(
-                "broadcast failed: {}",
-                String::from_utf8_lossy(&ret.message)
-            );
-        }
-
-        Ok(signed.txid)
+        Ok(BroadcastedTronTx {
+            txid: signed.txid,
+            result: ret,
+        })
     }
 }
 

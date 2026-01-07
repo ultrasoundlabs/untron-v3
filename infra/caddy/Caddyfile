@@ -13,6 +13,12 @@
   handle_path /docs* {
     reverse_proxy scalar:8080
   }
+  handle /scalar.js {
+    reverse_proxy scalar:8080
+  }
+  handle /configuration.json {
+    reverse_proxy scalar:8080
+  }
 
   # Everything else goes to PostgREST (including "/" which serves the raw OpenAPI)
   handle {

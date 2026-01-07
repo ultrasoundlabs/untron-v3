@@ -8,6 +8,8 @@ WORKDIR /repo
 COPY crates/aa ./crates/aa
 COPY crates/bindings ./crates/bindings
 COPY crates/indexer-client ./crates/indexer-client
+COPY crates/aa ./crates/aa
+COPY crates/observability ./crates/observability
 COPY apps/realtor ./apps/realtor
 
 WORKDIR /repo/apps/realtor
@@ -25,4 +27,3 @@ COPY --from=builder /repo/apps/realtor/target/release/realtor /usr/local/bin/rea
 ENV RUST_LOG=info
 
 ENTRYPOINT ["/usr/local/bin/realtor"]
-

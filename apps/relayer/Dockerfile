@@ -3,7 +3,7 @@
 FROM rust:1.92-bookworm AS builder
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /repo
@@ -12,6 +12,8 @@ WORKDIR /repo
 COPY crates/bindings ./crates/bindings
 COPY crates/indexer-client ./crates/indexer-client
 COPY crates/tron ./crates/tron
+COPY crates/aa ./crates/aa
+COPY crates/observability ./crates/observability
 COPY apps/relayer ./apps/relayer
 
 WORKDIR /repo/apps/relayer

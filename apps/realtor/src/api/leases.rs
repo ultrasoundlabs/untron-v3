@@ -69,7 +69,15 @@ pub async fn get_lease(
             .clone()
             .ok_or_else(|| ApiError::Upstream("indexer lease_view missing lessee".to_string()))?;
 
-        let expected_realtor = format!("{:#x}", state.cfg.hub.safe).to_lowercase();
+        let expected_realtor = format!(
+            "{:#x}",
+            state
+                .cfg
+                .hub
+                .safe
+                .expect("hub safe must be resolved at startup")
+        )
+        .to_lowercase();
         let is_owned_by_this_realtor = realtor.to_lowercase() == expected_realtor;
 
         let start_time = row

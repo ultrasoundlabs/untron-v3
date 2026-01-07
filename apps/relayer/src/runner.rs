@@ -131,6 +131,7 @@ impl RelayerContext {
 
 impl Relayer {
     pub async fn new(cfg: AppConfig, telemetry: RelayerTelemetry) -> Result<Self> {
+        let mut cfg = cfg;
         let indexer = Arc::new(IndexerApi::new(
             &cfg.indexer.base_url,
             cfg.indexer.timeout,
@@ -151,6 +152,7 @@ impl Relayer {
             entrypoint: cfg.hub.entrypoint,
             safe: cfg.hub.safe,
             safe_4337_module: cfg.hub.safe_4337_module,
+            safe_deployment: cfg.hub.safe_deployment.clone(),
             bundler_urls: cfg.hub.bundler_urls.clone(),
             owner_private_key: cfg.hub.owner_private_key,
             paymasters: cfg
@@ -168,7 +170,11 @@ impl Relayer {
             },
         };
 
-        let hub_sender = Arc::new(Mutex::new(Safe4337UserOpSender::new(hub_sender_cfg).await?));
+        let hub_sender_inner = Safe4337UserOpSender::new(hub_sender_cfg).await?;
+        let hub_safe = hub_sender_inner.safe_address();
+        tracing::info!(safe = %hub_safe, "hub safe ready");
+        cfg.hub.safe = Some(hub_safe);
+        let hub_sender = Arc::new(Mutex::new(hub_sender_inner));
         let hub = HubExecutor::new(hub_sender, cfg.hub.untron_v3, telemetry.clone());
 
         let mut tron_read =
@@ -464,9 +470,6 @@ impl Relayer {
                 continue;
             };
             let caught_up = s.is_projection_caught_up.unwrap_or(false);
-            let Some(max_block) = s.max_block_number else {
-                continue;
-            };
             if !caught_up {
                 continue;
             }
@@ -475,42 +478,61 @@ impl Relayer {
                 stream,
                 untron_v3_indexer_client::types::StreamIngestSummaryStream::Hub
             ) {
-                let max_block_u64 =
-                    u64::try_from(max_block).context("hub max_block_number out of range")?;
-                let lag = tick.hub_head.saturating_sub(max_block_u64);
-                hub_ok = lag <= self.ctx.cfg.indexer.max_head_lag_blocks;
+                // `max_block_number` is the highest block that produced at least one indexed event,
+                // not necessarily how far the ingester has scanned. On sparse streams, it can lag
+                // far behind head even while the indexer is actively tailing.
+                hub_ok = true;
             } else if matches!(
                 stream,
                 untron_v3_indexer_client::types::StreamIngestSummaryStream::Controller
             ) {
-                let max_block_u64 =
-                    u64::try_from(max_block).context("controller max_block_number out of range")?;
-                let lag = tick.tron_head.saturating_sub(max_block_u64);
-                controller_ok = lag <= self.ctx.cfg.indexer.max_head_lag_blocks;
+                controller_ok = true;
             }
         }
 
         if !hub_ok || !controller_ok {
+            tracing::warn!(
+                hub_ok,
+                controller_ok,
+                "indexer projections not caught up; skipping tick"
+            );
             return Ok(false);
         }
 
         let Some(rx) = self.ctx.indexer.receiver_usdt_indexer_status().await? else {
+            tracing::warn!("indexer missing receiver_usdt_indexer_status; skipping tick");
             return Ok(false);
         };
 
         let backfills = rx.backfill_pending_receivers.unwrap_or_default();
         if backfills != 0 {
+            tracing::warn!(backfills, "receiver_usdt backfill pending; skipping tick");
             return Ok(false);
         }
 
-        if let Some(tail_next) = rx.tail_next_block {
-            // tail_next_block is the NEXT block to query, so it should be close to head.
-            let tail_next_u64 = tail_next.max(0) as u64;
-            let lag = tick.tron_head.saturating_sub(tail_next_u64);
-            if lag > self.ctx.cfg.indexer.max_head_lag_blocks {
-                return Ok(false);
-            }
-        } else {
+        // If there are no tracked receivers, the receiver-usdt tailer may not advance tail_next_block.
+        // In that case, treat receiver-usdt as ready once backfills are drained.
+        let receiver_count = rx.receiver_count.unwrap_or_default();
+        if receiver_count == 0 {
+            return Ok(true);
+        }
+
+        let Some(tail_next) = rx.tail_next_block else {
+            tracing::warn!("receiver_usdt tail_next_block missing; skipping tick");
+            return Ok(false);
+        };
+        // tail_next_block is the NEXT block to query, so it should be close to head.
+        let tail_next_u64 = tail_next.max(0) as u64;
+        let lag = tick.tron_head.saturating_sub(tail_next_u64);
+        if lag > self.ctx.cfg.indexer.max_head_lag_blocks {
+            tracing::warn!(
+                lag,
+                allowed = self.ctx.cfg.indexer.max_head_lag_blocks,
+                receiver_count,
+                tron_head = tick.tron_head,
+                tail_next_block = tail_next_u64,
+                "receiver_usdt tail lag too high; skipping tick"
+            );
             return Ok(false);
         }
 

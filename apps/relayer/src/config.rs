@@ -1,3 +1,4 @@
+use aa::SafeDeterministicDeploymentConfig;
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -33,8 +34,9 @@ pub struct HubConfig {
     pub untron_v3: Address,
 
     pub entrypoint: Address,
-    pub safe: Address,
+    pub safe: Option<Address>,
     pub safe_4337_module: Address,
+    pub safe_deployment: Option<SafeDeterministicDeploymentConfig>,
 
     pub bundler_urls: Vec<String>,
 
@@ -93,6 +95,15 @@ struct Env {
 
     hub_safe_4337_module_address: String,
 
+    #[serde(default)]
+    hub_safe_proxy_factory_address: String,
+
+    #[serde(default)]
+    hub_safe_singleton_address: String,
+
+    #[serde(default)]
+    hub_safe_module_setup_address: String,
+
     hub_owner_private_key_hex: String,
 
     #[serde(default)]
@@ -146,6 +157,9 @@ impl Default for Env {
             hub_entrypoint_address: String::new(),
             hub_safe_address: String::new(),
             hub_safe_4337_module_address: String::new(),
+            hub_safe_proxy_factory_address: String::new(),
+            hub_safe_singleton_address: String::new(),
+            hub_safe_module_setup_address: String::new(),
             hub_owner_private_key_hex: String::new(),
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
@@ -163,7 +177,7 @@ impl Default for Env {
             fill_max_claims: 50,
             controller_rebalance_threshold_usdt: "0".to_string(),
             controller_rebalance_keep_usdt: "1".to_string(),
-            pull_liquidity_ppm: 1_000_000,
+            pull_liquidity_ppm: 500_000,
         }
     }
 }
@@ -171,6 +185,19 @@ impl Default for Env {
 fn parse_address(label: &str, s: &str) -> Result<Address> {
     s.parse::<Address>()
         .with_context(|| format!("invalid {label}: {s}"))
+}
+
+fn parse_optional_address(label: &str, s: &str) -> Result<Option<Address>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let addr = parse_address(label, trimmed)?;
+    if addr == Address::ZERO {
+        Ok(None)
+    } else {
+        Ok(Some(addr))
+    }
 }
 
 fn parse_hex_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -260,11 +287,30 @@ pub fn load_config() -> Result<AppConfig> {
 
     let hub_untron_v3 = parse_address("HUB_UNTRON_V3_ADDRESS", &env.hub_untron_v3_address)?;
     let hub_entrypoint = parse_address("HUB_ENTRYPOINT_ADDRESS", &env.hub_entrypoint_address)?;
-    let hub_safe = parse_address("HUB_SAFE_ADDRESS", &env.hub_safe_address)?;
+    let hub_safe = parse_optional_address("HUB_SAFE_ADDRESS", &env.hub_safe_address)?;
     let hub_module = parse_address(
         "HUB_SAFE_4337_MODULE_ADDRESS",
         &env.hub_safe_4337_module_address,
     )?;
+    let hub_safe_deployment = if hub_safe.is_some() {
+        None
+    } else {
+        Some(SafeDeterministicDeploymentConfig {
+            proxy_factory: parse_address(
+                "HUB_SAFE_PROXY_FACTORY_ADDRESS",
+                &env.hub_safe_proxy_factory_address,
+            )?,
+            singleton: parse_address(
+                "HUB_SAFE_SINGLETON_ADDRESS",
+                &env.hub_safe_singleton_address,
+            )?,
+            module_setup: parse_address(
+                "HUB_SAFE_MODULE_SETUP_ADDRESS",
+                &env.hub_safe_module_setup_address,
+            )?,
+            salt_nonce: alloy::primitives::U256::ZERO,
+        })
+    };
     let hub_owner_private_key =
         parse_hex_32("HUB_OWNER_PRIVATE_KEY_HEX", &env.hub_owner_private_key_hex)?;
 
@@ -284,6 +330,7 @@ pub fn load_config() -> Result<AppConfig> {
             entrypoint: hub_entrypoint,
             safe: hub_safe,
             safe_4337_module: hub_module,
+            safe_deployment: hub_safe_deployment,
             bundler_urls: bundlers,
             owner_private_key: hub_owner_private_key,
             paymasters,

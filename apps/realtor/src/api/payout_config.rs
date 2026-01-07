@@ -95,7 +95,15 @@ pub async fn post_payout_config(
             )));
         };
 
-        let expected_realtor = format!("{:#x}", state.cfg.hub.safe).to_lowercase();
+        let expected_realtor = format!(
+            "{:#x}",
+            state
+                .cfg
+                .hub
+                .safe
+                .expect("hub safe must be resolved at startup")
+        )
+        .to_lowercase();
         let lease_realtor = lease
             .realtor
             .ok_or_else(|| ApiError::Upstream("indexer hub_leases missing realtor".to_string()))?

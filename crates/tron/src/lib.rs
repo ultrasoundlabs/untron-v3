@@ -15,7 +15,7 @@ pub use rental::{
 };
 pub use resources::{AccountResources, ChainFees, TxCostQuote};
 pub use sender::{FeePolicy, SignedTronTx};
-pub use wallet::TronWallet;
+pub use wallet::{BroadcastedTronTx, TronWallet};
 
 pub mod protocol {
     #![allow(clippy::all, clippy::pedantic, clippy::nursery)]

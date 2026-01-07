@@ -2,6 +2,7 @@ use alloy::{
     eips::BlockId, providers::Provider, rpc::types::Filter, sol_types::SolCall, sol_types::SolEvent,
 };
 use anyhow::{Context, Result};
+use sqlx::types::BigDecimal;
 use std::{collections::HashMap, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug};
@@ -142,7 +143,10 @@ pub(crate) async fn process_token_range(
                 receiver_salt: receiver_salt.clone(),
                 sender: crate::domain::TronAddress::from_evm(from).to_string(),
                 recipient: crate::domain::TronAddress::from_evm(to).to_string(),
-                amount: value.to_string(),
+                amount: value
+                    .to_string()
+                    .parse::<BigDecimal>()
+                    .context("parse Transfer amount as BigDecimal")?,
                 block_number: i64::try_from(l.block_number)
                     .context("block_number out of range for bigint")?,
                 block_timestamp: i64::try_from(block_timestamp)

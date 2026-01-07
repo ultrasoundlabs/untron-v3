@@ -1,5 +1,6 @@
 use alloy::primitives::{Address, B256, FixedBytes, keccak256};
 use anyhow::{Context, Result};
+use sqlx::types::BigDecimal;
 use sqlx::{Postgres, QueryBuilder, Transaction, query_scalar};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -409,7 +410,7 @@ pub struct TransferRow {
     pub receiver_salt: String,
     pub sender: String,
     pub recipient: String,
-    pub amount: String,
+    pub amount: BigDecimal,
     pub block_number: i64,
     pub block_timestamp: i64,
     pub block_hash: String,
@@ -442,13 +443,15 @@ async fn insert_transfers_tx(
     );
 
     qb.push_values(rows, |mut b, row| {
-        b.push_bind("controller");
+        // `stream` is a Postgres enum (`chain.stream`); binding a Rust `&str` makes it `text`,
+        // which does not implicitly coerce to the enum type in prepared statements.
+        b.push("'controller'::chain.stream");
         b.push_bind(row.chain_id);
         b.push_bind(&row.token);
         b.push_bind(&row.receiver_salt);
         b.push_bind(&row.sender);
         b.push_bind(&row.recipient);
-        b.push_bind(&row.amount).push("::u256");
+        b.push_bind(&row.amount);
         b.push_bind(row.block_number);
         b.push_bind(row.block_timestamp);
         b.push_bind(&row.block_hash);
