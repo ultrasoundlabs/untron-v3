@@ -2,7 +2,7 @@ use aa::SafeDeterministicDeploymentConfig;
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -58,6 +58,12 @@ pub struct LeasingDefaults {
 
     pub pair_additional_flat_fees: HashMap<(u64, Address), u64>,
     pub arbitrary_lessee_flat_fee: u64,
+
+    /// Extra receiver salts that may be used by the realtor when the indexer has
+    /// no free salts available.
+    ///
+    /// Values are stored normalized as lowercase `0x`-prefixed 32-byte hex.
+    pub preknown_receiver_salts: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +115,10 @@ struct Env {
 
     #[serde(default)]
     lease_arbitrary_lessee_flat_fee: u64,
+
+    /// Optional list of preknown receiver salts (CSV of bytes32 hex strings).
+    #[serde(default)]
+    lease_preknown_receiver_salts: String,
 }
 
 impl Default for Env {
@@ -134,6 +144,7 @@ impl Default for Env {
             lease_default_duration_secs: 60 * 60 * 24 * 30,
             lease_pair_additional_flat_fees_json: String::new(),
             lease_arbitrary_lessee_flat_fee: 0,
+            lease_preknown_receiver_salts: String::new(),
         }
     }
 }
@@ -227,6 +238,33 @@ fn parse_pair_additional_flat_fees_json(s: &str) -> Result<HashMap<(u64, Address
     Ok(out)
 }
 
+fn parse_preknown_receiver_salts_csv(s: &str) -> Result<Vec<String>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let v: Vec<String> = trimmed
+        .split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    let mut seen = HashSet::<String>::new();
+    let mut out = Vec::with_capacity(v.len());
+    for (i, raw) in v.into_iter().enumerate() {
+        let b = crate::util::parse_bytes32(raw.as_str()).with_context(|| {
+            format!("invalid lease_preknown_receiver_salts[{i}] (expected bytes32 hex)")
+        })?;
+        let normalized = format!("0x{}", hex::encode(b.as_slice()));
+        if seen.insert(normalized.clone()) {
+            out.push(normalized);
+        }
+    }
+    Ok(out)
+}
+
 pub fn load_config() -> Result<AppConfig> {
     let env: Env = envy::from_env().context("load realtor env config")?;
 
@@ -274,6 +312,8 @@ pub fn load_config() -> Result<AppConfig> {
     let paymasters = parse_paymasters_json(&env.hub_paymasters_json)?;
     let pair_additional_flat_fees =
         parse_pair_additional_flat_fees_json(&env.lease_pair_additional_flat_fees_json)?;
+    let preknown_receiver_salts =
+        parse_preknown_receiver_salts_csv(&env.lease_preknown_receiver_salts)?;
 
     Ok(AppConfig {
         api: ApiConfig { bind },
@@ -299,6 +339,7 @@ pub fn load_config() -> Result<AppConfig> {
             duration_seconds: env.lease_default_duration_secs.max(1),
             pair_additional_flat_fees,
             arbitrary_lessee_flat_fee: env.lease_arbitrary_lessee_flat_fee,
+            preknown_receiver_salts,
         },
     })
 }

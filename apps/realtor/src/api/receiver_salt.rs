@@ -14,33 +14,22 @@ pub(super) async fn ensure_receiver_is_free(
     receiver_salt_hex: &str,
     now: u64,
 ) -> Result<(), ApiError> {
-    let row = state
-        .indexer
-        .receiver_salt_candidate(receiver_salt_hex)
-        .await
-        .map_err(|e| ApiError::Upstream(format!("indexer receiver_salt_candidates: {e}")))?;
-    let Some(row) = row else {
-        return Err(ApiError::BadRequest(format!(
-            "unknown receiver_salt (not found in indexer receiver_salt_candidates): {receiver_salt_hex}"
-        )));
-    };
-
-    if row.is_free == Some(true) {
-        return Ok(());
+    match receiver_is_free(state, receiver_salt_hex, now).await? {
+        true => Ok(()),
+        false => {
+            let nukeable_after = receiver_nukeable_after(state, receiver_salt_hex)
+                .await
+                .unwrap_or(0);
+            if nukeable_after > now {
+                return Err(ApiError::Conflict(format!(
+                    "receiver lease not nukeable yet (nukeable_after={nukeable_after})"
+                )));
+            }
+            Err(ApiError::Conflict(
+                "receiver lease not nukeable yet".to_string(),
+            ))
+        }
     }
-
-    let nukeable_after = row
-        .nukeable_after
-        .and_then(|v| u64::try_from(v).ok())
-        .unwrap_or(0);
-    if nukeable_after > now {
-        return Err(ApiError::Conflict(format!(
-            "receiver lease not nukeable yet (nukeable_after={nukeable_after})"
-        )));
-    }
-    Err(ApiError::Conflict(
-        "receiver lease not nukeable yet".to_string(),
-    ))
 }
 
 pub(super) async fn pick_receiver_salt_for_beneficiary(
@@ -50,15 +39,15 @@ pub(super) async fn pick_receiver_salt_for_beneficiary(
 ) -> Result<Option<String>, ApiError> {
     const LIMIT: u64 = 50;
 
-    let beneficiary_lower = address_lower_hex(beneficiary);
+    let beneficiary_checksum = address_checksum(beneficiary);
     let has_filled_claims = state
         .indexer
-        .beneficiary_has_filled_claims(beneficiary_lower.as_str())
+        .beneficiary_has_filled_claims(beneficiary_checksum.as_str())
         .await
         .map_err(|e| ApiError::Upstream(format!("indexer hub_claims filled: {e}")))?;
 
     tracing::debug!(
-        beneficiary = %beneficiary_lower,
+        beneficiary = %beneficiary_checksum,
         has_filled_claims,
         "selecting receiver salt"
     );
@@ -109,6 +98,83 @@ pub(super) async fn pick_receiver_salt_for_beneficiary(
     Ok(Some(salt))
 }
 
-fn address_lower_hex(addr: Address) -> String {
-    format!("{:#x}", addr).to_lowercase()
+pub(super) async fn pick_receiver_salt_from_preknown(
+    state: &AppState,
+    now: u64,
+) -> Result<Option<String>, ApiError> {
+    if state.cfg.leasing.preknown_receiver_salts.is_empty() {
+        return Ok(None);
+    }
+
+    for receiver_salt_hex in &state.cfg.leasing.preknown_receiver_salts {
+        if receiver_is_free(state, receiver_salt_hex.as_str(), now).await? {
+            tracing::info!(receiver_salt = %receiver_salt_hex, "selected receiver salt (preknown fallback)");
+            return Ok(Some(receiver_salt_hex.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
+pub(super) fn address_checksum(addr: Address) -> String {
+    addr.to_checksum_buffer(None).to_string()
+}
+
+pub(super) async fn receiver_is_free(
+    state: &AppState,
+    receiver_salt_hex: &str,
+    now: u64,
+) -> Result<bool, ApiError> {
+    // Prefer the candidate view (it also considers "no lease" => free).
+    let row = state
+        .indexer
+        .receiver_salt_candidate(receiver_salt_hex)
+        .await
+        .map_err(|e| ApiError::Upstream(format!("indexer receiver_salt_candidates: {e}")))?;
+    if let Some(row) = row {
+        return Ok(row.is_free == Some(true));
+    }
+
+    // Fallback for salts unknown to the indexer candidate view: check the latest
+    // current hub lease for this receiver_salt.
+    let latest = state
+        .indexer
+        .latest_lease_by_receiver_salt(receiver_salt_hex)
+        .await
+        .map_err(|e| ApiError::Upstream(format!("indexer hub_leases by receiver_salt: {e}")))?;
+    let Some(latest) = latest else {
+        return Ok(true);
+    };
+    let nukeable_after = latest
+        .nukeable_after
+        .and_then(|v| u64::try_from(v).ok())
+        .unwrap_or(u64::MAX);
+    Ok(nukeable_after <= now)
+}
+
+async fn receiver_nukeable_after(
+    state: &AppState,
+    receiver_salt_hex: &str,
+) -> Result<u64, ApiError> {
+    let row = state
+        .indexer
+        .receiver_salt_candidate(receiver_salt_hex)
+        .await
+        .map_err(|e| ApiError::Upstream(format!("indexer receiver_salt_candidates: {e}")))?;
+    if let Some(row) = row {
+        return Ok(row
+            .nukeable_after
+            .and_then(|v| u64::try_from(v).ok())
+            .unwrap_or(0));
+    }
+
+    let latest = state
+        .indexer
+        .latest_lease_by_receiver_salt(receiver_salt_hex)
+        .await
+        .map_err(|e| ApiError::Upstream(format!("indexer hub_leases by receiver_salt: {e}")))?;
+    Ok(latest
+        .and_then(|r| r.nukeable_after)
+        .and_then(|v| u64::try_from(v).ok())
+        .unwrap_or(0))
 }

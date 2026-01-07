@@ -24,7 +24,7 @@ pub(super) struct Offer {
 }
 
 pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, ApiError> {
-    let safe_addr_lower = address_lower_hex(
+    let safe_addr_checksum = address_checksum(
         state
             .cfg
             .hub
@@ -34,7 +34,7 @@ pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, 
 
     let cfg = state
         .indexer
-        .realtor_effective_config(&safe_addr_lower)
+        .realtor_effective_config(&safe_addr_checksum)
         .await
         .map_err(|e| ApiError::Upstream(format!("indexer realtor_effective_config: {e}")))?;
 
@@ -113,6 +113,6 @@ pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, 
     })
 }
 
-fn address_lower_hex(addr: Address) -> String {
-    format!("{:#x}", addr).to_lowercase()
+fn address_checksum(addr: Address) -> String {
+    addr.to_checksum_buffer(None).to_string()
 }

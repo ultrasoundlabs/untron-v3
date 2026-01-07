@@ -1,6 +1,7 @@
 use super::offer::compute_offer;
 use super::receiver_salt::{
     ensure_receiver_is_free, normalize_receiver_salt_hex, pick_receiver_salt_for_beneficiary,
+    pick_receiver_salt_from_preknown,
 };
 use super::userop::send_userop;
 use super::{
@@ -78,14 +79,15 @@ pub async fn get_realtor(
         }
         Ok(Json(RealtorInfoResponse {
             realtor_address: format!(
-                "{:#x}",
+                "{}",
                 state
                     .cfg
                     .hub
                     .safe
                     .expect("hub safe must be resolved at startup")
+                    .to_checksum_buffer(None)
             ),
-            untron_v3: format!("{:#x}", state.cfg.hub.untron_v3),
+            untron_v3: state.cfg.hub.untron_v3.to_checksum_buffer(None).to_string(),
             allowed: offer.allowed,
             min_fee_ppm: offer.min_fee_ppm,
             min_flat_fee: offer.min_flat_fee,
@@ -120,7 +122,7 @@ pub async fn get_realtor(
     path = "/realtor",
     tag = "realtor",
     summary = "Create an address lease in Untron V3 protocol.",
-    description = "Creates a lease on UntronV3 using the configured hub Safe-4337 module.\n\nThe caller must provide payout destination (target_chain_id,target_token,beneficiary) and duration_seconds. Optionally, provide receiver_salt and lessee.\n\nThe (target_chain_id,target_token) pair must exist in the current bridger routing table (hub_bridgers with valid_to_seq is null). If lessee is provided, arbitrary_lessee_flat_fee is added to the flat fee.",
+    description = "Creates a lease on Untron V3 through the API's realtor.\n\nThe caller must provide payout destination (target_chain_id,target_token,beneficiary) and duration_seconds. Optionally, provide receiver_salt and lessee.\n\nThe (target_chain_id,target_token) pair must exist in the current bridger routing table (hub_bridgers with valid_to_seq is null). If lessee is provided, arbitrary_lessee_flat_fee is added to the flat fee.",
     request_body = CreateLeaseRequest,
     responses(
         (status = 200, description = "OK", body = CreateLeaseResponse),
@@ -183,15 +185,15 @@ pub async fn post_realtor(
                 "target_chain_id must be non-zero".to_string(),
             ));
         }
-        let target_token_hex_lower = format!("{:#x}", target_token).to_lowercase();
+        let target_token_checksum = target_token.to_checksum_buffer(None).to_string();
         let pair_supported = state
             .indexer
-            .bridger_pair_is_supported(&target_token_hex_lower, req.target_chain_id)
+            .bridger_pair_is_supported(&target_token_checksum, req.target_chain_id)
             .await
             .map_err(|e| ApiError::Upstream(format!("indexer hub_bridgers by pair: {e}")))?;
         if !pair_supported {
             return Err(ApiError::BadRequest(format!(
-                "unsupported target_token/target_chain_id pair (no bridger configured): target_token={target_token_hex_lower} target_chain_id={}",
+                "unsupported target_token/target_chain_id pair (no bridger configured): target_token={target_token_checksum} target_chain_id={}",
                 req.target_chain_id
             )));
         }
@@ -199,27 +201,34 @@ pub async fn post_realtor(
         let receiver_salt_hex = match req.receiver_salt.as_deref() {
             Some(s) => {
                 let receiver_salt_hex = normalize_receiver_salt_hex(s)?;
-                let exists = state
+                let exists_in_candidates = state
                     .indexer
                     .receiver_salt_candidate(receiver_salt_hex.as_str())
                     .await
                     .map_err(|e| {
                         ApiError::Upstream(format!("indexer receiver_salt_candidates: {e}"))
                     })?;
-                if exists.is_none() {
+                let is_preknown = state
+                    .cfg
+                    .leasing
+                    .preknown_receiver_salts
+                    .iter()
+                    .any(|v| v == &receiver_salt_hex);
+                if exists_in_candidates.is_none() && !is_preknown {
                     return Err(ApiError::BadRequest(format!(
                         "unknown receiver_salt (not found in indexer receiver_salt_candidates): {receiver_salt_hex}"
                     )));
                 }
                 receiver_salt_hex
             }
-            None => pick_receiver_salt_for_beneficiary(&state, now, beneficiary)
-                .await?
-                .ok_or_else(|| {
+            None => match pick_receiver_salt_for_beneficiary(&state, now, beneficiary).await? {
+                Some(s) => s,
+                None => pick_receiver_salt_from_preknown(&state, now).await?.ok_or_else(|| {
                     ApiError::Conflict(
                         "no free receiver salts available (all are leased)".to_string(),
                     )
                 })?,
+            },
         };
 
         ensure_receiver_is_free(&state, &receiver_salt_hex, now).await?;

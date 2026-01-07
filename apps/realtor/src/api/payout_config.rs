@@ -152,18 +152,18 @@ pub async fn post_payout_config(
             .parse()
             .map_err(|_| ApiError::Upstream("indexer hub_protocol_config invalid usdt address".to_string()))?;
 
-        let target_token_hex_lower = format!("{:#x}", target_token).to_lowercase();
+        let target_token_checksum = target_token.to_checksum_buffer(None).to_string();
 
         if target_token != usdt {
             let swap_rate = state
                 .indexer
-                .hub_swap_rate(&target_token_hex_lower)
+                .hub_swap_rate(&target_token_checksum)
                 .await
                 .map_err(|e| ApiError::Upstream(format!("indexer hub_swap_rates: {e}")))?;
             let rate_ppm = swap_rate.and_then(|r| r.rate_ppm).unwrap_or(0);
             if rate_ppm == 0 {
                 return Err(ApiError::BadRequest(format!(
-                    "no swap rate configured for target_token: {target_token_hex_lower}"
+                    "no swap rate configured for target_token: {target_token_checksum}"
                 )));
             }
         }
@@ -171,12 +171,12 @@ pub async fn post_payout_config(
         if state.cfg.hub.chain_id.map(|id| id != req.target_chain_id).unwrap_or(true) {
             let pair_supported = state
                 .indexer
-                .bridger_pair_is_supported(&target_token_hex_lower, req.target_chain_id)
+                .bridger_pair_is_supported(&target_token_checksum, req.target_chain_id)
                 .await
                 .map_err(|e| ApiError::Upstream(format!("indexer hub_bridgers by pair: {e}")))?;
             if !pair_supported {
                 return Err(ApiError::BadRequest(format!(
-                    "unsupported target_token/target_chain_id pair (no bridger configured): target_token={target_token_hex_lower} target_chain_id={}",
+                    "unsupported target_token/target_chain_id pair (no bridger configured): target_token={target_token_checksum} target_chain_id={}",
                     req.target_chain_id
                 )));
             }

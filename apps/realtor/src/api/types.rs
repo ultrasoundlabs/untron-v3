@@ -221,6 +221,22 @@ pub struct LeaseViewResponse {
     )]
     pub receiver_salt: String,
 
+    /// Receiver address on Tron (base58check, T...).
+    ///
+    /// Derived from `receiver_salt` using the controller's deterministic receiver scheme.
+    #[schema(nullable = true, example = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb")]
+    pub receiver_address_tron: Option<String>,
+
+    /// Receiver address in EVM hex form (0x...).
+    ///
+    /// This is the 20-byte address corresponding to the Tron receiver address.
+    #[schema(
+        nullable = true,
+        example = "0x0000000000000000000000000000000000000000",
+        pattern = "^0x[0-9a-fA-F]{40}$"
+    )]
+    pub receiver_address_evm: Option<String>,
+
     /// Realtor (EVM address) that created this lease.
     #[schema(
         example = "0x0000000000000000000000000000000000000004",

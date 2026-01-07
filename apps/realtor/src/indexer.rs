@@ -43,9 +43,9 @@ impl IndexerApi {
     #[tracing::instrument(level = "debug", skip(self))]
     pub async fn beneficiary_has_filled_claims(
         &self,
-        beneficiary_addr_lower_hex: &str,
+        beneficiary_addr_checksum: &str,
     ) -> Result<bool> {
-        let beneficiary_filter = format!("eq.{beneficiary_addr_lower_hex}");
+        let beneficiary_filter = format!("eq.{beneficiary_addr_checksum}");
         let rows = self
             .timed("hub_claims_get_filled_by_beneficiary", async {
                 self.client
@@ -66,9 +66,9 @@ impl IndexerApi {
     #[tracing::instrument(level = "debug", skip(self))]
     pub async fn realtor_effective_config(
         &self,
-        realtor_addr_lower_hex: &str,
+        realtor_addr_checksum: &str,
     ) -> Result<Option<types::RealtorEffectiveConfig>> {
-        let realtor_filter = format!("eq.{realtor_addr_lower_hex}");
+        let realtor_filter = format!("eq.{realtor_addr_checksum}");
         let rows = self
             .timed("realtor_effective_config_get", async {
                 self.client
@@ -149,10 +149,10 @@ impl IndexerApi {
     #[tracing::instrument(level = "debug", skip(self))]
     pub async fn bridger_pair_is_supported(
         &self,
-        target_token: &str,
+        target_token_checksum: &str,
         target_chain_id: u64,
     ) -> Result<bool> {
-        let token_filter = format!("eq.{}", target_token);
+        let token_filter = format!("eq.{}", target_token_checksum);
         let chain_filter = format!("eq.{}", target_chain_id);
         let rows = self
             .timed("hub_bridgers_get_by_pair", async {
@@ -187,6 +187,28 @@ impl IndexerApi {
                     .send()
                     .await
                     .map_err(|e| anyhow::anyhow!("receiver_salt_candidates_get by salt: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
+        Ok(rows.into_iter().next())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn latest_lease_by_receiver_salt(
+        &self,
+        receiver_salt_hex: &str,
+    ) -> Result<Option<types::HubLeases>> {
+        let receiver_salt_filter = format!("eq.{receiver_salt_hex}");
+        let rows = self
+            .timed("hub_leases_get_latest_by_receiver_salt", async {
+                self.client
+                    .hub_leases_get()
+                    .receiver_salt(receiver_salt_filter)
+                    .order("lease_number.desc")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_leases_get latest by receiver_salt: {e:?}"))
                     .map(|r| r.into_inner())
             })
             .await?;
@@ -251,9 +273,9 @@ impl IndexerApi {
     #[tracing::instrument(level = "debug", skip(self))]
     pub async fn hub_swap_rate(
         &self,
-        target_token_lower_hex: &str,
+        target_token_checksum: &str,
     ) -> Result<Option<types::HubSwapRates>> {
-        let token_filter = format!("eq.{target_token_lower_hex}");
+        let token_filter = format!("eq.{target_token_checksum}");
         let rows = self
             .timed("hub_swap_rates_get_by_token", async {
                 self.client
@@ -306,5 +328,39 @@ impl IndexerApi {
             })
             .await?;
         Ok(rows.into_iter().next())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn receiver_addresses_by_salt(
+        &self,
+        receiver_salt_hex: &str,
+    ) -> Result<Option<(String, String)>> {
+        let salt_filter = format!("eq.{receiver_salt_hex}");
+        let rows = self
+            .timed("receiver_usdt_balances_get_by_salt", async {
+                self.client
+                    .receiver_usdt_balances_get()
+                    .receiver_salt(salt_filter)
+                    .select("receiver,receiver_evm")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!("receiver_usdt_balances_get by receiver_salt: {e:?}")
+                    })
+                    .map(|r| r.into_inner())
+            })
+            .await?;
+
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(None);
+        };
+        let receiver = row
+            .receiver
+            .ok_or_else(|| anyhow::anyhow!("receiver_usdt_balances missing receiver"))?;
+        let receiver_evm = row
+            .receiver_evm
+            .ok_or_else(|| anyhow::anyhow!("receiver_usdt_balances missing receiver_evm"))?;
+        Ok(Some((receiver, receiver_evm)))
     }
 }

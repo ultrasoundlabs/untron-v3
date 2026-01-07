@@ -60,6 +60,20 @@ pub async fn get_lease(
         let receiver_salt = row.receiver_salt.clone().ok_or_else(|| {
             ApiError::Upstream("indexer lease_view missing receiver_salt".to_string())
         })?;
+
+        let (receiver_address_tron, receiver_address_evm) = match state
+            .indexer
+            .receiver_addresses_by_salt(receiver_salt.as_str())
+            .await
+        {
+            Ok(Some((tron, evm))) => (Some(tron), Some(evm)),
+            Ok(None) => (None, None),
+            Err(e) => {
+                tracing::warn!(receiver_salt = %receiver_salt, err = %e, "indexer receiver_usdt_balances lookup failed");
+                (None, None)
+            }
+        };
+
         let realtor = row
             .realtor
             .clone()
@@ -148,6 +162,8 @@ pub async fn get_lease(
         Ok(Json(LeaseViewResponse {
             lease_id: lease_id_str,
             receiver_salt,
+            receiver_address_tron,
+            receiver_address_evm,
             realtor,
             is_owned_by_this_realtor,
             lessee,

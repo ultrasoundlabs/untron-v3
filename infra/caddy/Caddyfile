@@ -8,6 +8,12 @@
   handle /realtor* {
     reverse_proxy realtor:3000
   }
+  handle /leases* {
+    reverse_proxy realtor:3000
+  }
+  handle /payout_config* {
+    reverse_proxy realtor:3000
+  }
 
   # API docs reference powered by Scalar
   handle_path /docs* {
