@@ -9,8 +9,10 @@ mod shared;
 
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
+use std::time::Duration;
+use tokio::time;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,7 +39,7 @@ async fn main() -> Result<()> {
 
     let shutdown = CancellationToken::new();
 
-    let mut join_set = tokio::task::JoinSet::new();
+    let mut join_set: tokio::task::JoinSet<Result<()>> = tokio::task::JoinSet::new();
 
     // If the controller stream is configured, we also run the TRC-20 receiver transfer indexer
     // using the same RPC providers and deployment block.
@@ -67,18 +69,36 @@ async fn main() -> Result<()> {
         }
 
         join_set.spawn(async move {
-            event_chain::run_stream(event_chain::RunStreamParams {
-                dbh,
-                cfg: stream_cfg,
-                resolved,
-                providers,
-                shutdown,
-                block_header_concurrency,
-                block_timestamp_cache_size,
-                progress_interval,
-                progress_tail_lag_blocks,
-            })
-            .await
+            let stream_label = stream_cfg.stream.as_str();
+            let mut backoff = Duration::from_millis(250);
+            loop {
+                if shutdown.is_cancelled() {
+                    return Ok(());
+                }
+
+                let res = event_chain::run_stream(event_chain::RunStreamParams {
+                    dbh: dbh.clone(),
+                    cfg: stream_cfg.clone(),
+                    resolved: resolved.clone(),
+                    providers: providers.clone(),
+                    shutdown: shutdown.clone(),
+                    block_header_concurrency,
+                    block_timestamp_cache_size,
+                    progress_interval,
+                    progress_tail_lag_blocks,
+                })
+                .await;
+
+                match res {
+                    Ok(()) => warn!(stream = stream_label, "stream task exited; restarting"),
+                    Err(e) => {
+                        error!(stream = stream_label, err = %e, "stream task failed; restarting")
+                    }
+                }
+
+                time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(5));
+            }
         });
     }
 
@@ -93,53 +113,54 @@ async fn main() -> Result<()> {
         // Receiver USDT indexer has its own env-driven knobs; it only requires controller RPC access + DB.
         if receiver_usdt_cfg.enabled {
             join_set.spawn(async move {
-                receiver_usdt::run_receiver_usdt_indexer(receiver_usdt::RunReceiverUsdtParams {
-                    dbh,
-                    controller_cfg: cfg,
-                    resolved,
-                    providers,
-                    receiver_usdt_cfg,
-                    block_header_concurrency,
-                    block_timestamp_cache_size,
-                    progress_interval,
-                    progress_tail_lag_blocks,
-                    shutdown,
-                })
-                .await
+                let mut backoff = Duration::from_millis(250);
+                loop {
+                    if shutdown.is_cancelled() {
+                        return Ok(());
+                    }
+
+                    let res = receiver_usdt::run_receiver_usdt_indexer(
+                        receiver_usdt::RunReceiverUsdtParams {
+                            dbh: dbh.clone(),
+                            controller_cfg: cfg.clone(),
+                            resolved: resolved.clone(),
+                            providers: providers.clone(),
+                            receiver_usdt_cfg: receiver_usdt_cfg.clone(),
+                            block_header_concurrency,
+                            block_timestamp_cache_size,
+                            progress_interval,
+                            progress_tail_lag_blocks,
+                            shutdown: shutdown.clone(),
+                        },
+                    )
+                    .await;
+
+                    match res {
+                        Ok(()) => warn!("receiver_usdt task exited; restarting"),
+                        Err(e) => error!(err = %e, "receiver_usdt task failed; restarting"),
+                    }
+
+                    time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(5));
+                }
             });
         }
     }
 
     info!("indexer started");
-
-    let mut fatal: Option<anyhow::Error> = None;
-    tokio::select! {
-        res = shutdown_signal() => {
-            res?;
-            info!("shutdown requested");
-        },
-        res = join_set.join_next() => {
-            if let Some(res) = res {
-                let res = res.context("stream task panicked")?;
-                match res {
-                    Ok(()) => fatal = Some(anyhow::anyhow!("stream task exited unexpectedly")),
-                    Err(e) => fatal = Some(e.context("stream task failed")),
-                }
-            }
-        }
-    }
-
+    shutdown_signal().await?;
+    info!("shutdown requested");
     shutdown.cancel();
 
     while let Some(res) = join_set.join_next().await {
         let res = res.context("stream task panicked")?;
         if let Err(e) = res {
-            fatal.get_or_insert_with(|| e.context("stream task failed"));
+            warn!(err = %e, "task exited with error during shutdown");
         }
     }
 
     otel.shutdown().await;
-    fatal.map_or(Ok(()), Err)
+    Ok(())
 }
 
 async fn shutdown_signal() -> Result<()> {

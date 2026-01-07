@@ -109,6 +109,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         progress_tail_lag_blocks,
         shutdown,
     } = params;
+    let local_shutdown = shutdown.child_token();
     let (stream, chain_id, contract_address_db) = resolved.into_parts();
     if stream != Stream::Controller {
         anyhow::bail!("receiver_usdt indexer requires controller stream");
@@ -120,7 +121,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
             .evm();
 
     let init_code_hash = range::fetch_receiver_init_code_hash(
-        &shutdown,
+        &local_shutdown,
         &providers.fallback,
         controller_address_evm,
     )
@@ -167,7 +168,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
     // Discovery loop (env + hub lease salts).
     {
         let dbh = dbh.clone();
-        let shutdown = shutdown.clone();
+        let shutdown = local_shutdown.clone();
         let controller_cfg = controller_cfg.clone();
         let receiver_usdt_cfg = receiver_usdt_cfg.clone();
         join_set.spawn(async move {
@@ -186,7 +187,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
     // Tail loop (batched by recipient list).
     {
         let dbh = dbh.clone();
-        let shutdown = shutdown.clone();
+        let shutdown = local_shutdown.clone();
         let controller_cfg = controller_cfg.clone();
         let receiver_usdt_cfg = receiver_usdt_cfg.clone();
         let provider = providers.fallback.clone();
@@ -212,7 +213,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
     // Backfill loop (batched by cohort of receivers sharing the same backfill_next_block).
     for _ in 0..receiver_usdt_cfg.backfill_concurrency {
         let dbh = dbh.clone();
-        let shutdown = shutdown.clone();
+        let shutdown = local_shutdown.clone();
         let controller_cfg = controller_cfg.clone();
         let receiver_usdt_cfg = receiver_usdt_cfg.clone();
         let provider = providers.fallback.clone();
@@ -251,7 +252,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         }
     }
 
-    shutdown.cancel();
+    local_shutdown.cancel();
     while let Some(res) = join_set.join_next().await {
         let res = res.context("receiver_usdt task panicked")?;
         if let Err(e) = res {
