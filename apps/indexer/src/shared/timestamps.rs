@@ -105,7 +105,7 @@ impl TimestampState {
                                 (alloy::rpc::types::BlockNumberOrTag::Number(block_number), false),
                             )
                             .await
-                            .map_err(|e| anyhow::Error::new(e))
+                            .map_err(anyhow::Error::new)
                             .with_context(|| format!("eth_getBlockByNumber({block_number})"))?;
                         let Some(block) = block else {
                             anyhow::bail!("block {block_number} not found");

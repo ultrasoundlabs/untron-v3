@@ -3,12 +3,7 @@ mod model;
 mod tasks;
 mod util;
 
-use crate::{
-    config::AppConfig,
-    indexer::IndexerApi,
-    metrics::RelayerTelemetry,
-    tron::{address::TronAddress, grpc::TronGrpc, proof::TronTxProofBuilder, wallet::TronWallet},
-};
+use crate::{config::AppConfig, indexer::IndexerApi, metrics::RelayerTelemetry};
 use aa::paymaster::PaymasterService;
 use aa::{
     PaymasterFinalizationMode, Safe4337UserOpSender, Safe4337UserOpSenderConfig,
@@ -27,6 +22,7 @@ use std::{
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use tron::{TronAddress, TronGrpc, TronTxProofBuilder, TronWallet};
 use untron_v3_bindings::untron_v3::UntronV3::UntronV3Instance;
 
 use self::{

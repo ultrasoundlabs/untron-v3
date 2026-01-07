@@ -1,8 +1,9 @@
-use crate::{metrics::RelayerTelemetry, tron::grpc::TronGrpc};
+use crate::metrics::RelayerTelemetry;
 use alloy::primitives::{FixedBytes, U256};
 use anyhow::{Context, Result};
 use std::time::Instant;
 use tracing::Instrument;
+use tron::TronGrpc;
 
 pub(super) async fn run_job<T, F, Fut>(
     telemetry: &RelayerTelemetry,

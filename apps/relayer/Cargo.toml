@@ -2,11 +2,9 @@
 name = "relayer"
 version = "0.1.0"
 edition = "2024"
-build = "build.rs"
 
 [dependencies]
 anyhow = "1.0.100"
-bs58 = { version = "0.5.1", features = ["check"] }
 dotenvy = "0.15.7"
 envy = "0.4.2"
 futures = "0.3"
@@ -19,18 +17,9 @@ tracing = "0.1.44"
 opentelemetry = "0.31.0"
 alloy = { version = "1.2.1", features = ["full", "json", "serde", "contract", "sol-types", "eip712"] }
 alloy-provider = { version = "1.2", features = ["erc4337-api"] }
-prost = "0.14.1"
-prost-types = "0.14.1"
 tokio = { version = "1.49.0", features = ["full"] }
-tonic = "0.14.2"
-tonic-prost = "0.14.2"
 untron-v3-indexer-client = { path = "../../crates/indexer-client" }
 untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }
 untron-observability = { path = "../../crates/observability" }
-k256 = "0.13.4"
-sha2 = "0.10.9"
-sha3 = "0.10.8"
-
-[build-dependencies]
-tonic-prost-build = "0.14.2"
+tron = { path = "../../crates/tron" }

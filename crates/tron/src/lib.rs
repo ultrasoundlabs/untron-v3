@@ -3,6 +3,11 @@ pub mod grpc;
 pub mod proof;
 pub mod wallet;
 
+pub use address::TronAddress;
+pub use grpc::TronGrpc;
+pub use proof::{TronTxProofBuilder, TronTxProofBundle};
+pub use wallet::TronWallet;
+
 pub mod protocol {
     #![allow(clippy::all, clippy::pedantic, clippy::nursery)]
     #![allow(

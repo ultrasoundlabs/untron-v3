@@ -131,7 +131,7 @@ pub async fn get_lease(
         let claims_total = row
             .claims_total
             .and_then(|v| u64::try_from(v).ok())
-            .unwrap_or_else(|| claims.len() as u64);
+            .unwrap_or(claims.len() as u64);
         let claims_filled = row
             .claims_filled
             .and_then(|v| u64::try_from(v).ok())

@@ -11,6 +11,7 @@ WORKDIR /repo
 # Copy only what this crate needs (keeps build context small with a good .dockerignore).
 COPY crates/bindings ./crates/bindings
 COPY crates/indexer-client ./crates/indexer-client
+COPY crates/tron ./crates/tron
 COPY apps/relayer ./apps/relayer
 
 WORKDIR /repo/apps/relayer
@@ -28,4 +29,3 @@ COPY --from=builder /repo/apps/relayer/target/release/relayer /usr/local/bin/rel
 ENV RUST_LOG=info
 
 ENTRYPOINT ["/usr/local/bin/relayer"]
-

@@ -104,9 +104,8 @@ pub(crate) async fn process_token_range(
             timestamps_state
                 .populate_timestamps(shutdown, provider, &logs, &[])
                 .await
-                .map_err(|e| {
+                .inspect_err(|_| {
                     telemetry.error(mode, token_tron, "timestamp");
-                    e
                 })
                 .context("timestamp enrichment")
         })
@@ -156,9 +155,8 @@ pub(crate) async fn process_token_range(
         let decode_ms = decode_start.elapsed().as_millis() as u64;
 
         let db_start = Instant::now();
-        db::insert_transfers(dbh, &rows).await.map_err(|e| {
+        db::insert_transfers(dbh, &rows).await.inspect_err(|_| {
             telemetry.error(mode, token_tron, "db");
-            e
         })?;
         let db_ms = db_start.elapsed().as_millis() as u64;
         let total_ms = start.elapsed().as_millis() as u64;

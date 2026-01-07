@@ -4460,26 +4460,18 @@ dependencies = [
  "alloy",
  "alloy-provider",
  "anyhow",
- "bs58",
  "dotenvy",
  "envy",
  "futures",
  "hex",
- "k256",
  "opentelemetry",
- "prost 0.14.1",
- "prost-types 0.14.1",
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
- "sha3",
  "tokio",
  "tokio-util",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
  "tracing",
+ "tron",
  "untron-observability",
  "untron-v3-bindings",
  "untron-v3-indexer-client",
@@ -6052,6 +6044,23 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tron"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "bs58",
+ "hex",
+ "k256",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "sha2",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]

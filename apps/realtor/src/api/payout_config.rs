@@ -127,10 +127,8 @@ pub async fn post_payout_config(
             .indexer
             .hub_chain(req.target_chain_id)
             .await
-            .map_err(|e| ApiError::Upstream(format!("indexer hub_chains: {e}")))? {
-            if chain.deprecated == Some(true) {
+            .map_err(|e| ApiError::Upstream(format!("indexer hub_chains: {e}")))? && chain.deprecated == Some(true) {
                 return Err(ApiError::BadRequest("target chain is deprecated".to_string()));
-            }
         }
 
         let protocol_cfg = state

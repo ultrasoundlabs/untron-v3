@@ -300,8 +300,8 @@ fn sha256_concat(a: FixedBytes<32>, b: FixedBytes<32>) -> FixedBytes<32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tron::address::TronAddress;
-    use crate::tron::protocol::{BlockExtention, BlockHeader, Transaction, TransactionExtention};
+    use crate::address::TronAddress;
+    use crate::protocol::{BlockExtention, BlockHeader, Transaction, TransactionExtention};
     use prost::Message;
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
         witness_address[0] = TronAddress::MAINNET_PREFIX;
         witness_address[1..].copy_from_slice(&[0x33u8; 20]);
 
-        let raw = crate::tron::protocol::block_header::Raw {
+        let raw = crate::protocol::block_header::Raw {
             timestamp: i64::try_from(ts_ms).unwrap(),
             tx_trie_root,
             parent_hash,
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn extract_tx_and_root_finds_tx_and_returns_header_root() {
         let txid = [0x55u8; 32];
-        let header_raw = crate::tron::protocol::block_header::Raw {
+        let header_raw = crate::protocol::block_header::Raw {
             timestamp: 0,
             tx_trie_root: vec![0x66u8; 32],
             parent_hash: vec![0u8; 32],

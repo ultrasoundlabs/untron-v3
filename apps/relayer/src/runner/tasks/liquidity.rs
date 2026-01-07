@@ -1,6 +1,6 @@
 use super::{HubIntent, TronIntent};
-use crate::tron::{address::TronAddress, wallet::encode_pull_from_receivers};
 use anyhow::{Context, Result};
+use tron::{TronAddress, wallet::encode_pull_from_receivers};
 
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32};

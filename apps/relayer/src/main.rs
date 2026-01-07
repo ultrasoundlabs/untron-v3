@@ -2,7 +2,6 @@ mod config;
 mod indexer;
 mod metrics;
 mod runner;
-mod tron;
 
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;

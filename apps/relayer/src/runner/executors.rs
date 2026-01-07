@@ -1,14 +1,12 @@
 use super::RelayerState;
-use crate::{
-    metrics::RelayerTelemetry,
-    tron::{address::TronAddress, grpc::TronGrpc, wallet::TronWallet},
-};
+use crate::metrics::RelayerTelemetry;
 use aa::Safe4337UserOpSender;
 use alloy::primitives::{Address, U256};
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
+use tron::{TronAddress, TronGrpc, TronWallet};
 
 #[derive(Clone)]
 pub struct HubExecutor {

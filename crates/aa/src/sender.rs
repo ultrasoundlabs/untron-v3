@@ -250,14 +250,14 @@ impl Safe4337UserOpSender {
             .get_stub_data(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
             .await?;
 
-        if self.cfg.options.paymaster_finalization == PaymasterFinalizationMode::SkipIfStubFinal {
-            if let Some(s) = &stub.sponsor {
-                tracing::info!(
-                    paymaster = %redact_url(&svc.url),
-                    sponsor = %s,
-                    "paymaster stub sponsor"
-                );
-            }
+        if self.cfg.options.paymaster_finalization == PaymasterFinalizationMode::SkipIfStubFinal
+            && let Some(s) = &stub.sponsor
+        {
+            tracing::info!(
+                paymaster = %redact_url(&svc.url),
+                sponsor = %s,
+                "paymaster stub sponsor"
+            );
         }
 
         let paymaster = stub

@@ -1,0 +1,19 @@
+[package]
+name = "tron"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { version = "1.2.1", features = ["full"] }
+anyhow = "1.0.100"
+bs58 = { version = "0.5.1", features = ["check"] }
+hex = "0.4.3"
+k256 = "0.13.4"
+prost = "0.14.1"
+prost-types = "0.14.1"
+sha2 = "0.10.9"
+tonic = "0.14.2"
+tonic-prost = "0.14.2"
+
+[build-dependencies]
+tonic-prost-build = "0.14.2"
