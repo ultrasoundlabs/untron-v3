@@ -25,7 +25,11 @@ async function main() {
     if (res.ok) realtorOpenapi3 = await res.json();
   }
 
-  const spec = await buildMergedOpenapi3({ upstreamSwagger2, realtorOpenapi3 });
+  const spec = await buildMergedOpenapi3({
+    upstreamSwagger2,
+    realtorOpenapi3,
+    externalProxyBasePath: process.env.EXTERNAL_PROXY_BASE_PATH,
+  });
   process.stdout.write(JSON.stringify(spec, null, 2) + "\n");
 }
 

@@ -141,8 +141,11 @@ services:
     expose:
       - "8080"
     environment:
-      CDN_URL: ${SCALAR_CDN_URL:-/scalar.js}
-      API_REFERENCE_CONFIG: ${SCALAR_API_REFERENCE_CONFIG:-{"pathRouting":{"basePath":"/docs"},"sources":[{"url":"/openapi.json","title":"Untron API","default":true}]}}
+      # Prefix used by an upstream reverse-proxy that publishes the gateway under a path (e.g. "/v3"),
+      # while stripping that prefix before forwarding to this Caddy gateway.
+      EXTERNAL_PROXY_BASE_PATH: ${EXTERNAL_PROXY_BASE_PATH:-}
+      CDN_URL: ${EXTERNAL_PROXY_BASE_PATH:-}/scalar.js
+      API_REFERENCE_CONFIG: ${SCALAR_API_REFERENCE_CONFIG:-{"pathRouting":{"basePath":"${EXTERNAL_PROXY_BASE_PATH:-}/docs"},"sources":[{"url":"${EXTERNAL_PROXY_BASE_PATH:-}/openapi.json","title":"Untron API","default":true}]}}
 
   openapi_sidecar:
     image: node:20-slim
@@ -151,6 +154,7 @@ services:
       UPSTREAM_OPENAPI_URL: http://postgrest:3000/
       CACHE_SECONDS: "30"
       REALTOR_OPENAPI_URL: http://realtor:3000/openapi.json
+      EXTERNAL_PROXY_BASE_PATH: ${EXTERNAL_PROXY_BASE_PATH:-}
     command: ["node", "/sidecar/dist/server.cjs"]
     volumes:
       - ./openapi-sidecar/dist:/sidecar/dist:ro

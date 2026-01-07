@@ -41,9 +41,16 @@ function keepGetOnly(spec: OpenAPIObject): OpenAPIObject {
   return out;
 }
 
-function setGatewayServers(spec: OpenAPIObject): OpenAPIObject {
+function normalizeExternalProxyBasePath(raw: string | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed || trimmed === "/") return "/";
+  const withLeading = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeading.replace(/\/+$/, "");
+}
+
+function setGatewayServers(spec: OpenAPIObject, externalProxyBasePath?: string): OpenAPIObject {
   const out: OpenAPIObject = structuredClone(spec);
-  out.servers = [{ url: "/" }];
+  out.servers = [{ url: normalizeExternalProxyBasePath(externalProxyBasePath) }];
   return out;
 }
 
@@ -235,11 +242,12 @@ export async function convertSwagger2ToOpenapi3(swagger2: Swagger2): Promise<Ope
 export async function buildMergedOpenapi3(params: {
   upstreamSwagger2: Swagger2;
   realtorOpenapi3?: OpenAPIObject | null;
+  externalProxyBasePath?: string;
 }): Promise<OpenAPIObject> {
   const realtor = params.realtorOpenapi3;
   let indexer = await convertSwagger2ToOpenapi3(params.upstreamSwagger2);
   indexer = keepGetOnly(indexer);
-  indexer = setGatewayServers(indexer);
+  indexer = setGatewayServers(indexer, params.externalProxyBasePath);
   indexer = progenitorFriendly(indexer);
   indexer = ensureOperationIds(indexer);
 
@@ -248,7 +256,7 @@ export async function buildMergedOpenapi3(params: {
   if (realtor && typeof realtor === "object" && typeof realtor.openapi === "string") {
     if (realtor.openapi.startsWith("3.")) {
       merged = mergeOpenapi3WithPrefix(realtor, indexer, "indexer_");
-      merged = setGatewayServers(merged);
+      merged = setGatewayServers(merged, params.externalProxyBasePath);
 
       const indexerInfo: any = indexer.info;
       const mergedInfo: any = typeof merged.info === "object" && merged.info ? merged.info : {};

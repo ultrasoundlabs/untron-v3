@@ -9,6 +9,7 @@ const CACHE_SECONDS = Number.parseInt(process.env.CACHE_SECONDS ?? "30", 10);
 const OPENAPI_TITLE = (process.env.OPENAPI_TITLE ?? "").trim();
 const OPENAPI_DESCRIPTION = (process.env.OPENAPI_DESCRIPTION ?? "").trim();
 const OPENAPI_VERSION = (process.env.OPENAPI_VERSION ?? "").trim();
+const EXTERNAL_PROXY_BASE_PATH = (process.env.EXTERNAL_PROXY_BASE_PATH ?? "").trim();
 
 type Cache = { body: string | null; atMs: number };
 const cache: Cache = { body: null, atMs: 0 };
@@ -46,7 +47,11 @@ async function buildOpenapiJson(): Promise<string> {
     }
   }
 
-  const spec = await buildMergedOpenapi3({ upstreamSwagger2, realtorOpenapi3 });
+  const spec = await buildMergedOpenapi3({
+    upstreamSwagger2,
+    realtorOpenapi3,
+    externalProxyBasePath: EXTERNAL_PROXY_BASE_PATH,
+  });
 
   const info: any = typeof spec.info === "object" && spec.info ? spec.info : {};
   info.title = OPENAPI_TITLE || DEFAULT_OPENAPI_INFO.title;

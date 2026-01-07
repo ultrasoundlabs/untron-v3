@@ -11,6 +11,18 @@ docker compose -f infra/docker-compose.yml up -d
 - Swagger UI: `http://localhost:8080/docs`
 - OpenAPI (3.x): `http://localhost:8080/openapi.json`
 
+### Running behind a path prefix (external reverse proxy)
+
+If an upstream reverse proxy publishes the gateway under a path prefix (for example `https://example.com/v3/*`)
+and strips `/v3` before forwarding to this stack, set:
+
+```bash
+export EXTERNAL_PROXY_BASE_PATH=/v3 # no trailing slash
+docker compose -f infra/docker-compose.yml up -d
+```
+
+This makes the Scalar docs and the OpenAPI `servers[0].url` reflect the externally-visible prefix.
+
 ### Observability (Prometheus + Grafana + Tempo)
 
 ```bash
