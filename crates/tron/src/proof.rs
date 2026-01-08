@@ -1,8 +1,9 @@
 use super::grpc::TronGrpc;
-use super::protocol::{BlockExtention, BlockHeader};
+use super::protocol::BlockHeader;
 use alloy::primitives::{FixedBytes, U256};
 use anyhow::{Context, Result};
 use prost::Message;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 pub struct TronTxProofBundle {
@@ -15,6 +16,35 @@ pub struct TronTxProofBundle {
 pub struct TronTxProofBuilder {
     /// Must be 19 for the hub's `bytes[20]` proof format.
     pub finality_blocks: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct TxTrieRootMismatchTxDump {
+    index: usize,
+    txid_ext: String,
+    txid_from_raw_data: Option<String>,
+    encoded_tx: String,
+    encoded_tx_len: usize,
+    tx_leaf: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TxTrieRootMismatchDump {
+    tron_block_number: u64,
+    txid: String,
+    tx_index: usize,
+    tx_count: usize,
+    header_tx_trie_root: String,
+    computed_tx_trie_root: String,
+    computed_tx_trie_root_duplicate_last: String,
+    index_bits: String,
+    proof: Vec<String>,
+    encoded_tx: String,
+    encoded_tx_len: usize,
+    leaves: Vec<String>,
+    transactions: Vec<TxTrieRootMismatchTxDump>,
+    block_header_raw_data: Option<String>,
+    witness_signature: Option<String>,
 }
 
 impl TronTxProofBuilder {
@@ -53,26 +83,89 @@ impl TronTxProofBuilder {
             .await
             .context("get tx block")?;
 
-        let (tx_index, encoded_tx, tx_trie_root) = extract_tx_and_root(&tx_block, txid)?;
+        let header_raw = tx_block
+            .block_header
+            .as_ref()
+            .and_then(|h| h.raw_data.as_ref())
+            .context("missing block_header.raw_data")?;
+        let header_tx_trie_root = header_raw.tx_trie_root.clone();
 
-        let leaves = tx_block
-            .transactions
-            .iter()
-            .map(|txe| {
-                let tx = txe
-                    .transaction
-                    .as_ref()
-                    .context("missing Transaction in TransactionExtention")?;
-                Ok(sha256_bytes32(&tx.encode_to_vec()))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let mut leaves: Vec<FixedBytes<32>> = Vec::with_capacity(tx_block.transactions.len());
+        let mut tx_dumps: Vec<TxTrieRootMismatchTxDump> =
+            Vec::with_capacity(tx_block.transactions.len());
+        let mut tx_index = None;
+        let mut encoded_tx = None;
+
+        for (idx, txe) in tx_block.transactions.iter().enumerate() {
+            let tx = txe
+                .transaction
+                .as_ref()
+                .context("missing Transaction in TransactionExtention")?;
+            let enc = tx.encode_to_vec();
+            let leaf = sha256_bytes32(&enc);
+            leaves.push(leaf);
+
+            let txid_ext = format!("0x{}", hex::encode(txe.txid.as_slice()));
+            let txid_from_raw_data = tx.raw_data.as_ref().map(|raw| {
+                let raw_bytes = raw.encode_to_vec();
+                format!("0x{}", hex::encode(sha256_bytes32(&raw_bytes)))
+            });
+
+            tx_dumps.push(TxTrieRootMismatchTxDump {
+                index: idx,
+                txid_ext,
+                txid_from_raw_data,
+                encoded_tx: format!("0x{}", hex::encode(&enc)),
+                encoded_tx_len: enc.len(),
+                tx_leaf: format!("0x{}", hex::encode(leaf)),
+            });
+
+            if txe.txid.as_slice() == txid {
+                tx_index = Some(idx);
+                encoded_tx = Some(enc);
+            }
+        }
+
+        let tx_index = tx_index.context("tx not found in block tx list")?;
+        let encoded_tx = encoded_tx.context("missing encoded tx bytes after tx match")?;
 
         let (proof, index, computed_root) = merkle_proof_sha256(&leaves, tx_index)?;
-        if computed_root.as_slice() != tx_trie_root.as_slice() {
+        if computed_root.as_slice() != header_tx_trie_root.as_slice() {
+            let computed_root_dup_last = merkle_root_sha256_duplicate_last(&leaves);
+            let header_raw_hex = Some(format!(
+                "0x{}",
+                hex::encode(header_raw.encode_to_vec().as_slice())
+            ));
+            let witness_sig_hex = tx_block
+                .block_header
+                .as_ref()
+                .map(|h| format!("0x{}", hex::encode(h.witness_signature.as_slice())));
+
+            let dump = TxTrieRootMismatchDump {
+                tron_block_number,
+                txid: format!("0x{}", hex::encode(txid)),
+                tx_index,
+                tx_count: leaves.len(),
+                header_tx_trie_root: format!("0x{}", hex::encode(&header_tx_trie_root)),
+                computed_tx_trie_root: format!("0x{}", hex::encode(computed_root)),
+                computed_tx_trie_root_duplicate_last: format!(
+                    "0x{}",
+                    hex::encode(computed_root_dup_last)
+                ),
+                index_bits: index.to_string(),
+                proof: proof.iter().map(|h| format!("0x{}", hex::encode(h))).collect(),
+                encoded_tx: format!("0x{}", hex::encode(&encoded_tx)),
+                encoded_tx_len: encoded_tx.len(),
+                leaves: leaves.iter().map(|h| format!("0x{}", hex::encode(h))).collect(),
+                transactions: tx_dumps,
+                block_header_raw_data: header_raw_hex,
+                witness_signature: witness_sig_hex,
+            };
+
             anyhow::bail!(
-                "computed txTrieRoot mismatch (encoding/proof algo bug): computed=0x{}, header=0x{}",
-                hex::encode(computed_root),
-                hex::encode(tx_trie_root),
+                "computed txTrieRoot mismatch (encoding/proof algo bug)\n{}",
+                serde_json::to_string_pretty(&dump)
+                    .unwrap_or_else(|e| format!("{{\"error\":\"failed to serialize dump: {e}\"}}"))
             );
         }
 
@@ -105,27 +198,6 @@ async fn tron_head_block(grpc: &mut TronGrpc) -> Result<u64> {
         .and_then(|h| h.raw_data.as_ref())
         .context("missing now block header.raw_data")?;
     u64::try_from(raw.number).context("now block number out of range")
-}
-
-fn extract_tx_and_root(b: &BlockExtention, txid: [u8; 32]) -> Result<(usize, Vec<u8>, Vec<u8>)> {
-    let header_raw = b
-        .block_header
-        .as_ref()
-        .and_then(|h| h.raw_data.as_ref())
-        .context("missing block_header.raw_data")?;
-    let tx_trie_root = header_raw.tx_trie_root.clone();
-
-    for (idx, txe) in b.transactions.iter().enumerate() {
-        if txe.txid.as_slice() == txid {
-            let tx = txe
-                .transaction
-                .as_ref()
-                .context("missing Transaction in TransactionExtention")?;
-            return Ok((idx, tx.encode_to_vec(), tx_trie_root));
-        }
-    }
-
-    anyhow::bail!("tx not found in block tx list");
 }
 
 fn encode_block_header(h: &Option<BlockHeader>) -> Result<Vec<u8>> {
@@ -302,11 +374,29 @@ fn sha256_concat(a: FixedBytes<32>, b: FixedBytes<32>) -> FixedBytes<32> {
     FixedBytes::from_slice(&digest)
 }
 
+fn merkle_root_sha256_duplicate_last(leaves: &[FixedBytes<32>]) -> FixedBytes<32> {
+    if leaves.is_empty() {
+        return FixedBytes::from([0u8; 32]);
+    }
+
+    let mut level = leaves.to_vec();
+    while level.len() > 1 {
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
+        for j in (0..level.len()).step_by(2) {
+            let left = level[j];
+            let right = level.get(j + 1).copied().unwrap_or(left);
+            next.push(sha256_concat(left, right));
+        }
+        level = next;
+    }
+    level[0]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::address::TronAddress;
-    use crate::protocol::{BlockExtention, BlockHeader, Transaction, TransactionExtention};
+    use crate::protocol::BlockHeader;
     use k256::ecdsa::signature::DigestVerifier;
     use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
     use prost::Message;
@@ -855,45 +945,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn extract_tx_and_root_finds_tx_and_returns_header_root() {
-        let txid = [0x55u8; 32];
-        let header_raw = crate::protocol::block_header::Raw {
-            timestamp: 0,
-            tx_trie_root: vec![0x66u8; 32],
-            parent_hash: vec![0u8; 32],
-            number: 0,
-            witness_id: 0,
-            witness_address: vec![0u8; 21],
-            version: 0,
-            account_state_root: Vec::new(),
-        };
-        let header = BlockHeader {
-            raw_data: Some(header_raw),
-            witness_signature: vec![0u8; 65],
-        };
-
-        let tx = Transaction::default();
-        let tx_bytes = tx.encode_to_vec();
-
-        let b = BlockExtention {
-            transactions: vec![TransactionExtention {
-                transaction: Some(tx),
-                txid: txid.to_vec(),
-                constant_result: Vec::new(),
-                result: None,
-                energy_used: 0,
-                logs: Vec::new(),
-                internal_transactions: Vec::new(),
-                energy_penalty: 0,
-            }],
-            block_header: Some(header),
-            blockid: Vec::new(),
-        };
-
-        let (idx, enc, root) = extract_tx_and_root(&b, txid).unwrap();
-        assert_eq!(idx, 0);
-        assert_eq!(enc, tx_bytes);
-        assert_eq!(root, vec![0x66u8; 32]);
-    }
 }
