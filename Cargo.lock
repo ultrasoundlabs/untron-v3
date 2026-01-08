@@ -4369,6 +4369,7 @@ dependencies = [
  "tokio-util",
  "tower-http",
  "tracing",
+ "tron",
  "untron-observability",
  "untron-v3-bindings",
  "untron-v3-indexer-client",

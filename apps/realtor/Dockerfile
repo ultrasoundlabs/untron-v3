@@ -9,6 +9,7 @@ COPY crates/aa ./crates/aa
 COPY crates/bindings ./crates/bindings
 COPY crates/indexer-client ./crates/indexer-client
 COPY crates/aa ./crates/aa
+COPY crates/tron ./crates/tron
 COPY crates/observability ./crates/observability
 COPY apps/realtor ./apps/realtor
 
