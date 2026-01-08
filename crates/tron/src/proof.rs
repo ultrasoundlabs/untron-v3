@@ -1,5 +1,5 @@
 use super::grpc::TronGrpc;
-use super::protocol::BlockHeader;
+use super::protocol::{BlockExtention, BlockHeader};
 use alloy::primitives::{FixedBytes, U256};
 use anyhow::{Context, Result};
 use prost::Message;
@@ -18,7 +18,7 @@ pub struct TronTxProofBuilder {
     pub finality_blocks: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct TxTrieRootMismatchTxDump {
     index: usize,
     txid_ext: String,
@@ -90,81 +90,13 @@ impl TronTxProofBuilder {
             .context("missing block_header.raw_data")?;
         let header_tx_trie_root = header_raw.tx_trie_root.clone();
 
-        let mut leaves: Vec<FixedBytes<32>> = Vec::with_capacity(tx_block.transactions.len());
-        let mut tx_dumps: Vec<TxTrieRootMismatchTxDump> =
-            Vec::with_capacity(tx_block.transactions.len());
-        let mut tx_index = None;
-        let mut encoded_tx = None;
+        let details =
+            compute_proof_from_block_ext(&tx_block, tron_block_number, txid).context("tx proof")?;
 
-        for (idx, txe) in tx_block.transactions.iter().enumerate() {
-            let tx = txe
-                .transaction
-                .as_ref()
-                .context("missing Transaction in TransactionExtention")?;
-            let enc = tx.encode_to_vec();
-            let leaf = sha256_bytes32(&enc);
-            leaves.push(leaf);
-
-            let txid_ext = format!("0x{}", hex::encode(txe.txid.as_slice()));
-            let txid_from_raw_data = tx.raw_data.as_ref().map(|raw| {
-                let raw_bytes = raw.encode_to_vec();
-                format!("0x{}", hex::encode(sha256_bytes32(&raw_bytes)))
-            });
-
-            tx_dumps.push(TxTrieRootMismatchTxDump {
-                index: idx,
-                txid_ext,
-                txid_from_raw_data,
-                encoded_tx: format!("0x{}", hex::encode(&enc)),
-                encoded_tx_len: enc.len(),
-                tx_leaf: format!("0x{}", hex::encode(leaf)),
-            });
-
-            if txe.txid.as_slice() == txid {
-                tx_index = Some(idx);
-                encoded_tx = Some(enc);
-            }
-        }
-
-        let tx_index = tx_index.context("tx not found in block tx list")?;
-        let encoded_tx = encoded_tx.context("missing encoded tx bytes after tx match")?;
-
-        let (proof, index, computed_root) = merkle_proof_sha256(&leaves, tx_index)?;
-        if computed_root.as_slice() != header_tx_trie_root.as_slice() {
-            let computed_root_dup_last = merkle_root_sha256_duplicate_last(&leaves);
-            let header_raw_hex = Some(format!(
-                "0x{}",
-                hex::encode(header_raw.encode_to_vec().as_slice())
-            ));
-            let witness_sig_hex = tx_block
-                .block_header
-                .as_ref()
-                .map(|h| format!("0x{}", hex::encode(h.witness_signature.as_slice())));
-
-            let dump = TxTrieRootMismatchDump {
-                tron_block_number,
-                txid: format!("0x{}", hex::encode(txid)),
-                tx_index,
-                tx_count: leaves.len(),
-                header_tx_trie_root: format!("0x{}", hex::encode(&header_tx_trie_root)),
-                computed_tx_trie_root: format!("0x{}", hex::encode(computed_root)),
-                computed_tx_trie_root_duplicate_last: format!(
-                    "0x{}",
-                    hex::encode(computed_root_dup_last)
-                ),
-                index_bits: index.to_string(),
-                proof: proof.iter().map(|h| format!("0x{}", hex::encode(h))).collect(),
-                encoded_tx: format!("0x{}", hex::encode(&encoded_tx)),
-                encoded_tx_len: encoded_tx.len(),
-                leaves: leaves.iter().map(|h| format!("0x{}", hex::encode(h))).collect(),
-                transactions: tx_dumps,
-                block_header_raw_data: header_raw_hex,
-                witness_signature: witness_sig_hex,
-            };
-
+        if details.computed_root.as_slice() != header_tx_trie_root.as_slice() {
             anyhow::bail!(
                 "computed txTrieRoot mismatch (encoding/proof algo bug)\n{}",
-                serde_json::to_string_pretty(&dump)
+                serde_json::to_string_pretty(&details.dump(header_raw, &tx_block.block_header))
                     .unwrap_or_else(|e| format!("{{\"error\":\"failed to serialize dump: {e}\"}}"))
             );
         }
@@ -183,11 +115,129 @@ impl TronTxProofBuilder {
 
         Ok(TronTxProofBundle {
             blocks,
-            encoded_tx,
-            proof,
-            index,
+            encoded_tx: details.encoded_tx,
+            proof: details.proof,
+            index: details.index_bits,
         })
     }
+}
+
+struct ProofDetails {
+    tron_block_number: u64,
+    txid: [u8; 32],
+    tx_index: usize,
+    tx_count: usize,
+    encoded_tx: Vec<u8>,
+    proof: Vec<FixedBytes<32>>,
+    index_bits: U256,
+    computed_root: FixedBytes<32>,
+    leaves: Vec<FixedBytes<32>>,
+    tx_dumps: Vec<TxTrieRootMismatchTxDump>,
+}
+
+impl ProofDetails {
+    fn dump(
+        &self,
+        header_raw: &crate::protocol::block_header::Raw,
+        header: &Option<BlockHeader>,
+    ) -> TxTrieRootMismatchDump {
+        let header_tx_trie_root = header_raw.tx_trie_root.clone();
+        let computed_root_dup_last = merkle_root_sha256_duplicate_last(&self.leaves);
+        let header_raw_hex = Some(format!(
+            "0x{}",
+            hex::encode(header_raw.encode_to_vec().as_slice())
+        ));
+        let witness_sig_hex = header
+            .as_ref()
+            .map(|h| format!("0x{}", hex::encode(h.witness_signature.as_slice())));
+
+        TxTrieRootMismatchDump {
+            tron_block_number: self.tron_block_number,
+            txid: format!("0x{}", hex::encode(self.txid)),
+            tx_index: self.tx_index,
+            tx_count: self.tx_count,
+            header_tx_trie_root: format!("0x{}", hex::encode(&header_tx_trie_root)),
+            computed_tx_trie_root: format!("0x{}", hex::encode(self.computed_root)),
+            computed_tx_trie_root_duplicate_last: format!(
+                "0x{}",
+                hex::encode(computed_root_dup_last)
+            ),
+            index_bits: self.index_bits.to_string(),
+            proof: self
+                .proof
+                .iter()
+                .map(|h| format!("0x{}", hex::encode(h)))
+                .collect(),
+            encoded_tx: format!("0x{}", hex::encode(&self.encoded_tx)),
+            encoded_tx_len: self.encoded_tx.len(),
+            leaves: self
+                .leaves
+                .iter()
+                .map(|h| format!("0x{}", hex::encode(h)))
+                .collect(),
+            transactions: self.tx_dumps.clone(),
+            block_header_raw_data: header_raw_hex,
+            witness_signature: witness_sig_hex,
+        }
+    }
+}
+
+fn compute_proof_from_block_ext(
+    b: &BlockExtention,
+    tron_block_number: u64,
+    txid: [u8; 32],
+) -> Result<ProofDetails> {
+    let mut leaves: Vec<FixedBytes<32>> = Vec::with_capacity(b.transactions.len());
+    let mut tx_dumps: Vec<TxTrieRootMismatchTxDump> = Vec::with_capacity(b.transactions.len());
+    let mut tx_index = None;
+    let mut encoded_tx = None;
+
+    for (idx, txe) in b.transactions.iter().enumerate() {
+        let tx = txe
+            .transaction
+            .as_ref()
+            .context("missing Transaction in TransactionExtention")?;
+        let enc = tx.encode_to_vec();
+        let leaf = sha256_bytes32(&enc);
+        leaves.push(leaf);
+
+        let txid_ext = format!("0x{}", hex::encode(txe.txid.as_slice()));
+        let txid_from_raw_data = tx.raw_data.as_ref().map(|raw| {
+            let raw_bytes = raw.encode_to_vec();
+            format!("0x{}", hex::encode(sha256_bytes32(&raw_bytes)))
+        });
+
+        tx_dumps.push(TxTrieRootMismatchTxDump {
+            index: idx,
+            txid_ext,
+            txid_from_raw_data,
+            encoded_tx: format!("0x{}", hex::encode(&enc)),
+            encoded_tx_len: enc.len(),
+            tx_leaf: format!("0x{}", hex::encode(leaf)),
+        });
+
+        if txe.txid.as_slice() == txid {
+            tx_index = Some(idx);
+            encoded_tx = Some(enc);
+        }
+    }
+
+    let tx_index = tx_index.context("tx not found in block tx list")?;
+    let encoded_tx = encoded_tx.context("missing encoded tx bytes after tx match")?;
+
+    let (proof, index_bits, computed_root) = merkle_proof_sha256(&leaves, tx_index)?;
+    Ok(ProofDetails {
+        tron_block_number,
+        txid,
+        tx_index,
+        tx_count: leaves.len(),
+        encoded_tx,
+        proof,
+        index_bits,
+        computed_root,
+        leaves,
+        tx_dumps,
+    })
 }
 
 async fn tron_head_block(grpc: &mut TronGrpc) -> Result<u64> {
@@ -655,7 +705,7 @@ mod tests {
             .expect("decode Transaction");
 
         let ret0 = tx.ret.first().cloned().unwrap_or_default();
-        let success = ret0.ret == 0 && ret0.contract_ret == 1;
+        let success = ret0.ret.unwrap_or(0) == 0 && ret0.contract_ret.unwrap_or(0) == 1;
         assert_eq!(success, tx0.success, "success mismatch");
 
         let raw = tx.raw_data.expect("fixture tx has raw_data");
@@ -944,5 +994,4 @@ mod tests {
             );
         }
     }
-
 }

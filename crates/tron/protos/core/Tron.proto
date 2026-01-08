@@ -409,9 +409,12 @@ message Transaction {
       INVALID_CODE = 15;
       // please fill in the order according to the serial number
     }
-    int64 fee = 1;
-    code ret = 2;
-    contractResult contractRet = 3;
+    // NOTE: We mark these as `optional` locally so Rust can preserve whether a default value
+    // was present on the wire (proto3 scalar presence is otherwise lost in `prost`), which is
+    // required to faithfully re-encode tx bytes for `txTrieRoot` verification.
+    optional int64 fee = 1;
+    optional code ret = 2;
+    optional contractResult contractRet = 3;
 
     string assetIssueID = 14;
     int64 withdraw_amount = 15;
