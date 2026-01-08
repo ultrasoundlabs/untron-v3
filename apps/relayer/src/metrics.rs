@@ -117,13 +117,15 @@ impl RelayerTelemetry {
     }
 
     pub fn job_ok(&self, name: &'static str, ms: u64) {
-        let attrs = [KeyValue::new("job", name)];
+        // Avoid "job" label name collisions with Prometheus' conventional "job" label.
+        let attrs = [KeyValue::new("job_name", name)];
         self.inner.jobs_total.add(1, &attrs);
         self.inner.job_ms.record(ms, &attrs);
     }
 
     pub fn job_err(&self, name: &'static str, ms: u64) {
-        let attrs = [KeyValue::new("job", name)];
+        // Avoid "job" label name collisions with Prometheus' conventional "job" label.
+        let attrs = [KeyValue::new("job_name", name)];
         self.inner.jobs_total.add(1, &attrs);
         self.inner.job_errors_total.add(1, &attrs);
         self.inner.job_ms.record(ms, &attrs);
