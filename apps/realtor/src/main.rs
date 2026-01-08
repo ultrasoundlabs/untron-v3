@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower_http::{
+    cors::{Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
@@ -88,6 +89,11 @@ async fn main() -> anyhow::Result<()> {
     let bind = state.cfg.api.bind;
 
     let request_id_header = HeaderName::from_static("x-request-id");
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .expose_headers([request_id_header.clone()]);
     let app = Router::new()
         .route("/realtor", get(api::get_realtor).post(api::post_realtor))
         .route(
@@ -135,7 +141,8 @@ async fn main() -> anyhow::Result<()> {
                 ),
         )
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
-        .layer(SetRequestIdLayer::new(request_id_header, MakeRequestUuid));
+        .layer(SetRequestIdLayer::new(request_id_header, MakeRequestUuid))
+        .layer(cors);
 
     let shutdown = CancellationToken::new();
     let listener = tokio::net::TcpListener::bind(bind).await?;
