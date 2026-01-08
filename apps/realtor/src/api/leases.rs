@@ -4,6 +4,11 @@ use super::{
 };
 use crate::AppState;
 use crate::util::{compute_create2_address, parse_bytes32};
+use alloy::eips::BlockId;
+use alloy::primitives::{Address, B256, keccak256};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
+use alloy::sol_types::SolCall;
 use axum::{
     Json,
     extract::{Path, State},
@@ -12,6 +17,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
 use tron::TronAddress;
+use untron_v3_bindings::untron_controller::UntronController;
 
 #[utoipa::path(
     get,
@@ -63,20 +69,73 @@ pub async fn get_lease(
             ApiError::Upstream("indexer lease_view missing receiver_salt".to_string())
         })?;
 
-        let derive_receiver_addresses = || -> Option<(String, String)> {
-            let cfg = state.cfg.receiver_address_derivation.as_ref()?;
+        async fn fetch_receiver_init_code_hash(
+            tron_rpc_url: &str,
+            controller: Address,
+        ) -> Result<B256, ApiError> {
+            let transport = BuiltInConnectionString::connect(tron_rpc_url)
+                .await
+                .map_err(|e| ApiError::Upstream(format!("connect tron rpc: {e}")))?;
+            let client = RpcClient::builder().transport(transport, false);
+            let provider: DynProvider =
+                DynProvider::new(ProviderBuilder::default().connect_client(client));
+
+            let contract = UntronController::new(controller, provider.clone());
+            let call = contract.receiverBytecode();
+
+            // Tron JSON-RPC accepts `data` but may reject `input` (and may even error if both are present).
+            // Alloy defaults to `input`, so normalize into `data`-only.
+            let request = call.clone().into_transaction_request().normalized_data();
+            let return_data = provider
+                .call(request)
+                .block(BlockId::latest())
+                .await
+                .map_err(|e| ApiError::Upstream(format!("eth_call(receiverBytecode): {e}")))?;
+
+            if return_data.is_empty() {
+                return Ok(B256::ZERO);
+            }
+            let decoded =
+                <UntronController::receiverBytecodeCall as SolCall>::abi_decode_returns(
+                    return_data.as_ref(),
+                )
+                .map_err(|e| {
+                    ApiError::Upstream(format!("decode receiverBytecode() return: {e}"))
+                })?;
+            if decoded.is_empty() {
+                return Ok(B256::ZERO);
+            }
+            Ok(keccak256(decoded))
+        }
+
+        async fn derive_receiver_addresses(
+            state: &AppState,
+            receiver_salt: &str,
+        ) -> Option<(String, String)> {
+            let tron_rpc_url = state.cfg.tron_rpc_url.as_deref()?;
             let controller = state.cfg.hub.controller_address?;
-            let salt = parse_bytes32(receiver_salt.as_str()).ok()?;
+            let salt = parse_bytes32(receiver_salt).ok()?;
+
+            let init_code_hash = state
+                .tron_receiver_init_code_hash
+                .get_or_try_init(|| fetch_receiver_init_code_hash(tron_rpc_url, controller))
+                .await
+                .ok()
+                .copied()?;
+            if init_code_hash == B256::ZERO {
+                return None;
+            }
+
             let receiver_evm = compute_create2_address(
-                cfg.controller_create2_prefix,
+                TronAddress::MAINNET_PREFIX,
                 controller,
                 salt,
-                cfg.receiver_init_code_hash,
+                init_code_hash,
             );
             let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
             let receiver_tron = TronAddress::from_evm(receiver_evm).to_string();
             Some((receiver_tron, receiver_evm_str))
-        };
+        }
 
         let (receiver_address_tron, receiver_address_evm) = match state
             .indexer
@@ -84,13 +143,13 @@ pub async fn get_lease(
             .await
         {
             Ok(Some((tron, evm))) => (Some(tron), Some(evm)),
-            Ok(None) => match derive_receiver_addresses() {
+            Ok(None) => match derive_receiver_addresses(&state, receiver_salt.as_str()).await {
                 Some((tron, evm)) => (Some(tron), Some(evm)),
                 None => (None, None),
             },
             Err(e) => {
                 tracing::warn!(receiver_salt = %receiver_salt, err = %e, "indexer receiver_usdt_balances lookup failed");
-                match derive_receiver_addresses() {
+                match derive_receiver_addresses(&state, receiver_salt.as_str()).await {
                     Some((tron, evm)) => (Some(tron), Some(evm)),
                     None => (None, None),
                 }

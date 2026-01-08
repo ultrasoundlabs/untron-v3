@@ -46,6 +46,7 @@ pub fn i64_to_u32(v: i64, label: &'static str) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tron::TronAddress;
 
     #[test]
     fn parse_hex_bytes_accepts_0x_and_trims() {
@@ -58,5 +59,41 @@ mod tests {
         let s = format!("0x{}", "11".repeat(32));
         let b = parse_bytes32(&s).unwrap();
         assert_eq!(b.as_slice(), vec![0x11u8; 32]);
+    }
+
+    #[test]
+    fn golden_receiver_address_derivation_matches_real_deployment() {
+        // Real deployment values provided by ops:
+        // - controller: TMEAY3VxSFKM8zXXK3bCmb63qouXL5kBwB (Tron base58check; 0x41 prefix)
+        // - receiverBytecode(): EIP-1167 creation bytecode (no constructor args)
+        // - salt: bytes32(0)
+        // - expected receiver: TC7thkTeffAXkSTCjkkMd2AA7iQpMhDP4b
+        let controller_tron = "TMEAY3VxSFKM8zXXK3bCmb63qouXL5kBwB";
+        let receiver_bytecode_hex = "0x3d602d80600a3d3981f3363d3d373d3d3d363d73499bb5731bb6c92ecd7574e85f29d7c7d96e88955af43d82803e903d91602b57fd5bf3";
+        let salt_hex = "0x0000000000000000000000000000000000000000000000000000000000000000";
+        let expected_receiver_tron = "TC7thkTeffAXkSTCjkkMd2AA7iQpMhDP4b";
+
+        let controller_evm = TronAddress::from_base58check(controller_tron)
+            .unwrap()
+            .evm();
+        let salt = parse_bytes32(salt_hex).unwrap();
+        let receiver_bytecode = parse_hex_bytes(receiver_bytecode_hex).unwrap();
+        let init_code_hash = keccak256(receiver_bytecode);
+
+        let derived_receiver_evm = compute_create2_address(
+            TronAddress::MAINNET_PREFIX,
+            controller_evm,
+            salt,
+            init_code_hash,
+        );
+        let derived_receiver_tron = TronAddress::from_evm(derived_receiver_evm).to_string();
+
+        assert_eq!(derived_receiver_tron, expected_receiver_tron);
+
+        // Equivalent EVM-form address should match parsing the Tron base58check string.
+        let expected_receiver_evm = TronAddress::from_base58check(expected_receiver_tron)
+            .unwrap()
+            .evm();
+        assert_eq!(derived_receiver_evm, expected_receiver_evm);
     }
 }

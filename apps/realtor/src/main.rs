@@ -13,7 +13,7 @@ use aa::{
     PaymasterFinalizationMode, Safe4337UserOpSender, Safe4337UserOpSenderConfig,
     Safe4337UserOpSenderOptions,
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
 use alloy::sol_types::SolCall;
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(safe = %sender.safe_address(), "hub safe ready");
     let mut cfg = cfg;
     cfg.hub.safe = Some(sender.safe_address());
-    if cfg.receiver_address_derivation.is_some() {
+    if cfg.tron_rpc_url.is_some() && cfg.hub.controller_address.is_none() {
         match resolve_controller_address(&cfg.hub.rpc_url, cfg.hub.untron_v3).await {
             Ok(addr) => {
                 tracing::info!(controller_address = %addr, "resolved controller address");
@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         indexer,
         sender: Mutex::new(sender),
         telemetry,
+        tron_receiver_init_code_hash: tokio::sync::OnceCell::new(),
     };
     let bind = state.cfg.api.bind;
 
@@ -239,4 +240,5 @@ struct AppState {
     indexer: IndexerApi,
     sender: Mutex<Safe4337UserOpSender>,
     telemetry: RealtorTelemetry,
+    tron_receiver_init_code_hash: tokio::sync::OnceCell<B256>,
 }
