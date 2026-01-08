@@ -19,6 +19,14 @@ receivers:
             - targets: ["postgrest:3001"]
 
 processors:
+  resourcedetection:
+    detectors: [system]
+    override: false
+  resource/untron_instance:
+    attributes:
+      - key: untron.instance
+        action: upsert
+        value: ${env:UNTRON_INSTANCE}
   batch:
 
 exporters:
@@ -44,9 +52,9 @@ service:
   pipelines:
     metrics:
       receivers: [otlp, prometheus]
-      processors: [batch]
+      processors: [resourcedetection, resource/untron_instance, batch]
       exporters: [prometheus]
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, resource/untron_instance, batch]
       exporters: [debug, otlp/tempo]

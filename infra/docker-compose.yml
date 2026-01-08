@@ -49,6 +49,7 @@ services:
     environment:
       # Default is the local Tempo container when --profile observability is enabled.
       TEMPO_OTLP_ENDPOINT: ${TEMPO_OTLP_ENDPOINT:-tempo:4317}
+      UNTRON_INSTANCE: ${UNTRON_INSTANCE:-untron-v3}
     volumes:
       - ./otelcol/config.yaml:/etc/otelcol/config.yaml:ro
     ports:
