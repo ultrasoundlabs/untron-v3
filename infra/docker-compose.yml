@@ -46,6 +46,9 @@ services:
     image: otel/opentelemetry-collector-contrib:0.142.0
     restart: unless-stopped
     command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      # Default is the local Tempo container when --profile observability is enabled.
+      TEMPO_OTLP_ENDPOINT: ${TEMPO_OTLP_ENDPOINT:-tempo:4317}
     volumes:
       - ./otelcol/config.yaml:/etc/otelcol/config.yaml:ro
     ports:
