@@ -21,7 +21,7 @@ const PAYMASTER_POST_OP_GAS_BUFFER_PCT: u64 = 10;
 // ERC-4337 bundler sanity checks expect paymasterVerificationGasLimit < MAX_VERIFICATION_GAS (500_000).
 const MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE: u64 = 500_000;
 const DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT: u64 = 450_000;
-const MIN_PRIORITY_FEE_WEI: u128 = 100_000;
+const MIN_PRIORITY_FEE_WEI: u128 = 200_000;
 
 fn cap_paymaster_verification_gas_limit(v: U256) -> (U256, bool) {
     let max = U256::from(MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE - 1);
