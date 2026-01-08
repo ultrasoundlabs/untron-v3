@@ -2,6 +2,10 @@
 
 FROM rust:1.92-bookworm AS builder
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /repo
 
 # Copy only what this crate needs (keeps build context small with a good .dockerignore).
