@@ -1,4 +1,4 @@
-use alloy::primitives::FixedBytes;
+use alloy::primitives::{Address, B256, FixedBytes, keccak256};
 use anyhow::{Context, Result};
 
 pub fn parse_hex_bytes(hex_bytes: &str) -> Result<Vec<u8>> {
@@ -13,6 +13,21 @@ pub fn parse_bytes32(hex32: &str) -> Result<FixedBytes<32>> {
         anyhow::bail!("expected 32-byte hex, got {}", b.len());
     }
     Ok(FixedBytes::from_slice(&b))
+}
+
+pub fn compute_create2_address(
+    create2_prefix: u8,
+    deployer: Address,
+    salt: FixedBytes<32>,
+    init_code_hash: B256,
+) -> Address {
+    let mut data = [0u8; 1 + 20 + 32 + 32];
+    data[0] = create2_prefix;
+    data[1..21].copy_from_slice(deployer.as_slice());
+    data[21..53].copy_from_slice(salt.as_slice());
+    data[53..85].copy_from_slice(init_code_hash.as_slice());
+    let hash = keccak256(data);
+    Address::from_slice(&hash.as_slice()[12..])
 }
 
 pub fn number_to_u64(n: &serde_json::Number, label: &'static str) -> Result<u64> {

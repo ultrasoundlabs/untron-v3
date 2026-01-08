@@ -3,6 +3,7 @@ use super::{
     LeaseViewResponse,
 };
 use crate::AppState;
+use crate::util::{compute_create2_address, parse_bytes32};
 use axum::{
     Json,
     extract::{Path, State},
@@ -10,6 +11,7 @@ use axum::{
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
+use tron::TronAddress;
 
 #[utoipa::path(
     get,
@@ -61,16 +63,37 @@ pub async fn get_lease(
             ApiError::Upstream("indexer lease_view missing receiver_salt".to_string())
         })?;
 
+        let derive_receiver_addresses = || -> Option<(String, String)> {
+            let cfg = state.cfg.receiver_address_derivation.as_ref()?;
+            let controller = state.cfg.hub.controller_address?;
+            let salt = parse_bytes32(receiver_salt.as_str()).ok()?;
+            let receiver_evm = compute_create2_address(
+                cfg.controller_create2_prefix,
+                controller,
+                salt,
+                cfg.receiver_init_code_hash,
+            );
+            let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
+            let receiver_tron = TronAddress::from_evm(receiver_evm).to_string();
+            Some((receiver_tron, receiver_evm_str))
+        };
+
         let (receiver_address_tron, receiver_address_evm) = match state
             .indexer
             .receiver_addresses_by_salt(receiver_salt.as_str())
             .await
         {
             Ok(Some((tron, evm))) => (Some(tron), Some(evm)),
-            Ok(None) => (None, None),
+            Ok(None) => match derive_receiver_addresses() {
+                Some((tron, evm)) => (Some(tron), Some(evm)),
+                None => (None, None),
+            },
             Err(e) => {
                 tracing::warn!(receiver_salt = %receiver_salt, err = %e, "indexer receiver_usdt_balances lookup failed");
-                (None, None)
+                match derive_receiver_addresses() {
+                    Some((tron, evm)) => (Some(tron), Some(evm)),
+                    None => (None, None),
+                }
             }
         };
 

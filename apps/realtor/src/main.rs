@@ -14,6 +14,9 @@ use aa::{
     Safe4337UserOpSenderOptions,
 };
 use alloy::primitives::Address;
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
+use alloy::sol_types::SolCall;
 use axum::Json;
 use axum::extract::MatchedPath;
 use axum::http::{Request, Response, header::HeaderName};
@@ -26,6 +29,7 @@ use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
+use untron_v3_bindings::untron_v3::UntronV3;
 use utoipa::OpenApi;
 
 #[tokio::main]
@@ -80,6 +84,18 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(safe = %sender.safe_address(), "hub safe ready");
     let mut cfg = cfg;
     cfg.hub.safe = Some(sender.safe_address());
+    if cfg.receiver_address_derivation.is_some() {
+        match resolve_controller_address(&cfg.hub.rpc_url, cfg.hub.untron_v3).await {
+            Ok(addr) => {
+                tracing::info!(controller_address = %addr, "resolved controller address");
+                cfg.hub.controller_address = Some(addr);
+            }
+            Err(e) => {
+                tracing::warn!(err = %e, "failed to resolve controller address; receiver address fallback will be disabled");
+                cfg.hub.controller_address = None;
+            }
+        }
+    }
     let state = AppState {
         cfg,
         indexer,
@@ -159,6 +175,34 @@ async fn main() -> anyhow::Result<()> {
 
 async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
     Json(openapi::RealtorApiDoc::openapi())
+}
+
+async fn resolve_controller_address(
+    hub_rpc_url: &str,
+    untron_v3: Address,
+) -> anyhow::Result<Address> {
+    let transport = BuiltInConnectionString::connect(hub_rpc_url)
+        .await
+        .map_err(|e| anyhow::anyhow!("connect hub rpc: {e}"))?;
+    let client = RpcClient::builder().transport(transport, false);
+    let provider: DynProvider = DynProvider::new(ProviderBuilder::default().connect_client(client));
+
+    let call = UntronV3::CONTROLLER_ADDRESSCall {};
+    let data = call.abi_encode();
+    let tx: alloy::rpc::types::eth::transaction::TransactionRequest =
+        alloy::rpc::types::eth::transaction::TransactionRequest {
+            to: Some(untron_v3.into()),
+            input: alloy::rpc::types::eth::transaction::TransactionInput::new(data.into()),
+            ..Default::default()
+        };
+    let out = provider
+        .call(tx)
+        .await
+        .map_err(|e| anyhow::anyhow!("eth_call CONTROLLER_ADDRESS: {e}"))?;
+    let decoded: Address =
+        <UntronV3::CONTROLLER_ADDRESSCall as SolCall>::abi_decode_returns(out.as_ref())
+            .map_err(|e| anyhow::anyhow!("decode CONTROLLER_ADDRESS return: {e}"))?;
+    Ok(decoded)
 }
 
 pub fn now_unix_seconds() -> Result<u64, String> {

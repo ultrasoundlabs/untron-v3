@@ -1,5 +1,5 @@
 use aa::SafeDeterministicDeploymentConfig;
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub indexer: IndexerConfig,
     pub hub: HubConfig,
     pub leasing: LeasingDefaults,
+    pub receiver_address_derivation: Option<ReceiverAddressDerivationConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,16 @@ pub struct HubConfig {
     pub owner_private_key: [u8; 32],
 
     pub paymasters: Vec<PaymasterServiceConfig>,
+
+    /// Controller contract address (EVM-form) resolved at startup from the hub's
+    /// `UntronV3.CONTROLLER_ADDRESS()` constant.
+    pub controller_address: Option<Address>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReceiverAddressDerivationConfig {
+    pub controller_create2_prefix: u8,
+    pub receiver_init_code_hash: B256,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +130,16 @@ struct Env {
     /// Optional list of preknown receiver salts (CSV of bytes32 hex strings).
     #[serde(default)]
     lease_preknown_receiver_salts: String,
+
+    /// Optional CREATE2 prefix used for deterministic receiver addresses.
+    /// Defaults to empty (disabled).
+    #[serde(default)]
+    untron_controller_create2_prefix: String,
+
+    /// Optional keccak256 hash of the receiver init code used by the controller.
+    /// Defaults to empty (disabled).
+    #[serde(default)]
+    untron_receiver_init_code_hash: String,
 }
 
 impl Default for Env {
@@ -145,6 +166,8 @@ impl Default for Env {
             lease_pair_additional_flat_fees_json: String::new(),
             lease_arbitrary_lessee_flat_fee: 0,
             lease_preknown_receiver_salts: String::new(),
+            untron_controller_create2_prefix: String::new(),
+            untron_receiver_init_code_hash: String::new(),
         }
     }
 }
@@ -183,6 +206,17 @@ fn parse_hex_32(label: &str, s: &str) -> Result<[u8; 32]> {
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes);
     Ok(out)
+}
+
+fn parse_bytes1(label: &str, value: &str) -> Result<u8> {
+    let trimmed = value.trim();
+    let normalized = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if normalized.is_empty() || normalized.len() > 2 {
+        anyhow::bail!("invalid {label} value \"{value}\" (expected 0xNN)");
+    }
+    let byte = u8::from_str_radix(normalized, 16)
+        .with_context(|| format!("invalid {label} value \"{value}\" (expected 0x00..0xff)"))?;
+    Ok(byte)
 }
 
 fn parse_csv(label: &str, s: &str) -> Result<Vec<String>> {
@@ -315,6 +349,33 @@ pub fn load_config() -> Result<AppConfig> {
     let preknown_receiver_salts =
         parse_preknown_receiver_salts_csv(&env.lease_preknown_receiver_salts)?;
 
+    let receiver_address_derivation = {
+        let prefix_raw = env.untron_controller_create2_prefix.trim();
+        let init_code_hash_raw = env.untron_receiver_init_code_hash.trim();
+        if prefix_raw.is_empty() && init_code_hash_raw.is_empty() {
+            None
+        } else {
+            if prefix_raw.is_empty() {
+                anyhow::bail!(
+                    "UNTRON_CONTROLLER_CREATE2_PREFIX must be set when UNTRON_RECEIVER_INIT_CODE_HASH is set"
+                );
+            }
+            if init_code_hash_raw.is_empty() {
+                anyhow::bail!(
+                    "UNTRON_RECEIVER_INIT_CODE_HASH must be set when UNTRON_CONTROLLER_CREATE2_PREFIX is set"
+                );
+            }
+            let controller_create2_prefix =
+                parse_bytes1("UNTRON_CONTROLLER_CREATE2_PREFIX", prefix_raw)?;
+            let receiver_init_code_hash_bytes =
+                parse_hex_32("UNTRON_RECEIVER_INIT_CODE_HASH", init_code_hash_raw)?;
+            Some(ReceiverAddressDerivationConfig {
+                controller_create2_prefix,
+                receiver_init_code_hash: B256::from(receiver_init_code_hash_bytes),
+            })
+        }
+    };
+
     Ok(AppConfig {
         api: ApiConfig { bind },
         indexer: IndexerConfig {
@@ -332,6 +393,7 @@ pub fn load_config() -> Result<AppConfig> {
             bundler_urls: bundlers,
             owner_private_key: hub_owner_private_key,
             paymasters,
+            controller_address: None,
         },
         leasing: LeasingDefaults {
             lease_fee_ppm: env.lease_default_fee_ppm,
@@ -341,6 +403,7 @@ pub fn load_config() -> Result<AppConfig> {
             arbitrary_lessee_flat_fee: env.lease_arbitrary_lessee_flat_fee,
             preknown_receiver_salts,
         },
+        receiver_address_derivation,
     })
 }
 
