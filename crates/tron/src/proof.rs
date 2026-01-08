@@ -77,11 +77,11 @@ impl TronTxProofBuilder {
             );
         }
 
-        // Fetch the tx block (with tx list) first.
-        let tx_block = grpc
-            .get_block_by_num2(i64::try_from(tron_block_number)?)
+        // Fetch the tx block (with tx list) first, preserving canonical tx bytes for txTrieRoot.
+        let (tx_block, tx_bytes) = grpc
+            .get_block_by_num2_raw_txs(i64::try_from(tron_block_number)?)
             .await
-            .context("get tx block")?;
+            .context("get tx block (raw tx bytes)")?;
 
         let header_raw = tx_block
             .block_header
@@ -90,12 +90,12 @@ impl TronTxProofBuilder {
             .context("missing block_header.raw_data")?;
         let header_tx_trie_root = header_raw.tx_trie_root.clone();
 
-        let details =
-            compute_proof_from_block_ext(&tx_block, tron_block_number, txid).context("tx proof")?;
+        let details = compute_proof_from_block_ext(&tx_block, &tx_bytes, tron_block_number, txid)
+            .context("tx proof")?;
 
         if details.computed_root.as_slice() != header_tx_trie_root.as_slice() {
             anyhow::bail!(
-                "computed txTrieRoot mismatch (encoding/proof algo bug)\n{}",
+                "computed txTrieRoot mismatch\n{}",
                 serde_json::to_string_pretty(&details.dump(header_raw, &tx_block.block_header))
                     .unwrap_or_else(|e| format!("{{\"error\":\"failed to serialize dump: {e}\"}}"))
             );
@@ -184,25 +184,30 @@ impl ProofDetails {
 
 fn compute_proof_from_block_ext(
     b: &BlockExtention,
+    tx_bytes: &[Vec<u8>],
     tron_block_number: u64,
     txid: [u8; 32],
 ) -> Result<ProofDetails> {
+    if tx_bytes.len() != b.transactions.len() {
+        anyhow::bail!(
+            "tx_bytes length mismatch: tx_bytes={} b.transactions={}",
+            tx_bytes.len(),
+            b.transactions.len()
+        );
+    }
     let mut leaves: Vec<FixedBytes<32>> = Vec::with_capacity(b.transactions.len());
     let mut tx_dumps: Vec<TxTrieRootMismatchTxDump> = Vec::with_capacity(b.transactions.len());
     let mut tx_index = None;
     let mut encoded_tx = None;
 
     for (idx, txe) in b.transactions.iter().enumerate() {
-        let tx = txe
-            .transaction
-            .as_ref()
-            .context("missing Transaction in TransactionExtention")?;
-        let enc = tx.encode_to_vec();
+        let enc = tx_bytes[idx].clone();
+        let tx = crate::protocol::Transaction::decode(enc.as_slice()).ok();
         let leaf = sha256_bytes32(&enc);
         leaves.push(leaf);
 
         let txid_ext = format!("0x{}", hex::encode(txe.txid.as_slice()));
-        let txid_from_raw_data = tx.raw_data.as_ref().map(|raw| {
+        let txid_from_raw_data = tx.as_ref().and_then(|tx| tx.raw_data.as_ref()).map(|raw| {
             let raw_bytes = raw.encode_to_vec();
             format!("0x{}", hex::encode(sha256_bytes32(&raw_bytes)))
         });
@@ -446,6 +451,7 @@ fn merkle_root_sha256_duplicate_last(leaves: &[FixedBytes<32>]) -> FixedBytes<32
 mod tests {
     use super::*;
     use crate::address::TronAddress;
+    use crate::grpc::extract_block_extention_transaction_bytes;
     use crate::protocol::BlockHeader;
     use k256::ecdsa::signature::DigestVerifier;
     use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
@@ -705,7 +711,7 @@ mod tests {
             .expect("decode Transaction");
 
         let ret0 = tx.ret.first().cloned().unwrap_or_default();
-        let success = ret0.ret.unwrap_or(0) == 0 && ret0.contract_ret.unwrap_or(0) == 1;
+        let success = ret0.ret == 0 && ret0.contract_ret == 1;
         assert_eq!(success, tx0.success, "success mismatch");
 
         let raw = tx.raw_data.expect("fixture tx has raw_data");
@@ -857,6 +863,123 @@ mod tests {
         cost: Option<TronTxProofCostFixture>,
     }
 
+    #[derive(Deserialize)]
+    struct TronBlockExtentionRawFixture {
+        #[serde(rename = "blockNumber")]
+        block_number: String,
+        #[serde(rename = "txId")]
+        tx_id: String,
+        #[serde(rename = "blockExtention")]
+        block_extention: String,
+        #[serde(rename = "expectedTxIndex")]
+        expected_tx_index: Option<usize>,
+    }
+
+    #[test]
+    fn tron_blockext_raw_fixture_tx_trie_root_matches_header_if_present() {
+        let default_path = workspace_path(
+            "testdata/fixtures/tron_blockext_raw_79072107_860981c986ef3c0313916283483e6e0f8614686b2c011c31d68d42e8efff6601.json",
+        );
+        let path = std::env::var("TRON_BLOCKEXT_RAW_FIXTURE")
+            .ok()
+            .map(PathBuf::from)
+            .unwrap_or(default_path);
+
+        if !path.exists() {
+            eprintln!(
+                "skipping: set TRON_BLOCKEXT_RAW_FIXTURE to a generated fixture path (missing {})",
+                path.display()
+            );
+            return;
+        }
+
+        let json = std::fs::read_to_string(&path).expect("read blockext raw fixture json");
+        let fixture: TronBlockExtentionRawFixture =
+            serde_json::from_str(&json).expect("parse blockext raw fixture json");
+
+        let block_number: u64 = fixture.block_number.parse().expect("blockNumber decimal");
+        assert_eq!(block_number, 79072107, "unexpected fixture blockNumber");
+
+        let block_bytes = decode_hex0x(&fixture.block_extention);
+        let block = crate::protocol::BlockExtention::decode(block_bytes.as_slice())
+            .expect("decode BlockExtention");
+
+        let header_raw = block
+            .block_header
+            .as_ref()
+            .and_then(|h| h.raw_data.as_ref())
+            .expect("missing block_header.raw_data");
+        let header_root = FixedBytes::<32>::from_slice(header_raw.tx_trie_root.as_slice());
+
+        let tx_bytes =
+            extract_block_extention_transaction_bytes(&block_bytes).expect("extract tx bytes");
+        assert_eq!(
+            tx_bytes.len(),
+            block.transactions.len(),
+            "tx byte count mismatch"
+        );
+
+        let txid = FixedBytes::<32>::from_slice(&decode_hex0x(&fixture.tx_id));
+        let mut tx_index = None;
+        for (i, txe) in block.transactions.iter().enumerate() {
+            if txe.txid.as_slice() == txid.as_slice() {
+                tx_index = Some(i);
+                break;
+            }
+        }
+        let tx_index = tx_index.expect("fixture txId not found in block.transactions");
+        if let Some(expected) = fixture.expected_tx_index {
+            assert_eq!(tx_index, expected, "unexpected tx index");
+        }
+
+        let leaves = tx_bytes
+            .iter()
+            .map(|b| sha256_bytes32(b))
+            .collect::<Vec<_>>();
+        let (_, _, root) = merkle_proof_sha256(&leaves, tx_index).expect("compute root");
+        assert_eq!(
+            root, header_root,
+            "computed root != header txTrieRoot for fixture"
+        );
+
+        // Regression: the original incident was caused by a *different* tx within the same block
+        // containing a high-tag unknown field inside Transaction.Result (e.g. 1002). If we were
+        // to decode+re-encode that tx with `prost`, its bytes would change and the block root
+        // would no longer match the header.
+        //
+        // From incident logs: tx index 187 carried the extra field and txCount was 619.
+        assert_eq!(tx_bytes.len(), 619, "unexpected txCount for fixture block");
+        let problematic_idx = 187usize;
+        assert!(
+            tx_bytes[problematic_idx]
+                .windows(2)
+                .any(|w| w == [0xd2, 0x3e]),
+            "expected tx[187] bytes to contain field 1002 tag (0xd2 0x3e)"
+        );
+
+        let decoded_problem =
+            crate::protocol::Transaction::decode(tx_bytes[problematic_idx].as_slice())
+                .expect("decode problematic Transaction");
+        let reencoded_problem = decoded_problem.encode_to_vec();
+        assert_ne!(
+            reencoded_problem, tx_bytes[problematic_idx],
+            "expected problematic tx to change on decode->encode (unknown field drop)"
+        );
+
+        let mut reencoded_txs = tx_bytes.clone();
+        reencoded_txs[problematic_idx] = reencoded_problem;
+        let reencoded_leaves = reencoded_txs
+            .iter()
+            .map(|b| sha256_bytes32(b))
+            .collect::<Vec<_>>();
+        let (_, _, reencoded_root) =
+            merkle_proof_sha256(&reencoded_leaves, tx_index).expect("compute root (re-encoded)");
+        assert_ne!(
+            reencoded_root, header_root,
+            "expected txTrieRoot mismatch if a tx is decode->encoded with prost"
+        );
+    }
+
     #[test]
     fn tron_tx_proof_fixture_end_to_end_if_present() {
         let default_path = workspace_path(
@@ -993,5 +1116,61 @@ mod tests {
                 "block header encoding mismatch at {i}"
             );
         }
+    }
+
+    #[test]
+    fn transaction_decode_encode_drops_unknown_fields() {
+        // Regression: some nodes include high-tag fields (e.g. 1002) inside `Transaction.Result`.
+        // `prost` drops unknown fields on decode, so decode->encode changes bytes.
+        //
+        // Our txTrieRoot code must therefore hash the *canonical tx bytes* extracted from the
+        // outer response, not `tx.encode_to_vec()`.
+        let tx_bytes = decode_hex0x(
+            "0a93010a028b58220806e328e403f663c74098dfcfeeb9335a750839126f0a35747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e44656c65676174655265736f75726365436f6e747261637412360a15416651c0e2ff4bb6306dedee3432178bc3440f6dd7100118c0ccf3c7332215414656aefbd8de0f2b0fa3fb7a4724079add283ce42803708790cceeb9331241f04bc4c12a3323d37ad1a57ab6eab4e0e258dbf34733d73ea7fec3d1a49e98f632d848c19fa36b4b0cf2de320f6f5adcd90696fb747c47b0a8d23363b6f6de50012a021801d23e0cc83e81f6a50cd03ed4b6a20f",
+        );
+        assert!(
+            tx_bytes.windows(2).any(|w| w == [0xd2, 0x3e]),
+            "expected tx bytes to contain field 1002 tag (0xd2 0x3e)"
+        );
+
+        let decoded =
+            crate::protocol::Transaction::decode(tx_bytes.as_slice()).expect("decode Transaction");
+        let reencoded = decoded.encode_to_vec();
+        assert_ne!(
+            reencoded, tx_bytes,
+            "prost unexpectedly preserved unknown fields during Transaction decode->encode"
+        );
+        assert!(
+            !reencoded.windows(2).any(|w| w == [0xd2, 0x3e]),
+            "re-encoded tx unexpectedly still contains field 1002 tag"
+        );
+    }
+
+    #[test]
+    fn compute_proof_uses_canonical_tx_bytes_without_reencoding() {
+        let tx_bytes = decode_hex0x(
+            "0a93010a028b58220806e328e403f663c74098dfcfeeb9335a750839126f0a35747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e44656c65676174655265736f75726365436f6e747261637412360a15416651c0e2ff4bb6306dedee3432178bc3440f6dd7100118c0ccf3c7332215414656aefbd8de0f2b0fa3fb7a4724079add283ce42803708790cceeb9331241f04bc4c12a3323d37ad1a57ab6eab4e0e258dbf34733d73ea7fec3d1a49e98f632d848c19fa36b4b0cf2de320f6f5adcd90696fb747c47b0a8d23363b6f6de50012a021801d23e0cc83e81f6a50cd03ed4b6a20f",
+        );
+        let txid = [0u8; 32];
+
+        let block = crate::protocol::BlockExtention {
+            transactions: vec![crate::protocol::TransactionExtention {
+                transaction: None,
+                txid: txid.to_vec(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let details =
+            super::compute_proof_from_block_ext(&block, &[tx_bytes.clone()], 1, txid).unwrap();
+
+        assert_eq!(details.tx_index, 0);
+        assert_eq!(details.tx_count, 1);
+        assert_eq!(details.encoded_tx, tx_bytes);
+        assert!(
+            details.encoded_tx.windows(2).any(|w| w == [0xd2, 0x3e]),
+            "expected proof encoded_tx to contain field 1002 tag"
+        );
     }
 }

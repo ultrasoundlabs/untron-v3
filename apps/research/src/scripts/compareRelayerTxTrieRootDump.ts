@@ -276,6 +276,8 @@ async function main() {
       details: {
         index: i,
         txid: dumpTx.txid_ext,
+        dumpRetHex: toHex0x(Buffer.from(dumpFields.get(5)?.[0] ?? new Uint8Array())),
+        liveRetHex: toHex0x(Buffer.from(liveFields.get(5)?.[0] ?? new Uint8Array())),
         dump: {
           encodedTxLen: dumpEnc.length,
           sigCount: (dumpFields.get(2) ?? []).length,

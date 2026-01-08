@@ -1,5 +1,22 @@
+fn rerun_if_proto_changed(dir: &std::path::Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            rerun_if_proto_changed(&path)?;
+            continue;
+        }
+
+        if path.extension().and_then(|s| s.to_str()) == Some("proto") {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-changed=protos");
+    rerun_if_proto_changed(std::path::Path::new("protos"))?;
     println!("cargo:rerun-if-env-changed=PROTOC_INCLUDE");
 
     let mut includes: Vec<String> = vec!["protos".to_string()];
