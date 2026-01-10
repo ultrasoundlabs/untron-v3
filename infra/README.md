@@ -1,6 +1,7 @@
 ## Local V3 Stack (Docker)
 
 ```bash
+cp infra/.env.example infra/.env
 cp infra/indexer.env.example infra/indexer.env
 cp infra/realtor.env.example infra/realtor.env
 cp infra/relayer.env.example infra/relayer.env

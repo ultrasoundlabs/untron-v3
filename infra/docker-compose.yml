@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: untron
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD:?set POSTGRES_EXPORTER_PASSWORD}
       UI_READONLY_PASSWORD: ${UI_READONLY_PASSWORD:?set UI_READONLY_PASSWORD}
       PGRST_AUTH_PASSWORD: ${PGRST_AUTH_PASSWORD:?set PGRST_AUTH_PASSWORD}
@@ -24,7 +24,7 @@ services:
       context: ..
       dockerfile: apps/indexer/Dockerfile
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/untron
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/untron
     entrypoint: ["/usr/local/bin/migrate"]
     command: ["--no-notify-pgrst"]
     depends_on:
@@ -187,6 +187,8 @@ services:
       context: ..
       dockerfile: apps/indexer/Dockerfile
     restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/untron
     env_file:
       - ./indexer.env
     depends_on:
