@@ -199,7 +199,7 @@ pub async fn ensure_safe_deployed(
     .abi_encode();
 
     let tx = TransactionRequest {
-        from: Some(owner.into()),
+        from: Some(owner),
         chain_id: Some(chain_id),
         to: Some(deploy.proxy_factory.into()),
         input: TransactionInput::new(calldata.into()),
@@ -221,9 +221,7 @@ pub async fn ensure_safe_deployed(
     let gas_limit: u64 = read
         .estimate_gas(tx.clone())
         .await
-        .context("eth_estimateGas createProxyWithNonce")?
-        .try_into()
-        .context("gas estimate overflows u64")?;
+        .context("eth_estimateGas createProxyWithNonce")?;
     let gas_limit = gas_limit.saturating_mul(12).saturating_div(10).max(50_000);
 
     let tx = TransactionRequest {
