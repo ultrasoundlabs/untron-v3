@@ -44,6 +44,12 @@ pub async fn get_realtor(
 
     let result: Result<_, ApiError> = async {
         let now = now_unix_seconds().map_err(ApiError::Internal)?;
+        let user = headers
+            .get("x-untron-principal-id")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string);
         let terms = resolve_lease_terms(&state, &headers)?;
         let offer = compute_offer(&state, terms.defaults, now).await?;
         let mut pairs = state
@@ -80,6 +86,7 @@ pub async fn get_realtor(
             });
         }
         Ok(Json(RealtorInfoResponse {
+            user,
             realtor_address: format!(
                 "{}",
                 state

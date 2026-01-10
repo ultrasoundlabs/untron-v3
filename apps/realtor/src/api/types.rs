@@ -137,6 +137,11 @@ pub struct RealtorTargetPairResponse {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RealtorInfoResponse {
+    /// Optional upstream principal/user identifier echoed from `x-untron-principal-id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = true, example = "acct_123")]
+    pub user: Option<String>,
+
     /// Address that identifies this realtor (the configured hub Safe).
     #[schema(
         example = "0x0000000000000000000000000000000000000004",
