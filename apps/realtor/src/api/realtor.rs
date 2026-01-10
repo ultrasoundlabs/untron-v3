@@ -1,3 +1,4 @@
+use super::lease_terms::resolve_lease_terms;
 use super::offer::compute_offer;
 use super::receiver_salt::{
     ensure_receiver_is_free, normalize_receiver_salt_hex, pick_receiver_salt_for_beneficiary,
@@ -13,6 +14,7 @@ use crate::{AppState, now_unix_seconds};
 use alloy::primitives::Address;
 use alloy::primitives::U256;
 use alloy::sol_types::SolCall;
+use axum::http::HeaderMap;
 use axum::{Json, extract::State};
 use std::sync::Arc;
 use std::time::Instant;
@@ -35,13 +37,15 @@ use untron_v3_bindings::untron_v3::UntronV3;
     )
 )]
 pub async fn get_realtor(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<RealtorInfoResponse>, ApiError> {
     let start = Instant::now();
 
     let result: Result<_, ApiError> = async {
         let now = now_unix_seconds().map_err(ApiError::Internal)?;
-        let offer = compute_offer(&state, now).await?;
+        let terms = resolve_lease_terms(&state, &headers)?;
+        let offer = compute_offer(&state, terms.defaults, now).await?;
         let mut pairs = state
             .indexer
             .bridger_pairs_current()
@@ -61,9 +65,7 @@ pub async fn get_realtor(
                     p.target_token
                 ))
             })?;
-            let pair_additional_flat_fee = state
-                .cfg
-                .leasing
+            let pair_additional_flat_fee = terms
                 .pair_additional_flat_fees
                 .get(&(p.target_chain_id, target_token_addr))
                 .copied()
@@ -100,7 +102,7 @@ pub async fn get_realtor(
             default_duration_seconds: offer.default_duration_seconds,
             effective_duration_seconds: offer.effective_duration_seconds,
             supported_pairs,
-            arbitrary_lessee_flat_fee: state.cfg.leasing.arbitrary_lessee_flat_fee,
+            arbitrary_lessee_flat_fee: terms.arbitrary_lessee_flat_fee,
         }))
     }
     .await;
@@ -135,6 +137,7 @@ pub async fn get_realtor(
     )
 )]
 pub async fn post_realtor(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateLeaseRequest>,
 ) -> Result<Json<CreateLeaseResponse>, ApiError> {
@@ -145,7 +148,8 @@ pub async fn post_realtor(
 
     let result: Result<_, ApiError> = async {
         let now = now_unix_seconds().map_err(ApiError::Internal)?;
-        let offer = compute_offer(&state, now).await?;
+        let terms = resolve_lease_terms(&state, &headers)?;
+        let offer = compute_offer(&state, terms.defaults, now).await?;
 
         if !offer.allowed {
             return Err(ApiError::Forbidden(
@@ -244,15 +248,13 @@ pub async fn post_realtor(
             .map_err(|e| ApiError::BadRequest(format!("receiver_salt: {e}")))?;
 
         let nukeable_after = now.saturating_add(req.duration_seconds);
-        let pair_additional_flat_fee = state
-            .cfg
-            .leasing
+        let pair_additional_flat_fee = terms
             .pair_additional_flat_fees
             .get(&(req.target_chain_id, target_token))
             .copied()
             .unwrap_or(0);
         let lessee_additional_flat_fee = if lessee_specified {
-            state.cfg.leasing.arbitrary_lessee_flat_fee
+            terms.arbitrary_lessee_flat_fee
         } else {
             0
         };

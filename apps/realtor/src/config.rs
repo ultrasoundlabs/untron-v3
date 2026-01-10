@@ -1,6 +1,7 @@
 use aa::SafeDeterministicDeploymentConfig;
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
+use axum::http::header::HeaderName;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -25,6 +26,13 @@ pub struct AppConfig {
 #[derive(Debug, Clone)]
 pub struct ApiConfig {
     pub bind: SocketAddr,
+    pub lease_terms_header: LeaseTermsHeaderConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct LeaseTermsHeaderConfig {
+    pub enabled: bool,
+    pub header_name: HeaderName,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +137,14 @@ struct Env {
     /// on-demand (when indexer receiver address rows are missing).
     #[serde(default)]
     tron_rpc_url: String,
+
+    /// When enabled, allow per-request overrides for lease default terms via a JSON header.
+    #[serde(default)]
+    lease_terms_header_enabled: bool,
+
+    /// Header name containing JSON lease default term overrides (only used when enabled).
+    #[serde(default)]
+    lease_terms_header_name: String,
 }
 
 impl Default for Env {
@@ -156,6 +172,8 @@ impl Default for Env {
             lease_arbitrary_lessee_flat_fee: 0,
             lease_preknown_receiver_salts: String::new(),
             tron_rpc_url: String::new(),
+            lease_terms_header_enabled: false,
+            lease_terms_header_name: "x-untron-lease-terms".to_string(),
         }
     }
 }
@@ -183,6 +201,15 @@ fn parse_optional_address(label: &str, s: &str) -> Result<Option<Address>> {
     } else {
         Ok(Some(addr))
     }
+}
+
+fn parse_header_name(label: &str, s: &str) -> Result<HeaderName> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{label} must be non-empty");
+    }
+    HeaderName::from_bytes(trimmed.as_bytes())
+        .with_context(|| format!("invalid {label} (expected HTTP header name): {trimmed}"))
 }
 
 fn parse_hex_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -335,8 +362,19 @@ pub fn load_config() -> Result<AppConfig> {
         }
     };
 
+    let lease_terms_header_name = parse_header_name(
+        "LEASE_TERMS_HEADER_NAME",
+        env.lease_terms_header_name.as_str(),
+    )?;
+
     Ok(AppConfig {
-        api: ApiConfig { bind },
+        api: ApiConfig {
+            bind,
+            lease_terms_header: LeaseTermsHeaderConfig {
+                enabled: env.lease_terms_header_enabled,
+                header_name: lease_terms_header_name,
+            },
+        },
         indexer: IndexerConfig {
             base_url: env.indexer_api_base_url,
             timeout: Duration::from_secs(env.indexer_timeout_secs.max(1)),

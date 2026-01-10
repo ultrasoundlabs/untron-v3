@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::api::ApiError;
+use crate::api::lease_terms::LeaseDefaults;
 use crate::util::{i64_to_u32, i64_to_u64, number_to_u64};
 use alloy::primitives::Address;
 
@@ -23,7 +24,11 @@ pub(super) struct Offer {
     pub(super) effective_duration_seconds: u64,
 }
 
-pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, ApiError> {
+pub(super) async fn compute_offer(
+    state: &AppState,
+    defaults: LeaseDefaults,
+    _now: u64,
+) -> Result<Offer, ApiError> {
     let safe_addr_checksum = address_checksum(
         state
             .cfg
@@ -76,9 +81,9 @@ pub(super) async fn compute_offer(state: &AppState, _now: u64) -> Result<Offer, 
         .and_then(|n| number_to_u64(n, "lease_rate_window_seconds").ok())
         .unwrap_or(0);
 
-    let default_fee_ppm = state.cfg.leasing.lease_fee_ppm;
-    let default_flat_fee = state.cfg.leasing.flat_fee;
-    let default_duration_seconds = state.cfg.leasing.duration_seconds.max(1);
+    let default_fee_ppm = defaults.lease_fee_ppm;
+    let default_flat_fee = defaults.flat_fee;
+    let default_duration_seconds = defaults.duration_seconds.max(1);
 
     let effective_fee_ppm = default_fee_ppm.max(min_fee_ppm);
     let effective_flat_fee = default_flat_fee.max(min_flat_fee);

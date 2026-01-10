@@ -1,4 +1,5 @@
 mod error;
+mod lease_terms;
 pub(crate) mod leases;
 mod offer;
 pub(crate) mod payout_config;
