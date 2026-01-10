@@ -1,3 +1,4 @@
+use super::receiver_salt::normalize_receiver_salt_hex;
 use super::{
     ApiError, ErrorResponse, LeaseClaimView, LeasePayoutConfigVersionView, LeasePayoutConfigView,
     LeaseViewResponse,
@@ -26,7 +27,7 @@ use untron_v3_bindings::untron_controller::UntronController;
     summary = "Fetch an aggregated lease view",
     description = "Returns a realtor-side aggregated view of a lease in the Untron V3 protocol.\n\nThis endpoint is designed to provide a stable response schema while still exposing rich information sourced from the indexer API.\n\nUint256-like values are returned as decimal strings.",
     params(
-        ("lease_id" = u64, Path, description = "Global lease ID")
+        ("lease_id" = String, Path, description = "Either a global lease ID (decimal u64) or a receiver salt (bytes32 hex)")
     ),
     responses(
         (status = 200, description = "OK", body = LeaseViewResponse),
@@ -38,16 +39,44 @@ use untron_v3_bindings::untron_controller::UntronController;
 )]
 pub async fn get_lease(
     State(state): State<Arc<AppState>>,
-    Path(lease_id): Path<u64>,
+    Path(lease_id): Path<String>,
 ) -> Result<Json<LeaseViewResponse>, ApiError> {
     let start = Instant::now();
 
     let result: Result<_, ApiError> = async {
-        if lease_id == 0 {
-            return Err(ApiError::BadRequest(
-                "lease_id must be non-zero".to_string(),
-            ));
-        }
+        let lease_id = match lease_id.parse::<u64>() {
+            Ok(0) => {
+                return Err(ApiError::BadRequest(
+                    "lease_id must be non-zero".to_string(),
+                ));
+            }
+            Ok(id) => id,
+            Err(_) => {
+                let receiver_salt_hex = normalize_receiver_salt_hex(&lease_id)?;
+                let latest = state
+                    .indexer
+                    .latest_lease_by_receiver_salt(receiver_salt_hex.as_str())
+                    .await
+                    .map_err(|e| {
+                        ApiError::Upstream(format!(
+                            "indexer hub_leases latest by receiver_salt: {e}"
+                        ))
+                    })?;
+                let Some(latest) = latest else {
+                    return Err(ApiError::BadRequest(format!(
+                        "unknown receiver_salt (no leases found): {receiver_salt_hex}"
+                    )));
+                };
+                let lease_id = latest.lease_id.ok_or_else(|| {
+                    ApiError::Upstream("indexer hub_leases missing lease_id".to_string())
+                })?;
+                lease_id.to_string().parse::<u64>().map_err(|e| {
+                    ApiError::Upstream(format!(
+                        "indexer hub_leases lease_id not parseable as u64: {e}"
+                    ))
+                })?
+            }
+        };
 
         let row = state
             .indexer

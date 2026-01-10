@@ -204,6 +204,7 @@ impl IndexerApi {
                 self.client
                     .hub_leases_get()
                     .receiver_salt(receiver_salt_filter)
+                    .valid_to_seq("is.null")
                     .order("lease_number.desc")
                     .limit("1")
                     .send()
