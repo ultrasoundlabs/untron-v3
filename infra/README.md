@@ -48,8 +48,8 @@ cd .. # monorepo root
 ./genindexerclient.sh
 ```
 
-If you change `infra/openapi-sidecar/src/*`, rebuild the bundled runtime used by Docker:
+If you need to rebuild the OpenAPI sidecar image:
 
 ```bash
-pnpm openapi:build # from monorepo root
+docker compose -f infra/docker-compose.yml build openapi_sidecar
 ```

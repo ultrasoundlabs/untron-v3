@@ -11,9 +11,9 @@ trap 'rm -f "$tmp"' EXIT
 
 curl -sSf -H "Accept: application/openapi+json" "http://localhost:8080/" -o "$tmp"
 
-if [[ ! -f "infra/openapi-sidecar/dist/cli.cjs" ]]; then
-  node infra/openapi-sidecar/build.mjs
-fi
+merger_ref="bf53fb98e817199cfd28d6e08c513bb965093cde"
+merger_img="openapi-merger:${merger_ref}"
 
-cat "$tmp" | node infra/openapi-sidecar/dist/cli.cjs > crates/indexer-client/openapi.json
+docker build -q -t "${merger_img}" "https://github.com/ultrasoundlabs/openapi-merger.git#${merger_ref}" >/dev/null
+cat "$tmp" | docker run --rm -i -e OPENAPI_ALLOWED_METHODS=get "${merger_img}" --stdin > crates/indexer-client/openapi.json
 echo "wrote crates/indexer-client/openapi.json"

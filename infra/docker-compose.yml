@@ -156,26 +156,23 @@ services:
       API_REFERENCE_CONFIG: ${SCALAR_API_REFERENCE_CONFIG:-{"pathRouting":{"basePath":"${EXTERNAL_PROXY_BASE_PATH:-}/docs"},"sources":[{"url":"${EXTERNAL_PROXY_BASE_PATH:-}/openapi.json","title":"Untron API","default":true}]}}
 
   openapi_sidecar:
-    image: node:20-slim
+    build:
+      context: https://github.com/ultrasoundlabs/openapi-merger.git#bf53fb98e817199cfd28d6e08c513bb965093cde
     restart: unless-stopped
     environment:
-      UPSTREAM_OPENAPI_URL: http://postgrest:3000/
+      # Ordered sources (2.x and/or 3.x) merged into a single OpenAPI 3.x doc.
+      # Optional sources are skipped if unreachable (useful for compose profiles).
+      # This is configured to match the legacy JS sidecar behavior:
+      # - "realtor" (optional) is the base spec, then "indexer" overlays it.
+      # - Only the indexer spec is filtered to GET-only.
+      OPENAPI_SOURCES: '[{"name":"realtor","url":"http://realtor:3000/openapi.json","optional":true,"timeout_ms":500},{"name":"indexer","url":"http://postgrest:3000/","timeout_ms":10000,"allowed_methods":["get"]}]'
       CACHE_SECONDS: "30"
-      REALTOR_OPENAPI_URL: http://realtor:3000/openapi.json
       EXTERNAL_PROXY_BASE_PATH: ${EXTERNAL_PROXY_BASE_PATH:-}
-    command: ["node", "/sidecar/dist/server.cjs"]
-    volumes:
-      - ./openapi-sidecar/dist:/sidecar/dist:ro
+      OPENAPI_INFO_VERSION_FROM: "indexer"
     expose:
       - "5000"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:5000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/healthz"]
       interval: 2s
       timeout: 2s
       retries: 30

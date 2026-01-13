@@ -24,7 +24,7 @@
     "contracts:build": "forge build --root packages/contracts",
     "contracts:bind:rust": "forge bind --root packages/contracts --crate-name contracts_bindings --bindings-path crates/contracts-bindings --overwrite",
     "indexer:build": "pnpm contracts:bind:rust && cargo build -p indexer",
-    "openapi:build": "node infra/openapi-sidecar/build.mjs",
+    "openapi:build": "docker compose -f infra/docker-compose.yml build openapi_sidecar",
     "ai": "repomix -o /dev/null --copy --quiet",
     "ai:loud": "repomix -o /dev/null --copy"
   },
