@@ -24,8 +24,6 @@ use untron_v3_bindings::untron_controller::UntronController;
     get,
     path = "/leases/{lease_id}",
     tag = "realtor",
-    summary = "Fetch an aggregated lease view",
-    description = "Returns a realtor-side aggregated view of a lease in the Untron V3 protocol.\n\nThis endpoint is designed to provide a stable response schema while still exposing rich information sourced from the indexer API.\n\nUint256-like values are returned as decimal strings.",
     params(
         ("lease_id" = String, Path, description = "Either a global lease ID (decimal u64) or a receiver salt (bytes32 hex)")
     ),
@@ -37,6 +35,7 @@ use untron_v3_bindings::untron_controller::UntronController;
         (status = 500, description = "Internal error", body = ErrorResponse)
     )
 )]
+/// Fetch an aggregated lease view.
 pub async fn get_lease(
     State(state): State<Arc<AppState>>,
     Path(lease_id): Path<String>,

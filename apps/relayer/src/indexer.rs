@@ -1,23 +1,37 @@
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tracing::Instrument;
 use untron_v3_indexer_client::{Client, types};
 
 use crate::metrics::RelayerTelemetry;
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RelayerHubState {
+    pub last_controller_event_tip: String,
+    pub last_controller_event_seq: serde_json::Number,
+    pub next_controller_event_index: serde_json::Number,
+}
+
 pub struct IndexerApi {
+    base_url: String,
+    http: reqwest::Client,
     client: Client,
     telemetry: RelayerTelemetry,
 }
 
 impl IndexerApi {
     pub fn new(base_url: &str, timeout: Duration, telemetry: RelayerTelemetry) -> Result<Self> {
-        let client = reqwest::Client::builder()
+        let base_url = base_url.trim_end_matches('/').to_string();
+        let http = reqwest::Client::builder()
             .timeout(timeout)
             .build()
             .context("build indexer http client")?;
+        let client = Client::new_with_client(&base_url, http.clone());
         Ok(Self {
-            client: Client::new_with_client(base_url.trim_end_matches('/'), client),
+            base_url,
+            http,
+            client,
             telemetry,
         })
     }
@@ -64,6 +78,33 @@ impl IndexerApi {
                 .await
                 .map_err(|e| anyhow::anyhow!("stream_ingest_summary_get: {e:?}"))
                 .map(|r| r.into_inner())
+        })
+        .await
+    }
+
+    pub async fn relayer_hub_state(&self) -> Result<RelayerHubState> {
+        self.timed("relayer_hub_state_get", async {
+            let url = format!("{}/relayer_hub_state", self.base_url);
+            let res = self
+                .http
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("relayer_hub_state_get: {e:?}"))?;
+
+            let status = res.status();
+            if !status.is_success() {
+                let body = res.text().await.unwrap_or_default();
+                anyhow::bail!("relayer_hub_state_get: http {status} body={body:?}");
+            }
+
+            res.json::<Vec<RelayerHubState>>()
+                .await
+                .map_err(|e| anyhow::anyhow!("relayer_hub_state_get decode: {e:?}"))
+                .and_then(|mut rows| {
+                    rows.pop()
+                        .ok_or_else(|| anyhow::anyhow!("relayer_hub_state_get: empty response"))
+                })
         })
         .await
     }
@@ -251,5 +292,23 @@ impl IndexerApi {
                 .map(|r| r.into_inner())
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relayer_hub_state_deserializes_from_postgrest_row() {
+        let json = format!(
+            r#"[{{"last_controller_event_tip":"0x{tip}","last_controller_event_seq":1,"next_controller_event_index":2}}]"#,
+            tip = "11".repeat(32)
+        );
+        let rows: Vec<RelayerHubState> = serde_json::from_str(&json).unwrap();
+        let row = rows.into_iter().next().unwrap();
+        assert!(row.last_controller_event_tip.starts_with("0x"));
+        assert_eq!(row.last_controller_event_seq.to_string(), "1");
+        assert_eq!(row.next_controller_event_index.to_string(), "2");
     }
 }

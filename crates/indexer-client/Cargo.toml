@@ -18,6 +18,7 @@ opentelemetry = "0.31.0"
 opentelemetry-http = "0.31.0"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.32.0"
+regress = "0.10.5"
 
 [features]
 default = ["native-tls"]
@@ -29,5 +30,6 @@ openapiv3 = "2.0.0"
 prettyplease = "0.2.29"
 progenitor = "0.11.2"
 serde_json = "1.0.143"
+serde_path_to_error = "0.1.20"
 syn = "2.0.96"
 typify = "0.4.3"

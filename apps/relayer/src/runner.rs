@@ -11,7 +11,7 @@ use aa::{
 };
 use alloy::{
     primitives::{FixedBytes, U256},
-    providers::{DynProvider, Provider, ProviderBuilder},
+    providers::{DynProvider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
 };
 use anyhow::{Context, Result};
@@ -21,7 +21,6 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::Instrument;
 use tron::{
     FeePolicy, JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, TronWallet,
 };
@@ -40,7 +39,6 @@ pub struct Relayer {
 }
 
 pub struct Tick {
-    pub hub_head: u64,
     pub tron_head: u64,
 }
 
@@ -284,24 +282,6 @@ impl Relayer {
     }
 
     async fn collect_tick(&self) -> Result<Tick> {
-        let hub_span = tracing::debug_span!("hub.rpc", op = "get_block_number");
-        let hub_start = std::time::Instant::now();
-        let hub_head_res = async {
-            self.ctx
-                .hub_provider
-                .get_block_number()
-                .await
-                .context("hub head")
-        }
-        .instrument(hub_span)
-        .await;
-        self.ctx.telemetry.hub_rpc_ms(
-            "get_block_number",
-            hub_head_res.is_ok(),
-            hub_start.elapsed().as_millis() as u64,
-        );
-        let hub_head = hub_head_res?;
-
         let mut tron = self.ctx.tron_read.clone();
         let tron_start = std::time::Instant::now();
         let tron_head_res = tron_head_block(&mut tron).await;
@@ -311,10 +291,7 @@ impl Relayer {
             tron_start.elapsed().as_millis() as u64,
         );
         let tron_head = tron_head_res?;
-        Ok(Tick {
-            hub_head,
-            tron_head,
-        })
+        Ok(Tick { tron_head })
     }
 
     async fn hub_locked_or_assume_locked(&mut self) -> bool {
@@ -352,6 +329,8 @@ impl Relayer {
     }
 
     async fn plan_tick(&mut self, tick: &Tick, hub_locked: bool) -> Result<PlannedTick> {
+        let hub_state = self.ctx.indexer.relayer_hub_state().await?;
+
         let (relay_plan, process_plan, pre_entitle_plan) = if hub_locked {
             tracing::warn!(
                 "hub sender nonce locked (pending userop); skipping hub-dependent planning"
@@ -363,8 +342,8 @@ impl Relayer {
             )
         } else {
             let (relay, process, pre) = tokio::join!(
-                tasks::plan_relay_controller_chain(&self.ctx, tick),
-                tasks::plan_process_controller_events(&self.ctx),
+                tasks::plan_relay_controller_chain(&self.ctx, tick, &hub_state),
+                tasks::plan_process_controller_events(&self.ctx, &hub_state),
                 tasks::plan_pre_entitle(&self.ctx, tick),
             );
             (relay?, process?, pre?)

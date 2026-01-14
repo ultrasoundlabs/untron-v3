@@ -24,8 +24,6 @@ use untron_v3_bindings::untron_v3::UntronV3;
     get,
     path = "/realtor",
     tag = "realtor",
-    summary = "Fetch realtor terms and supported pairs",
-    description = "Returns current realtor limits, effective fee defaults, fee adders, and the list of supported (target_chain_id,target_token) pairs derived from the current bridger routing table.",
     responses(
         (status = 200, description = "OK", body = RealtorInfoResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -36,6 +34,7 @@ use untron_v3_bindings::untron_v3::UntronV3;
         (status = 500, description = "Internal error", body = ErrorResponse)
     )
 )]
+/// Fetch realtor terms and supported pairs.
 pub async fn get_realtor(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
@@ -130,8 +129,6 @@ pub async fn get_realtor(
     post,
     path = "/realtor",
     tag = "realtor",
-    summary = "Create an address lease in Untron V3 protocol.",
-    description = "Creates a lease on Untron V3 through the API's realtor.\n\nThe caller must provide payout destination (target_chain_id,target_token,beneficiary) and duration_seconds. Optionally, provide receiver_salt and lessee.\n\nThe (target_chain_id,target_token) pair must exist in the current bridger routing table (hub_bridgers with valid_to_seq is null). If lessee is provided, arbitrary_lessee_flat_fee is added to the flat fee.",
     request_body = CreateLeaseRequest,
     responses(
         (status = 200, description = "OK", body = CreateLeaseResponse),
@@ -143,6 +140,7 @@ pub async fn get_realtor(
         (status = 500, description = "Internal error", body = ErrorResponse)
     )
 )]
+/// Create an address lease in Untron V3 protocol.
 pub async fn post_realtor(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,

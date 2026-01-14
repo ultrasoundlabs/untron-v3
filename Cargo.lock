@@ -3933,6 +3933,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check",
+]
+
+[[package]]
 name = "proc-macro-error-attr2"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4374,7 +4398,6 @@ dependencies = [
  "untron-v3-bindings",
  "untron-v3-indexer-client",
  "utoipa",
- "utoipa-axum",
 ]
 
 [[package]]
@@ -6310,9 +6333,11 @@ dependencies = [
  "prettyplease",
  "progenitor",
  "progenitor-client",
+ "regress",
  "reqwest",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "serde_urlencoded",
  "syn 2.0.112",
  "tracing",
@@ -6358,9 +6383,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "utoipa"
-version = "5.4.0"
+version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fcc29c80c21c31608227e0912b2d7fddba57ad76b606890627ba8ee7964e993"
+checksum = "c5afb1a60e207dca502682537fefcfd9921e71d0b83e9576060f09abc6efab23"
 dependencies = [
  "indexmap 2.12.1",
  "serde",
@@ -6369,24 +6394,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "utoipa-axum"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c25bae5bccc842449ec0c5ddc5cbb6a3a1eaeac4503895dc105a1138f8234a0"
-dependencies = [
- "axum",
- "paste",
- "tower-layer",
- "tower-service",
- "utoipa",
-]
-
-[[package]]
 name = "utoipa-gen"
-version = "5.4.0"
+version = "4.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d79d08d92ab8af4c5e8a6da20c47ae3f61a0f1dabc1997cdf2d082b757ca08b"
+checksum = "20c24e8ab68ff9ee746aad22d39b5535601e6416d1b0feeabf78be986a5c4392"
 dependencies = [
+ "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn 2.0.112",

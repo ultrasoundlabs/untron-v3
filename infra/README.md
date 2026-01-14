@@ -11,6 +11,8 @@ docker compose -f infra/docker-compose.yml up -d
 
 - Swagger UI: `http://localhost:8080/docs`
 - OpenAPI (3.x): `http://localhost:8080/openapi.json`
+- If `docker compose` fails with `Bind for 0.0.0.0:8888 failed`, set `OTELCOL_TELEMETRY_PORT=8889` (OrbStack commonly uses `8888`).
+- If the indexer logs `controller previous_tip mismatch`, you likely have a stale DB volume from a prior run; easiest reset is `docker compose -f infra/docker-compose.yml down -v` and then `up -d` again.
 
 ### Running behind a path prefix (external reverse proxy)
 

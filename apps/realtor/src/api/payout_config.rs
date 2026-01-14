@@ -31,8 +31,6 @@ alloy::sol! {
     post,
     path = "/payout_config",
     tag = "realtor",
-    summary = "Relay a gasless payout config update",
-    description = "Relays a lessee-signed EIP-712 `setPayoutConfigWithSig` update.\n\nPrevalidation uses indexer data:\n- lease must exist and must have been created by this realtor\n- chain must not be deprecated (if known by indexer)\n- swap rate/bridger routing must be configured (best-effort)\n- lease nonce is fetched from hub_lease_nonces (defaults to 0 if absent)\n\nSignature validation:\n- EOAs are validated locally by recovering the signer from the EIP-712 digest.\n- For contract lessees (ERC-1271), the service attempts an `eth_call` to `isValidSignature`.",
     request_body = SetPayoutConfigRequest,
     responses(
         (status = 200, description = "OK", body = SetPayoutConfigResponse),
@@ -44,6 +42,7 @@ alloy::sol! {
         (status = 500, description = "Internal error", body = ErrorResponse)
     )
 )]
+/// Relay a gasless payout config update.
 pub async fn post_payout_config(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SetPayoutConfigRequest>,

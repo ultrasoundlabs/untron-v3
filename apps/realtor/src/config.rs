@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
+const DEFAULT_LEASE_TERMS_HEADER_NAME: &str = "x-untron-lease-terms";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaymasterServiceConfig {
     pub url: String,
@@ -173,7 +175,7 @@ impl Default for Env {
             lease_preknown_receiver_salts: String::new(),
             tron_rpc_url: String::new(),
             lease_terms_header_enabled: false,
-            lease_terms_header_name: "x-untron-lease-terms".to_string(),
+            lease_terms_header_name: DEFAULT_LEASE_TERMS_HEADER_NAME.to_string(),
         }
     }
 }
@@ -210,6 +212,14 @@ fn parse_header_name(label: &str, s: &str) -> Result<HeaderName> {
     }
     HeaderName::from_bytes(trimmed.as_bytes())
         .with_context(|| format!("invalid {label} (expected HTTP header name): {trimmed}"))
+}
+
+fn resolve_lease_terms_header_name(enabled: bool, raw: &str) -> Result<HeaderName> {
+    let trimmed = raw.trim();
+    if !enabled && trimmed.is_empty() {
+        return Ok(HeaderName::from_static(DEFAULT_LEASE_TERMS_HEADER_NAME));
+    }
+    parse_header_name("LEASE_TERMS_HEADER_NAME", trimmed)
 }
 
 fn parse_hex_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -362,8 +372,8 @@ pub fn load_config() -> Result<AppConfig> {
         }
     };
 
-    let lease_terms_header_name = parse_header_name(
-        "LEASE_TERMS_HEADER_NAME",
+    let lease_terms_header_name = resolve_lease_terms_header_name(
+        env.lease_terms_header_enabled,
         env.lease_terms_header_name.as_str(),
     )?;
 
@@ -463,5 +473,13 @@ mod tests {
         assert_eq!(a, expected);
 
         assert!(parse_address("A", "not an address").is_err());
+    }
+
+    #[test]
+    fn resolve_lease_terms_header_name_allows_empty_when_disabled() {
+        let h = resolve_lease_terms_header_name(false, "   ").unwrap();
+        assert_eq!(h.as_str(), DEFAULT_LEASE_TERMS_HEADER_NAME);
+
+        assert!(resolve_lease_terms_header_name(true, "   ").is_err());
     }
 }

@@ -4,8 +4,9 @@ use untron_v3_bindings::untron_v3::UntronV3::{
     fillCall, preEntitleCall, processControllerEventsCall, relayControllerEventChainCall,
 };
 
+use crate::indexer::RelayerHubState;
 use crate::runner::model::Plan;
-use crate::runner::util::{parse_bytes32, parse_txid32};
+use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::{
     primitives::{FixedBytes, U256},
@@ -22,25 +23,12 @@ fn pre_entitle_finalized(
     super::tron_block_finalized(block_number, tron_head, finality_blocks, block_lag)
 }
 
-pub async fn plan_process_controller_events(ctx: &RelayerContext) -> Result<Plan<HubIntent>> {
-    let hub_contract = ctx.hub_contract();
-    let start = Instant::now();
-    let next_idx_res = hub_contract.nextControllerEventIndex().call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "nextControllerEventIndex",
-        next_idx_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let next_idx = next_idx_res?;
-
-    let start = Instant::now();
-    let last_seq_res = hub_contract.lastControllerEventSeq().call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "lastControllerEventSeq",
-        last_seq_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let last_seq = last_seq_res?;
+pub async fn plan_process_controller_events(
+    _ctx: &RelayerContext,
+    hub_state: &RelayerHubState,
+) -> Result<Plan<HubIntent>> {
+    let next_idx = number_to_u256(&hub_state.next_controller_event_index)?;
+    let last_seq = number_to_u256(&hub_state.last_controller_event_seq)?;
     if next_idx >= last_seq {
         return Ok(Plan::none());
     }

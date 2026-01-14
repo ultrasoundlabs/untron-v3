@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     } = config::load_config()?;
     let dbh = db::Db::connect(&database_url, db_max_connections).await?;
     // Keep this in sync with the latest migration file number.
-    let _schema_version = db::ensure_schema_version(&dbh, 7).await?;
+    let _schema_version = db::ensure_schema_version(&dbh, 8).await?;
 
     let shutdown = CancellationToken::new();
 
@@ -46,6 +46,12 @@ async fn main() -> Result<()> {
     let mut controller_for_receiver_usdt: Option<config::StreamConfig> = None;
     let mut controller_providers_for_receiver_usdt: Option<rpc::RpcProviders> = None;
     let mut controller_resolved_for_receiver_usdt: Option<db::ResolvedStream> = None;
+
+    // Configure all streams in the DB before starting any ingestion tasks.
+    // This avoids races where the hub stream observes controller-related hub events before
+    // `chain.instance(stream='controller')` exists, which can seed projections with a zero genesis tip.
+    let mut resolved_streams: Vec<(config::StreamConfig, db::ResolvedStream, rpc::RpcProviders)> =
+        Vec::new();
 
     for stream_cfg in streams {
         let dbh = dbh.clone();
@@ -60,13 +66,18 @@ async fn main() -> Result<()> {
 
         let providers = rpc::RpcProviders::from_config(&stream_cfg.rpc).await?;
 
-        let shutdown = shutdown.clone();
-
         if stream_cfg.stream == config::Stream::Controller {
             controller_for_receiver_usdt = Some(stream_cfg.clone());
             controller_providers_for_receiver_usdt = Some(providers.clone());
             controller_resolved_for_receiver_usdt = Some(resolved.clone());
         }
+
+        resolved_streams.push((stream_cfg, resolved, providers));
+    }
+
+    for (stream_cfg, resolved, providers) in resolved_streams {
+        let dbh = dbh.clone();
+        let shutdown = shutdown.clone();
 
         join_set.spawn(async move {
             let stream_label = stream_cfg.stream.as_str();
