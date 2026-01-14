@@ -157,7 +157,7 @@ services:
 
   openapi_sidecar:
     build:
-      context: https://github.com/ultrasoundlabs/openapi-merger.git#bf53fb98e817199cfd28d6e08c513bb965093cde
+      context: https://github.com/ultrasoundlabs/openapi-merger.git#a5c098c43edef67dbd24edac4661d8f47b935870
     restart: unless-stopped
     environment:
       # Ordered sources (2.x and/or 3.x) merged into a single OpenAPI 3.x doc.

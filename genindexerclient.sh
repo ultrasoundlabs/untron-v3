@@ -11,7 +11,7 @@ trap 'rm -f "$tmp"' EXIT
 
 curl -sSf -H "Accept: application/openapi+json" "http://localhost:8080/" -o "$tmp"
 
-merger_ref="bf53fb98e817199cfd28d6e08c513bb965093cde"
+merger_ref="a5c098c43edef67dbd24edac4661d8f47b935870"
 merger_img="openapi-merger:${merger_ref}"
 
 docker build -q -t "${merger_img}" "https://github.com/ultrasoundlabs/openapi-merger.git#${merger_ref}" >/dev/null
