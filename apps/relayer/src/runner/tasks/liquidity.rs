@@ -86,14 +86,18 @@ pub async fn plan_liquidity(
         start.elapsed().as_millis() as u64,
     );
     let usdt_balance = usdt_balance_res?;
-    let first_amt = number_to_u256(
-        claims[0]
-            .amount_usdt
-            .as_ref()
-            .context("missing claim amount_usdt")?,
-    )?;
+    let total_claims_amt = claims
+        .iter()
+        .try_fold(U256::ZERO, |acc, c| -> Result<U256> {
+            let amt = number_to_u256(
+                c.amount_usdt
+                    .as_ref()
+                    .context("missing claim amount_usdt")?,
+            )?;
+            acc.checked_add(amt).context("claim sum overflow")
+        })?;
 
-    if usdt_balance >= first_amt {
+    if usdt_balance >= total_claims_amt {
         return Ok(Plan::intent(LiquidityIntent::Hub(HubIntent::FillClaims {
             target_token: usdt_addr,
             max_claims: ctx.cfg.jobs.fill_max_claims.max(1),
@@ -103,7 +107,7 @@ pub async fn plan_liquidity(
         }));
     }
 
-    let tron_plan = plan_pull_from_receivers(ctx, state, tick).await?;
+    let tron_plan = plan_pull_from_receivers(ctx, state, tick, total_claims_amt).await?;
     Ok(Plan {
         intent: tron_plan.intent.map(LiquidityIntent::Tron),
         updates: tron_plan.updates,
@@ -114,6 +118,7 @@ async fn plan_pull_from_receivers(
     ctx: &RelayerContext,
     state: &RelayerState,
     tick: &Tick,
+    total_claims: U256,
 ) -> Result<Plan<TronIntent>> {
     let Some(controller_usdt) = ctx.indexer.controller_usdt().await? else {
         return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
@@ -131,16 +136,6 @@ async fn plan_pull_from_receivers(
         return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
             key: "pull_from_receivers",
         }));
-    }
-
-    let all_claims = ctx.indexer.hub_claims_created(500).await?;
-    let mut total_claims = U256::ZERO;
-    for c in all_claims {
-        if let Some(n) = &c.amount_usdt {
-            total_claims = total_claims
-                .checked_add(number_to_u256(n)?)
-                .context("claim sum overflow")?;
-        }
     }
 
     let mut rows = Vec::new();
