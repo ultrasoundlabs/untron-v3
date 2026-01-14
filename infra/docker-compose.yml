@@ -221,6 +221,20 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  pool:
+    build:
+      context: ..
+      dockerfile: apps/pool/Dockerfile
+    restart: unless-stopped
+    profiles: ["pool"]
+    env_file:
+      - ./pool.env
+    depends_on:
+      otelcol:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   realtor:
     build:
       context: ..

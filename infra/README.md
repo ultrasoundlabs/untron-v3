@@ -5,6 +5,7 @@ cp infra/.env.example infra/.env
 cp infra/indexer.env.example infra/indexer.env
 cp infra/realtor.env.example infra/realtor.env
 cp infra/relayer.env.example infra/relayer.env
+cp infra/pool.env.example infra/pool.env
 
 docker compose -f infra/docker-compose.yml up -d
 ```
@@ -41,6 +42,7 @@ Optional services (profiles):
 ```bash
 docker compose -f infra/docker-compose.yml --profile realtor up -d
 docker compose -f infra/docker-compose.yml --profile relayer up -d
+docker compose -f infra/docker-compose.yml --profile pool up -d
 ```
 
 Update the checked-in OpenAPI spec used by `crates/indexer-client`:
