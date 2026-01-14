@@ -3,7 +3,7 @@ use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::time::Duration;
-use tron::JsonApiRentalProviderConfig;
+use tron::{JsonApiRentalProviderConfig, TronAddress};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaymasterServiceConfig {
@@ -70,6 +70,7 @@ pub struct JobConfig {
 
     pub controller_rebalance_threshold_usdt: String,
     pub controller_rebalance_keep_usdt: String,
+    pub controller_rebalance_prioritized_rebalancers: Vec<TronAddress>,
 
     pub pull_liquidity_ppm: u64,
 }
@@ -142,6 +143,9 @@ struct Env {
 
     controller_rebalance_keep_usdt: String,
 
+    #[serde(default)]
+    controller_rebalance_prioritized_rebalancers: String,
+
     pull_liquidity_ppm: u64,
 }
 
@@ -177,6 +181,7 @@ impl Default for Env {
             fill_max_claims: 50,
             controller_rebalance_threshold_usdt: "0".to_string(),
             controller_rebalance_keep_usdt: "1".to_string(),
+            controller_rebalance_prioritized_rebalancers: String::new(),
             pull_liquidity_ppm: 500_000,
         }
     }
@@ -222,6 +227,28 @@ fn parse_csv(label: &str, s: &str) -> Result<Vec<String>> {
         anyhow::bail!("{label} must be non-empty");
     }
     Ok(urls)
+}
+
+fn parse_tron_address_csv_optional(label: &str, s: &str) -> Result<Vec<TronAddress>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for raw in trimmed.split(',') {
+        let v = raw.trim();
+        if v.is_empty() {
+            continue;
+        }
+        let addr =
+            TronAddress::parse_text(v).with_context(|| format!("invalid {label} entry: {v}"))?;
+        if seen.insert(addr) {
+            out.push(addr);
+        }
+    }
+    Ok(out)
 }
 
 fn parse_paymasters_json(s: &str) -> Result<Vec<PaymasterServiceConfig>> {
@@ -354,6 +381,10 @@ pub fn load_config() -> Result<AppConfig> {
             fill_max_claims: env.fill_max_claims,
             controller_rebalance_threshold_usdt: env.controller_rebalance_threshold_usdt,
             controller_rebalance_keep_usdt: env.controller_rebalance_keep_usdt,
+            controller_rebalance_prioritized_rebalancers: parse_tron_address_csv_optional(
+                "CONTROLLER_REBALANCE_PRIORITIZED_REBALANCERS",
+                &env.controller_rebalance_prioritized_rebalancers,
+            )?,
             pull_liquidity_ppm: env.pull_liquidity_ppm.min(1_000_000),
         },
     })
@@ -384,6 +415,24 @@ mod tests {
 
         let err = parse_csv("U", " , , ").unwrap_err().to_string();
         assert!(err.contains("must be non-empty"));
+    }
+
+    #[test]
+    fn parse_tron_address_csv_optional_empty_ok_and_dedups() {
+        assert!(
+            parse_tron_address_csv_optional("T", "   ")
+                .unwrap()
+                .is_empty()
+        );
+
+        let a = TronAddress::parse_text("T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb").unwrap();
+        let b = TronAddress::parse_text("0x0000000000000000000000000000000000000001").unwrap();
+        let out = parse_tron_address_csv_optional(
+            "T",
+            " T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb, 0x0000000000000000000000000000000000000001, T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb ",
+        )
+        .unwrap();
+        assert_eq!(out, vec![a, b]);
     }
 
     #[test]

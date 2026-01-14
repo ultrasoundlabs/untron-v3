@@ -1,5 +1,6 @@
 use super::TronIntent;
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use tron::{
     TronAddress,
     wallet::{encode_rebalance_usdt, trc20_balance_of},
@@ -8,6 +9,31 @@ use tron::{
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::parse_u256_decimal;
 use crate::runner::{RelayerContext, RelayerState, Tick};
+
+fn order_rebalancers_by_priority(
+    available: Vec<TronAddress>,
+    priority: &[TronAddress],
+) -> Vec<TronAddress> {
+    if priority.is_empty() || available.is_empty() {
+        return available;
+    }
+
+    let available_set: HashSet<TronAddress> = available.iter().copied().collect();
+    let mut out = Vec::with_capacity(available.len());
+    let mut used = HashSet::new();
+
+    for &p in priority {
+        if available_set.contains(&p) && used.insert(p) {
+            out.push(p);
+        }
+    }
+    for &a in &available {
+        if used.insert(a) {
+            out.push(a);
+        }
+    }
+    out
+}
 
 pub async fn plan_controller_rebalance(
     ctx: &RelayerContext,
@@ -78,10 +104,19 @@ pub async fn plan_controller_rebalance(
             .extend_updates(updates));
     }
     rebalancers.sort();
-    let parsed = rebalancers
-        .into_iter()
-        .map(|s| TronAddress::parse_text(&s).with_context(|| format!("parse rebalancer: {s}")))
-        .collect::<Result<Vec<_>>>()?;
+
+    let mut parsed = Vec::new();
+    let mut seen = HashSet::new();
+    for s in rebalancers {
+        let addr = TronAddress::parse_text(&s).with_context(|| format!("parse rebalancer: {s}"))?;
+        if seen.insert(addr) {
+            parsed.push(addr);
+        }
+    }
+    parsed = order_rebalancers_by_priority(
+        parsed,
+        &ctx.cfg.jobs.controller_rebalance_prioritized_rebalancers,
+    );
 
     Ok(Plan::intent(TronIntent::RebalanceUsdt {
         rebalancers: parsed,
@@ -165,6 +200,16 @@ fn rebalance_cursor_after_attempts(start_cursor: usize, len: usize, attempts: us
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prioritized_rebalancers_come_first() {
+        let a = TronAddress::parse_text("0x0000000000000000000000000000000000000001").unwrap();
+        let b = TronAddress::parse_text("0x0000000000000000000000000000000000000002").unwrap();
+        let c = TronAddress::parse_text("0x0000000000000000000000000000000000000003").unwrap();
+
+        let out = order_rebalancers_by_priority(vec![a, b, c], &[c, a]);
+        assert_eq!(out, vec![c, a, b]);
+    }
 
     #[test]
     fn rebalance_order_rotates_from_cursor() {
