@@ -1,0 +1,23 @@
+[package]
+name = "pool"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { version = "1.2.1", features = ["full", "json", "serde", "contract", "sol-types", "eip712"] }
+anyhow = "1.0.100"
+dotenvy = "0.15.7"
+envy = "0.4.2"
+futures = "0.3"
+hex = "0.4.3"
+opentelemetry = "0.31.0"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.143"
+time = { version = "0.3.44", features = ["formatting"] }
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-util = "0.7.16"
+tracing = "0.1.44"
+tron = { path = "../../crates/tron" }
+untron-observability = { path = "../../crates/observability" }
+one-click-sdk-rs = { git = "https://github.com/defuse-protocol/one-click-sdk-rs.git", rev = "6226cabeaad35806654554a811a09e8628fd58e2" }
