@@ -70,6 +70,12 @@ importers:
 
   apps/indexer: {}
 
+  apps/pool: {}
+
+  apps/realtor: {}
+
+  apps/relayer: {}
+
   apps/research:
     dependencies:
       '@noble/hashes':

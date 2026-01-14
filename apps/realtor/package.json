@@ -1,0 +1,9 @@
+{
+  "name": "@untron/v3-realtor",
+  "scripts": {
+    "dev": "cargo run -p realtor",
+    "test": "cargo test -p realtor",
+    "format": "cargo fmt",
+    "clippy": "cargo clippy -p realtor -- -D warnings"
+  }
+}

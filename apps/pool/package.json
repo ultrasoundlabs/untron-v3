@@ -1,0 +1,9 @@
+{
+  "name": "@untron/v3-pool",
+  "scripts": {
+    "dev": "cargo run -p pool",
+    "test": "cargo test -p pool",
+    "format": "cargo fmt",
+    "clippy": "cargo clippy -p pool -- -D warnings"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@untron/v3-relayer",
+  "scripts": {
+    "dev": "cargo run -p relayer",
+    "test": "cargo test -p relayer",
+    "format": "cargo fmt",
+    "clippy": "cargo clippy -p relayer -- -D warnings"
+  }
+}
