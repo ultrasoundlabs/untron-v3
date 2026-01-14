@@ -380,6 +380,16 @@ impl Relayer {
                     }
                 }
                 tasks::LiquidityIntent::Tron(t) => pull_intent = Some(t),
+                tasks::LiquidityIntent::HubAndTron { hub, tron } => {
+                    if hub_locked {
+                        tracing::debug!(
+                            "hub sender nonce locked; skipping hub-side liquidity intent"
+                        );
+                    } else {
+                        hub_candidates.push(HubCandidate::new(hub));
+                    }
+                    pull_intent = Some(tron);
+                }
             }
         }
 

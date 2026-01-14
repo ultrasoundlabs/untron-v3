@@ -278,21 +278,6 @@ impl IndexerApi {
         })
         .await
     }
-
-    pub async fn hub_claims_created(&self, limit: u64) -> Result<Vec<types::HubClaims>> {
-        self.timed("hub_claims_get_created", async {
-            self.client
-                .hub_claims_get()
-                .status("eq.created")
-                .order("target_token.asc,queue_index.asc")
-                .limit(limit.to_string())
-                .send()
-                .await
-                .map_err(|e| anyhow::anyhow!("hub_claims_get(created all): {e:?}"))
-                .map(|r| r.into_inner())
-        })
-        .await
-    }
 }
 
 #[cfg(test)]

@@ -7,11 +7,13 @@ use crate::runner::util::{number_to_u256, parse_bytes32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
 use std::time::Instant;
+use untron_v3_indexer_client::types;
 
 #[derive(Debug, Clone)]
 pub enum LiquidityIntent {
     Hub(HubIntent),
     Tron(TronIntent),
+    HubAndTron { hub: HubIntent, tron: TronIntent },
 }
 
 fn compute_desired_liquidity(
@@ -54,6 +56,32 @@ fn select_receiver_salts(
     Ok(selected)
 }
 
+fn sum_unfinalized_pre_entitle_amount(
+    rows: impl IntoIterator<Item = types::ReceiverUsdtTransferActionability>,
+    tron_head: u64,
+    finality_blocks: u64,
+    block_lag: u64,
+) -> Result<U256> {
+    let mut sum = U256::ZERO;
+    for r in rows {
+        let Some(block_number) = r.block_number else {
+            continue;
+        };
+        let Ok(block_number_u64) = u64::try_from(block_number) else {
+            continue;
+        };
+        if super::tron_block_finalized(block_number_u64, tron_head, finality_blocks, block_lag) {
+            continue;
+        }
+        let Some(amount) = r.amount else {
+            continue;
+        };
+        let amt = number_to_u256(&amount)?;
+        sum = sum.checked_add(amt).context("deposit sum overflow")?;
+    }
+    Ok(sum)
+}
+
 pub async fn plan_liquidity(
     ctx: &RelayerContext,
     state: &RelayerState,
@@ -71,11 +99,6 @@ pub async fn plan_liquidity(
         .indexer
         .hub_claims_created_for_token(usdt, ctx.cfg.jobs.fill_max_claims.max(1))
         .await?;
-    if claims.is_empty() {
-        return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
-            key: "pull_from_receivers",
-        }));
-    }
 
     let hub_contract = ctx.hub_contract();
     let start = Instant::now();
@@ -86,7 +109,8 @@ pub async fn plan_liquidity(
         start.elapsed().as_millis() as u64,
     );
     let usdt_balance = usdt_balance_res?;
-    let total_claims_amt = claims
+
+    let ready_claims_amt = claims
         .iter()
         .try_fold(U256::ZERO, |acc, c| -> Result<U256> {
             let amt = number_to_u256(
@@ -96,20 +120,50 @@ pub async fn plan_liquidity(
             )?;
             acc.checked_add(amt).context("claim sum overflow")
         })?;
+    let has_ready_claims = !claims.is_empty();
 
-    if usdt_balance >= total_claims_amt {
-        return Ok(Plan::intent(LiquidityIntent::Hub(HubIntent::FillClaims {
+    // Include imminent (unfinalized) deposits that should become claims via preEntitle soon.
+    let pre_entitle_rows = ctx
+        .indexer
+        .receiver_usdt_transfer_actionability_pre_entitle(200)
+        .await?;
+    let pending_pre_entitle_amt = sum_unfinalized_pre_entitle_amount(
+        pre_entitle_rows,
+        tick.tron_head,
+        ctx.cfg.jobs.tron_finality_blocks,
+        ctx.cfg.tron.block_lag,
+    )?;
+
+    let projected_demand = ready_claims_amt
+        .checked_add(pending_pre_entitle_amt)
+        .context("projected demand overflow")?;
+
+    let hub_intent = if has_ready_claims && usdt_balance >= ready_claims_amt {
+        Some(HubIntent::FillClaims {
             target_token: usdt_addr,
             max_claims: ctx.cfg.jobs.fill_max_claims.max(1),
-        }))
-        .update(StateUpdate::DelayedTronClear {
-            key: "pull_from_receivers",
-        }));
-    }
+        })
+    } else {
+        None
+    };
 
-    let tron_plan = plan_pull_from_receivers(ctx, state, tick, total_claims_amt).await?;
+    let tron_plan = if projected_demand > usdt_balance {
+        plan_pull_from_receivers(ctx, state, tick, projected_demand).await?
+    } else {
+        Plan::none().update(StateUpdate::DelayedTronClear {
+            key: "pull_from_receivers",
+        })
+    };
+
+    let intent = match (hub_intent, tron_plan.intent) {
+        (Some(hub), Some(tron)) => Some(LiquidityIntent::HubAndTron { hub, tron }),
+        (Some(hub), None) => Some(LiquidityIntent::Hub(hub)),
+        (None, Some(tron)) => Some(LiquidityIntent::Tron(tron)),
+        (None, None) => None,
+    };
+
     Ok(Plan {
-        intent: tron_plan.intent.map(LiquidityIntent::Tron),
+        intent,
         updates: tron_plan.updates,
     })
 }
@@ -192,6 +246,7 @@ async fn plan_pull_from_receivers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Number;
 
     fn b32(n: u8) -> FixedBytes<32> {
         FixedBytes::from([n; 32])
@@ -236,6 +291,32 @@ mod tests {
         let selected = select_receiver_salts(rows, U256::from(2u64)).unwrap();
         assert_eq!(selected, vec![b32(2)]);
     }
+
+    #[test]
+    fn sum_unfinalized_pre_entitle_amount_counts_only_unfinalized() {
+        fn row(block_number: i64, amount: u64) -> types::ReceiverUsdtTransferActionability {
+            types::ReceiverUsdtTransferActionability {
+                block_number: Some(block_number),
+                amount: Some(Number::from(amount)),
+                ..Default::default()
+            }
+        }
+
+        // Finality rule: block_number + finality_blocks + block_lag <= head => finalized.
+        let tron_head = 100;
+        let finality_blocks = 10;
+        let block_lag = 0;
+
+        let rows = vec![
+            row(80, 5),  // 80 + 10 <= 100 => finalized (excluded)
+            row(91, 7),  // 91 + 10 > 100 => unfinalized (included)
+            row(-1, 99), // out of range (skipped)
+        ];
+
+        let sum = sum_unfinalized_pre_entitle_amount(rows, tron_head, finality_blocks, block_lag)
+            .unwrap();
+        assert_eq!(sum, U256::from(7u64));
+    }
 }
 
 pub async fn execute_liquidity_intent(
@@ -247,6 +328,10 @@ pub async fn execute_liquidity_intent(
     match intent {
         LiquidityIntent::Hub(hub) => super::hub_ops::execute_hub_intent(ctx, state, hub).await,
         LiquidityIntent::Tron(tron) => execute_pull_from_receivers(ctx, state, tick, tron).await,
+        LiquidityIntent::HubAndTron { hub, tron } => {
+            super::hub_ops::execute_hub_intent(ctx, state, hub).await?;
+            execute_pull_from_receivers(ctx, state, tick, tron).await
+        }
     }
 }
 
