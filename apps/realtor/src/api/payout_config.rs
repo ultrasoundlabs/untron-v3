@@ -1,5 +1,7 @@
+#[allow(unused_imports)]
+use super::ErrorResponse;
 use super::userop::send_userop;
-use super::{ApiError, ErrorResponse, SetPayoutConfigRequest, SetPayoutConfigResponse};
+use super::{ApiError, SetPayoutConfigRequest, SetPayoutConfigResponse};
 use crate::AppState;
 use crate::util::{number_to_u64, parse_hex_bytes};
 use alloy::primitives::{Address, B256, Signature, U256, keccak256};

@@ -325,6 +325,25 @@ pub struct LeasePayoutConfigVersionView {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct UsdtDepositAttributionEntryView {
+    /// Tron txId (sha256(raw_data)).
+    #[schema(example = "0x0000000000000000000000000000000000000000000000000000000000000000")]
+    pub tx_hash: String,
+    /// TRC-20 `Transfer.from` (Tron base58check, T...).
+    #[schema(example = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb")]
+    pub sender: String,
+    /// Attributed raw USDT amount (uint256, decimal string).
+    #[schema(example = "0")]
+    pub amount: String,
+    /// Tron block timestamp (seconds) for the underlying transfer log.
+    #[schema(example = 0)]
+    pub block_timestamp: i64,
+    /// TRC-20 Transfer log index within the tx.
+    #[schema(example = 0)]
+    pub log_index: i32,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct LeaseClaimView {
     /// Claim id (uint256, decimal string).
     #[schema(example = "0")]
@@ -368,6 +387,11 @@ pub struct LeaseClaimView {
     /// Raw amount before fees (uint256, decimal string).
     #[schema(example = "0")]
     pub origin_raw_amount: String,
+    /// Best-effort attribution of this claim's underlying USDT deposits.
+    ///
+    /// - For pre-entitle origins, this is usually a single entry.
+    /// - For receiver-pull origins, this may contain multiple entries (FIFO approximation) or be empty.
+    pub usdt_deposit_attribution: Vec<UsdtDepositAttributionEntryView>,
     #[schema(example = 0)]
     pub valid_from_seq: u64,
     #[schema(nullable = true)]

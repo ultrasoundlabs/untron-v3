@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
+use super::ErrorResponse;
 use super::receiver_salt::normalize_receiver_salt_hex;
+use super::types::UsdtDepositAttributionEntryView;
 use super::{
-    ApiError, ErrorResponse, LeaseClaimView, LeasePayoutConfigVersionView, LeasePayoutConfigView,
+    ApiError, LeaseClaimView, LeasePayoutConfigVersionView, LeasePayoutConfigView,
     LeaseViewResponse,
 };
 use crate::AppState;
@@ -476,6 +479,13 @@ fn parse_claims(v: &Value) -> Result<Vec<LeaseClaimView>, ApiError> {
             .and_then(|v| json_decimal_string(v, "claims.origin_raw_amount"))
             .unwrap_or_else(|| "0".to_string());
 
+        let usdt_deposit_attribution_value = match obj.get("usdt_deposit_attribution") {
+            Some(Value::Null) | None => Value::Array(Vec::new()),
+            Some(other) => other.clone(),
+        };
+        let usdt_deposit_attribution =
+            parse_usdt_deposit_attribution(&usdt_deposit_attribution_value)?;
+
         let valid_from_seq = match obj.get("valid_from_seq") {
             Some(Value::Null) | None => 0,
             Some(other) => json_u64(other, "claims.valid_from_seq")?,
@@ -499,8 +509,67 @@ fn parse_claims(v: &Value) -> Result<Vec<LeaseClaimView>, ApiError> {
             origin_token,
             origin_timestamp,
             origin_raw_amount,
+            usdt_deposit_attribution,
             valid_from_seq,
             valid_to_seq,
+        });
+    }
+
+    Ok(out)
+}
+
+fn parse_usdt_deposit_attribution(
+    v: &Value,
+) -> Result<Vec<UsdtDepositAttributionEntryView>, ApiError> {
+    let arr = v.as_array().ok_or_else(|| {
+        ApiError::Upstream(
+            "indexer lease_view usdt_deposit_attribution is not an array".to_string(),
+        )
+    })?;
+
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let obj = item.as_object().ok_or_else(|| {
+            ApiError::Upstream(
+                "indexer lease_view usdt_deposit_attribution entry is not an object".to_string(),
+            )
+        })?;
+
+        let tx_hash = obj.get("tx_hash").and_then(json_string).ok_or_else(|| {
+            ApiError::Upstream(
+                "indexer lease_view usdt_deposit_attribution missing tx_hash".to_string(),
+            )
+        })?;
+        let sender = obj.get("sender").and_then(json_string).ok_or_else(|| {
+            ApiError::Upstream(
+                "indexer lease_view usdt_deposit_attribution missing sender".to_string(),
+            )
+        })?;
+        let amount = obj
+            .get("amount")
+            .and_then(|v| json_decimal_string(v, "usdt_deposit_attribution.amount"))
+            .ok_or_else(|| {
+                ApiError::Upstream(
+                    "indexer lease_view usdt_deposit_attribution missing amount".to_string(),
+                )
+            })?;
+        let block_timestamp = match obj.get("block_timestamp") {
+            Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
+            Some(Value::String(s)) => s.parse::<i64>().unwrap_or(0),
+            _ => 0,
+        };
+        let log_index = obj
+            .get("log_index")
+            .map(|v| json_i32(v, "usdt_deposit_attribution.log_index"))
+            .transpose()?
+            .unwrap_or(0);
+
+        out.push(UsdtDepositAttributionEntryView {
+            tx_hash,
+            sender,
+            amount,
+            block_timestamp,
+            log_index,
         });
     }
 

@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use super::ErrorResponse;
 use super::lease_terms::resolve_lease_terms;
 use super::offer::compute_offer;
 use super::receiver_salt::{
@@ -6,7 +8,7 @@ use super::receiver_salt::{
 };
 use super::userop::send_userop;
 use super::{
-    ApiError, CreateLeaseRequest, CreateLeaseResponse, ErrorResponse, RealtorInfoResponse,
+    ApiError, CreateLeaseRequest, CreateLeaseResponse, RealtorInfoResponse,
     RealtorTargetPairResponse,
 };
 use crate::util::parse_bytes32;
