@@ -32,8 +32,15 @@ impl HubExecutor {
     }
 
     pub async fn current_nonce(&self) -> Result<U256> {
+        let start = Instant::now();
         let sender = self.sender.lock().await;
-        sender.current_nonce().await
+        let res = sender.current_nonce().await;
+        self.telemetry.hub_rpc_ms(
+            "EntryPoint.getNonce",
+            res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        res
     }
 
     pub async fn submit(
@@ -45,7 +52,18 @@ impl HubExecutor {
         let start = Instant::now();
         let submission = {
             let mut sender = self.sender.lock().await;
-            sender.send_call(self.untron_v3, data).await
+            let nonce_start = Instant::now();
+            let nonce_res = sender.current_nonce().await;
+            self.telemetry.hub_rpc_ms(
+                "EntryPoint.getNonce",
+                nonce_res.is_ok(),
+                nonce_start.elapsed().as_millis() as u64,
+            );
+            let nonce = nonce_res?;
+
+            sender
+                .send_call_with_nonce(nonce, self.untron_v3, data)
+                .await
         };
 
         match submission {
@@ -53,6 +71,7 @@ impl HubExecutor {
                 self.telemetry
                     .hub_submit_ms(name, true, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_ok();
+                state.invalidate_hub_usdt_balance_cache();
                 state.hub_pending_nonce = Some(sub.nonce);
                 tracing::info!(userop_hash = %sub.userop_hash, %name, "submitted hub userop");
                 Ok(())

@@ -6,7 +6,6 @@ use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
-use std::time::Instant;
 use untron_v3_indexer_client::types;
 
 #[derive(Debug, Clone)]
@@ -84,7 +83,7 @@ fn sum_unfinalized_pre_entitle_amount(
 
 pub async fn plan_liquidity(
     ctx: &RelayerContext,
-    state: &RelayerState,
+    state: &mut RelayerState,
     tick: &Tick,
 ) -> Result<Plan<LiquidityIntent>> {
     let Some(proto) = ctx.indexer.hub_protocol_config().await? else {
@@ -99,16 +98,6 @@ pub async fn plan_liquidity(
         .indexer
         .hub_claims_created_for_token(usdt, ctx.cfg.jobs.fill_max_claims.max(1))
         .await?;
-
-    let hub_contract = ctx.hub_contract();
-    let start = Instant::now();
-    let usdt_balance_res = hub_contract.usdtBalance().call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "usdtBalance",
-        usdt_balance_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let usdt_balance = usdt_balance_res?;
 
     let ready_claims_amt = claims
         .iter()
@@ -137,6 +126,14 @@ pub async fn plan_liquidity(
     let projected_demand = ready_claims_amt
         .checked_add(pending_pre_entitle_amt)
         .context("projected demand overflow")?;
+
+    if projected_demand.is_zero() {
+        return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
+            key: "pull_from_receivers",
+        }));
+    }
+
+    let usdt_balance = state.hub_usdt_balance(ctx).await?;
 
     let hub_intent = if has_ready_claims && usdt_balance >= ready_claims_amt {
         Some(HubIntent::FillClaims {

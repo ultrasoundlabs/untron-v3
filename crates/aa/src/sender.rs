@@ -177,7 +177,15 @@ impl Safe4337UserOpSender {
         data: Vec<u8>,
     ) -> Result<Safe4337UserOpSubmission> {
         let nonce = self.current_nonce().await?;
+        self.send_call_with_nonce(nonce, to, data).await
+    }
 
+    pub async fn send_call_with_nonce(
+        &mut self,
+        nonce: U256,
+        to: Address,
+        data: Vec<u8>,
+    ) -> Result<Safe4337UserOpSubmission> {
         // Prefer standard EIP-1559 fee estimation (eth_feeHistory). This avoids bundler-specific gas APIs.
         let (max_fee_per_gas, max_priority_fee_per_gas) = match self
             .provider

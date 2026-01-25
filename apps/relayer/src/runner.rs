@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use std::{
     collections::{HashMap, hash_map::Entry},
     sync::Arc,
+    time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -71,9 +72,45 @@ pub struct RelayerState {
     rebalance_cursor: usize,
     energy_rental_cursor: usize,
     hub_pending_nonce: Option<U256>,
+    hub_usdt_balance_cache: Option<HubUsdtBalanceCache>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HubUsdtBalanceCache {
+    balance: U256,
+    fetched_at: Instant,
 }
 
 impl RelayerState {
+    pub fn invalidate_hub_usdt_balance_cache(&mut self) {
+        self.hub_usdt_balance_cache = None;
+    }
+
+    pub async fn hub_usdt_balance(&mut self, ctx: &RelayerContext) -> Result<U256> {
+        const HUB_USDT_BALANCE_CACHE_TTL: Duration = Duration::from_secs(30);
+
+        if let Some(cached) = self.hub_usdt_balance_cache {
+            if cached.fetched_at.elapsed() <= HUB_USDT_BALANCE_CACHE_TTL {
+                return Ok(cached.balance);
+            }
+        }
+
+        let hub_contract = ctx.hub_contract();
+        let start = Instant::now();
+        let balance_res = hub_contract.usdtBalance().call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "usdtBalance",
+            balance_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        let balance = balance_res?;
+        self.hub_usdt_balance_cache = Some(HubUsdtBalanceCache {
+            balance,
+            fetched_at: Instant::now(),
+        });
+        Ok(balance)
+    }
+
     fn plan_tron_delay(
         &self,
         key: &'static str,
@@ -225,6 +262,7 @@ impl Relayer {
                 rebalance_cursor: 0,
                 energy_rental_cursor: 0,
                 hub_pending_nonce: None,
+                hub_usdt_balance_cache: None,
             },
         })
     }
@@ -349,7 +387,7 @@ impl Relayer {
             (relay?, process?, pre?)
         };
 
-        let liquidity_plan = tasks::plan_liquidity(&self.ctx, &self.state, tick).await?;
+        let liquidity_plan = tasks::plan_liquidity(&self.ctx, &mut self.state, tick).await?;
 
         self.state.apply_updates(relay_plan.updates);
         self.state.apply_updates(process_plan.updates);
@@ -579,6 +617,7 @@ mod tests {
             rebalance_cursor: 0,
             energy_rental_cursor: 0,
             hub_pending_nonce: None,
+            hub_usdt_balance_cache: None,
         }
     }
 
