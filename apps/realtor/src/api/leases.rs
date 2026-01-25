@@ -506,6 +506,8 @@ fn parse_claims(v: &Value) -> Result<Vec<LeaseClaimView>, ApiError> {
             .and_then(|v| json_decimal_string(v, "claims.origin_raw_amount"))
             .unwrap_or_else(|| "0".to_string());
 
+        let fill_tx_hash = obj.get("fill_tx_hash").and_then(json_string);
+
         let usdt_deposit_attribution_value = match obj.get("usdt_deposit_attribution") {
             Some(Value::Null) | None => Value::Array(Vec::new()),
             Some(other) => other.clone(),
@@ -537,6 +539,7 @@ fn parse_claims(v: &Value) -> Result<Vec<LeaseClaimView>, ApiError> {
             origin_timestamp,
             origin_raw_amount,
             usdt_deposit_attribution,
+            fill_tx_hash,
             valid_from_seq,
             valid_to_seq,
         });

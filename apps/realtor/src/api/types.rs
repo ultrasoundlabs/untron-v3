@@ -411,6 +411,15 @@ pub struct LeaseClaimView {
     /// - For pre-entitle origins, this is usually a single entry.
     /// - For receiver-pull origins, this may contain multiple entries (FIFO approximation) or be empty.
     pub usdt_deposit_attribution: Vec<UsdtDepositAttributionEntryView>,
+
+    /// Hub transaction hash that filled this claim (when `status == "filled"`).
+    ///
+    /// Derived from the canonical hub `ClaimFilled` event.
+    #[schema(
+        nullable = true,
+        example = "0x0000000000000000000000000000000000000000000000000000000000000000"
+    )]
+    pub fill_tx_hash: Option<String>,
     #[schema(example = 0)]
     pub valid_from_seq: u64,
     #[schema(nullable = true)]

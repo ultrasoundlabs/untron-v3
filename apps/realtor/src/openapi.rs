@@ -61,4 +61,15 @@ mod tests {
             "missing pending_usdt_deposits_latest_block_timestamp"
         );
     }
+
+    #[test]
+    fn openapi_includes_claim_fill_tx_hash() {
+        let v = serde_json::to_value(RealtorApiDoc::openapi()).expect("openapi json");
+        let props = &v["components"]["schemas"]["LeaseClaimView"]["properties"];
+
+        assert!(
+            props.get("fill_tx_hash").is_some(),
+            "missing fill_tx_hash on LeaseClaimView"
+        );
+    }
 }
