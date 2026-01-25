@@ -1,3 +1,4 @@
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use crate::{config::Stream, db, shared::progress::RangeMetrics};
 use alloy::{providers::Provider, rpc::types::Filter, sol_types::SolEvent};
 use anyhow::{Context, Result};
@@ -54,7 +55,7 @@ pub(super) async fn process_range_with_provider(
         let Some((raw_event_logs, rpc_event_ms)) =
             r#async::timed_await_or_cancel(shutdown, async {
                 provider.get_logs(&filter).await.map_err(|e| {
-                    state.telemetry.rpc_error("eth_getLogs_EventAppended");
+                    state.telemetry.rpc_error("eth_getLogs", "EventAppended");
                     anyhow::Error::new(e).context(format!(
                         "eth_getLogs EventAppended [{from_block}..{to_block}]"
                     ))
@@ -67,7 +68,7 @@ pub(super) async fn process_range_with_provider(
         let event_logs = logs::validate_and_sort_logs(raw_event_logs)?;
         state
             .telemetry
-            .observe_rpc_latency_ms("eth_getLogs_EventAppended", rpc_event_ms);
+            .rpc_call("eth_getLogs", "EventAppended", true, rpc_event_ms);
 
         let mut proof_logs = Vec::new();
         let mut rpc_proof_ms = 0u64;
@@ -81,7 +82,7 @@ pub(super) async fn process_range_with_provider(
                 provider.get_logs(&proof_filter).await.map_err(|e| {
                     state
                         .telemetry
-                        .rpc_error("eth_getLogs_IsEventChainTipCalled");
+                        .rpc_error("eth_getLogs", "IsEventChainTipCalled");
                     anyhow::Error::new(e).context(format!(
                         "eth_getLogs IsEventChainTipCalled [{from_block}..{to_block}]"
                     ))
@@ -95,13 +96,19 @@ pub(super) async fn process_range_with_provider(
             rpc_proof_ms = ms;
             state
                 .telemetry
-                .observe_rpc_latency_ms("eth_getLogs_IsEventChainTipCalled", rpc_proof_ms);
+                .rpc_call("eth_getLogs", "IsEventChainTipCalled", true, rpc_proof_ms);
         }
 
         let Some(((), ts_ms)) = r#async::timed_await_or_cancel(shutdown, async {
             state
                 .timestamps
-                .populate_timestamps(shutdown, provider, &event_logs, &proof_logs)
+                .populate_timestamps(
+                    shutdown,
+                    provider,
+                    &event_logs,
+                    &proof_logs,
+                    Some(&state.telemetry),
+                )
                 .await
                 .context("timestamp enrichment")
         })

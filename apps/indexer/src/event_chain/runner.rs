@@ -1,3 +1,4 @@
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use crate::{
     config::StreamConfig,
     db::{self, ResolvedStream},
@@ -156,7 +157,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
 
         let head_res = timed_await_or_cancel(&shutdown, async {
             state.provider.get_block_number().await.map_err(|e| {
-                state.telemetry.rpc_error("eth_blockNumber");
+                state.telemetry.rpc_error("eth_blockNumber", "head");
                 anyhow::Error::new(e).context("eth_blockNumber")
             })
         })
@@ -187,7 +188,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
         head_backoff = TRANSIENT_BACKOFF_INITIAL;
         state
             .telemetry
-            .observe_rpc_latency_ms("eth_blockNumber", head_ms);
+            .rpc_call("eth_blockNumber", "head", true, head_ms);
         let head: u64 = head;
 
         let safe_head = head.saturating_sub(state.confirmations);
@@ -209,6 +210,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
                 &state.pinned_providers,
                 state.stream,
                 state.reorg_scan_depth,
+                Some(&state.telemetry),
             )
             .await
         })

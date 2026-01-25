@@ -1,8 +1,10 @@
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use alloy::providers::Provider;
 use anyhow::{Context, Result};
 use futures::{StreamExt, stream};
 use lru::LruCache;
 use serde_json::Value;
+use std::time::Instant;
 use std::{collections::HashSet, num::NonZeroUsize, sync::Arc};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
@@ -62,6 +64,7 @@ impl TimestampState {
         provider: &alloy::providers::DynProvider,
         event_logs: &[ValidatedLog],
         proof_logs: &[ValidatedLog],
+        rpc_telemetry: Option<&dyn RpcTelemetry>,
     ) -> Result<()> {
         let mut blocks: HashSet<u64> = HashSet::new();
         for l in event_logs.iter().chain(proof_logs.iter()) {
@@ -85,11 +88,13 @@ impl TimestampState {
         let sem = self.header_sem.clone();
         let shutdown_child = shutdown.clone();
         let concurrency = self.header_concurrency;
+        let rpc = rpc_telemetry;
 
         let mut tasks = stream::iter(missing).map(move |block_number| {
             let provider = provider.clone();
             let sem = sem.clone();
             let shutdown = shutdown_child.clone();
+            let rpc = rpc;
             async move {
                 tokio::select! {
                     _ = shutdown.cancelled() => Ok::<Option<(u64, u64)>, anyhow::Error>(None),
@@ -98,6 +103,7 @@ impl TimestampState {
                         // Some EVM-compatible RPCs (notably Tron) return nonstandard block fields
                         // (e.g. `stateRoot: "0x"`) that can fail strict typed decoding. We only
                         // need the block timestamp, so fetch the block as raw JSON and parse it.
+                        let start = Instant::now();
                         let block: Option<Value> = provider
                             .client()
                             .request(
@@ -105,11 +111,30 @@ impl TimestampState {
                                 (alloy::rpc::types::BlockNumberOrTag::Number(block_number), false),
                             )
                             .await
-                            .map_err(anyhow::Error::new)
+                            .map_err(|e| {
+                                if let Some(rpc) = rpc {
+                                    rpc.rpc_error("eth_getBlockByNumber", "timestamp");
+                                    rpc.rpc_call(
+                                        "eth_getBlockByNumber",
+                                        "timestamp",
+                                        false,
+                                        start.elapsed().as_millis() as u64,
+                                    );
+                                }
+                                anyhow::Error::new(e)
+                            })
                             .with_context(|| format!("eth_getBlockByNumber({block_number})"))?;
                         let Some(block) = block else {
                             anyhow::bail!("block {block_number} not found");
                         };
+                        if let Some(rpc) = rpc {
+                            rpc.rpc_call(
+                                "eth_getBlockByNumber",
+                                "timestamp",
+                                true,
+                                start.elapsed().as_millis() as u64,
+                            );
+                        }
                         let ts = parse_block_timestamp(&block)
                             .with_context(|| format!("parse block.timestamp for block {block_number}"))?;
                         Ok(Some((block_number, normalize_timestamp_seconds(ts))))

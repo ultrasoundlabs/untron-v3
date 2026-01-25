@@ -7,6 +7,7 @@ use std::{collections::HashMap, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug};
 
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use crate::{
     db::receiver_usdt as db,
     receiver_usdt::telemetry::ReceiverUsdtTelemetry,
@@ -98,12 +99,13 @@ pub(crate) async fn process_token_range(
         else {
             return Ok(None);
         };
+        telemetry.rpc_call("eth_getLogs", "receiver_usdt Transfer", true, rpc_ms);
         let logs = crate::shared::logs::validate_and_sort_logs(raw_logs)?;
         let logs_count = logs.len() as u64;
 
         let Some(((), ts_ms)) = r#async::timed_await_or_cancel(shutdown, async {
             timestamps_state
-                .populate_timestamps(shutdown, provider, &logs, &[])
+                .populate_timestamps(shutdown, provider, &logs, &[], Some(telemetry))
                 .await
                 .inspect_err(|_| {
                     telemetry.error(mode, token_tron, "timestamp");

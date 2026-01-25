@@ -297,6 +297,25 @@ pub struct LeaseViewResponse {
     /// Number of filled claims.
     #[schema(example = 0)]
     pub claims_filled: u64,
+
+    /// Canonical receiver USDT deposits that are still eligible for `preEntitle`
+    /// and have not yet been accounted for by a hub pre-entitle claim.
+    ///
+    /// Entries are a minimal, stable subset:
+    /// `{ tx_hash, sender, amount, block_timestamp, log_index }`.
+    pub pending_usdt_deposits: Vec<UsdtDepositAttributionEntryView>,
+
+    /// Total number of pending deposits.
+    #[schema(example = 0)]
+    pub pending_usdt_deposits_total: u64,
+
+    /// Sum of pending deposit amounts (uint256, decimal string).
+    #[schema(example = "0")]
+    pub pending_usdt_deposits_amount: String,
+
+    /// Latest pending deposit Tron block timestamp (seconds).
+    #[schema(example = 0)]
+    pub pending_usdt_deposits_latest_block_timestamp: i64,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

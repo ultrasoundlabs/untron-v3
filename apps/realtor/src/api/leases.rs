@@ -272,6 +272,29 @@ pub async fn get_lease(
             .and_then(|v| u64::try_from(v).ok())
             .unwrap_or_else(|| claims.iter().filter(|c| c.status == "filled").count() as u64);
 
+        let (pending_usdt_deposits, pending_usdt_deposits_total, pending_usdt_deposits_amount, pending_usdt_deposits_latest_block_timestamp) =
+            match state.indexer.lease_view_pending_usdt_deposits(lease_id).await {
+                Ok(Some(p)) => {
+                    let deposits = parse_usdt_deposit_attribution(&p.pending_usdt_deposits)?;
+                    let deposits_len = deposits.len() as u64;
+                    (
+                        deposits,
+                        if p.pending_usdt_deposits_total == 0 {
+                            deposits_len
+                        } else {
+                            p.pending_usdt_deposits_total
+                        },
+                        p.pending_usdt_deposits_amount,
+                        p.pending_usdt_deposits_latest_block_timestamp,
+                    )
+                }
+                Ok(None) => (Vec::new(), 0, "0".to_string(), 0),
+                Err(e) => {
+                    tracing::warn!(lease_id, err = %e, "indexer lease_view pending_usdt_deposits lookup failed");
+                    (Vec::new(), 0, "0".to_string(), 0)
+                }
+            };
+
         Ok(Json(LeaseViewResponse {
             lease_id: lease_id_str,
             receiver_salt,
@@ -290,6 +313,10 @@ pub async fn get_lease(
             claims,
             claims_total,
             claims_filled,
+            pending_usdt_deposits,
+            pending_usdt_deposits_total,
+            pending_usdt_deposits_amount,
+            pending_usdt_deposits_latest_block_timestamp,
         }))
     }
     .await;

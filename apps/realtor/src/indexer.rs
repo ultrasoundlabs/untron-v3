@@ -1,11 +1,15 @@
 use anyhow::{Context, Result};
+use serde::Deserialize;
+use serde_json::Value;
 use std::time::{Duration, Instant};
 use untron_v3_indexer_client::{Client, types};
 
 use crate::metrics::RealtorTelemetry;
 
 pub struct IndexerApi {
+    base_url: String,
     client: Client,
+    http: reqwest::Client,
     telemetry: RealtorTelemetry,
 }
 
@@ -15,15 +19,33 @@ pub struct BridgerPair {
     pub target_chain_id: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingUsdtDepositsSummary {
+    pub pending_usdt_deposits: Value,
+    pub pending_usdt_deposits_total: u64,
+    pub pending_usdt_deposits_amount: String,
+    pub pending_usdt_deposits_latest_block_timestamp: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct LeaseViewPendingUsdtDepositsRow {
+    pending_usdt_deposits: Option<Value>,
+    pending_usdt_deposits_total: Option<i64>,
+    pending_usdt_deposits_amount: Option<String>,
+    pending_usdt_deposits_latest_block_timestamp: Option<i64>,
+}
+
 impl IndexerApi {
     pub fn new(base_url: &str, timeout: Duration, telemetry: RealtorTelemetry) -> Result<Self> {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let client = reqwest::Client::builder()
+        let http = reqwest::Client::builder()
             .timeout(timeout)
             .build()
             .context("build indexer http client")?;
         Ok(Self {
-            client: Client::new_with_client(&base_url, client),
+            base_url: base_url.clone(),
+            client: Client::new_with_client(&base_url, http.clone()),
+            http,
             telemetry,
         })
     }
@@ -329,6 +351,62 @@ impl IndexerApi {
             })
             .await?;
         Ok(rows.into_iter().next())
+    }
+
+    /// Fetches `pending_usdt_deposits` fields from `api.lease_view` via a raw PostgREST request.
+    ///
+    /// This is used by realtor to surface pending pre-entitle-eligible deposits in `GET /leases/{lease_id}`
+    /// without requiring re-generating the typed indexer client for every schema change.
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn lease_view_pending_usdt_deposits(
+        &self,
+        lease_id: u64,
+    ) -> Result<Option<PendingUsdtDepositsSummary>> {
+        let url = format!("{}/lease_view", self.base_url);
+        let lease_filter = format!("eq.{lease_id}");
+        let select = "pending_usdt_deposits,pending_usdt_deposits_total,pending_usdt_deposits_amount,pending_usdt_deposits_latest_block_timestamp";
+
+        let rows = self
+            .timed("lease_view_get_pending_usdt_deposits", async {
+                self.http
+                    .get(url)
+                    .query(&[
+                        ("lease_id", lease_filter),
+                        ("select", select.to_string()),
+                        ("limit", "1".to_string()),
+                    ])
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("lease_view pending_usdt_deposits GET: {e:?}"))?
+                    .error_for_status()
+                    .map_err(|e| {
+                        anyhow::anyhow!("lease_view pending_usdt_deposits bad status: {e:?}")
+                    })?
+                    .json::<Vec<LeaseViewPendingUsdtDepositsRow>>()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("lease_view pending_usdt_deposits json: {e:?}"))
+            })
+            .await?;
+
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(None);
+        };
+
+        Ok(Some(PendingUsdtDepositsSummary {
+            pending_usdt_deposits: row
+                .pending_usdt_deposits
+                .unwrap_or_else(|| Value::Array(Vec::new())),
+            pending_usdt_deposits_total: row
+                .pending_usdt_deposits_total
+                .and_then(|v| u64::try_from(v).ok())
+                .unwrap_or(0),
+            pending_usdt_deposits_amount: row
+                .pending_usdt_deposits_amount
+                .unwrap_or_else(|| "0".to_string()),
+            pending_usdt_deposits_latest_block_timestamp: row
+                .pending_usdt_deposits_latest_block_timestamp
+                .unwrap_or(0),
+        }))
     }
 
     #[tracing::instrument(level = "debug", skip(self))]

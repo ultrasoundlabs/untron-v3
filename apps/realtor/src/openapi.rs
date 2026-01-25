@@ -31,3 +31,34 @@ use utoipa::OpenApi;
     tags((name = "realtor", description = "Realtor API"))
 )]
 pub struct RealtorApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::RealtorApiDoc;
+    use utoipa::OpenApi;
+
+    #[test]
+    fn openapi_includes_pending_usdt_deposits_fields() {
+        let v = serde_json::to_value(RealtorApiDoc::openapi()).expect("openapi json");
+        let props = &v["components"]["schemas"]["LeaseViewResponse"]["properties"];
+
+        assert!(
+            props.get("pending_usdt_deposits").is_some(),
+            "missing pending_usdt_deposits"
+        );
+        assert!(
+            props.get("pending_usdt_deposits_total").is_some(),
+            "missing pending_usdt_deposits_total"
+        );
+        assert!(
+            props.get("pending_usdt_deposits_amount").is_some(),
+            "missing pending_usdt_deposits_amount"
+        );
+        assert!(
+            props
+                .get("pending_usdt_deposits_latest_block_timestamp")
+                .is_some(),
+            "missing pending_usdt_deposits_latest_block_timestamp"
+        );
+    }
+}

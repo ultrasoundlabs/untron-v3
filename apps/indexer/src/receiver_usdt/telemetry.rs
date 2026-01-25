@@ -1,3 +1,4 @@
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use opentelemetry::{
     KeyValue, global,
     metrics::{Counter, Histogram},
@@ -15,6 +16,10 @@ struct Inner {
 
     logs_total: Counter<u64>,
     rows_total: Counter<u64>,
+
+    rpc_calls_total: Counter<u64>,
+    rpc_errors_total: Counter<u64>,
+    rpc_call_latency_ms: Histogram<u64>,
 
     rpc_ms: Histogram<u64>,
     db_ms: Histogram<u64>,
@@ -43,6 +48,20 @@ impl ReceiverUsdtTelemetry {
             .with_description("Total receiver-USDT rows inserted")
             .build();
 
+        let rpc_calls_total = meter
+            .u64_counter("indexer.receiver_usdt.rpc_calls_total")
+            .with_description("Total receiver-USDT RPC calls (method-level)")
+            .build();
+        let rpc_errors_total = meter
+            .u64_counter("indexer.receiver_usdt.rpc_errors_total")
+            .with_description("Total receiver-USDT RPC errors (method-level)")
+            .build();
+        let rpc_call_latency_ms = meter
+            .u64_histogram("indexer.receiver_usdt.rpc_call_latency_ms")
+            .with_description("Receiver-USDT RPC call latency (method-level)")
+            .with_unit("ms")
+            .build();
+
         let rpc_ms = meter
             .u64_histogram("indexer.receiver_usdt.rpc_ms")
             .with_description("Receiver-USDT RPC time per range")
@@ -65,6 +84,9 @@ impl ReceiverUsdtTelemetry {
                 errors_total,
                 logs_total,
                 rows_total,
+                rpc_calls_total,
+                rpc_errors_total,
+                rpc_call_latency_ms,
                 rpc_ms,
                 db_ms,
                 total_ms,
@@ -106,5 +128,29 @@ impl ReceiverUsdtTelemetry {
             KeyValue::new("kind", kind),
         ];
         self.inner.errors_total.add(1, &attrs);
+    }
+
+    pub fn rpc_error(&self, method: &'static str, purpose: &'static str) {
+        let attrs = [
+            KeyValue::new("method", method),
+            KeyValue::new("purpose", purpose),
+        ];
+        self.inner.rpc_errors_total.add(1, &attrs);
+    }
+}
+
+impl RpcTelemetry for ReceiverUsdtTelemetry {
+    fn rpc_call(&self, method: &'static str, purpose: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            KeyValue::new("method", method),
+            KeyValue::new("purpose", purpose),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.rpc_calls_total.add(1, &attrs);
+        self.inner.rpc_call_latency_ms.record(ms, &attrs);
+    }
+
+    fn rpc_error(&self, method: &'static str, purpose: &'static str) {
+        ReceiverUsdtTelemetry::rpc_error(self, method, purpose)
     }
 }

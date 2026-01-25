@@ -1,4 +1,5 @@
 use crate::config::Stream;
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use opentelemetry::{
     KeyValue, global,
     metrics::{Counter, Histogram, ObservableGauge},
@@ -21,6 +22,7 @@ struct Inner {
     blocks_total: Counter<u64>,
     logs_total: Counter<u64>,
     reorgs_total: Counter<u64>,
+    rpc_calls_total: Counter<u64>,
     rpc_errors_total: Counter<u64>,
     db_errors_total: Counter<u64>,
     rows_upserted_total: Counter<u64>,
@@ -67,6 +69,10 @@ impl StreamTelemetry {
         let reorgs_total = meter
             .u64_counter("indexer.reorgs_total")
             .with_description("Total reorgs detected")
+            .build();
+        let rpc_calls_total = meter
+            .u64_counter("indexer.rpc_calls_total")
+            .with_description("Total RPC calls (best-effort classification via code paths)")
             .build();
         let rpc_errors_total = meter
             .u64_counter("indexer.rpc_errors_total")
@@ -165,6 +171,7 @@ impl StreamTelemetry {
                 blocks_total,
                 logs_total,
                 reorgs_total,
+                rpc_calls_total,
                 rpc_errors_total,
                 db_errors_total,
                 rows_upserted_total,
@@ -247,13 +254,14 @@ impl StreamTelemetry {
             .record(ms, &self.inner.attrs);
     }
 
-    pub fn rpc_error(&self, method: &'static str) {
+    pub fn rpc_error(&self, method: &'static str, purpose: &'static str) {
         self.inner.rpc_errors_total.add(
             1,
             &[
                 self.inner.attrs[0].clone(),
                 self.inner.attrs[1].clone(),
                 KeyValue::new("method", method),
+                KeyValue::new("purpose", purpose),
             ],
         );
     }
@@ -282,5 +290,23 @@ impl StreamTelemetry {
                 KeyValue::new("table", table),
             ],
         );
+    }
+}
+
+impl RpcTelemetry for StreamTelemetry {
+    fn rpc_call(&self, method: &'static str, purpose: &'static str, ok: bool, ms: u64) {
+        let attrs = [
+            self.inner.attrs[0].clone(),
+            self.inner.attrs[1].clone(),
+            KeyValue::new("method", method),
+            KeyValue::new("purpose", purpose),
+            KeyValue::new("status", if ok { "ok" } else { "err" }),
+        ];
+        self.inner.rpc_calls_total.add(1, &attrs);
+        self.inner.rpc_latency_ms.record(ms, &attrs);
+    }
+
+    fn rpc_error(&self, method: &'static str, purpose: &'static str) {
+        StreamTelemetry::rpc_error(self, method, purpose)
     }
 }

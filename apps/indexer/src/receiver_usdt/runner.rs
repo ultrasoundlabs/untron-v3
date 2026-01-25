@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::shared::progress::ProgressReporter;
+use crate::shared::rpc_telemetry::RpcTelemetry;
 
 pub struct RunReceiverUsdtParams {
     pub dbh: db::Db,
@@ -381,16 +382,17 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     _ = ticker.tick() => {}
                 }
 
-                let Some(head) = timed_await_or_cancel(shutdown, async {
-                    provider
-                        .get_block_number()
-                        .await
-                        .map_err(|e| anyhow::Error::new(e).context("Failed to get block number"))
+                let Some((head, head_ms)) = timed_await_or_cancel(shutdown, async {
+                    provider.get_block_number().await.map_err(|e| {
+                        telemetry.rpc_error("eth_blockNumber", "head");
+                        anyhow::Error::new(e).context("Failed to get block number")
+                    })
                 })
                 .await?
-                .map(|(v, _ms)| v) else {
+                else {
                     return Ok(());
                 };
+                telemetry.rpc_call("eth_blockNumber", "head", true, head_ms);
 
                 // Cache receiver map across ticks; refresh only if watchlist changed.
                 let watchlist_epoch = receiverdb::watchlist_last_updated_at_epoch(dbh)
@@ -477,16 +479,17 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                 let stop_at_or_above = work.stop_at_or_above;
 
                 // Backfill one chunk for this cohort.
-                let Some(head) = timed_await_or_cancel(shutdown, async {
-                    provider
-                        .get_block_number()
-                        .await
-                        .map_err(|e| anyhow::Error::new(e).context("Failed to get block number"))
+                let Some((head, head_ms)) = timed_await_or_cancel(shutdown, async {
+                    provider.get_block_number().await.map_err(|e| {
+                        telemetry.rpc_error("eth_blockNumber", "head");
+                        anyhow::Error::new(e).context("Failed to get block number")
+                    })
                 })
                 .await?
-                .map(|(v, _ms)| v) else {
+                else {
                     return Ok(());
                 };
+                telemetry.rpc_call("eth_blockNumber", "head", true, head_ms);
                 let safe_head = head.saturating_sub(controller_cfg.confirmations);
 
                 if start_block > safe_head {

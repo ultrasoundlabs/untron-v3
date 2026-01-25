@@ -1,7 +1,9 @@
+use crate::shared::rpc_telemetry::RpcTelemetry;
 use crate::{config::Stream, db, domain};
 use alloy::{providers::Provider, rpc::types::BlockNumberOrTag};
 use anyhow::{Context, Result};
 use serde_json::Value;
+use std::time::Instant;
 use tracing::{debug, warn};
 
 pub async fn detect_reorg_start(
@@ -10,31 +12,33 @@ pub async fn detect_reorg_start(
     pinned_providers: &[alloy::providers::DynProvider],
     stream: Stream,
     scan_depth: u64,
+    rpc_telemetry: Option<&dyn RpcTelemetry>,
 ) -> Result<Option<u64>> {
     let Some(latest) = db::event_chain::latest_canonical_block_hash(dbh, stream).await? else {
         return Ok(None);
     };
 
-    let latest_rpc_hash = match get_block_hash_opt(provider, latest.block_number).await {
-        Ok(Some(h)) => h,
-        Ok(None) => {
-            warn!(
-                stream = stream.as_str(),
-                block_number = latest.block_number,
-                "reorg check: latest block not found on RPC; skipping this tick"
-            );
-            return Ok(None);
-        }
-        Err(e) => {
-            warn!(
-                stream = stream.as_str(),
-                block_number = latest.block_number,
-                err = %e,
-                "reorg check: failed to fetch latest block hash; skipping this tick"
-            );
-            return Ok(None);
-        }
-    };
+    let latest_rpc_hash =
+        match get_block_hash_opt(provider, latest.block_number, rpc_telemetry).await {
+            Ok(Some(h)) => h,
+            Ok(None) => {
+                warn!(
+                    stream = stream.as_str(),
+                    block_number = latest.block_number,
+                    "reorg check: latest block not found on RPC; skipping this tick"
+                );
+                return Ok(None);
+            }
+            Err(e) => {
+                warn!(
+                    stream = stream.as_str(),
+                    block_number = latest.block_number,
+                    err = %e,
+                    "reorg check: failed to fetch latest block hash; skipping this tick"
+                );
+                return Ok(None);
+            }
+        };
     if latest_rpc_hash == latest.block_hash {
         debug!(
             stream = stream.as_str(),
@@ -46,7 +50,7 @@ pub async fn detect_reorg_start(
 
     // Avoid false positives from a single bad/lagging RPC endpoint by checking at least one
     // additional pinned endpoint (when configured).
-    if let Some(reason) = mismatch_not_confirmed(&latest, pinned_providers).await? {
+    if let Some(reason) = mismatch_not_confirmed(&latest, pinned_providers, rpc_telemetry).await? {
         warn!(
             stream = stream.as_str(),
             block_number = latest.block_number,
@@ -80,7 +84,7 @@ pub async fn detect_reorg_start(
     while left < right {
         let mid = (left + right) / 2;
         let b = &stored[mid];
-        let rpc_hash = match get_block_hash_opt(provider, b.block_number).await {
+        let rpc_hash = match get_block_hash_opt(provider, b.block_number, rpc_telemetry).await {
             Ok(Some(h)) => h,
             Ok(None) => {
                 warn!(
@@ -123,9 +127,11 @@ pub async fn detect_reorg_start(
 async fn get_block_hash_opt(
     provider: &impl Provider,
     block_number: u64,
+    rpc_telemetry: Option<&dyn RpcTelemetry>,
 ) -> Result<Option<domain::BlockHash>> {
     // Tron JSON-RPC block responses are not Ethereum-typed (e.g. `stateRoot: "0x"`), which can
     // break strict decoding. For reorg detection we only need the block hash, so fetch raw JSON.
+    let start = Instant::now();
     let block: Option<Value> = provider
         .client()
         .request(
@@ -133,12 +139,32 @@ async fn get_block_hash_opt(
             (BlockNumberOrTag::Number(block_number), false),
         )
         .await
-        .map_err(anyhow::Error::new)
+        .map_err(|e| {
+            if let Some(rpc) = rpc_telemetry {
+                rpc.rpc_error("eth_getBlockByNumber", "reorg");
+                rpc.rpc_call(
+                    "eth_getBlockByNumber",
+                    "reorg",
+                    false,
+                    start.elapsed().as_millis() as u64,
+                );
+            }
+            anyhow::Error::new(e)
+        })
         .with_context(|| format!("get_block_by_number({block_number})"))?;
 
     let Some(block) = block else {
         return Ok(None);
     };
+
+    if let Some(rpc) = rpc_telemetry {
+        rpc.rpc_call(
+            "eth_getBlockByNumber",
+            "reorg",
+            true,
+            start.elapsed().as_millis() as u64,
+        );
+    }
 
     let hash = block
         .get("hash")
@@ -154,6 +180,7 @@ async fn get_block_hash_opt(
 async fn mismatch_not_confirmed(
     latest: &db::event_chain::StoredBlockHash,
     pinned_providers: &[alloy::providers::DynProvider],
+    rpc_telemetry: Option<&dyn RpcTelemetry>,
 ) -> Result<Option<&'static str>> {
     if pinned_providers.is_empty() {
         return Ok(None);
@@ -166,7 +193,7 @@ async fn mismatch_not_confirmed(
     let mut successes = 0usize;
 
     for p in pinned_providers {
-        let h = match get_block_hash_opt(p, latest.block_number).await {
+        let h = match get_block_hash_opt(p, latest.block_number, rpc_telemetry).await {
             Ok(Some(h)) => h,
             Ok(None) => continue,
             Err(_) => continue,
