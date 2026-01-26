@@ -8,6 +8,7 @@ use opentelemetry_sdk::{
     Resource,
     metrics::{PeriodicReader, SdkMeterProvider, Temporality},
     propagation::TraceContextPropagator,
+    runtime,
     trace::{BatchSpanProcessor, Sampler, SdkTracerProvider},
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -29,6 +30,8 @@ impl OtelGuard {
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
         }
 
+        // Shutdown should be called from within a Tokio runtime context.
+        // (OTLP/HTTP uses reqwest/hyper which requires a reactor.)
         let _ = tokio::task::spawn_blocking(move || {
             let _ = self.meter_provider.shutdown();
             let _ = self.tracer_provider.shutdown();
@@ -103,6 +106,8 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         ])
         .build();
 
+    let has_tokio_runtime = tokio::runtime::Handle::try_current().is_ok();
+
     let (tracer_provider, meter_provider, tracer, init_err) = if otel_disabled {
         let tracer_provider = SdkTracerProvider::builder()
             .with_resource(resource.clone())
@@ -120,7 +125,9 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let tracer_provider = match (|| -> Result<_> {
             let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
 
-            let span_exporter = if protocol.starts_with("http") {
+            let use_http = protocol.starts_with("http");
+
+            let span_exporter = if use_http {
                 // The OTLP/HTTP exporter requires an explicit HTTP client.
                 let client = reqwest::Client::new();
                 SpanExporter::builder()
@@ -131,7 +138,15 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
                 SpanExporter::builder().with_tonic().build()?
             };
 
-            let span_processor = BatchSpanProcessor::builder(span_exporter).build();
+            let span_processor = if use_http {
+                if !has_tokio_runtime {
+                    anyhow::bail!("OTLP/HTTP requires a Tokio runtime");
+                }
+                // OTLP/HTTP uses async reqwest/hyper. Use the Tokio runtime to drive export.
+                BatchSpanProcessor::builder(span_exporter, runtime::Tokio).build()
+            } else {
+                BatchSpanProcessor::builder(span_exporter).build()
+            };
             Ok(SdkTracerProvider::builder()
                 .with_resource(resource.clone())
                 .with_sampler(sampler)
@@ -152,7 +167,12 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let meter_provider = match (|| -> Result<_> {
             let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
 
-            let metric_exporter = if protocol.starts_with("http") {
+            let use_http = protocol.starts_with("http");
+
+            let metric_exporter = if use_http {
+                if !has_tokio_runtime {
+                    anyhow::bail!("OTLP/HTTP requires a Tokio runtime");
+                }
                 // The OTLP/HTTP exporter requires an explicit HTTP client.
                 let client = reqwest::Client::new();
                 MetricExporter::builder()
