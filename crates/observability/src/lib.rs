@@ -1,6 +1,6 @@
 use anyhow::Result;
 use opentelemetry::global;
-use opentelemetry::trace::{TraceContextExt, TracerProvider};
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::{Context, KeyValue};
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_otlp::{MetricExporter, SpanExporter, WithHttpConfig};
