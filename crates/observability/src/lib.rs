@@ -12,9 +12,6 @@ use opentelemetry_sdk::{
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
-use tracing_subscriber::fmt::fmt_layer::FmtContext;
-use tracing_subscriber::registry::LookupSpan;
 
 pub struct OtelGuard {
     tracer_provider: SdkTracerProvider,
@@ -121,7 +118,7 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             .build();
         let tracer = tracer_provider.tracer(cfg.service_name.to_string());
 
-        let meter_provider = SdkMeterProvider::builder().with_resource(resource).build();
+        let meter_provider = SdkMeterProvider::builder().with_resource(resource.clone()).build();
         (tracer_provider, meter_provider, None, tracer, None)
     } else {
         // Best-effort: if OTLP exporter init fails (bad env / no deps), keep the process running with
@@ -189,7 +186,7 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             Ok(mp) => mp,
             Err(e) => {
                 init_err.get_or_insert(e);
-                SdkMeterProvider::builder().with_resource(resource).build()
+                SdkMeterProvider::builder().with_resource(resource.clone()).build()
             }
         };
 
@@ -238,48 +235,8 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
 
     // Log formatting: include trace/span ids when we're inside an active tracing span.
     // This makes Tempo -> Loki trace-to-logs correlation possible once logs are ingested.
-    struct WithTraceIds;
 
-    impl<S, N> FormatEvent<S, N> for WithTraceIds
-    where
-        S: tracing::Subscriber + for<'a> LookupSpan<'a>,
-        N: for<'a> FormatFields<'a> + 'static,
-    {
-        fn format_event(
-            &self,
-            ctx: &FmtContext<'_, S, N>,
-            mut writer: Writer<'_>,
-            event: &tracing::Event<'_>,
-        ) -> std::fmt::Result {
-            let meta = event.metadata();
-
-            let (trace_id, span_id) = if let Some(span) = ctx.lookup_current() {
-                let cx = span.span().context();
-                let sc = cx.span().span_context();
-                if sc.is_valid() {
-                    (Some(sc.trace_id().to_string()), Some(sc.span_id().to_string()))
-                } else {
-                    (None, None)
-                }
-            } else {
-                (None, None)
-            };
-
-            write!(writer, "{} ", meta.level())?;
-
-            if let Some(tid) = trace_id {
-                write!(writer, "trace_id={} ", tid)?;
-            }
-            if let Some(sid) = span_id {
-                write!(writer, "span_id={} ", sid)?;
-            }
-
-            ctx.field_format().format_fields(writer.by_ref(), event)?;
-            writeln!(writer)
-        }
-    }
-
-    let fmt_layer = tracing_subscriber::fmt::layer().event_format(WithTraceIds);
+    let fmt_layer = tracing_subscriber::fmt::layer().compact().with_target(false);
 
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
