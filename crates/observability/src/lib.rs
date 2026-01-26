@@ -1,6 +1,6 @@
 use anyhow::Result;
 use opentelemetry::global;
-use opentelemetry::trace::TracerProvider;
+use opentelemetry::trace::{TraceContextExt, TracerProvider};
 use opentelemetry::{Context, KeyValue};
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_otlp::{MetricExporter, SpanExporter, WithHttpConfig};
@@ -12,6 +12,8 @@ use opentelemetry_sdk::{
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, FmtContext, Writer};
+use tracing_subscriber::registry::LookupSpan;
 
 pub struct OtelGuard {
     tracer_provider: SdkTracerProvider,
@@ -188,8 +190,52 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
     global::set_tracer_provider(tracer_provider.clone());
     global::set_meter_provider(meter_provider.clone());
 
+    // Log formatting: include trace/span ids when we're inside an active tracing span.
+    // This makes Tempo -> Loki trace-to-logs correlation possible once logs are ingested.
+    struct WithTraceIds;
+
+    impl<S, N> FormatEvent<S, N> for WithTraceIds
+    where
+        S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+        N: for<'a> FormatFields<'a> + 'static,
+    {
+        fn format_event(
+            &self,
+            ctx: &FmtContext<'_, S, N>,
+            mut writer: Writer<'_>,
+            event: &tracing::Event<'_>,
+        ) -> std::fmt::Result {
+            let meta = event.metadata();
+
+            let (trace_id, span_id) = ctx
+                .lookup_current()
+                .map(|span| {
+                    let cx = span.span().context();
+                    let sc = cx.span().span_context();
+                    if sc.is_valid() {
+                        (Some(sc.trace_id().to_string()), Some(sc.span_id().to_string()))
+                    } else {
+                        (None, None)
+                    }
+                })
+                .unwrap_or((None, None));
+
+            write!(writer, "{} ", meta.level())?;
+
+            if let Some(tid) = trace_id {
+                write!(writer, "trace_id={} ", tid)?;
+            }
+            if let Some(sid) = span_id {
+                write!(writer, "span_id={} ", sid)?;
+            }
+
+            ctx.field_format().format_fields(writer.by_ref(), event)?;
+            writeln!(writer)
+        }
+    }
+
     let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
+        .event_format(WithTraceIds)
         .with_target(false);
 
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
