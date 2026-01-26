@@ -30,5 +30,6 @@ RUN apt-get update \
 COPY --from=builder /repo/apps/realtor/target/release/realtor /usr/local/bin/realtor
 
 ENV RUST_LOG=info
+# rebuild trigger: observability OTLP/HTTP rollout
 
 ENTRYPOINT ["/usr/local/bin/realtor"]
