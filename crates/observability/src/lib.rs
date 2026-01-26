@@ -118,7 +118,14 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let mut init_err: Option<anyhow::Error> = None;
 
         let tracer_provider = match (|| -> Result<_> {
-            let span_exporter = SpanExporter::builder().with_tonic().build()?;
+            let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
+
+            let span_exporter = if protocol.starts_with("http") {
+                SpanExporter::builder().with_http().build()?
+            } else {
+                SpanExporter::builder().with_tonic().build()?
+            };
+
             let span_processor = BatchSpanProcessor::builder(span_exporter).build();
             Ok(SdkTracerProvider::builder()
                 .with_resource(resource.clone())
@@ -138,10 +145,20 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let tracer = tracer_provider.tracer(cfg.service_name.to_string());
 
         let meter_provider = match (|| -> Result<_> {
-            let metric_exporter = MetricExporter::builder()
-                .with_tonic()
-                .with_temporality(Temporality::default())
-                .build()?;
+            let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
+
+            let metric_exporter = if protocol.starts_with("http") {
+                MetricExporter::builder()
+                    .with_http()
+                    .with_temporality(Temporality::default())
+                    .build()?
+            } else {
+                MetricExporter::builder()
+                    .with_tonic()
+                    .with_temporality(Temporality::default())
+                    .build()?
+            };
+
             let reader = PeriodicReader::builder(metric_exporter).build();
             Ok(SdkMeterProvider::builder()
                 .with_resource(resource.clone())
