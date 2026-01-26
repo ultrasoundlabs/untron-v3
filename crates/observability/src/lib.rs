@@ -12,7 +12,8 @@ use opentelemetry_sdk::{
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, FmtContext, Writer};
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing_subscriber::fmt::fmt_layer::FmtContext;
 use tracing_subscriber::registry::LookupSpan;
 
 pub struct OtelGuard {
@@ -232,9 +233,8 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
     global::set_tracer_provider(tracer_provider.clone());
     global::set_meter_provider(meter_provider.clone());
 
-    if let Some(lp) = &logger_provider {
-        global::set_logger_provider(lp.clone());
-    }
+    // logger_provider is used by the tracing->OpenTelemetry logs bridge.
+    // We intentionally do not register a global logger provider here.
 
     // Log formatting: include trace/span ids when we're inside an active tracing span.
     // This makes Tempo -> Loki trace-to-logs correlation possible once logs are ingested.
@@ -253,18 +253,17 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         ) -> std::fmt::Result {
             let meta = event.metadata();
 
-            let (trace_id, span_id) = ctx
-                .lookup_current()
-                .map(|span| {
-                    let cx = span.span().context();
-                    let sc = cx.span().span_context();
-                    if sc.is_valid() {
-                        (Some(sc.trace_id().to_string()), Some(sc.span_id().to_string()))
-                    } else {
-                        (None, None)
-                    }
-                })
-                .unwrap_or((None, None));
+            let (trace_id, span_id) = if let Some(span) = ctx.lookup_current() {
+                let cx = span.span().context();
+                let sc = cx.span().span_context();
+                if sc.is_valid() {
+                    (Some(sc.trace_id().to_string()), Some(sc.span_id().to_string()))
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
 
             write!(writer, "{} ", meta.level())?;
 
@@ -280,9 +279,7 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         }
     }
 
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .event_format(WithTraceIds)
-        .with_target(false);
+    let fmt_layer = tracing_subscriber::fmt::layer().event_format(WithTraceIds);
 
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
