@@ -22,6 +22,11 @@ async fn main() -> Result<()> {
         service_name: "indexer",
         service_version: env!("CARGO_PKG_VERSION"),
     })?;
+    // Keep the OTEL guard alive for the lifetime of the process.
+    let _otel_guard = tokio::spawn(async move {
+        std::future::pending::<()>().await;
+        drop(otel);
+    });
 
     let config::AppConfig {
         database_url,
