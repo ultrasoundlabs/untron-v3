@@ -17,6 +17,7 @@ use tracing::{error, info, warn};
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
+    // trigger rebuild (watch paths) + enable OTLP logs rollout
 
     let mut otel = Some(untron_observability::init(untron_observability::Config {
         service_name: "indexer",

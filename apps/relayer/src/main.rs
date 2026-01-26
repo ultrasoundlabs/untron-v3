@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
+    // trigger rebuild (watch paths) + enable OTLP logs rollout
 
     let cfg = config::load_config()?;
     let mut otel = Some(untron_observability::init(untron_observability::Config {
