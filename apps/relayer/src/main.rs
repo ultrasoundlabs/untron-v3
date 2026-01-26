@@ -15,11 +15,7 @@ async fn main() -> Result<()> {
         service_name: "relayer",
         service_version: env!("CARGO_PKG_VERSION"),
     })?;
-    // Keep the OTEL guard alive for the lifetime of the process.
-    let _otel_guard = tokio::spawn(async move {
-        std::future::pending::<()>().await;
-        drop(otel);
-    });
+    let otel = std::sync::Arc::new(tokio::sync::Mutex::new(Some(otel)));
 
     let telemetry = metrics::RelayerTelemetry::new();
 
@@ -71,7 +67,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    otel.shutdown().await;
+    if let Some(otel) = otel.lock().await.take() {
+        otel.shutdown().await;
+    }
     fatal.map_or(Ok(()), Err)
 }
 

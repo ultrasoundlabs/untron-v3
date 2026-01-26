@@ -41,12 +41,8 @@ async fn main() -> anyhow::Result<()> {
         service_name: "realtor",
         service_version: env!("CARGO_PKG_VERSION"),
     })?;
-    // Keep the OTEL guard alive for the lifetime of the process.
-    // Without this, the compiler may drop it early (since it's otherwise unused), shutting down exporters.
-    let _otel_guard = tokio::spawn(async move {
-        std::future::pending::<()>().await;
-        drop(otel);
-    });
+    // Keep the OTEL guard alive until explicit shutdown.
+    let otel = std::sync::Arc::new(tokio::sync::Mutex::new(Some(otel)));
 
     tracing::info!("realtor starting");
     tracing::info!(
@@ -176,7 +172,9 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     shutdown.cancel();
-    otel.shutdown().await;
+    if let Some(otel) = otel.lock().await.take() {
+        otel.shutdown().await;
+    }
     Ok(())
 }
 
