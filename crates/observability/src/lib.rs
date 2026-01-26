@@ -3,7 +3,7 @@ use opentelemetry::global;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::{Context, KeyValue};
 use opentelemetry_http::HeaderExtractor;
-use opentelemetry_otlp::{MetricExporter, SpanExporter};
+use opentelemetry_otlp::{MetricExporter, SpanExporter, WithHttpConfig};
 use opentelemetry_sdk::{
     Resource,
     metrics::{PeriodicReader, SdkMeterProvider, Temporality},
