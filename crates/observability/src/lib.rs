@@ -16,10 +16,19 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 pub struct OtelGuard {
     tracer_provider: SdkTracerProvider,
     meter_provider: SdkMeterProvider,
+
+    /// When enabled via env, a background thread emits a small span periodically to prove the OTLP pipeline.
+    ///
+    /// This is intentionally best-effort and safe to leave enabled only temporarily.
+    debug_heartbeat_stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl OtelGuard {
     pub async fn shutdown(self) {
+        if let Some(stop) = &self.debug_heartbeat_stop {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+
         let _ = tokio::task::spawn_blocking(move || {
             let _ = self.meter_provider.shutdown();
             let _ = self.tracer_provider.shutdown();
@@ -44,6 +53,18 @@ pub fn set_span_parent_from_headers(span: &tracing::Span, headers: &http::Header
 }
 
 pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
+    // Optional: emit a small heartbeat span periodically to validate end-to-end tracing.
+    // Enable temporarily with OTEL_DEBUG_HEARTBEAT=1.
+    let debug_heartbeat_enabled = std::env::var("OTEL_DEBUG_HEARTBEAT")
+        .ok()
+        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"));
+
+    let debug_heartbeat_interval_secs = std::env::var("OTEL_DEBUG_HEARTBEAT_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(10)
+        .clamp(1, 3600);
+
     // Needed for W3C `traceparent` header propagation.
     global::set_text_map_propagator(TraceContextPropagator::new());
 
@@ -156,8 +177,41 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         tracing::warn!(err = %err, "OTLP exporter init failed; OpenTelemetry export disabled");
     }
 
+    let debug_heartbeat_stop = if debug_heartbeat_enabled {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop2 = stop.clone();
+
+        // Background thread (no tokio dependency) so it works even in binaries without an async runtime.
+        std::thread::Builder::new()
+            .name("otel-debug-heartbeat".to_string())
+            .spawn(move || {
+                let interval = std::time::Duration::from_secs(debug_heartbeat_interval_secs);
+                loop {
+                    if stop2.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+
+                    // Emit a minimal span; exporters will ship it if the pipeline works.
+                    let span = tracing::info_span!(
+                        "otel.debug.heartbeat",
+                        otel.kind = "internal",
+                        interval_secs = debug_heartbeat_interval_secs
+                    );
+                    let _g = span.enter();
+                    tracing::info!("otel debug heartbeat");
+
+                    std::thread::sleep(interval);
+                }
+            })?;
+
+        Some(stop)
+    } else {
+        None
+    };
+
     Ok(OtelGuard {
         tracer_provider,
         meter_provider,
+        debug_heartbeat_stop,
     })
 }
