@@ -22,7 +22,6 @@ async fn main() -> Result<()> {
         service_name: "indexer",
         service_version: env!("CARGO_PKG_VERSION"),
     })?;
-    let otel = std::sync::Arc::new(tokio::sync::Mutex::new(Some(otel)));
 
     let config::AppConfig {
         database_url,
@@ -173,9 +172,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    if let Some(otel) = otel.lock().await.take() {
-        otel.shutdown().await;
-    }
+    otel.shutdown().await;
     Ok(())
 }
 

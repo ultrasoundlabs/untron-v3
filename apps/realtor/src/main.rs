@@ -41,8 +41,6 @@ async fn main() -> anyhow::Result<()> {
         service_name: "realtor",
         service_version: env!("CARGO_PKG_VERSION"),
     })?;
-    // Keep the OTEL guard alive until explicit shutdown.
-    let otel = std::sync::Arc::new(tokio::sync::Mutex::new(Some(otel)));
 
     tracing::info!("realtor starting");
     tracing::info!(
@@ -172,9 +170,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     shutdown.cancel();
-    if let Some(otel) = otel.lock().await.take() {
-        otel.shutdown().await;
-    }
+    otel.shutdown().await;
     Ok(())
 }
 

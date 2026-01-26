@@ -17,7 +17,6 @@ async fn main() -> Result<()> {
         service_name: "pool",
         service_version: env!("CARGO_PKG_VERSION"),
     })?;
-    let otel = std::sync::Arc::new(tokio::sync::Mutex::new(Some(otel)));
 
     let telemetry = metrics::PoolTelemetry::new();
 
@@ -75,9 +74,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    if let Some(otel) = otel.lock().await.take() {
-        otel.shutdown().await;
-    }
+    otel.shutdown().await;
     fatal.map_or(Ok(()), Err)
 }
 
