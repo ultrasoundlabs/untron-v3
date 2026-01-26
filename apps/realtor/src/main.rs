@@ -37,10 +37,10 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let cfg = config::load_config()?;
-    let otel = untron_observability::init(untron_observability::Config {
+    let mut otel = Some(untron_observability::init(untron_observability::Config {
         service_name: "realtor",
         service_version: env!("CARGO_PKG_VERSION"),
-    })?;
+    })?);
 
     tracing::info!("realtor starting");
     tracing::info!(
@@ -170,7 +170,9 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     shutdown.cancel();
-    otel.shutdown().await;
+    if let Some(otel) = otel.take() {
+        otel.shutdown().await;
+    }
     Ok(())
 }
 

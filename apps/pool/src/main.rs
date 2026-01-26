@@ -13,10 +13,10 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let cfg = config::load_config()?;
-    let otel = untron_observability::init(untron_observability::Config {
+    let mut otel = Some(untron_observability::init(untron_observability::Config {
         service_name: "pool",
         service_version: env!("CARGO_PKG_VERSION"),
-    })?;
+    })?);
 
     let telemetry = metrics::PoolTelemetry::new();
 
@@ -74,7 +74,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    otel.shutdown().await;
+    if let Some(otel) = otel.take() {
+        otel.shutdown().await;
+    }
     fatal.map_or(Ok(()), Err)
 }
 

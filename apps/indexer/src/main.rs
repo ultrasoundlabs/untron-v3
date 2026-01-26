@@ -18,10 +18,10 @@ use tracing::{error, info, warn};
 async fn main() -> Result<()> {
     dotenv().ok();
 
-    let otel = untron_observability::init(untron_observability::Config {
+    let mut otel = Some(untron_observability::init(untron_observability::Config {
         service_name: "indexer",
         service_version: env!("CARGO_PKG_VERSION"),
-    })?;
+    })?);
 
     let config::AppConfig {
         database_url,
@@ -172,7 +172,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    otel.shutdown().await;
+    if let Some(otel) = otel.take() {
+        otel.shutdown().await;
+    }
     Ok(())
 }
 
