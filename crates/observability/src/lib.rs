@@ -18,6 +18,7 @@ use tracing_subscriber::registry::LookupSpan;
 pub struct OtelGuard {
     tracer_provider: SdkTracerProvider,
     meter_provider: SdkMeterProvider,
+    logger_provider: Option<opentelemetry_sdk::logs::SdkLoggerProvider>,
 
     /// When enabled via env, a background thread emits a small span periodically to prove the OTLP pipeline.
     ///
@@ -32,6 +33,9 @@ impl OtelGuard {
         }
 
         let _ = tokio::task::spawn_blocking(move || {
+            if let Some(lp) = self.logger_provider {
+                let _ = lp.shutdown();
+            }
             let _ = self.meter_provider.shutdown();
             let _ = self.tracer_provider.shutdown();
         })
@@ -105,7 +109,11 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         ])
         .build();
 
-    let (tracer_provider, meter_provider, tracer, init_err) = if otel_disabled {
+    let logs_enabled = std::env::var("OTEL_LOGS_ENABLED")
+        .ok()
+        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"));
+
+    let (tracer_provider, meter_provider, logger_provider, tracer, init_err) = if otel_disabled {
         let tracer_provider = SdkTracerProvider::builder()
             .with_resource(resource.clone())
             .with_sampler(Sampler::AlwaysOff)
@@ -113,7 +121,7 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let tracer = tracer_provider.tracer(cfg.service_name.to_string());
 
         let meter_provider = SdkMeterProvider::builder().with_resource(resource).build();
-        (tracer_provider, meter_provider, tracer, None)
+        (tracer_provider, meter_provider, None, tracer, None)
     } else {
         // Best-effort: if OTLP exporter init fails (bad env / no deps), keep the process running with
         // exporters disabled. This is especially helpful in local dev.
@@ -184,11 +192,49 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             }
         };
 
-        (tracer_provider, meter_provider, tracer, init_err)
+        // Optional: OTLP logs export (tracing events -> OTel logs).
+        // Enable with OTEL_LOGS_ENABLED=1.
+        let logger_provider = if logs_enabled {
+            match (|| -> Result<_> {
+                let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL")
+                    .unwrap_or_else(|_| "grpc".to_string());
+
+                let log_exporter = if protocol.starts_with("http") {
+                    let client = reqwest::blocking::Client::new();
+                    opentelemetry_otlp::LogExporter::builder()
+                        .with_http()
+                        .with_http_client(client)
+                        .build()?
+                } else {
+                    opentelemetry_otlp::LogExporter::builder().with_tonic().build()?
+                };
+
+                let processor = opentelemetry_sdk::logs::BatchLogProcessor::builder(log_exporter).build();
+
+                Ok(opentelemetry_sdk::logs::SdkLoggerProvider::builder()
+                    .with_resource(resource.clone())
+                    .with_log_processor(processor)
+                    .build())
+            })() {
+                Ok(lp) => Some(lp),
+                Err(e) => {
+                    init_err.get_or_insert(e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        (tracer_provider, meter_provider, logger_provider, tracer, init_err)
     };
 
     global::set_tracer_provider(tracer_provider.clone());
     global::set_meter_provider(meter_provider.clone());
+
+    if let Some(lp) = &logger_provider {
+        global::set_logger_provider(lp.clone());
+    }
 
     // Log formatting: include trace/span ids when we're inside an active tracing span.
     // This makes Tempo -> Loki trace-to-logs correlation possible once logs are ingested.
@@ -240,11 +286,20 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
 
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    tracing_subscriber::registry()
+    let otel_logs_layer = logger_provider
+        .as_ref()
+        .map(|lp| opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(lp));
+
+    let registry = tracing_subscriber::registry()
         .with(env_filter)
         .with(fmt_layer)
-        .with(otel_layer)
-        .init();
+        .with(otel_layer);
+
+    if let Some(layer) = otel_logs_layer {
+        registry.with(layer).init();
+    } else {
+        registry.init();
+    }
 
     if let Some(err) = init_err {
         tracing::warn!(err = %err, "OTLP exporter init failed; OpenTelemetry export disabled");
@@ -285,6 +340,7 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
     Ok(OtelGuard {
         tracer_provider,
         meter_provider,
+        logger_provider,
         debug_heartbeat_stop,
     })
 }
