@@ -121,7 +121,12 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
 
             let span_exporter = if protocol.starts_with("http") {
-                SpanExporter::builder().with_http().build()?
+                // The OTLP/HTTP exporter requires an explicit HTTP client.
+                let client = reqwest::Client::new();
+                SpanExporter::builder()
+                    .with_http()
+                    .with_http_client(client)
+                    .build()?
             } else {
                 SpanExporter::builder().with_tonic().build()?
             };
@@ -148,8 +153,11 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
 
             let metric_exporter = if protocol.starts_with("http") {
+                // The OTLP/HTTP exporter requires an explicit HTTP client.
+                let client = reqwest::Client::new();
                 MetricExporter::builder()
                     .with_http()
+                    .with_http_client(client)
                     .with_temporality(Temporality::default())
                     .build()?
             } else {
