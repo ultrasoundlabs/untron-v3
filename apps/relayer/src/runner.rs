@@ -381,7 +381,7 @@ impl Relayer {
     async fn plan_tick(&mut self, tick: &Tick, hub_locked: bool) -> Result<PlannedTick> {
         let hub_state = self.ctx.indexer.relayer_hub_state().await?;
 
-        let (relay_plan, process_plan, pre_entitle_plan) = if hub_locked {
+        let (relay_plan, process_plan, pre_entitle_plan, deposit_lp_plan) = if hub_locked {
             tracing::warn!(
                 "hub sender nonce locked (pending userop); skipping hub-dependent planning"
             );
@@ -389,14 +389,16 @@ impl Relayer {
                 Plan::<HubIntent>::none(),
                 Plan::<HubIntent>::none(),
                 Plan::<HubIntent>::none(),
+                Plan::<HubIntent>::none(),
             )
         } else {
-            let (relay, process, pre) = tokio::join!(
+            let (relay, process, pre, deposit_lp) = tokio::join!(
                 tasks::plan_relay_controller_chain(&self.ctx, tick, &hub_state),
                 tasks::plan_process_controller_events(&self.ctx, &hub_state),
                 tasks::plan_pre_entitle(&self.ctx, tick),
+                tasks::plan_deposit_lp(&self.ctx),
             );
-            (relay?, process?, pre?)
+            (relay?, process?, pre?, deposit_lp?)
         };
 
         let liquidity_plan = tasks::plan_liquidity(&self.ctx, &mut self.state, tick).await?;
@@ -404,6 +406,7 @@ impl Relayer {
         self.state.apply_updates(relay_plan.updates);
         self.state.apply_updates(process_plan.updates);
         self.state.apply_updates(pre_entitle_plan.updates);
+        self.state.apply_updates(deposit_lp_plan.updates);
         self.state.apply_updates(liquidity_plan.updates);
 
         let mut hub_candidates = Vec::new();
@@ -414,6 +417,9 @@ impl Relayer {
             hub_candidates.push(HubCandidate::new(intent));
         }
         if let Some(intent) = pre_entitle_plan.intent {
+            hub_candidates.push(HubCandidate::new(intent));
+        }
+        if let Some(intent) = deposit_lp_plan.intent {
             hub_candidates.push(HubCandidate::new(intent));
         }
 
@@ -594,6 +600,7 @@ impl HubCandidate {
             HubIntent::PreEntitle { .. } => (2, tasks::JOB_PRE_ENTITLE),
             HubIntent::SubjectivePreEntitle { .. } => (2, tasks::JOB_PRE_ENTITLE),
             HubIntent::FillClaims { .. } => (3, tasks::JOB_FILL_CLAIMS),
+            HubIntent::DepositLp { .. } => (4, tasks::JOB_DEPOSIT_LP),
         };
         Self {
             priority,

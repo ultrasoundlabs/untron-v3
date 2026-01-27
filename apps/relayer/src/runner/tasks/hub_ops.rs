@@ -1,8 +1,8 @@
 use super::HubIntent;
 use anyhow::{Context, Result};
 use untron_v3_bindings::untron_v3::UntronV3::{
-    fillCall, preEntitleCall, processControllerEventsCall, relayControllerEventChainCall,
-    subjectivePreEntitleCall,
+    depositCall, fillCall, preEntitleCall, processControllerEventsCall,
+    relayControllerEventChainCall, subjectivePreEntitleCall,
 };
 
 use crate::evm::{IERC20, MultiSend, MultiSendTx, encode_multisend_transactions};
@@ -11,7 +11,7 @@ use crate::runner::model::Plan;
 use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::{
-    primitives::{FixedBytes, U256},
+    primitives::{Address, FixedBytes, U256},
     sol_types::SolCall,
 };
 use std::time::Instant;
@@ -157,6 +157,51 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
     Ok(Plan::none())
 }
 
+pub async fn plan_deposit_lp(ctx: &RelayerContext) -> Result<Plan<HubIntent>> {
+    let Some(multisend) = ctx.cfg.hub.multisend else {
+        // We need multisend to atomically approve + deposit from the Safe.
+        return Ok(Plan::none());
+    };
+    let Some(safe) = ctx.cfg.hub.safe else {
+        return Ok(Plan::none());
+    };
+    let Some(proto) = ctx.indexer.hub_protocol_config().await? else {
+        return Ok(Plan::none());
+    };
+    let usdt_str = proto.usdt.as_deref().context("missing hub usdt")?;
+    let usdt: Address = usdt_str.parse().context("invalid hub usdt address")?;
+
+    let hub_contract = ctx.hub_contract();
+    let start = Instant::now();
+    let allowed_res = hub_contract.isLpAllowed(safe).call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "isLpAllowed",
+        allowed_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let allowed = allowed_res.context("hub isLpAllowed")?;
+    if !allowed {
+        return Ok(Plan::none());
+    }
+
+    let erc20 = IERC20::new(usdt, &ctx.hub_provider);
+    let start = Instant::now();
+    let bal_res = erc20.balanceOf(safe).call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "ERC20.balanceOf",
+        bal_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let bal = bal_res.context("hub usdt balanceOf(safe)")?;
+    if bal.is_zero() {
+        return Ok(Plan::none());
+    }
+
+    // Keep multisend referenced so the planner doesn't ignore configuration.
+    let _ = multisend;
+    Ok(Plan::intent(HubIntent::DepositLp { usdt, amount: bal }))
+}
+
 pub async fn execute_hub_intent(
     ctx: &RelayerContext,
     state: &mut RelayerState,
@@ -167,6 +212,7 @@ pub async fn execute_hub_intent(
         HubIntent::ProcessControllerEvents => "processControllerEvents",
         HubIntent::PreEntitle { .. } => "preEntitle",
         HubIntent::SubjectivePreEntitle { .. } => "subjectivePreEntitle",
+        HubIntent::DepositLp { .. } => "depositLp",
         HubIntent::FillClaims { .. } => "fill",
     };
 
@@ -234,6 +280,53 @@ pub async fn execute_hub_intent(
             }
             .abi_encode();
             (ctx.hub_contract_address, 0u8, data)
+        }
+        HubIntent::DepositLp { usdt, amount } => {
+            let multisend = ctx
+                .cfg
+                .hub
+                .multisend
+                .context("depositLp requires HUB_MULTISEND_ADDRESS")?;
+
+            let approve0 = IERC20::approveCall {
+                spender: ctx.hub_contract_address,
+                amount: U256::ZERO,
+            }
+            .abi_encode();
+            let approve_amt = IERC20::approveCall {
+                spender: ctx.hub_contract_address,
+                amount,
+            }
+            .abi_encode();
+            let deposit_data = depositCall { amount }.abi_encode();
+
+            let txs = vec![
+                MultiSendTx {
+                    operation: 0,
+                    to: usdt,
+                    value: U256::ZERO,
+                    data: approve0.into(),
+                },
+                MultiSendTx {
+                    operation: 0,
+                    to: usdt,
+                    value: U256::ZERO,
+                    data: approve_amt.into(),
+                },
+                MultiSendTx {
+                    operation: 0,
+                    to: ctx.hub_contract_address,
+                    value: U256::ZERO,
+                    data: deposit_data.into(),
+                },
+            ];
+            let packed = encode_multisend_transactions(&txs);
+            let multisend_data = MultiSend::multiSendCall {
+                transactions: packed.into(),
+            }
+            .abi_encode();
+
+            (multisend, 1u8, multisend_data)
         }
         HubIntent::FillClaims {
             target_token,

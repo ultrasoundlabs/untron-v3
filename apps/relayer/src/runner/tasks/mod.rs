@@ -7,7 +7,9 @@ use alloy::primitives::{Address, FixedBytes, U256};
 pub use controller_sync::{
     execute_controller_tip_proof, plan_controller_tip_proof, plan_relay_controller_chain,
 };
-pub use hub_ops::{execute_hub_intent, plan_pre_entitle, plan_process_controller_events};
+pub use hub_ops::{
+    execute_hub_intent, plan_deposit_lp, plan_pre_entitle, plan_process_controller_events,
+};
 pub use liquidity::{LiquidityIntent, execute_liquidity_intent, plan_liquidity};
 pub use rebalance::{execute_controller_rebalance, plan_controller_rebalance};
 use tron::TronAddress;
@@ -18,6 +20,7 @@ pub const JOB_CONTROLLER_TIP_PROOF: &str = "controller_tip_proof";
 pub const JOB_RELAY_CONTROLLER_CHAIN: &str = "relay_controller_chain";
 pub const JOB_PROCESS_CONTROLLER_EVENTS: &str = "process_controller_events";
 pub const JOB_PRE_ENTITLE: &str = "pre_entitle";
+pub const JOB_DEPOSIT_LP: &str = "deposit_lp";
 pub const JOB_FILL_CLAIMS: &str = "fill_claims";
 pub const JOB_PULL_FROM_RECEIVERS: &str = "pull_from_receivers";
 pub const JOB_CONTROLLER_REBALANCE: &str = "controller_rebalance";
@@ -49,6 +52,10 @@ pub enum HubIntent {
         txid: [u8; 32],
         lease_id: U256,
         raw_amount: U256,
+    },
+    DepositLp {
+        usdt: Address,
+        amount: U256,
     },
     FillClaims {
         target_token: Address,
