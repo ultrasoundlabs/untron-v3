@@ -45,6 +45,11 @@ pub enum HubIntent {
         receiver_salt: FixedBytes<32>,
         txid: [u8; 32],
     },
+    SubjectivePreEntitle {
+        txid: [u8; 32],
+        lease_id: U256,
+        raw_amount: U256,
+    },
     FillClaims {
         target_token: Address,
         max_claims: u64,

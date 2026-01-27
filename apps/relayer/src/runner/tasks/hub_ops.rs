@@ -2,6 +2,7 @@ use super::HubIntent;
 use anyhow::{Context, Result};
 use untron_v3_bindings::untron_v3::UntronV3::{
     fillCall, preEntitleCall, processControllerEventsCall, relayControllerEventChainCall,
+    subjectivePreEntitleCall,
 };
 
 use crate::evm::{IERC20, MultiSend, MultiSendTx, encode_multisend_transactions};
@@ -46,6 +47,29 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
     }
 
     let hub_contract = ctx.hub_contract();
+
+    let needs_subjective = rows
+        .iter()
+        .any(|r| r.recommended_action.as_deref() == Some("subjective_pre_entitle"));
+    let safe = ctx.cfg.hub.safe;
+    let safe_lp_principal = if needs_subjective {
+        match safe {
+            Some(safe) => {
+                let start = Instant::now();
+                let principal_res = hub_contract.lpPrincipal(safe).call().await;
+                ctx.telemetry.hub_rpc_ms(
+                    "lpPrincipal",
+                    principal_res.is_ok(),
+                    start.elapsed().as_millis() as u64,
+                );
+                Some(principal_res.context("hub lpPrincipal")?)
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+
     for row in rows.into_iter().take(20) {
         let block_number = row
             .block_number
@@ -81,6 +105,49 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
             continue;
         }
 
+        let action = row.recommended_action.as_deref().unwrap_or("");
+        if action == "subjective_pre_entitle" {
+            if let Some(principal) = safe_lp_principal {
+                let Some(amount) = row.amount.as_ref() else {
+                    tracing::warn!(
+                        "subjective_pre_entitle row missing amount; falling back to preEntitle"
+                    );
+                    return Ok(Plan::intent(HubIntent::PreEntitle {
+                        receiver_salt,
+                        txid,
+                    }));
+                };
+                let raw_amount =
+                    number_to_u256(amount).context("parse receiver transfer amount")?;
+
+                let Some(lease_id_num) = row.expected_lease_id.as_ref() else {
+                    tracing::warn!(
+                        "subjective_pre_entitle row missing expected_lease_id; falling back to preEntitle"
+                    );
+                    return Ok(Plan::intent(HubIntent::PreEntitle {
+                        receiver_salt,
+                        txid,
+                    }));
+                };
+                let lease_id = number_to_u256(lease_id_num).context("parse expected_lease_id")?;
+
+                if principal >= raw_amount {
+                    return Ok(Plan::intent(HubIntent::SubjectivePreEntitle {
+                        txid,
+                        lease_id,
+                        raw_amount,
+                    }));
+                }
+            }
+
+            // No (or insufficient) Safe LP principal: fall back to objective proof, same as `pre_entitle`.
+            return Ok(Plan::intent(HubIntent::PreEntitle {
+                receiver_salt,
+                txid,
+            }));
+        }
+
+        // Default: objective proof for rows that already have a subjective claim (`pre_entitle`).
         return Ok(Plan::intent(HubIntent::PreEntitle {
             receiver_salt,
             txid,
@@ -99,6 +166,7 @@ pub async fn execute_hub_intent(
         HubIntent::RelayControllerEventChain { .. } => "relayControllerEventChain",
         HubIntent::ProcessControllerEvents => "processControllerEvents",
         HubIntent::PreEntitle { .. } => "preEntitle",
+        HubIntent::SubjectivePreEntitle { .. } => "subjectivePreEntitle",
         HubIntent::FillClaims { .. } => "fill",
     };
 
@@ -149,6 +217,20 @@ pub async fn execute_hub_intent(
                 encodedTx: bundle.encoded_tx.into(),
                 proof: bundle.proof,
                 index: bundle.index,
+            }
+            .abi_encode();
+            (ctx.hub_contract_address, 0u8, data)
+        }
+        HubIntent::SubjectivePreEntitle {
+            txid,
+            lease_id,
+            raw_amount,
+        } => {
+            let txid_b32 = FixedBytes::from_slice(&txid);
+            let data = subjectivePreEntitleCall {
+                txId: txid_b32,
+                leaseId: lease_id,
+                rawAmount: raw_amount,
             }
             .abi_encode();
             (ctx.hub_contract_address, 0u8, data)

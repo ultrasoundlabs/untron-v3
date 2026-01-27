@@ -207,7 +207,10 @@ impl IndexerApi {
         self.timed("receiver_usdt_transfer_actionability_get", async {
             self.client
                 .receiver_usdt_transfer_actionability_get()
-                .recommended_action("eq.pre_entitle")
+                // Include both:
+                // - `pre_entitle`: a subjective claim exists; objective proof needed
+                // - `subjective_pre_entitle`: no claim yet; may be eligible for subjective pre-entitle
+                .recommended_action("in.(pre_entitle,subjective_pre_entitle)")
                 .order("block_number.asc")
                 .limit(limit.to_string())
                 .send()

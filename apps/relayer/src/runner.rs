@@ -592,6 +592,7 @@ impl HubCandidate {
             HubIntent::RelayControllerEventChain { .. } => (0, tasks::JOB_RELAY_CONTROLLER_CHAIN),
             HubIntent::ProcessControllerEvents => (1, tasks::JOB_PROCESS_CONTROLLER_EVENTS),
             HubIntent::PreEntitle { .. } => (2, tasks::JOB_PRE_ENTITLE),
+            HubIntent::SubjectivePreEntitle { .. } => (2, tasks::JOB_PRE_ENTITLE),
             HubIntent::FillClaims { .. } => (3, tasks::JOB_FILL_CLAIMS),
         };
         Self {
