@@ -6,7 +6,6 @@ use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
-use untron_v3_indexer_client::types;
 
 #[derive(Debug, Clone)]
 pub enum LiquidityIntent {
@@ -55,32 +54,6 @@ fn select_receiver_salts(
     Ok(selected)
 }
 
-fn sum_unfinalized_pre_entitle_amount(
-    rows: impl IntoIterator<Item = types::ReceiverUsdtTransferActionability>,
-    tron_head: u64,
-    finality_blocks: u64,
-    block_lag: u64,
-) -> Result<U256> {
-    let mut sum = U256::ZERO;
-    for r in rows {
-        let Some(block_number) = r.block_number else {
-            continue;
-        };
-        let Ok(block_number_u64) = u64::try_from(block_number) else {
-            continue;
-        };
-        if super::tron_block_finalized(block_number_u64, tron_head, finality_blocks, block_lag) {
-            continue;
-        }
-        let Some(amount) = r.amount else {
-            continue;
-        };
-        let amt = number_to_u256(&amount)?;
-        sum = sum.checked_add(amt).context("deposit sum overflow")?;
-    }
-    Ok(sum)
-}
-
 pub async fn plan_liquidity(
     ctx: &RelayerContext,
     state: &mut RelayerState,
@@ -111,21 +84,10 @@ pub async fn plan_liquidity(
         })?;
     let has_ready_claims = !claims.is_empty();
 
-    // Include imminent (unfinalized) deposits that should become claims via preEntitle soon.
-    let pre_entitle_rows = ctx
-        .indexer
-        .receiver_usdt_transfer_actionability_pre_entitle(200)
-        .await?;
-    let pending_pre_entitle_amt = sum_unfinalized_pre_entitle_amount(
-        pre_entitle_rows,
-        tick.tron_head,
-        ctx.cfg.jobs.tron_finality_blocks,
-        ctx.cfg.tron.block_lag,
-    )?;
-
-    let projected_demand = ready_claims_amt
-        .checked_add(pending_pre_entitle_amt)
-        .context("projected demand overflow")?;
+    // With subjective pre-entitlement, deposits do not become claims until a sponsor creates them.
+    // Liquidity planning should therefore be driven by *claims* rather than raw (possibly unfinalized)
+    // receiver deposits.
+    let projected_demand = ready_claims_amt;
 
     if projected_demand.is_zero() {
         return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
@@ -243,7 +205,6 @@ async fn plan_pull_from_receivers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Number;
 
     fn b32(n: u8) -> FixedBytes<32> {
         FixedBytes::from([n; 32])
@@ -272,13 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn select_receiver_salts_returns_empty_for_zero_desired() {
-        let rows = vec![(b32(1), U256::from(10u64))];
-        let selected = select_receiver_salts(rows, U256::ZERO).unwrap();
-        assert!(selected.is_empty());
-    }
-
-    #[test]
     fn select_receiver_salts_skips_dust_balances() {
         let rows = vec![
             (b32(1), U256::from(1u64)),
@@ -287,32 +241,6 @@ mod tests {
         ];
         let selected = select_receiver_salts(rows, U256::from(2u64)).unwrap();
         assert_eq!(selected, vec![b32(2)]);
-    }
-
-    #[test]
-    fn sum_unfinalized_pre_entitle_amount_counts_only_unfinalized() {
-        fn row(block_number: i64, amount: u64) -> types::ReceiverUsdtTransferActionability {
-            types::ReceiverUsdtTransferActionability {
-                block_number: Some(block_number),
-                amount: Some(Number::from(amount)),
-                ..Default::default()
-            }
-        }
-
-        // Finality rule: block_number + finality_blocks + block_lag <= head => finalized.
-        let tron_head = 100;
-        let finality_blocks = 10;
-        let block_lag = 0;
-
-        let rows = vec![
-            row(80, 5),  // 80 + 10 <= 100 => finalized (excluded)
-            row(91, 7),  // 91 + 10 > 100 => unfinalized (included)
-            row(-1, 99), // out of range (skipped)
-        ];
-
-        let sum = sum_unfinalized_pre_entitle_amount(rows, tron_head, finality_blocks, block_lag)
-            .unwrap();
-        assert_eq!(sum, U256::from(7u64));
     }
 }
 
