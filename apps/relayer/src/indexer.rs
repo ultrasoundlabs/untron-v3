@@ -232,6 +232,18 @@ impl IndexerApi {
         Ok(rows.into_iter().next())
     }
 
+    pub async fn hub_swap_rates(&self) -> Result<Vec<types::HubSwapRates>> {
+        self.timed("hub_swap_rates_get", async {
+            self.client
+                .hub_swap_rates_get()
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("hub_swap_rates_get: {e:?}"))
+                .map(|r| r.into_inner())
+        })
+        .await
+    }
+
     pub async fn controller_usdt(&self) -> Result<Option<types::ControllerUsdt>> {
         let rows = self
             .timed("controller_usdt_get", async {

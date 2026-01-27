@@ -14,21 +14,12 @@ use tron::{
 #[derive(Clone)]
 pub struct HubExecutor {
     sender: Arc<Mutex<Safe4337UserOpSender>>,
-    untron_v3: Address,
     telemetry: RelayerTelemetry,
 }
 
 impl HubExecutor {
-    pub fn new(
-        sender: Arc<Mutex<Safe4337UserOpSender>>,
-        untron_v3: Address,
-        telemetry: RelayerTelemetry,
-    ) -> Self {
-        Self {
-            sender,
-            untron_v3,
-            telemetry,
-        }
+    pub fn new(sender: Arc<Mutex<Safe4337UserOpSender>>, telemetry: RelayerTelemetry) -> Self {
+        Self { sender, telemetry }
     }
 
     pub async fn current_nonce(&self) -> Result<U256> {
@@ -47,7 +38,9 @@ impl HubExecutor {
         &self,
         state: &mut RelayerState,
         name: &'static str,
+        to: Address,
         data: Vec<u8>,
+        operation: u8,
     ) -> Result<()> {
         let start = Instant::now();
         let submission = {
@@ -62,7 +55,7 @@ impl HubExecutor {
             let nonce = nonce_res?;
 
             sender
-                .send_call_with_nonce(nonce, self.untron_v3, data)
+                .send_call_with_nonce_operation(nonce, to, data, operation)
                 .await
         };
 

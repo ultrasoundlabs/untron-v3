@@ -37,12 +37,26 @@ pub struct HubConfig {
     pub safe: Option<Address>,
     pub safe_4337_module: Address,
     pub safe_deployment: Option<SafeDeterministicDeploymentConfig>,
+    pub multisend: Option<Address>,
 
     pub bundler_urls: Vec<String>,
 
     pub owner_private_key: [u8; 32],
 
     pub paymasters: Vec<PaymasterServiceConfig>,
+
+    pub lifi: Option<LifiConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LifiConfig {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub integrator: Option<String>,
+    /// Slippage as a decimal fraction (e.g. 0.003 = 0.3%).
+    pub slippage: f64,
+    /// If true, allow topping up swap output with Safe-held target tokens.
+    pub allow_topup: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +111,9 @@ struct Env {
     hub_safe_4337_module_address: String,
 
     #[serde(default)]
+    hub_multisend_address: String,
+
+    #[serde(default)]
     hub_safe_proxy_factory_address: String,
 
     #[serde(default)]
@@ -112,6 +129,21 @@ struct Env {
 
     #[serde(default)]
     hub_paymasters_json: String,
+
+    #[serde(default)]
+    lifi_api_base_url: String,
+
+    #[serde(default)]
+    lifi_api_key: String,
+
+    #[serde(default)]
+    lifi_integrator: String,
+
+    #[serde(default)]
+    lifi_slippage: f64,
+
+    #[serde(default)]
+    lifi_allow_topup: bool,
 
     tron_grpc_url: String,
 
@@ -161,12 +193,18 @@ impl Default for Env {
             hub_entrypoint_address: String::new(),
             hub_safe_address: String::new(),
             hub_safe_4337_module_address: String::new(),
+            hub_multisend_address: String::new(),
             hub_safe_proxy_factory_address: String::new(),
             hub_safe_singleton_address: String::new(),
             hub_safe_module_setup_address: String::new(),
             hub_owner_private_key_hex: String::new(),
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
+            lifi_api_base_url: String::new(),
+            lifi_api_key: String::new(),
+            lifi_integrator: String::new(),
+            lifi_slippage: 0.003,
+            lifi_allow_topup: false,
             tron_grpc_url: String::new(),
             tron_api_key: None,
             tron_private_key_hex: String::new(),
@@ -319,6 +357,8 @@ pub fn load_config() -> Result<AppConfig> {
         "HUB_SAFE_4337_MODULE_ADDRESS",
         &env.hub_safe_4337_module_address,
     )?;
+    let hub_multisend =
+        parse_optional_address("HUB_MULTISEND_ADDRESS", &env.hub_multisend_address)?;
     let hub_safe_deployment = if hub_safe.is_some() {
         None
     } else {
@@ -344,6 +384,24 @@ pub fn load_config() -> Result<AppConfig> {
     let bundlers = parse_csv("HUB_BUNDLER_URLS", &env.hub_bundler_urls)?;
     let paymasters = parse_paymasters_json(&env.hub_paymasters_json)?;
 
+    let lifi = if env.lifi_api_base_url.trim().is_empty() {
+        None
+    } else {
+        Some(LifiConfig {
+            base_url: env.lifi_api_base_url.trim_end_matches('/').to_string(),
+            api_key: {
+                let key = env.lifi_api_key.trim().to_string();
+                if key.is_empty() { None } else { Some(key) }
+            },
+            integrator: {
+                let v = env.lifi_integrator.trim().to_string();
+                if v.is_empty() { None } else { Some(v) }
+            },
+            slippage: env.lifi_slippage.clamp(0.0, 1.0),
+            allow_topup: env.lifi_allow_topup,
+        })
+    };
+
     Ok(AppConfig {
         indexer: IndexerConfig {
             base_url: env.indexer_api_base_url,
@@ -358,9 +416,11 @@ pub fn load_config() -> Result<AppConfig> {
             safe: hub_safe,
             safe_4337_module: hub_module,
             safe_deployment: hub_safe_deployment,
+            multisend: hub_multisend,
             bundler_urls: bundlers,
             owner_private_key: hub_owner_private_key,
             paymasters,
+            lifi,
         },
         tron: TronConfig {
             grpc_url: env.tron_grpc_url,

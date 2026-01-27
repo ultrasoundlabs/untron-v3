@@ -1,5 +1,7 @@
 mod config;
+mod evm;
 mod indexer;
+mod lifi;
 mod metrics;
 mod runner;
 

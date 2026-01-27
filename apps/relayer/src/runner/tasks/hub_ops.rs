@@ -4,6 +4,7 @@ use untron_v3_bindings::untron_v3::UntronV3::{
     fillCall, preEntitleCall, processControllerEventsCall, relayControllerEventChainCall,
 };
 
+use crate::evm::{IERC20, MultiSend, MultiSendTx, encode_multisend_transactions};
 use crate::indexer::RelayerHubState;
 use crate::runner::model::Plan;
 use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
@@ -101,7 +102,7 @@ pub async fn execute_hub_intent(
         HubIntent::FillClaims { .. } => "fill",
     };
 
-    let data = match intent {
+    let (to, operation, data) = match intent {
         HubIntent::RelayControllerEventChain { proof_txid, events } => {
             let mut tron = ctx.tron_read.clone();
             let start = Instant::now();
@@ -112,19 +113,24 @@ pub async fn execute_hub_intent(
             let blocks: [alloy::primitives::Bytes; 20] =
                 std::array::from_fn(|i| bundle.blocks[i].clone().into());
 
-            relayControllerEventChainCall {
+            let data = relayControllerEventChainCall {
                 blocks,
                 encodedTx: bundle.encoded_tx.into(),
                 proof: bundle.proof,
                 index: bundle.index,
                 events,
             }
-            .abi_encode()
+            .abi_encode();
+            (ctx.hub_contract_address, 0u8, data)
         }
-        HubIntent::ProcessControllerEvents => processControllerEventsCall {
-            maxEvents: U256::from(ctx.cfg.jobs.process_controller_max_events),
-        }
-        .abi_encode(),
+        HubIntent::ProcessControllerEvents => (
+            ctx.hub_contract_address,
+            0u8,
+            processControllerEventsCall {
+                maxEvents: U256::from(ctx.cfg.jobs.process_controller_max_events),
+            }
+            .abi_encode(),
+        ),
         HubIntent::PreEntitle {
             receiver_salt,
             txid,
@@ -137,27 +143,71 @@ pub async fn execute_hub_intent(
             let bundle = bundle_res?;
             let blocks: [alloy::primitives::Bytes; 20] =
                 std::array::from_fn(|i| bundle.blocks[i].clone().into());
-            preEntitleCall {
+            let data = preEntitleCall {
                 receiverSalt: receiver_salt,
                 blocks,
                 encodedTx: bundle.encoded_tx.into(),
                 proof: bundle.proof,
                 index: bundle.index,
             }
-            .abi_encode()
+            .abi_encode();
+            (ctx.hub_contract_address, 0u8, data)
         }
         HubIntent::FillClaims {
             target_token,
             max_claims,
-        } => fillCall {
-            targetToken: target_token,
-            maxClaims: U256::from(max_claims),
-            calls: Vec::new(),
+            calls,
+            top_up_amount,
+            swap_executor,
+        } => {
+            let fill_data = fillCall {
+                targetToken: target_token,
+                maxClaims: U256::from(max_claims),
+                calls,
+            }
+            .abi_encode();
+
+            if top_up_amount.is_zero() {
+                (ctx.hub_contract_address, 0u8, fill_data)
+            } else {
+                let multisend = ctx
+                    .cfg
+                    .hub
+                    .multisend
+                    .context("top_up_amount set but HUB_MULTISEND_ADDRESS is not configured")?;
+
+                let transfer_data = IERC20::transferCall {
+                    to: swap_executor,
+                    amount: top_up_amount,
+                }
+                .abi_encode();
+
+                let txs = vec![
+                    MultiSendTx {
+                        operation: 0,
+                        to: target_token,
+                        value: U256::ZERO,
+                        data: transfer_data.into(),
+                    },
+                    MultiSendTx {
+                        operation: 0,
+                        to: ctx.hub_contract_address,
+                        value: U256::ZERO,
+                        data: fill_data.into(),
+                    },
+                ];
+                let packed = encode_multisend_transactions(&txs);
+                let multisend_data = MultiSend::multiSendCall {
+                    transactions: packed.into(),
+                }
+                .abi_encode();
+
+                (multisend, 1u8, multisend_data)
+            }
         }
-        .abi_encode(),
     };
 
-    ctx.hub.submit(state, name, data).await
+    ctx.hub.submit(state, name, to, data, operation).await
 }
 
 #[cfg(test)]

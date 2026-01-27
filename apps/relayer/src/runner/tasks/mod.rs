@@ -11,6 +11,7 @@ pub use hub_ops::{execute_hub_intent, plan_pre_entitle, plan_process_controller_
 pub use liquidity::{LiquidityIntent, execute_liquidity_intent, plan_liquidity};
 pub use rebalance::{execute_controller_rebalance, plan_controller_rebalance};
 use tron::TronAddress;
+use untron_v3_bindings::untron_v3::UntronV3::Call as SwapCall;
 use untron_v3_bindings::untron_v3::UntronV3Base::ControllerEvent;
 
 pub const JOB_CONTROLLER_TIP_PROOF: &str = "controller_tip_proof";
@@ -47,6 +48,11 @@ pub enum HubIntent {
     FillClaims {
         target_token: Address,
         max_claims: u64,
+        calls: Vec<SwapCall>,
+        /// Optional top-up amount in `target_token` units to transfer from the Safe to `swap_executor`
+        /// before calling `fill` (used when the swap's guaranteed output is below `expectedOutTotal`).
+        top_up_amount: U256,
+        swap_executor: Address,
     },
 }
 

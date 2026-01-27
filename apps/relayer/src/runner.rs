@@ -3,6 +3,7 @@ mod model;
 mod tasks;
 mod util;
 
+use crate::lifi::LifiClient;
 use crate::{config::AppConfig, indexer::IndexerApi, metrics::RelayerTelemetry};
 use aa::paymaster::PaymasterService;
 use aa::{
@@ -58,6 +59,7 @@ pub struct RelayerContext {
     pub hub_provider: DynProvider,
     pub hub_contract_address: alloy::primitives::Address,
     pub hub: HubExecutor,
+    pub lifi: Option<LifiClient>,
 
     pub tron_controller: TronAddress,
     pub tron_read: TronGrpc,
@@ -71,6 +73,7 @@ pub struct RelayerState {
     tip_proof_resend_after: HashMap<FixedBytes<32>, u64>,
     rebalance_cursor: usize,
     energy_rental_cursor: usize,
+    fill_cursor: usize,
     hub_pending_nonce: Option<U256>,
     hub_usdt_balance_cache: Option<HubUsdtBalanceCache>,
 }
@@ -172,6 +175,13 @@ impl Relayer {
             cfg.indexer.timeout,
             telemetry.clone(),
         )?);
+        let lifi = cfg
+            .hub
+            .lifi
+            .as_ref()
+            .map(LifiClient::new)
+            .transpose()
+            .context("init LI.FI client")?;
 
         let transport = BuiltInConnectionString::connect(&cfg.hub.rpc_url)
             .await
@@ -210,7 +220,7 @@ impl Relayer {
         tracing::info!(safe = %hub_safe, "hub safe ready");
         cfg.hub.safe = Some(hub_safe);
         let hub_sender = Arc::new(Mutex::new(hub_sender_inner));
-        let hub = HubExecutor::new(hub_sender, cfg.hub.untron_v3, telemetry.clone());
+        let hub = HubExecutor::new(hub_sender, telemetry.clone());
 
         let mut tron_read =
             TronGrpc::connect(&cfg.tron.grpc_url, cfg.tron.api_key.as_deref()).await?;
@@ -250,6 +260,7 @@ impl Relayer {
                 hub_provider,
                 hub_contract_address,
                 hub,
+                lifi,
                 tron_controller,
                 tron_read,
                 tron_write,
@@ -261,6 +272,7 @@ impl Relayer {
                 tip_proof_resend_after: HashMap::new(),
                 rebalance_cursor: 0,
                 energy_rental_cursor: 0,
+                fill_cursor: 0,
                 hub_pending_nonce: None,
                 hub_usdt_balance_cache: None,
             },
@@ -616,6 +628,7 @@ mod tests {
             tip_proof_resend_after: HashMap::new(),
             rebalance_cursor: 0,
             energy_rental_cursor: 0,
+            fill_cursor: 0,
             hub_pending_nonce: None,
             hub_usdt_balance_cache: None,
         }
@@ -664,6 +677,9 @@ mod tests {
             HubCandidate::new(HubIntent::FillClaims {
                 target_token: alloy::primitives::Address::ZERO,
                 max_claims: 1,
+                calls: Vec::new(),
+                top_up_amount: alloy::primitives::U256::ZERO,
+                swap_executor: alloy::primitives::Address::ZERO,
             }),
             HubCandidate::new(HubIntent::PreEntitle {
                 receiver_salt: alloy::primitives::FixedBytes::ZERO,

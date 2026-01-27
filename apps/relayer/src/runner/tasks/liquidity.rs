@@ -2,16 +2,31 @@ use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
 use tron::{TronAddress, wallet::encode_pull_from_receivers};
 
+use crate::evm::IERC20;
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
+use alloy::providers::Provider;
+use alloy::sol_types::SolCall;
+use std::time::Instant;
+use untron_v3_bindings::untron_v3::UntronV3::Call as SwapCall;
+use untron_v3_indexer_client::types;
 
 #[derive(Debug, Clone)]
 pub enum LiquidityIntent {
     Hub(HubIntent),
     Tron(TronIntent),
     HubAndTron { hub: HubIntent, tron: TronIntent },
+}
+
+#[derive(Clone)]
+struct TokenCandidate {
+    addr: Address,
+    /// Exact token string to use in PostgREST filters (case-sensitive).
+    filter: String,
+    /// Swap rate in target token units per 1e6 USDT units.
+    rate_ppm: Option<U256>,
 }
 
 fn compute_desired_liquidity(
@@ -67,22 +82,60 @@ pub async fn plan_liquidity(
     let usdt = proto.usdt.as_deref().context("missing hub usdt")?;
     let usdt_addr: Address = usdt.parse().context("invalid hub usdt address")?;
 
-    let claims = ctx
-        .indexer
-        .hub_claims_created_for_token(usdt, ctx.cfg.jobs.fill_max_claims.max(1))
-        .await?;
+    let mut candidates = Vec::new();
+    candidates.push(TokenCandidate {
+        addr: usdt_addr,
+        filter: usdt.to_string(),
+        rate_ppm: None,
+    });
 
-    let ready_claims_amt = claims
-        .iter()
-        .try_fold(U256::ZERO, |acc, c| -> Result<U256> {
-            let amt = number_to_u256(
-                c.amount_usdt
-                    .as_ref()
-                    .context("missing claim amount_usdt")?,
-            )?;
-            acc.checked_add(amt).context("claim sum overflow")
-        })?;
-    let has_ready_claims = !claims.is_empty();
+    let swap_rates = ctx.indexer.hub_swap_rates().await?;
+    for r in swap_rates {
+        let Some(token_str) = r.target_token.as_deref() else {
+            continue;
+        };
+        let Ok(addr) = token_str.parse::<Address>() else {
+            continue;
+        };
+        if addr == Address::ZERO || addr == usdt_addr {
+            continue;
+        }
+        let Some(rate_ppm_i64) = r.rate_ppm else {
+            continue;
+        };
+        let Ok(rate_ppm_u64) = u64::try_from(rate_ppm_i64) else {
+            continue;
+        };
+        if rate_ppm_u64 == 0 {
+            continue;
+        }
+
+        // De-dupe by address.
+        if candidates.iter().any(|c: &TokenCandidate| c.addr == addr) {
+            continue;
+        }
+        candidates.push(TokenCandidate {
+            addr,
+            filter: token_str.to_string(),
+            rate_ppm: Some(U256::from(rate_ppm_u64)),
+        });
+    }
+    if candidates.len() > 1 {
+        candidates[1..].sort_by(|a, b| a.addr.as_slice().cmp(b.addr.as_slice()));
+    }
+
+    let mut ready_claims_amt = U256::ZERO;
+    let mut created_claims = Vec::new();
+    for c in &candidates {
+        let claims = ctx
+            .indexer
+            .hub_claims_created_for_token(&c.filter, ctx.cfg.jobs.fill_max_claims.max(1))
+            .await?;
+        ready_claims_amt = ready_claims_amt
+            .checked_add(sum_claim_amounts_usdt(&claims)?)
+            .context("claim sum overflow")?;
+        created_claims.push((c.clone(), claims));
+    }
 
     // With subjective pre-entitlement, deposits do not become claims until a sponsor creates them.
     // Liquidity planning should therefore be driven by *claims* rather than raw (possibly unfinalized)
@@ -97,14 +150,7 @@ pub async fn plan_liquidity(
 
     let usdt_balance = state.hub_usdt_balance(ctx).await?;
 
-    let hub_intent = if has_ready_claims && usdt_balance >= ready_claims_amt {
-        Some(HubIntent::FillClaims {
-            target_token: usdt_addr,
-            max_claims: ctx.cfg.jobs.fill_max_claims.max(1),
-        })
-    } else {
-        None
-    };
+    let hub_intent = plan_hub_fill(ctx, state, usdt_addr, usdt_balance, &created_claims).await?;
 
     let tron_plan = if projected_demand > usdt_balance {
         plan_pull_from_receivers(ctx, state, tick, projected_demand).await?
@@ -125,6 +171,279 @@ pub async fn plan_liquidity(
         intent,
         updates: tron_plan.updates,
     })
+}
+
+fn sum_claim_amounts_usdt(claims: &[types::HubClaims]) -> Result<U256> {
+    claims
+        .iter()
+        .try_fold(U256::ZERO, |acc, c| -> Result<U256> {
+            let amt = number_to_u256(
+                c.amount_usdt
+                    .as_ref()
+                    .context("missing claim amount_usdt")?,
+            )?;
+            acc.checked_add(amt).context("claim sum overflow")
+        })
+}
+
+fn plan_fillable_claim_batch(
+    claims: &[types::HubClaims],
+    available_usdt: U256,
+) -> Result<(u64, U256)> {
+    let mut remaining = available_usdt;
+    let mut total = U256::ZERO;
+    let mut count: u64 = 0;
+    for c in claims {
+        let amt = number_to_u256(
+            c.amount_usdt
+                .as_ref()
+                .context("missing claim amount_usdt")?,
+        )?;
+        if remaining < amt {
+            break;
+        }
+        remaining = remaining.checked_sub(amt).context("usdt underflow")?;
+        total = total.checked_add(amt).context("claim sum overflow")?;
+        count = count.saturating_add(1);
+    }
+    Ok((count, total))
+}
+
+fn compute_expected_out_total(
+    claims: &[types::HubClaims],
+    max_claims: u64,
+    rate_ppm: U256,
+) -> Result<U256> {
+    if max_claims == 0 {
+        return Ok(U256::ZERO);
+    }
+    let mut out = U256::ZERO;
+    for c in claims.iter().take(max_claims as usize) {
+        let amt = number_to_u256(
+            c.amount_usdt
+                .as_ref()
+                .context("missing claim amount_usdt")?,
+        )?;
+        let q = amt
+            .checked_mul(rate_ppm)
+            .and_then(|x| x.checked_div(U256::from(1_000_000u64)))
+            .context("expectedOutTotal overflow")?;
+        out = out.checked_add(q).context("expectedOutTotal overflow")?;
+    }
+    Ok(out)
+}
+
+async fn plan_hub_fill(
+    ctx: &RelayerContext,
+    state: &mut RelayerState,
+    usdt_addr: Address,
+    usdt_balance: U256,
+    created_claims: &[(TokenCandidate, Vec<types::HubClaims>)],
+) -> Result<Option<HubIntent>> {
+    if created_claims.is_empty() || usdt_balance.is_zero() {
+        return Ok(None);
+    }
+
+    let l = created_claims.len();
+    if state.fill_cursor >= l {
+        state.fill_cursor = 0;
+    }
+
+    let allow_topup = ctx
+        .cfg
+        .hub
+        .lifi
+        .as_ref()
+        .map(|c| c.allow_topup)
+        .unwrap_or(false);
+
+    for offset in 0..l {
+        let idx = (state.fill_cursor + offset) % l;
+        let (c, claims) = &created_claims[idx];
+        if claims.is_empty() {
+            continue;
+        }
+
+        let (max_claims, total_usdt) = plan_fillable_claim_batch(claims, usdt_balance)?;
+        if max_claims == 0 || total_usdt.is_zero() {
+            continue;
+        }
+
+        // USDT queue needs no swap calls.
+        if c.addr == usdt_addr {
+            state.fill_cursor = (idx + 1) % l;
+            return Ok(Some(HubIntent::FillClaims {
+                target_token: c.addr,
+                max_claims,
+                calls: Vec::new(),
+                top_up_amount: U256::ZERO,
+                swap_executor: Address::ZERO,
+            }));
+        }
+
+        let Some(lifi) = &ctx.lifi else {
+            continue;
+        };
+        let Some(rate_ppm) = c.rate_ppm else {
+            continue;
+        };
+
+        let expected_out_total = compute_expected_out_total(claims, max_claims, rate_ppm)?;
+        if expected_out_total.is_zero() {
+            continue;
+        }
+
+        let hub_chain_id = match ctx.cfg.hub.chain_id {
+            Some(id) => id,
+            None => ctx
+                .hub_provider
+                .get_chain_id()
+                .await
+                .context("eth_chainId")?,
+        };
+
+        let hub_contract = ctx.hub_contract();
+        let start = Instant::now();
+        let swap_exec_res = hub_contract.SWAP_EXECUTOR().call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "SWAP_EXECUTOR",
+            swap_exec_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        let swap_executor = match swap_exec_res {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::warn!(err = %err, "failed to fetch SWAP_EXECUTOR; skipping non-USDT fill");
+                continue;
+            }
+        };
+
+        let quote = match lifi
+            .quote_usdt_to_token(hub_chain_id, usdt_addr, c.addr, total_usdt, swap_executor)
+            .await
+        {
+            Ok(q) => q,
+            Err(err) => {
+                tracing::warn!(
+                    err = %err,
+                    token = %c.addr,
+                    total_usdt = %total_usdt,
+                    "LI.FI quote failed; skipping token this tick"
+                );
+                continue;
+            }
+        };
+        if !quote.value.is_zero() {
+            tracing::warn!(
+                token = %c.addr,
+                value = %quote.value,
+                "LI.FI quote requires native value; SwapExecutor is not funded with ETH"
+            );
+            continue;
+        }
+
+        let top_up_needed = if quote.to_amount_min >= expected_out_total {
+            U256::ZERO
+        } else {
+            expected_out_total - quote.to_amount_min
+        };
+
+        if !top_up_needed.is_zero() {
+            if !allow_topup {
+                tracing::warn!(
+                    token = %c.addr,
+                    needed = %top_up_needed,
+                    "swap output below expected; top-up disabled"
+                );
+                continue;
+            }
+            let Some(multisend) = ctx.cfg.hub.multisend else {
+                tracing::warn!(
+                    token = %c.addr,
+                    needed = %top_up_needed,
+                    "swap output below expected; HUB_MULTISEND_ADDRESS not set"
+                );
+                continue;
+            };
+            let Some(safe) = ctx.cfg.hub.safe else {
+                tracing::warn!(
+                    token = %c.addr,
+                    needed = %top_up_needed,
+                    "swap output below expected; Safe address unknown"
+                );
+                continue;
+            };
+
+            let erc20 = IERC20::new(c.addr, &ctx.hub_provider);
+            let start = Instant::now();
+            let bal_res = erc20.balanceOf(safe).call().await;
+            ctx.telemetry.hub_rpc_ms(
+                "ERC20.balanceOf",
+                bal_res.is_ok(),
+                start.elapsed().as_millis() as u64,
+            );
+            let bal = match bal_res {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::warn!(err = %err, token = %c.addr, "failed to query Safe token balance");
+                    continue;
+                }
+            };
+            if bal < top_up_needed {
+                tracing::warn!(
+                    token = %c.addr,
+                    needed = %top_up_needed,
+                    balance = %bal,
+                    "swap output below expected; insufficient Safe balance to top up"
+                );
+                continue;
+            }
+
+            // If multisend is configured, we can atomically transfer + fill. Just keep it referenced
+            // so the planner doesn't ignore the configuration.
+            let _ = multisend;
+        }
+
+        let approve0 = IERC20::approveCall {
+            spender: quote.approval_address,
+            amount: U256::ZERO,
+        }
+        .abi_encode();
+        let approve_amt = IERC20::approveCall {
+            spender: quote.approval_address,
+            amount: total_usdt,
+        }
+        .abi_encode();
+
+        let calls = vec![
+            SwapCall {
+                to: usdt_addr,
+                value: U256::ZERO,
+                data: approve0.into(),
+            },
+            SwapCall {
+                to: usdt_addr,
+                value: U256::ZERO,
+                data: approve_amt.into(),
+            },
+            SwapCall {
+                to: quote.to,
+                value: quote.value,
+                data: quote.data,
+            },
+        ];
+
+        state.fill_cursor = (idx + 1) % l;
+        return Ok(Some(HubIntent::FillClaims {
+            target_token: c.addr,
+            max_claims,
+            calls,
+            top_up_amount: top_up_needed,
+            swap_executor,
+        }));
+    }
+
+    Ok(None)
 }
 
 async fn plan_pull_from_receivers(
