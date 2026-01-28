@@ -4,7 +4,7 @@ use super::lease_terms::resolve_lease_terms;
 use super::offer::compute_offer;
 use super::receiver_salt::{
     ensure_receiver_is_free, normalize_receiver_salt_hex, pick_receiver_salt_for_beneficiary,
-    pick_receiver_salt_from_preknown,
+    pick_receiver_salt_random_free,
 };
 use super::userop::send_userop;
 use super::{
@@ -234,11 +234,7 @@ pub async fn post_realtor(
             }
             None => match pick_receiver_salt_for_beneficiary(&state, now, beneficiary).await? {
                 Some(s) => s,
-                None => pick_receiver_salt_from_preknown(&state, now).await?.ok_or_else(|| {
-                    ApiError::Conflict(
-                        "no free receiver salts available (all are leased)".to_string(),
-                    )
-                })?,
+                None => pick_receiver_salt_random_free(&state, now).await?,
             },
         };
 

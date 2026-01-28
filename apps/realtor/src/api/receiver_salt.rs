@@ -2,6 +2,8 @@ use crate::AppState;
 use crate::api::ApiError;
 use crate::util::parse_bytes32;
 use alloy::primitives::Address;
+use rand::rngs::OsRng;
+use rand::RngCore;
 
 pub(super) fn normalize_receiver_salt_hex(receiver_salt: &str) -> Result<String, ApiError> {
     let b = parse_bytes32(receiver_salt)
@@ -98,22 +100,43 @@ pub(super) async fn pick_receiver_salt_for_beneficiary(
     Ok(Some(salt))
 }
 
-pub(super) async fn pick_receiver_salt_from_preknown(
+pub(super) async fn pick_receiver_salt_random_free(
     state: &AppState,
     now: u64,
-) -> Result<Option<String>, ApiError> {
-    if state.cfg.leasing.preknown_receiver_salts.is_empty() {
-        return Ok(None);
-    }
+) -> Result<String, ApiError> {
+    // This is the last-resort picker.
+    //
+    // The protocol allows arbitrary bytes32 receiver salts; we only need to ensure we don't
+    // collide with an active (non-nukeable) lease.
+    //
+    // In practice, the probability of randomly generating an already-leased salt is
+    // negligible, but we still check for safety and determinism.
+    const MAX_ATTEMPTS: usize = 64;
 
-    for receiver_salt_hex in &state.cfg.leasing.preknown_receiver_salts {
+    for attempt in 1..=MAX_ATTEMPTS {
+        let mut b = [0u8; 32];
+        OsRng.fill_bytes(&mut b);
+        let receiver_salt_hex = format!("0x{}", hex::encode(b));
+
         if receiver_is_free(state, receiver_salt_hex.as_str(), now).await? {
-            tracing::info!(receiver_salt = %receiver_salt_hex, "selected receiver salt (preknown fallback)");
-            return Ok(Some(receiver_salt_hex.clone()));
+            tracing::info!(
+                receiver_salt = %receiver_salt_hex,
+                attempt,
+                "selected receiver salt (random fallback)"
+            );
+            return Ok(receiver_salt_hex);
         }
+
+        tracing::warn!(
+            receiver_salt = %receiver_salt_hex,
+            attempt,
+            "random receiver salt was not free; retrying"
+        );
     }
 
-    Ok(None)
+    Err(ApiError::Conflict(
+        "failed to find a free random receiver salt".to_string(),
+    ))
 }
 
 pub(super) fn address_checksum(addr: Address) -> String {

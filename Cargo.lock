@@ -4433,6 +4433,7 @@ dependencies = [
  "hex",
  "k256",
  "opentelemetry",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
