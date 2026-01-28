@@ -790,11 +790,13 @@ impl Relayer {
         let receiver_backfill_pending =
             Self::i64_to_u64_opt(rx.backfill_pending_receivers).unwrap_or_default();
         if receiver_backfill_pending != 0 {
+            // Backfills can run for newly-discovered receivers without preventing the relayer
+            // from operating on already-synced receivers. Downstream queries that depend on
+            // receiver-USDT transfer state should exclude receivers that are still backfilling.
             tracing::warn!(
                 backfills = receiver_backfill_pending,
-                "receiver_usdt backfill pending; skipping tick"
+                "receiver_usdt backfill pending"
             );
-            ready = false;
         }
 
         // If there are no tracked receivers, the receiver-usdt tailer may not advance tail_next_block.
