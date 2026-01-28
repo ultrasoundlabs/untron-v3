@@ -18,10 +18,6 @@ create or replace view api.lease_view as
 select
     lv.lease_id,
     lv.receiver_salt,
-
-    w.receiver as receiver_address_tron,
-    w.receiver_evm as receiver_address_evm,
-
     lv.lease_number,
     lv.realtor,
     lv.lessee,
@@ -48,7 +44,11 @@ select
     coalesce(pd.pending_usdt_deposits, '[]'::jsonb) as pending_usdt_deposits,
     coalesce(pd.pending_usdt_deposits_total, 0) as pending_usdt_deposits_total,
     coalesce(pd.pending_usdt_deposits_amount, '0') as pending_usdt_deposits_amount,
-    coalesce(pd.pending_usdt_deposits_latest_block_timestamp, 0) as pending_usdt_deposits_latest_block_timestamp
+    coalesce(pd.pending_usdt_deposits_latest_block_timestamp, 0) as pending_usdt_deposits_latest_block_timestamp,
+
+    -- Deterministic receiver address mapping (may be NULL if not yet populated).
+    w.receiver as receiver_address_tron,
+    w.receiver_evm as receiver_address_evm
 from hub.lease_versions lv
 left join ctl.receiver_watchlist w
     on w.receiver_salt = lv.receiver_salt
