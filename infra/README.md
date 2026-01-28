@@ -12,8 +12,17 @@ docker compose -f infra/docker-compose.yml up -d
 
 - Swagger UI: `http://localhost:8080/docs`
 - OpenAPI (3.x): `http://localhost:8080/openapi.json`
+- DB browser (pgweb, read-only): `http://localhost:8081` (schema `api`, view `usdt_deposit_txs` for chronological deposits)
 - If `docker compose` fails with `Bind for 0.0.0.0:8888 failed`, set `OTELCOL_TELEMETRY_PORT=8889` (OrbStack commonly uses `8888`).
 - If the indexer logs `controller previous_tip mismatch`, you likely have a stale DB volume from a prior run; easiest reset is `docker compose -f infra/docker-compose.yml down -v` and then `up -d` again.
+
+### Verify DB migrations apply cleanly
+
+Runs `apps/indexer` migrations against a brand-new Postgres using the same Docker images as the stack, then validates that the key `api.*` views exist and compile:
+
+```bash
+bash infra/verify-migrations.sh
+```
 
 ### Running behind a path prefix (external reverse proxy)
 
