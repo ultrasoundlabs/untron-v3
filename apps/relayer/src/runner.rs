@@ -12,7 +12,7 @@ use aa::{
 };
 use alloy::{
     primitives::{FixedBytes, U256},
-    providers::{DynProvider, ProviderBuilder},
+    providers::{DynProvider, Provider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
 };
 use anyhow::{Context, Result};
@@ -42,6 +42,27 @@ pub struct Relayer {
 
 pub struct Tick {
     pub tron_head: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct IndexerTickInfo {
+    ready: bool,
+
+    hub_projection_caught_up: bool,
+    controller_projection_caught_up: bool,
+
+    hub_max_block_number: Option<u64>,
+    controller_max_block_number: Option<u64>,
+
+    hub_rpc_head_block_number: Option<u64>,
+    hub_stream_lag_from_rpc_head_blocks: Option<u64>,
+    controller_stream_lag_from_rpc_head_blocks: Option<u64>,
+
+    receiver_count: u64,
+    receiver_backfill_pending: u64,
+    receiver_tail_next_block: Option<u64>,
+    receiver_tail_lag_blocks: Option<u64>,
+    allowed_receiver_tail_lag_blocks: u64,
 }
 
 struct PlannedTick {
@@ -76,6 +97,10 @@ pub struct RelayerState {
     fill_cursor: usize,
     hub_pending_nonce: Option<U256>,
     hub_usdt_balance_cache: Option<HubUsdtBalanceCache>,
+    hub_head_block_cache: Option<HubHeadBlockCache>,
+    hub_swap_executor_cache: Option<HubSwapExecutorCache>,
+    hub_safe_erc20_balance_cache: HashMap<alloy::primitives::Address, HubSafeErc20BalanceCache>,
+    hub_lp_allowed_cache: Option<HubLpAllowedCache>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,9 +109,38 @@ struct HubUsdtBalanceCache {
     fetched_at: Instant,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HubHeadBlockCache {
+    block_number: u64,
+    fetched_at: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HubSwapExecutorCache {
+    swap_executor: alloy::primitives::Address,
+    fetched_at: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HubSafeErc20BalanceCache {
+    balance: U256,
+    fetched_at: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HubLpAllowedCache {
+    safe: alloy::primitives::Address,
+    allowed: bool,
+    fetched_at: Instant,
+}
+
 impl RelayerState {
     pub fn invalidate_hub_usdt_balance_cache(&mut self) {
         self.hub_usdt_balance_cache = None;
+    }
+
+    pub fn invalidate_hub_safe_erc20_balance_cache(&mut self) {
+        self.hub_safe_erc20_balance_cache.clear();
     }
 
     pub async fn hub_usdt_balance(&mut self, ctx: &RelayerContext) -> Result<U256> {
@@ -111,6 +165,124 @@ impl RelayerState {
             balance,
             fetched_at: Instant::now(),
         });
+        Ok(balance)
+    }
+
+    pub async fn hub_head_block_number(&mut self, ctx: &RelayerContext) -> Result<u64> {
+        const HUB_HEAD_BLOCK_CACHE_TTL: Duration = Duration::from_secs(10);
+
+        if let Some(cached) = self.hub_head_block_cache {
+            if cached.fetched_at.elapsed() <= HUB_HEAD_BLOCK_CACHE_TTL {
+                return Ok(cached.block_number);
+            }
+        }
+
+        let start = Instant::now();
+        let head_res = ctx.hub_provider.get_block_number().await;
+        ctx.telemetry.hub_rpc_ms(
+            "eth_blockNumber",
+            head_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        let head = head_res?;
+
+        self.hub_head_block_cache = Some(HubHeadBlockCache {
+            block_number: head,
+            fetched_at: Instant::now(),
+        });
+        Ok(head)
+    }
+
+    pub async fn hub_swap_executor(
+        &mut self,
+        ctx: &RelayerContext,
+    ) -> Result<alloy::primitives::Address> {
+        const HUB_SWAP_EXECUTOR_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+
+        if let Some(cached) = self.hub_swap_executor_cache {
+            if cached.fetched_at.elapsed() <= HUB_SWAP_EXECUTOR_CACHE_TTL {
+                return Ok(cached.swap_executor);
+            }
+        }
+
+        let hub_contract = ctx.hub_contract();
+        let start = Instant::now();
+        let swap_exec_res = hub_contract.SWAP_EXECUTOR().call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "SWAP_EXECUTOR",
+            swap_exec_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        let swap_executor = swap_exec_res?;
+
+        self.hub_swap_executor_cache = Some(HubSwapExecutorCache {
+            swap_executor,
+            fetched_at: Instant::now(),
+        });
+        Ok(swap_executor)
+    }
+
+    pub async fn hub_is_lp_allowed(
+        &mut self,
+        ctx: &RelayerContext,
+        safe: alloy::primitives::Address,
+    ) -> Result<bool> {
+        const HUB_IS_LP_ALLOWED_CACHE_TTL: Duration = Duration::from_secs(60 * 10);
+
+        if let Some(cached) = self.hub_lp_allowed_cache {
+            if cached.safe == safe && cached.fetched_at.elapsed() <= HUB_IS_LP_ALLOWED_CACHE_TTL {
+                return Ok(cached.allowed);
+            }
+        }
+
+        let hub_contract = ctx.hub_contract();
+        let start = Instant::now();
+        let allowed_res = hub_contract.isLpAllowed(safe).call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "isLpAllowed",
+            allowed_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        let allowed = allowed_res?;
+
+        self.hub_lp_allowed_cache = Some(HubLpAllowedCache {
+            safe,
+            allowed,
+            fetched_at: Instant::now(),
+        });
+        Ok(allowed)
+    }
+
+    pub async fn hub_safe_erc20_balance_of(
+        &mut self,
+        ctx: &RelayerContext,
+        token: alloy::primitives::Address,
+        safe: alloy::primitives::Address,
+    ) -> Result<U256> {
+        const HUB_SAFE_ERC20_BALANCE_CACHE_TTL: Duration = Duration::from_secs(30);
+
+        if let Some(cached) = self.hub_safe_erc20_balance_cache.get(&token).copied() {
+            if cached.fetched_at.elapsed() <= HUB_SAFE_ERC20_BALANCE_CACHE_TTL {
+                return Ok(cached.balance);
+            }
+        }
+
+        let erc20 = crate::evm::IERC20::new(token, &ctx.hub_provider);
+        let start = Instant::now();
+        let bal_res = erc20.balanceOf(safe).call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "ERC20.balanceOf",
+            bal_res.is_ok(),
+            start.elapsed().as_millis() as u64,
+        );
+        let balance = bal_res?;
+        self.hub_safe_erc20_balance_cache.insert(
+            token,
+            HubSafeErc20BalanceCache {
+                balance,
+                fetched_at: Instant::now(),
+            },
+        );
         Ok(balance)
     }
 
@@ -275,6 +447,10 @@ impl Relayer {
                 fill_cursor: 0,
                 hub_pending_nonce: None,
                 hub_usdt_balance_cache: None,
+                hub_head_block_cache: None,
+                hub_swap_executor_cache: None,
+                hub_safe_erc20_balance_cache: HashMap::new(),
+                hub_lp_allowed_cache: None,
             },
         })
     }
@@ -301,7 +477,8 @@ impl Relayer {
     async fn tick(&mut self) -> Result<()> {
         let tick = self.collect_tick().await?;
 
-        let ready = match self.indexer_ready(&tick).await {
+        let hub_head = self.state.hub_head_block_number(&self.ctx).await.ok();
+        let ix = match self.indexer_tick_info(&tick, hub_head).await {
             Ok(v) => v,
             Err(err) => {
                 tracing::warn!(err = %err, "indexer readiness check failed; skipping tick");
@@ -309,8 +486,25 @@ impl Relayer {
             }
         };
 
-        if !ready {
-            tracing::warn!("indexer not caught up; skipping tick");
+        tracing::info!(
+            tron_head = tick.tron_head,
+            indexer_ready = ix.ready,
+            hub_projection_caught_up = ix.hub_projection_caught_up,
+            controller_projection_caught_up = ix.controller_projection_caught_up,
+            hub_max_block_number = ?ix.hub_max_block_number,
+            controller_max_block_number = ?ix.controller_max_block_number,
+            hub_rpc_head_block_number = ?ix.hub_rpc_head_block_number,
+            hub_stream_lag_from_rpc_head_blocks = ?ix.hub_stream_lag_from_rpc_head_blocks,
+            controller_stream_lag_from_rpc_head_blocks = ?ix.controller_stream_lag_from_rpc_head_blocks,
+            receiver_count = ix.receiver_count,
+            receiver_backfill_pending = ix.receiver_backfill_pending,
+            receiver_tail_next_block = ?ix.receiver_tail_next_block,
+            receiver_tail_lag_blocks = ?ix.receiver_tail_lag_blocks,
+            allowed_receiver_tail_lag_blocks = ix.allowed_receiver_tail_lag_blocks,
+            "tick"
+        );
+
+        if !ix.ready {
             return Ok(());
         }
 
@@ -396,7 +590,7 @@ impl Relayer {
                 tasks::plan_relay_controller_chain(&self.ctx, tick, &hub_state),
                 tasks::plan_process_controller_events(&self.ctx, &hub_state),
                 tasks::plan_pre_entitle(&self.ctx, tick),
-                tasks::plan_deposit_lp(&self.ctx),
+                tasks::plan_deposit_lp(&self.ctx, &mut self.state),
             );
             (relay?, process?, pre?, deposit_lp?)
         };
@@ -503,21 +697,29 @@ impl Relayer {
         Ok(true)
     }
 
-    async fn indexer_ready(&self, tick: &Tick) -> Result<bool> {
+    fn i64_to_u64_opt(v: Option<i64>) -> Option<u64> {
+        v.and_then(|n| if n >= 0 { Some(n as u64) } else { None })
+    }
+
+    async fn indexer_tick_info(
+        &self,
+        tick: &Tick,
+        hub_rpc_head_block_number: Option<u64>,
+    ) -> Result<IndexerTickInfo> {
         self.ctx.indexer.health().await?;
 
         let summaries = self.ctx.indexer.stream_ingest_summary().await?;
-        let mut hub_ok = false;
-        let mut controller_ok = false;
+        let mut hub_projection_caught_up = false;
+        let mut controller_projection_caught_up = false;
+        let mut hub_max_block_number = None;
+        let mut controller_max_block_number = None;
 
         for s in summaries {
             let Some(stream) = s.stream else {
                 continue;
             };
             let caught_up = s.is_projection_caught_up.unwrap_or(false);
-            if !caught_up {
-                continue;
-            }
+            let max_block = Self::i64_to_u64_opt(s.max_block_number);
 
             if matches!(
                 stream,
@@ -526,62 +728,146 @@ impl Relayer {
                 // `max_block_number` is the highest block that produced at least one indexed event,
                 // not necessarily how far the ingester has scanned. On sparse streams, it can lag
                 // far behind head even while the indexer is actively tailing.
-                hub_ok = true;
+                hub_projection_caught_up = caught_up;
+                hub_max_block_number = max_block;
             } else if matches!(
                 stream,
                 untron_v3_indexer_client::types::StreamIngestSummaryStream::Controller
             ) {
-                controller_ok = true;
+                controller_projection_caught_up = caught_up;
+                controller_max_block_number = max_block;
             }
         }
 
-        if !hub_ok || !controller_ok {
+        let hub_stream_lag_from_rpc_head_blocks = hub_rpc_head_block_number
+            .zip(hub_max_block_number)
+            .map(|(head, max_block)| head.saturating_sub(max_block));
+        let controller_stream_lag_from_rpc_head_blocks = hub_rpc_head_block_number
+            .zip(controller_max_block_number)
+            .map(|(head, max_block)| head.saturating_sub(max_block));
+
+        if let Some(lag) = hub_stream_lag_from_rpc_head_blocks {
+            self.ctx
+                .telemetry
+                .indexer_stream_head_lag_blocks("hub", lag);
+        }
+        if let Some(lag) = controller_stream_lag_from_rpc_head_blocks {
+            self.ctx
+                .telemetry
+                .indexer_stream_head_lag_blocks("controller", lag);
+        }
+
+        let mut ready = hub_projection_caught_up && controller_projection_caught_up;
+        if !ready {
             tracing::warn!(
-                hub_ok,
-                controller_ok,
+                hub_projection_caught_up,
+                controller_projection_caught_up,
                 "indexer projections not caught up; skipping tick"
             );
-            return Ok(false);
         }
+
+        let allowed_receiver_tail_lag_blocks = self.ctx.cfg.indexer.max_head_lag_blocks;
 
         let Some(rx) = self.ctx.indexer.receiver_usdt_indexer_status().await? else {
             tracing::warn!("indexer missing receiver_usdt_indexer_status; skipping tick");
-            return Ok(false);
+            return Ok(IndexerTickInfo {
+                ready: false,
+                hub_projection_caught_up,
+                controller_projection_caught_up,
+                hub_max_block_number,
+                controller_max_block_number,
+                hub_rpc_head_block_number,
+                hub_stream_lag_from_rpc_head_blocks,
+                controller_stream_lag_from_rpc_head_blocks,
+                receiver_count: 0,
+                receiver_backfill_pending: 0,
+                receiver_tail_next_block: None,
+                receiver_tail_lag_blocks: None,
+                allowed_receiver_tail_lag_blocks,
+            });
         };
 
-        let backfills = rx.backfill_pending_receivers.unwrap_or_default();
-        if backfills != 0 {
-            tracing::warn!(backfills, "receiver_usdt backfill pending; skipping tick");
-            return Ok(false);
+        let receiver_backfill_pending =
+            Self::i64_to_u64_opt(rx.backfill_pending_receivers).unwrap_or_default();
+        if receiver_backfill_pending != 0 {
+            tracing::warn!(
+                backfills = receiver_backfill_pending,
+                "receiver_usdt backfill pending; skipping tick"
+            );
+            ready = false;
         }
 
         // If there are no tracked receivers, the receiver-usdt tailer may not advance tail_next_block.
         // In that case, treat receiver-usdt as ready once backfills are drained.
-        let receiver_count = rx.receiver_count.unwrap_or_default();
+        let receiver_count = Self::i64_to_u64_opt(rx.receiver_count).unwrap_or_default();
         if receiver_count == 0 {
-            return Ok(true);
+            return Ok(IndexerTickInfo {
+                ready,
+                hub_projection_caught_up,
+                controller_projection_caught_up,
+                hub_max_block_number,
+                controller_max_block_number,
+                hub_rpc_head_block_number,
+                hub_stream_lag_from_rpc_head_blocks,
+                controller_stream_lag_from_rpc_head_blocks,
+                receiver_count,
+                receiver_backfill_pending,
+                receiver_tail_next_block: None,
+                receiver_tail_lag_blocks: None,
+                allowed_receiver_tail_lag_blocks,
+            });
         }
 
         let Some(tail_next) = rx.tail_next_block else {
             tracing::warn!("receiver_usdt tail_next_block missing; skipping tick");
-            return Ok(false);
+            return Ok(IndexerTickInfo {
+                ready: false,
+                hub_projection_caught_up,
+                controller_projection_caught_up,
+                hub_max_block_number,
+                controller_max_block_number,
+                hub_rpc_head_block_number,
+                hub_stream_lag_from_rpc_head_blocks,
+                controller_stream_lag_from_rpc_head_blocks,
+                receiver_count,
+                receiver_backfill_pending,
+                receiver_tail_next_block: None,
+                receiver_tail_lag_blocks: None,
+                allowed_receiver_tail_lag_blocks,
+            });
         };
+
         // tail_next_block is the NEXT block to query, so it should be close to head.
         let tail_next_u64 = tail_next.max(0) as u64;
         let lag = tick.tron_head.saturating_sub(tail_next_u64);
-        if lag > self.ctx.cfg.indexer.max_head_lag_blocks {
+        self.ctx.telemetry.receiver_usdt_tail_lag_blocks(lag);
+        if lag > allowed_receiver_tail_lag_blocks {
             tracing::warn!(
                 lag,
-                allowed = self.ctx.cfg.indexer.max_head_lag_blocks,
+                allowed = allowed_receiver_tail_lag_blocks,
                 receiver_count,
                 tron_head = tick.tron_head,
                 tail_next_block = tail_next_u64,
                 "receiver_usdt tail lag too high; skipping tick"
             );
-            return Ok(false);
+            ready = false;
         }
 
-        Ok(true)
+        Ok(IndexerTickInfo {
+            ready,
+            hub_projection_caught_up,
+            controller_projection_caught_up,
+            hub_max_block_number,
+            controller_max_block_number,
+            hub_rpc_head_block_number,
+            hub_stream_lag_from_rpc_head_blocks,
+            controller_stream_lag_from_rpc_head_blocks,
+            receiver_count,
+            receiver_backfill_pending,
+            receiver_tail_next_block: Some(tail_next_u64),
+            receiver_tail_lag_blocks: Some(lag),
+            allowed_receiver_tail_lag_blocks,
+        })
     }
 }
 
@@ -639,6 +925,10 @@ mod tests {
             fill_cursor: 0,
             hub_pending_nonce: None,
             hub_usdt_balance_cache: None,
+            hub_head_block_cache: None,
+            hub_swap_executor_cache: None,
+            hub_safe_erc20_balance_cache: HashMap::new(),
+            hub_lp_allowed_cache: None,
         }
     }
 

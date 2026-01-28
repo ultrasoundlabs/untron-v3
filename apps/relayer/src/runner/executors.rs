@@ -65,6 +65,7 @@ impl HubExecutor {
                     .hub_submit_ms(name, true, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_ok();
                 state.invalidate_hub_usdt_balance_cache();
+                state.invalidate_hub_safe_erc20_balance_cache();
                 state.hub_pending_nonce = Some(sub.nonce);
                 tracing::info!(userop_hash = %sub.userop_hash, %name, "submitted hub userop");
                 Ok(())

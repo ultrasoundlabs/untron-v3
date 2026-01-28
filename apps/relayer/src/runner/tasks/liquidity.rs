@@ -9,7 +9,6 @@ use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
-use std::time::Instant;
 use untron_v3_bindings::untron_v3::UntronV3::Call as SwapCall;
 use untron_v3_indexer_client::types;
 
@@ -302,15 +301,7 @@ async fn plan_hub_fill(
                 .context("eth_chainId")?,
         };
 
-        let hub_contract = ctx.hub_contract();
-        let start = Instant::now();
-        let swap_exec_res = hub_contract.SWAP_EXECUTOR().call().await;
-        ctx.telemetry.hub_rpc_ms(
-            "SWAP_EXECUTOR",
-            swap_exec_res.is_ok(),
-            start.elapsed().as_millis() as u64,
-        );
-        let swap_executor = match swap_exec_res {
+        let swap_executor = match state.hub_swap_executor(ctx).await {
             Ok(v) => v,
             Err(err) => {
                 tracing::warn!(err = %err, "failed to fetch SWAP_EXECUTOR; skipping non-USDT fill");
@@ -374,15 +365,7 @@ async fn plan_hub_fill(
                 continue;
             };
 
-            let erc20 = IERC20::new(c.addr, &ctx.hub_provider);
-            let start = Instant::now();
-            let bal_res = erc20.balanceOf(safe).call().await;
-            ctx.telemetry.hub_rpc_ms(
-                "ERC20.balanceOf",
-                bal_res.is_ok(),
-                start.elapsed().as_millis() as u64,
-            );
-            let bal = match bal_res {
+            let bal = match state.hub_safe_erc20_balance_of(ctx, c.addr, safe).await {
                 Ok(v) => v,
                 Err(err) => {
                     tracing::warn!(err = %err, token = %c.addr, "failed to query Safe token balance");

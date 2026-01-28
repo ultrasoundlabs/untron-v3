@@ -157,7 +157,10 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
     Ok(Plan::none())
 }
 
-pub async fn plan_deposit_lp(ctx: &RelayerContext) -> Result<Plan<HubIntent>> {
+pub async fn plan_deposit_lp(
+    ctx: &RelayerContext,
+    state: &mut RelayerState,
+) -> Result<Plan<HubIntent>> {
     let Some(multisend) = ctx.cfg.hub.multisend else {
         // We need multisend to atomically approve + deposit from the Safe.
         return Ok(Plan::none());
@@ -171,28 +174,18 @@ pub async fn plan_deposit_lp(ctx: &RelayerContext) -> Result<Plan<HubIntent>> {
     let usdt_str = proto.usdt.as_deref().context("missing hub usdt")?;
     let usdt: Address = usdt_str.parse().context("invalid hub usdt address")?;
 
-    let hub_contract = ctx.hub_contract();
-    let start = Instant::now();
-    let allowed_res = hub_contract.isLpAllowed(safe).call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "isLpAllowed",
-        allowed_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let allowed = allowed_res.context("hub isLpAllowed")?;
+    let allowed = state
+        .hub_is_lp_allowed(ctx, safe)
+        .await
+        .context("hub isLpAllowed")?;
     if !allowed {
         return Ok(Plan::none());
     }
 
-    let erc20 = IERC20::new(usdt, &ctx.hub_provider);
-    let start = Instant::now();
-    let bal_res = erc20.balanceOf(safe).call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "ERC20.balanceOf",
-        bal_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let bal = bal_res.context("hub usdt balanceOf(safe)")?;
+    let bal = state
+        .hub_safe_erc20_balance_of(ctx, usdt, safe)
+        .await
+        .context("hub usdt balanceOf(safe)")?;
     if bal.is_zero() {
         return Ok(Plan::none());
     }

@@ -24,6 +24,8 @@ struct Inner {
     hub_rpc_ms: Histogram<u64>,
     tron_proof_ms: Histogram<u64>,
     tron_grpc_ms: Histogram<u64>,
+    receiver_usdt_tail_lag_blocks: Histogram<u64>,
+    indexer_stream_head_lag_blocks: Histogram<u64>,
 }
 
 impl RelayerTelemetry {
@@ -97,6 +99,18 @@ impl RelayerTelemetry {
             .with_unit("ms")
             .build();
 
+        let receiver_usdt_tail_lag_blocks = meter
+            .u64_histogram("relayer.receiver_usdt_tail_lag_blocks")
+            .with_description("Receiver USDT tail lag from Tron head")
+            .with_unit("blocks")
+            .build();
+
+        let indexer_stream_head_lag_blocks = meter
+            .u64_histogram("relayer.indexer_stream_head_lag_blocks")
+            .with_description("Indexer stream max_block_number lag from hub RPC head")
+            .with_unit("blocks")
+            .build();
+
         Self {
             inner: Arc::new(Inner {
                 jobs_total,
@@ -112,6 +126,8 @@ impl RelayerTelemetry {
                 hub_rpc_ms,
                 tron_proof_ms,
                 tron_grpc_ms,
+                receiver_usdt_tail_lag_blocks,
+                indexer_stream_head_lag_blocks,
             }),
         }
     }
@@ -187,5 +203,18 @@ impl RelayerTelemetry {
             KeyValue::new("status", if ok { "ok" } else { "err" }),
         ];
         self.inner.tron_grpc_ms.record(ms, &attrs);
+    }
+
+    pub fn receiver_usdt_tail_lag_blocks(&self, lag_blocks: u64) {
+        self.inner
+            .receiver_usdt_tail_lag_blocks
+            .record(lag_blocks, &[]);
+    }
+
+    pub fn indexer_stream_head_lag_blocks(&self, stream: &'static str, lag_blocks: u64) {
+        let attrs = [KeyValue::new("stream", stream)];
+        self.inner
+            .indexer_stream_head_lag_blocks
+            .record(lag_blocks, &attrs);
     }
 }
