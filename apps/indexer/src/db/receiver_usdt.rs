@@ -283,6 +283,7 @@ pub async fn list_backfill_batch(
 pub struct BackfillWork {
     pub start_block: u64,
     pub stop_at_or_above: u64,
+    pub receiver_salts: Vec<String>,
     pub receiver_map: HashMap<alloy::primitives::Address, String>,
     pub to_addrs: Vec<alloy::primitives::Address>,
 }
@@ -296,22 +297,49 @@ pub async fn next_backfill_work(
     let Some((start_block, batch)) = list_backfill_batch(db, limit).await? else {
         return Ok(None);
     };
+    let receiver_salts = batch
+        .iter()
+        .map(|r| r.receiver_salt.clone())
+        .collect::<Vec<_>>();
     let receiver_map = build_receiver_map(&batch)?;
     let to_addrs = receiver_map.keys().copied().collect::<Vec<_>>();
     Ok(Some(BackfillWork {
         start_block,
         stop_at_or_above,
+        receiver_salts,
         receiver_map,
         to_addrs,
     }))
 }
 
-pub async fn advance_backfill_batch(
+pub async fn clear_backfill_for_receiver_salts(db: &Db, receiver_salts: &[String]) -> Result<()> {
+    if receiver_salts.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "update ctl.receiver_watchlist \
+         set backfill_next_block = null, updated_at = now() \
+         where receiver_salt = any($1)",
+    )
+    .bind(receiver_salts)
+    .execute(&db.pool)
+    .await
+    .context("clear backfill for receiver salts")?;
+    Ok(())
+}
+
+pub async fn advance_backfill_for_receiver_salts(
     db: &Db,
+    receiver_salts: &[String],
     start_block: u64,
     next_block: u64,
     stop_at_or_above: u64,
 ) -> Result<()> {
+    if receiver_salts.is_empty() {
+        return Ok(());
+    }
+
     let start_block: i64 =
         i64::try_from(start_block).context("start_block out of range for bigint")?;
     let next_block: i64 =
@@ -322,18 +350,19 @@ pub async fn advance_backfill_batch(
     sqlx::query(
         "update ctl.receiver_watchlist \
          set backfill_next_block = case \
-             when $2 >= $3 then null \
-             else $2 \
+             when $3 >= $4 then null \
+             else $3 \
          end, \
          updated_at = now() \
-         where backfill_next_block = $1",
+         where receiver_salt = any($1) and backfill_next_block = $2",
     )
+    .bind(receiver_salts)
     .bind(start_block)
     .bind(next_block)
     .bind(stop_at_or_above)
     .execute(&db.pool)
     .await
-    .context("advance backfill batch")?;
+    .context("advance backfill for receiver salts")?;
     Ok(())
 }
 

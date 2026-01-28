@@ -16,6 +16,7 @@ use tracing::{info, warn};
 
 use crate::shared::progress::ProgressReporter;
 use crate::shared::rpc_telemetry::RpcTelemetry;
+use futures::{StreamExt, stream};
 
 pub struct RunReceiverUsdtParams {
     pub dbh: db::Db,
@@ -322,6 +323,25 @@ enum RunnerMode {
     Backfill,
 }
 
+async fn list_historical_controller_usdt_tokens_up_to(
+    dbh: &db::Db,
+    deployment_block: u64,
+    to_block: u64,
+) -> Result<Vec<alloy::primitives::Address>> {
+    let points = receiverdb::usdt_set_points_up_to(dbh, deployment_block, to_block).await?;
+    let mut out = Vec::new();
+    for p in points {
+        let evm = crate::domain::TronAddress::parse_text(&p.usdt_tron)
+            .or_else(|_| crate::domain::TronAddress::parse_text(&p.usdt_evm))
+            .context("parse controller usdt address")?
+            .evm();
+        if !out.contains(&evm) {
+            out.push(evm);
+        }
+    }
+    Ok(out)
+}
+
 async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
     let LoopCtx {
         dbh,
@@ -504,6 +524,176 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     continue;
                 }
 
+                // Optimization: for newly discovered receivers, if current balanceOf is 0 for all
+                // historically configured USDT tokens, then by protocol invariant no transfers
+                // have ever happened to that receiver, so backfill can be skipped.
+                //
+                // This is safe because the Tron-side controller sweep leaves 1 base unit behind
+                // after the first non-zero deposit, so balance never returns to 0.
+                let usdt_tokens = list_historical_controller_usdt_tokens_up_to(
+                    dbh,
+                    controller_cfg.deployment_block,
+                    safe_head,
+                )
+                .await?;
+                let usdt_tokens = std::sync::Arc::new(usdt_tokens);
+                if !usdt_tokens.is_empty() {
+                    let provider = provider.clone();
+                    let shutdown = shutdown.clone();
+                    let telemetry = telemetry.clone();
+
+                    let check_concurrency = block_header_concurrency.max(1).min(32);
+                    let receivers = work
+                        .receiver_map
+                        .iter()
+                        .map(|(addr, salt)| (*addr, salt.clone()))
+                        .collect::<Vec<_>>();
+                    let results = stream::iter(receivers.into_iter())
+                        .map(|(receiver_addr, receiver_salt)| {
+                            let provider = provider.clone();
+                            let shutdown = shutdown.clone();
+                            let telemetry = telemetry.clone();
+                            let usdt_tokens = usdt_tokens.clone();
+                            async move {
+                                if shutdown.is_cancelled() {
+                                    return Ok::<_, anyhow::Error>((receiver_salt, true));
+                                }
+
+                                for token in usdt_tokens.iter().copied() {
+                                    let contract = untron_v3_bindings::erc20::ERC20::new(
+                                        token,
+                                        provider.clone(),
+                                    );
+                                    let call = contract.balanceOf(receiver_addr);
+                                    let request = call
+                                        .clone()
+                                        .into_transaction_request()
+                                        .normalized_data();
+
+                                    let Some((return_data, ms)) =
+                                        timed_await_or_cancel(&shutdown, async {
+                                            provider
+                                                .call(request)
+                                                .block(alloy::eips::BlockId::latest())
+                                                .await
+                                                .map_err(|e| {
+                                                    telemetry.rpc_error("eth_call", "erc20.balanceOf");
+                                                    anyhow::Error::new(e).context("eth_call(erc20.balanceOf)")
+                                                })
+                                        })
+                                        .await?
+                                    else {
+                                        return Ok((receiver_salt, true));
+                                    };
+                                    telemetry.rpc_call("eth_call", "erc20.balanceOf", true, ms);
+
+                                    let decoded =
+                                        <untron_v3_bindings::erc20::ERC20::balanceOfCall as alloy::sol_types::SolCall>::abi_decode_returns(
+                                            return_data.as_ref(),
+                                        )
+                                        .context("decode erc20.balanceOf return")?;
+                                    if decoded != alloy::primitives::U256::ZERO {
+                                        return Ok((receiver_salt, true));
+                                    }
+                                }
+                                Ok((receiver_salt, false))
+                            }
+                        })
+                        .buffer_unordered(check_concurrency)
+                        .collect::<Vec<_>>()
+                        .await;
+
+                    let mut nonzero_salts = Vec::new();
+                    let mut zero_salts = Vec::new();
+                    for r in results {
+                        match r {
+                            Ok((salt, has_nonzero)) => {
+                                if has_nonzero {
+                                    nonzero_salts.push(salt);
+                                } else {
+                                    zero_salts.push(salt);
+                                }
+                            }
+                            Err(e) => {
+                                warn!(err = %e, "receiver_usdt balanceOf precheck failed; falling back to normal backfill");
+                                nonzero_salts = work.receiver_salts.clone();
+                                zero_salts.clear();
+                                break;
+                            }
+                        }
+                    }
+
+                    if !zero_salts.is_empty() {
+                        receiverdb::clear_backfill_for_receiver_salts(dbh, &zero_salts).await?;
+                    }
+
+                    if nonzero_salts.is_empty() {
+                        report_receiver_usdt_progress(
+                            process_ctx.progress,
+                            head,
+                            safe_head,
+                            stop_at_or_above,
+                            0,
+                            batch_size,
+                        );
+                        continue;
+                    }
+
+                    // Filter this cohort down to receivers that actually have non-zero balance.
+                    let nonzero_set = nonzero_salts
+                        .iter()
+                        .cloned()
+                        .collect::<std::collections::HashSet<_>>();
+                    let mut filtered_map = HashMap::new();
+                    let mut filtered_addrs = Vec::new();
+                    for (addr, salt) in work.receiver_map.iter() {
+                        if nonzero_set.contains(salt) {
+                            filtered_map.insert(*addr, salt.clone());
+                            filtered_addrs.push(*addr);
+                        }
+                    }
+                    let work = receiverdb::BackfillWork {
+                        start_block,
+                        stop_at_or_above,
+                        receiver_salts: nonzero_salts,
+                        receiver_map: filtered_map,
+                        to_addrs: filtered_addrs,
+                    };
+
+                    // Recompute receiver_count for progress + downstream chunking.
+                    let receiver_count = work.to_addrs.len();
+
+                    let Some(next_block) = scan_chunks(
+                        &mut process_ctx,
+                        &work.receiver_map,
+                        &work.to_addrs,
+                        start_block,
+                        safe_head,
+                        1,
+                    )
+                    .await?
+                    else {
+                        return Ok(());
+                    };
+                    receiverdb::advance_backfill_for_receiver_salts(
+                        dbh,
+                        &work.receiver_salts,
+                        start_block,
+                        next_block,
+                        stop_at_or_above,
+                    )
+                    .await?;
+                    report_receiver_usdt_progress(
+                        process_ctx.progress,
+                        head,
+                        safe_head,
+                        next_block,
+                        receiver_count,
+                        batch_size,
+                    );
+                    continue;
+                }
+
                 let Some(next_block) = scan_chunks(
                     &mut process_ctx,
                     &work.receiver_map,
@@ -516,8 +706,14 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                 else {
                     return Ok(());
                 };
-                receiverdb::advance_backfill_batch(dbh, start_block, next_block, stop_at_or_above)
-                    .await?;
+                receiverdb::advance_backfill_for_receiver_salts(
+                    dbh,
+                    &work.receiver_salts,
+                    start_block,
+                    next_block,
+                    stop_at_or_above,
+                )
+                .await?;
                 report_receiver_usdt_progress(
                     process_ctx.progress,
                     head,
