@@ -225,6 +225,11 @@ impl ProgressReporter {
         } else {
             safe_head - next_block + 1
         };
+
+        // Lag from the (external RPC) tip.
+        // NOTE: next_block is the next block we intend to process.
+        let tip_lag_blocks = head.saturating_sub(next_block);
+        let safe_lag_blocks = safe_head.saturating_sub(next_block);
         let block_rate = (self.interval_totals.blocks as f64) / interval_secs;
         let log_rate = (self.interval_totals.logs as f64) / interval_secs;
         let row_rate = (self.interval_totals.rows as f64) / interval_secs;
@@ -250,6 +255,8 @@ impl ProgressReporter {
                     safe_head,
                     next_block,
                     backlog_blocks,
+                    tip_lag_blocks,
+                    safe_lag_blocks,
                     chunk_blocks,
                     interval_secs,
                     since_start_secs,
@@ -294,6 +301,8 @@ impl ProgressReporter {
                     safe_head,
                     next_block,
                     backlog_blocks,
+                    tip_lag_blocks,
+                    safe_lag_blocks,
                     receiver_count,
                     batch_size,
                     interval_secs,

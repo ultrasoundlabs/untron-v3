@@ -38,11 +38,15 @@ struct Inner {
     safe_head_block: Arc<AtomicU64>,
     next_block: Arc<AtomicU64>,
     backlog_blocks: Arc<AtomicU64>,
+    tip_lag_blocks: Arc<AtomicU64>,
+    safe_lag_blocks: Arc<AtomicU64>,
     chunk_blocks: Arc<AtomicU64>,
     _g_head_block: ObservableGauge<u64>,
     _g_safe_head_block: ObservableGauge<u64>,
     _g_next_block: ObservableGauge<u64>,
     _g_backlog_blocks: ObservableGauge<u64>,
+    _g_tip_lag_blocks: ObservableGauge<u64>,
+    _g_safe_lag_blocks: ObservableGauge<u64>,
     _g_chunk_blocks: ObservableGauge<u64>,
 }
 
@@ -112,6 +116,8 @@ impl StreamTelemetry {
         let safe_head_block = Arc::new(AtomicU64::new(0));
         let next_block = Arc::new(AtomicU64::new(0));
         let backlog_blocks = Arc::new(AtomicU64::new(0));
+        let tip_lag_blocks = Arc::new(AtomicU64::new(0));
+        let safe_lag_blocks = Arc::new(AtomicU64::new(0));
         let chunk_blocks = Arc::new(AtomicU64::new(0));
 
         let attrs_clone = attrs.clone();
@@ -155,6 +161,26 @@ impl StreamTelemetry {
             .build();
 
         let attrs_clone = attrs.clone();
+        let tip_lag_blocks_clone = tip_lag_blocks.clone();
+        let _g_tip_lag_blocks = meter
+            .u64_observable_gauge("indexer.tip_lag_blocks")
+            .with_description("Lag from chain head in blocks (head - next_block)")
+            .with_callback(move |observer| {
+                observer.observe(tip_lag_blocks_clone.load(Ordering::Relaxed), &attrs_clone);
+            })
+            .build();
+
+        let attrs_clone = attrs.clone();
+        let safe_lag_blocks_clone = safe_lag_blocks.clone();
+        let _g_safe_lag_blocks = meter
+            .u64_observable_gauge("indexer.safe_lag_blocks")
+            .with_description("Lag from safe head in blocks (safe_head - next_block)")
+            .with_callback(move |observer| {
+                observer.observe(safe_lag_blocks_clone.load(Ordering::Relaxed), &attrs_clone);
+            })
+            .build();
+
+        let attrs_clone = attrs.clone();
         let chunk_blocks_clone = chunk_blocks.clone();
         let _g_chunk_blocks = meter
             .u64_observable_gauge("indexer.chunk_blocks")
@@ -183,11 +209,15 @@ impl StreamTelemetry {
                 safe_head_block,
                 next_block,
                 backlog_blocks,
+                tip_lag_blocks,
+                safe_lag_blocks,
                 chunk_blocks,
                 _g_head_block,
                 _g_safe_head_block,
                 _g_next_block,
                 _g_backlog_blocks,
+                _g_tip_lag_blocks,
+                _g_safe_lag_blocks,
                 _g_chunk_blocks,
             }),
         }
@@ -200,12 +230,21 @@ impl StreamTelemetry {
             .store(safe_head, Ordering::Relaxed);
         self.inner.next_block.store(next, Ordering::Relaxed);
         self.inner.chunk_blocks.store(chunk, Ordering::Relaxed);
+
         let backlog = if next > safe_head {
             0
         } else {
             safe_head - next + 1
         };
         self.inner.backlog_blocks.store(backlog, Ordering::Relaxed);
+
+        // Lag gauges: these are more convenient to alert/graph directly.
+        self.inner
+            .tip_lag_blocks
+            .store(head.saturating_sub(next), Ordering::Relaxed);
+        self.inner
+            .safe_lag_blocks
+            .store(safe_head.saturating_sub(next), Ordering::Relaxed);
     }
 
     pub fn observe_range(
