@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod domain;
 mod event_chain;
+mod hub_deposit_processed;
 mod metrics;
 mod receiver_usdt;
 mod rpc;
@@ -33,10 +34,11 @@ async fn main() -> Result<()> {
         block_timestamp_cache_size,
         progress_interval,
         progress_tail_lag_blocks,
+        hub_deposit_processed: hub_deposit_processed_cfg,
     } = config::load_config()?;
     let dbh = db::Db::connect(&database_url, db_max_connections).await?;
     // Keep this in sync with the latest migration file number.
-    let _schema_version = db::ensure_schema_version(&dbh, 8).await?;
+    let _schema_version = db::ensure_schema_version(&dbh, 13).await?;
 
     let shutdown = CancellationToken::new();
 
@@ -47,6 +49,10 @@ async fn main() -> Result<()> {
     let mut controller_for_receiver_usdt: Option<config::StreamConfig> = None;
     let mut controller_providers_for_receiver_usdt: Option<rpc::RpcProviders> = None;
     let mut controller_resolved_for_receiver_usdt: Option<db::ResolvedStream> = None;
+
+    let mut hub_for_deposit_processed: Option<config::StreamConfig> = None;
+    let mut hub_providers_for_deposit_processed: Option<rpc::RpcProviders> = None;
+    let mut hub_resolved_for_deposit_processed: Option<db::ResolvedStream> = None;
 
     // Configure all streams in the DB before starting any ingestion tasks.
     // This avoids races where the hub stream observes controller-related hub events before
@@ -71,6 +77,12 @@ async fn main() -> Result<()> {
             controller_for_receiver_usdt = Some(stream_cfg.clone());
             controller_providers_for_receiver_usdt = Some(providers.clone());
             controller_resolved_for_receiver_usdt = Some(resolved.clone());
+        }
+
+        if stream_cfg.stream == config::Stream::Hub {
+            hub_for_deposit_processed = Some(stream_cfg.clone());
+            hub_providers_for_deposit_processed = Some(providers.clone());
+            hub_resolved_for_deposit_processed = Some(resolved.clone());
         }
 
         resolved_streams.push((stream_cfg, resolved, providers));
@@ -152,6 +164,47 @@ async fn main() -> Result<()> {
                         Ok(()) => warn!("receiver_usdt task exited; restarting"),
                         // Use Debug formatting for `anyhow::Error` to include the full cause chain.
                         Err(e) => error!(err = ?e, "receiver_usdt task failed; restarting"),
+                    }
+
+                    time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(5));
+                }
+            });
+        }
+    }
+
+    if hub_deposit_processed_cfg.enabled {
+        if let (Some(_cfg), Some(providers), Some(resolved)) = (
+            hub_for_deposit_processed,
+            hub_providers_for_deposit_processed,
+            hub_resolved_for_deposit_processed,
+        ) {
+            let dbh = dbh.clone();
+            let shutdown = shutdown.clone();
+            join_set.spawn(async move {
+                let mut backoff = Duration::from_millis(250);
+                loop {
+                    if shutdown.is_cancelled() {
+                        return Ok(());
+                    }
+
+                    let res = hub_deposit_processed::run_hub_deposit_processed_cache(
+                        hub_deposit_processed::RunHubDepositProcessedParams {
+                            dbh: dbh.clone(),
+                            resolved: resolved.clone(),
+                            providers: providers.clone(),
+                            shutdown: shutdown.clone(),
+                            poll_interval: hub_deposit_processed_cfg.poll_interval,
+                            batch_size: hub_deposit_processed_cfg.batch_size,
+                            recheck_after: hub_deposit_processed_cfg.recheck_after,
+                            concurrency: hub_deposit_processed_cfg.concurrency,
+                        },
+                    )
+                    .await;
+
+                    match res {
+                        Ok(()) => warn!("hub_deposit_processed task exited; restarting"),
+                        Err(e) => error!(err = ?e, "hub_deposit_processed task failed; restarting"),
                     }
 
                     time::sleep(backoff).await;

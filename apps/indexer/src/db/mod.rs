@@ -6,6 +6,7 @@ use sqlx::{
 use std::str::FromStr;
 use std::time::Duration;
 
+pub mod deposit_processed;
 pub mod event_chain;
 mod instance;
 pub mod receiver_usdt;

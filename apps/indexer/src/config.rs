@@ -52,10 +52,20 @@ pub struct ReceiverUsdtConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct HubDepositProcessedConfig {
+    pub enabled: bool,
+    pub poll_interval: Duration,
+    pub batch_size: usize,
+    pub recheck_after: Duration,
+    pub concurrency: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct AppConfig {
     pub database_url: String,
     pub streams: Vec<StreamConfig>,
     pub receiver_usdt: ReceiverUsdtConfig,
+    pub hub_deposit_processed: HubDepositProcessedConfig,
     pub db_max_connections: u32,
 
     pub block_header_concurrency: usize,
@@ -173,6 +183,37 @@ impl Default for ReceiverUsdtEnv {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
+struct HubDepositProcessedEnv {
+    #[serde(rename = "hub_deposit_processed_enabled")]
+    enabled: bool,
+
+    #[serde(rename = "hub_deposit_processed_poll_interval_secs")]
+    poll_interval_secs: u64,
+
+    #[serde(rename = "hub_deposit_processed_batch_size")]
+    batch_size: usize,
+
+    #[serde(rename = "hub_deposit_processed_recheck_after_secs")]
+    recheck_after_secs: u64,
+
+    #[serde(rename = "hub_deposit_processed_concurrency")]
+    concurrency: usize,
+}
+
+impl Default for HubDepositProcessedEnv {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            poll_interval_secs: 5,
+            batch_size: 100,
+            recheck_after_secs: 60,
+            concurrency: 10,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct StreamEnv {
     chain_id: u64,
     contract_address: String,
@@ -192,6 +233,8 @@ pub fn load_config() -> Result<AppConfig> {
     let retry_env: RetryEnv = envy::from_env().context("load retry env config")?;
     let receiver_usdt_env: ReceiverUsdtEnv =
         envy::from_env().context("load receiver_usdt env config")?;
+    let hub_deposit_processed_env: HubDepositProcessedEnv =
+        envy::from_env().context("load hub_deposit_processed env config")?;
 
     let retry = crate::rpc::RetryConfig {
         max_rate_limit_retries: retry_env.max_rate_limit_retries,
@@ -242,6 +285,13 @@ pub fn load_config() -> Result<AppConfig> {
             discovery_interval: Duration::from_secs(
                 receiver_usdt_env.discovery_interval_secs.max(5),
             ),
+        },
+        hub_deposit_processed: HubDepositProcessedConfig {
+            enabled: hub_deposit_processed_env.enabled,
+            poll_interval: Duration::from_secs(hub_deposit_processed_env.poll_interval_secs.max(1)),
+            batch_size: hub_deposit_processed_env.batch_size.max(1),
+            recheck_after: Duration::from_secs(hub_deposit_processed_env.recheck_after_secs.max(1)),
+            concurrency: hub_deposit_processed_env.concurrency.max(1),
         },
         db_max_connections: base.db_max_connections,
         block_header_concurrency: base.block_header_concurrency,
