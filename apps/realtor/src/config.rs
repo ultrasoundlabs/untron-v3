@@ -49,6 +49,9 @@ pub struct HubConfig {
     pub chain_id: Option<u64>,
     pub untron_v3: Address,
 
+    /// Timeout for outbound bundler/userop submission calls.
+    pub bundler_timeout: Duration,
+
     pub entrypoint: Address,
     pub safe: Option<Address>,
     pub safe_4337_module: Address,
@@ -119,6 +122,9 @@ struct Env {
     #[serde(default)]
     hub_paymasters_json: String,
 
+    /// Timeout for bundler/userop submission in seconds.
+    hub_bundler_timeout_secs: u64,
+
     lease_default_fee_ppm: u32,
 
     lease_default_flat_fee: u64,
@@ -167,6 +173,7 @@ impl Default for Env {
             hub_owner_private_key_hex: String::new(),
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
+            hub_bundler_timeout_secs: 15,
             lease_default_fee_ppm: 10_000,
             lease_default_flat_fee: 0,
             lease_default_duration_secs: 60 * 60 * 24 * 30,
@@ -398,6 +405,7 @@ pub fn load_config() -> Result<AppConfig> {
             safe_4337_module: hub_module,
             safe_deployment: hub_safe_deployment,
             bundler_urls: bundlers,
+            bundler_timeout: Duration::from_secs(env.hub_bundler_timeout_secs.max(1)),
             owner_private_key: hub_owner_private_key,
             paymasters,
             controller_address: None,

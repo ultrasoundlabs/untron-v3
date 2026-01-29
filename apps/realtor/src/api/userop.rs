@@ -7,20 +7,20 @@ pub(super) async fn send_userop(
     mut sender: MutexGuard<'_, Safe4337UserOpSender>,
     to: Address,
     data: Vec<u8>,
+    timeout: std::time::Duration,
 ) -> Result<(String, String), ApiError> {
     let start = std::time::Instant::now();
 
-    // NOTE: this call is a common place for hangs (bundler/RPC).
-    // Keep this log at INFO while debugging; downgrade once stable.
     tracing::info!(
         to = %format!("{:#x}", to),
         data_len = data.len(),
+        timeout_ms = timeout.as_millis() as u64,
         "send_userop: starting send_call"
     );
 
-    let sub = sender
-        .send_call(to, data)
+    let sub = tokio::time::timeout(timeout, sender.send_call(to, data))
         .await
+        .map_err(|_| ApiError::Upstream(format!("send userop: timeout after {}ms", timeout.as_millis())))?
         .map_err(|e| ApiError::Upstream(format!("send userop: {e}")))?;
 
     let ms = start.elapsed().as_millis() as u64;

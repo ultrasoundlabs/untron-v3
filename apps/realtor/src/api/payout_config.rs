@@ -280,7 +280,13 @@ pub async fn post_payout_config(
         let data = call.abi_encode();
 
         let (userop_hash, _nonce) =
-            send_userop(state.sender.lock().await, state.cfg.hub.untron_v3, data).await?;
+            send_userop(
+                state.sender.lock().await,
+                state.cfg.hub.untron_v3,
+                data,
+                state.cfg.hub.bundler_timeout,
+            )
+            .await?;
 
         state.telemetry.userop_sent();
 
