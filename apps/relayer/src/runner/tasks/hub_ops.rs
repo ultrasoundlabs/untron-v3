@@ -71,20 +71,6 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
     };
 
     for row in rows.into_iter().take(20) {
-        let block_number = row
-            .block_number
-            .context("missing receiver transfer block_number")?;
-        let block_number_u64 =
-            u64::try_from(block_number).context("receiver transfer block_number out of range")?;
-        if !pre_entitle_finalized(
-            block_number_u64,
-            tick.tron_head,
-            ctx.cfg.jobs.tron_finality_blocks,
-            ctx.cfg.tron.block_lag,
-        ) {
-            continue;
-        }
-
         let receiver_salt = parse_bytes32(
             row.receiver_salt
                 .as_deref()
@@ -106,48 +92,52 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         }
 
         let action = row.recommended_action.as_deref().unwrap_or("");
+
+        // For subjective pre-entitle we want to act as soon as we see the deposit.
+        // If subjective isn't possible (missing fields / no principal), we fall back to objective,
+        // which *does* wait for Tron finality.
         if action == "subjective_pre_entitle" {
             if let Some(principal) = safe_lp_principal {
-                let Some(amount) = row.amount.as_ref() else {
-                    tracing::warn!(
-                        "subjective_pre_entitle row missing amount; falling back to preEntitle"
-                    );
-                    return Ok(Plan::intent(HubIntent::PreEntitle {
-                        receiver_salt,
-                        txid,
-                    }));
-                };
-                let raw_amount =
-                    number_to_u256(amount).context("parse receiver transfer amount")?;
+                match (row.amount.as_ref(), row.expected_lease_id.as_ref()) {
+                    (Some(amount), Some(lease_id_num)) => {
+                        let raw_amount =
+                            number_to_u256(amount).context("parse receiver transfer amount")?;
+                        let lease_id =
+                            number_to_u256(lease_id_num).context("parse expected_lease_id")?;
 
-                let Some(lease_id_num) = row.expected_lease_id.as_ref() else {
-                    tracing::warn!(
-                        "subjective_pre_entitle row missing expected_lease_id; falling back to preEntitle"
-                    );
-                    return Ok(Plan::intent(HubIntent::PreEntitle {
-                        receiver_salt,
-                        txid,
-                    }));
-                };
-                let lease_id = number_to_u256(lease_id_num).context("parse expected_lease_id")?;
-
-                if principal >= raw_amount {
-                    return Ok(Plan::intent(HubIntent::SubjectivePreEntitle {
-                        txid,
-                        lease_id,
-                        raw_amount,
-                    }));
+                        if principal >= raw_amount {
+                            return Ok(Plan::intent(HubIntent::SubjectivePreEntitle {
+                                txid,
+                                lease_id,
+                                raw_amount,
+                            }));
+                        }
+                    }
+                    (None, _) => tracing::warn!(
+                        "subjective_pre_entitle row missing amount; falling back to objective preEntitle"
+                    ),
+                    (_, None) => tracing::warn!(
+                        "subjective_pre_entitle row missing expected_lease_id; falling back to objective preEntitle"
+                    ),
                 }
             }
-
-            // No (or insufficient) Safe LP principal: fall back to objective proof, same as `pre_entitle`.
-            return Ok(Plan::intent(HubIntent::PreEntitle {
-                receiver_salt,
-                txid,
-            }));
         }
 
-        // Default: objective proof for rows that already have a subjective claim (`pre_entitle`).
+        // Objective pre-entitle requires finalized Tron blocks.
+        let block_number = row
+            .block_number
+            .context("missing receiver transfer block_number")?;
+        let block_number_u64 =
+            u64::try_from(block_number).context("receiver transfer block_number out of range")?;
+        if !pre_entitle_finalized(
+            block_number_u64,
+            tick.tron_head,
+            ctx.cfg.jobs.tron_finality_blocks,
+            ctx.cfg.tron.block_lag,
+        ) {
+            continue;
+        }
+
         return Ok(Plan::intent(HubIntent::PreEntitle {
             receiver_salt,
             txid,
