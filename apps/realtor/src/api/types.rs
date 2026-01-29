@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreateLeaseRequest {
     #[serde(default)]
     /// Optional receiver salt (bytes32 hex).
@@ -88,7 +88,7 @@ pub struct CreateLeaseResponse {
     pub nukeable_after: u64,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct SetPayoutConfigRequest {
     /// Lease id to update.
     #[schema(example = 1, minimum = 1)]

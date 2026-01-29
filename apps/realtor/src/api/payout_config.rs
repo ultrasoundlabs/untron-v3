@@ -8,7 +8,9 @@ use alloy::primitives::{Address, B256, Signature, U256, keccak256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
 use alloy::sol_types::{SolCall, SolStruct};
+use axum::http::HeaderMap;
 use axum::{Json, extract::State};
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
 use untron_v3_bindings::untron_v3::{UntronV3, UntronV3Base};
@@ -46,10 +48,22 @@ alloy::sol! {
 )]
 /// Relay a gasless payout config update.
 pub async fn post_payout_config(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
     Json(req): Json<SetPayoutConfigRequest>,
 ) -> Result<Json<SetPayoutConfigResponse>, ApiError> {
     let start = Instant::now();
+
+    let audit_ctx = crate::audit::AuditContext::from_headers(&headers);
+    let audit_req_body: Option<Value> = serde_json::to_value(&req).ok().map(|mut v| {
+        if let Value::Object(m) = &mut v {
+            m.insert(
+                "signature".to_string(),
+                Value::String("<redacted>".to_string()),
+            );
+        }
+        v
+    });
 
     let result: Result<_, ApiError> = async {
         if req.lease_id == 0 {
@@ -306,6 +320,41 @@ pub async fn post_payout_config(
             e.status_code().as_u16(),
             ms,
         ),
+    }
+
+    if let Some(audit_db) = state.audit_db.clone() {
+        let response_body = match &result {
+            Ok(Json(resp)) => serde_json::to_value(resp).ok(),
+            Err(_) => None,
+        };
+        let (status_code, error_kind, error_message) = match &result {
+            Ok(_) => (200u16, None, None),
+            Err(e) => (
+                e.status_code().as_u16(),
+                Some(e.kind()),
+                Some(e.message().to_string()),
+            ),
+        };
+        let entry = crate::audit::WriteAction {
+            request_id: audit_ctx.request_id,
+            principal_id: audit_ctx.principal_id,
+            remote_ip: audit_ctx.remote_ip,
+            user_agent: audit_ctx.user_agent,
+            action: "set_payout_config",
+            method: "POST",
+            path: "/payout_config",
+            status_code,
+            duration_ms: ms,
+            error_kind,
+            error_message,
+            request_body: audit_req_body,
+            response_body,
+        };
+        tokio::spawn(async move {
+            if let Err(e) = audit_db.insert_write_action(entry).await {
+                tracing::warn!(err = %e, "audit insert failed");
+            }
+        });
     }
     result
 }

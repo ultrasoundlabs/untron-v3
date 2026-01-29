@@ -1,4 +1,5 @@
 mod api;
+mod audit;
 mod config;
 mod indexer;
 mod metrics;
@@ -47,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         bind = %cfg.api.bind,
         indexer = %cfg.indexer.base_url,
+        audit_db = cfg.audit_db.is_some(),
         hub_rpc = %cfg.hub.rpc_url,
         safe = %cfg.hub.safe.unwrap_or(Address::ZERO),
         "config loaded"
@@ -83,6 +85,13 @@ async fn main() -> anyhow::Result<()> {
     };
     let sender = Safe4337UserOpSender::new(sender_cfg).await?;
     tracing::info!(safe = %sender.safe_address(), "hub safe ready");
+
+    let audit_db = match &cfg.audit_db {
+        Some(db_cfg) => Some(
+            audit::AuditDb::connect(db_cfg.database_url.as_str(), db_cfg.max_connections).await?,
+        ),
+        None => None,
+    };
     let mut cfg = cfg;
     cfg.hub.safe = Some(sender.safe_address());
     if cfg.tron_rpc_url.is_some() && cfg.hub.controller_address.is_none() {
@@ -103,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
         sender: Mutex::new(sender),
         telemetry,
         tron_receiver_init_code_hash: tokio::sync::OnceCell::new(),
+        audit_db,
     };
     let bind = state.cfg.api.bind;
 
@@ -244,4 +254,5 @@ struct AppState {
     sender: Mutex<Safe4337UserOpSender>,
     telemetry: RealtorTelemetry,
     tron_receiver_init_code_hash: tokio::sync::OnceCell<B256>,
+    audit_db: Option<audit::AuditDb>,
 }

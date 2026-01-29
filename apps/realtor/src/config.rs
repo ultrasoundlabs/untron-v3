@@ -20,6 +20,7 @@ pub struct PaymasterServiceConfig {
 pub struct AppConfig {
     pub api: ApiConfig,
     pub indexer: IndexerConfig,
+    pub audit_db: Option<DbConfig>,
     pub hub: HubConfig,
     pub leasing: LeasingDefaults,
     pub tron_rpc_url: Option<String>,
@@ -41,6 +42,12 @@ pub struct LeaseTermsHeaderConfig {
 pub struct IndexerConfig {
     pub base_url: String,
     pub timeout: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct DbConfig {
+    pub database_url: String,
+    pub max_connections: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +97,12 @@ struct Env {
     api_bind: String,
 
     indexer_api_base_url: String,
+
+    #[serde(default)]
+    database_url: String,
+
+    #[serde(default)]
+    db_max_connections: u32,
 
     indexer_timeout_secs: u64,
 
@@ -160,6 +173,8 @@ impl Default for Env {
         Self {
             api_bind: "0.0.0.0:3000".to_string(),
             indexer_api_base_url: String::new(),
+            database_url: String::new(),
+            db_max_connections: 5,
             indexer_timeout_secs: 10,
             hub_rpc_url: String::new(),
             hub_chain_id: None,
@@ -384,6 +399,18 @@ pub fn load_config() -> Result<AppConfig> {
         env.lease_terms_header_name.as_str(),
     )?;
 
+    let audit_db = {
+        let trimmed = env.database_url.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(DbConfig {
+                database_url: trimmed.to_string(),
+                max_connections: env.db_max_connections.max(1),
+            })
+        }
+    };
+
     Ok(AppConfig {
         api: ApiConfig {
             bind,
@@ -396,6 +423,7 @@ pub fn load_config() -> Result<AppConfig> {
             base_url: env.indexer_api_base_url,
             timeout: Duration::from_secs(env.indexer_timeout_secs.max(1)),
         },
+        audit_db,
         hub: HubConfig {
             rpc_url: env.hub_rpc_url,
             chain_id: env.hub_chain_id,

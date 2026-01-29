@@ -24,6 +24,17 @@ impl ApiError {
         }
     }
 
+    pub(crate) fn message(&self) -> &str {
+        match self {
+            Self::BadRequest(m)
+            | Self::Forbidden(m)
+            | Self::Conflict(m)
+            | Self::TooManyRequests(m)
+            | Self::Upstream(m)
+            | Self::Internal(m) => m,
+        }
+    }
+
     pub(crate) fn status_code(&self) -> StatusCode {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,

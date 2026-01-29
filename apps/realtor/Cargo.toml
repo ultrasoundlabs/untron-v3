@@ -21,6 +21,8 @@ opentelemetry = "0.31.0"
 alloy = { version = "1.2.1", features = ["full", "json", "serde", "contract", "sol-types", "eip712"] }
 alloy-provider = { version = "1.2", features = ["erc4337-api"] }
 k256 = "0.13.4"
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "macros", "json", "uuid"] }
+uuid = { version = "1.18.1", features = ["v4"] }
 untron-v3-indexer-client = { path = "../../crates/indexer-client" }
 untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }

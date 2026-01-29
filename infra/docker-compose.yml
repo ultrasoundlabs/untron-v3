@@ -243,6 +243,9 @@ services:
     profiles: ["realtor"]
     env_file:
       - ./realtor.env
+    environment:
+      # Shared Postgres (same DB used by the indexer/PostgREST stack).
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/untron
     expose:
       - "3000"
     depends_on:
