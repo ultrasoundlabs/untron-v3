@@ -152,11 +152,18 @@ pub async fn post_realtor(
 
     let receiver_salt_provided = req.receiver_salt.is_some();
     tracing::info!(receiver_salt_provided, "create_lease request");
+    let req_start = Instant::now();
 
     let result: Result<_, ApiError> = async {
         let now = now_unix_seconds().map_err(ApiError::Internal)?;
+
+        let t_terms = Instant::now();
         let terms = resolve_lease_terms(&state, &headers)?;
+        tracing::info!(ms = t_terms.elapsed().as_millis() as u64, "post_realtor: resolved lease terms");
+
+        let t_offer = Instant::now();
         let offer = compute_offer(&state, terms.defaults, now).await?;
+        tracing::info!(ms = t_offer.elapsed().as_millis() as u64, allowed = offer.allowed, "post_realtor: computed offer");
 
         if !offer.allowed {
             return Err(ApiError::Forbidden(
@@ -197,11 +204,19 @@ pub async fn post_realtor(
             ));
         }
         let target_token_checksum = target_token.to_checksum_buffer(None).to_string();
+        let t_pair = Instant::now();
         let pair_supported = state
             .indexer
             .bridger_pair_is_supported(&target_token_checksum, req.target_chain_id)
             .await
             .map_err(|e| ApiError::Upstream(format!("indexer hub_bridgers by pair: {e}")))?;
+        tracing::info!(
+            ms = t_pair.elapsed().as_millis() as u64,
+            target_chain_id = req.target_chain_id,
+            target_token = %target_token_checksum,
+            pair_supported,
+            "post_realtor: checked bridger pair support"
+        );
         if !pair_supported {
             return Err(ApiError::BadRequest(format!(
                 "unsupported target_token/target_chain_id pair (no bridger configured): target_token={target_token_checksum} target_chain_id={}",
@@ -209,6 +224,7 @@ pub async fn post_realtor(
             )));
         }
 
+        let t_salt = Instant::now();
         let receiver_salt_hex = match req.receiver_salt.as_deref() {
             Some(s) => {
                 let receiver_salt_hex = normalize_receiver_salt_hex(s)?;
@@ -238,7 +254,11 @@ pub async fn post_realtor(
             },
         };
 
+        tracing::info!(ms = t_salt.elapsed().as_millis() as u64, receiver_salt = %receiver_salt_hex, "post_realtor: selected receiver salt");
+
+        let t_free = Instant::now();
         ensure_receiver_is_free(&state, &receiver_salt_hex, now).await?;
+        tracing::info!(ms = t_free.elapsed().as_millis() as u64, receiver_salt = %receiver_salt_hex, "post_realtor: ensured receiver is free");
 
         if offer.lease_rate_remaining == Some(0) {
             return Err(ApiError::TooManyRequests(format!(
@@ -286,13 +306,20 @@ pub async fn post_realtor(
         };
         let data = call.abi_encode();
 
-        let (userop_hash, nonce) =
-            send_userop(state.sender.lock().await, state.cfg.hub.untron_v3, data).await?;
+        let t_lock = Instant::now();
+        let sender = state.sender.lock().await;
+        tracing::info!(ms = t_lock.elapsed().as_millis() as u64, "post_realtor: acquired sender lock");
+
+        let t_userop = Instant::now();
+        let (userop_hash, nonce) = send_userop(sender, state.cfg.hub.untron_v3, data).await?;
+        tracing::info!(ms = t_userop.elapsed().as_millis() as u64, %userop_hash, %nonce, "post_realtor: send_userop finished");
 
         state.telemetry.userop_sent();
         state.telemetry.lease_created();
 
         tracing::info!(%userop_hash, %nonce, "lease userop submitted");
+
+        tracing::info!(ms = req_start.elapsed().as_millis() as u64, "post_realtor: completed request successfully (inner)");
 
         Ok(Json(CreateLeaseResponse {
             receiver_salt: receiver_salt_hex,
