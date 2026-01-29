@@ -4,6 +4,7 @@ use aa::Safe4337UserOpSender;
 use alloy::primitives::{Address, U256};
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tron::{
@@ -86,6 +87,7 @@ pub struct TronExecutor {
     wallet: Arc<TronWallet>,
     fee_policy: FeePolicy,
     energy_rental: Vec<JsonApiRentalProvider>,
+    energy_rental_confirm_max_wait: Duration,
     telemetry: RelayerTelemetry,
 }
 
@@ -95,6 +97,7 @@ impl TronExecutor {
         wallet: Arc<TronWallet>,
         fee_policy: FeePolicy,
         energy_rental: Vec<JsonApiRentalProvider>,
+        energy_rental_confirm_max_wait: Duration,
         telemetry: RelayerTelemetry,
     ) -> Self {
         Self {
@@ -102,6 +105,7 @@ impl TronExecutor {
             wallet,
             fee_policy,
             energy_rental,
+            energy_rental_confirm_max_wait,
             telemetry,
         }
     }
@@ -242,6 +246,15 @@ impl TronExecutor {
                         energy = shortfall,
                         "all energy rental providers failed; falling back to paying TRX fees"
                     );
+                } else if !self.energy_rental_confirm_max_wait.is_zero() {
+                    let addr = self.wallet.address().prefixed_bytes().to_vec();
+                    wait_for_energy_available_after_rental(
+                        grpc,
+                        addr,
+                        signed.energy_required,
+                        self.energy_rental_confirm_max_wait,
+                    )
+                    .await?;
                 }
             } else if shortfall > 0 {
                 tracing::debug!(
@@ -268,6 +281,69 @@ impl TronExecutor {
         }
 
         Ok(signed.txid)
+    }
+}
+
+async fn wait_for_energy_available_after_rental(
+    grpc: &mut TronGrpc,
+    address: Vec<u8>,
+    energy_required: u64,
+    max_wait: Duration,
+) -> Result<()> {
+    if energy_required == 0 || max_wait.is_zero() {
+        return Ok(());
+    }
+
+    let start = tokio::time::Instant::now();
+    let mut delay = Duration::from_millis(100);
+    let max_delay = Duration::from_secs(1);
+    let mut tries: u32 = 0;
+    let mut last_available: Option<u64> = None;
+
+    loop {
+        tries = tries.saturating_add(1);
+        match grpc.get_account_resource(address.clone()).await {
+            Ok(res) => {
+                let parsed = tron::resources::parse_account_resources(&res)?;
+                let available = parsed.energy_available();
+                last_available = Some(available);
+                if available >= energy_required {
+                    tracing::info!(
+                        energy_required,
+                        energy_available = available,
+                        tries,
+                        elapsed_ms = start.elapsed().as_millis() as u64,
+                        "rented energy settled"
+                    );
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                tracing::debug!(
+                    err = %err,
+                    tries,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    "failed to query account resources while waiting for rented energy"
+                );
+            }
+        }
+
+        if start.elapsed() >= max_wait {
+            tracing::warn!(
+                energy_required,
+                energy_available = last_available.unwrap_or(0),
+                tries,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                "rented energy did not settle before timeout; broadcasting anyway"
+            );
+            return Ok(());
+        }
+
+        tokio::time::sleep(delay).await;
+        delay = delay.saturating_mul(2);
+        if delay > max_delay {
+            delay = max_delay;
+        }
     }
 }
 

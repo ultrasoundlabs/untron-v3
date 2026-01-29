@@ -420,6 +420,7 @@ impl Relayer {
             tron_wallet.clone(),
             fee_policy,
             energy_rental,
+            cfg.tron.energy_rental_confirm_max_wait,
             telemetry.clone(),
         );
         let tron_proof = Arc::new(TronTxProofBuilder::new(cfg.jobs.tron_finality_blocks));

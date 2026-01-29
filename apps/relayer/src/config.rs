@@ -71,6 +71,8 @@ pub struct TronConfig {
     pub fee_limit_headroom_ppm: u64,
     /// Optional list of external energy rental providers.
     pub energy_rental_providers: Vec<JsonApiRentalProviderConfig>,
+    /// Max time to poll Tron until rented energy is reflected in AccountResource.
+    pub energy_rental_confirm_max_wait: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +163,9 @@ struct Env {
     #[serde(default)]
     tron_energy_rental_apis_json: String,
 
+    #[serde(default)]
+    tron_energy_rental_confirm_max_wait_secs: u64,
+
     relayer_tick_interval_secs: u64,
 
     tron_finality_blocks: u64,
@@ -212,6 +217,7 @@ impl Default for Env {
             tron_block_lag: 0,
             tron_fee_limit_headroom_ppm: 100_000,
             tron_energy_rental_apis_json: String::new(),
+            tron_energy_rental_confirm_max_wait_secs: 6,
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
@@ -432,6 +438,9 @@ pub fn load_config() -> Result<AppConfig> {
             energy_rental_providers: parse_tron_energy_rental_apis_json(
                 &env.tron_energy_rental_apis_json,
             )?,
+            energy_rental_confirm_max_wait: Duration::from_secs(
+                env.tron_energy_rental_confirm_max_wait_secs,
+            ),
         },
         jobs: JobConfig {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),

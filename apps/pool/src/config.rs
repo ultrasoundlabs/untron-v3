@@ -101,7 +101,7 @@ impl Default for Env {
             tron_fee_limit_cap_sun: 30_000_000,
             tron_fee_limit_headroom_ppm: 100_000,
             tron_energy_rental_apis_json: String::new(),
-            tron_energy_rental_settle_delay_secs: 2,
+            tron_energy_rental_settle_delay_secs: 6,
             oneclick_base_url: "https://1click.chaindefuser.com".to_string(),
             oneclick_bearer_token: String::new(),
             oneclick_origin_asset: String::new(),

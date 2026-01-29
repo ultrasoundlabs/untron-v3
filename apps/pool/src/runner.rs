@@ -613,11 +613,14 @@ async fn broadcast_trc20_transfer_single(
                     "all energy rental providers failed; falling back to paying TRX fees"
                 );
             } else if !energy_rental_settle_delay.is_zero() {
-                tracing::info!(
-                    delay_ms = energy_rental_settle_delay.as_millis() as u64,
-                    "waiting briefly for rented energy to settle"
-                );
-                tokio::time::sleep(energy_rental_settle_delay).await;
+                let addr = wallet.address().prefixed_bytes().to_vec();
+                wait_for_energy_available_after_rental(
+                    tron,
+                    addr,
+                    signed.energy_required,
+                    energy_rental_settle_delay,
+                )
+                .await?;
             }
         } else if shortfall > 0 {
             tracing::info!(
@@ -651,6 +654,69 @@ async fn broadcast_trc20_transfer_single(
     );
 
     Ok(signed.txid)
+}
+
+async fn wait_for_energy_available_after_rental(
+    tron: &mut TronGrpc,
+    address: Vec<u8>,
+    energy_required: u64,
+    max_wait: Duration,
+) -> Result<()> {
+    if energy_required == 0 || max_wait.is_zero() {
+        return Ok(());
+    }
+
+    let start = tokio::time::Instant::now();
+    let mut delay = Duration::from_millis(100);
+    let max_delay = Duration::from_secs(1);
+    let mut tries: u32 = 0;
+    let mut last_available: Option<u64> = None;
+
+    loop {
+        tries = tries.saturating_add(1);
+        match tron.get_account_resource(address.clone()).await {
+            Ok(res) => {
+                let parsed = tron::resources::parse_account_resources(&res)?;
+                let available = parsed.energy_available();
+                last_available = Some(available);
+                if available >= energy_required {
+                    tracing::info!(
+                        energy_required,
+                        energy_available = available,
+                        tries,
+                        elapsed_ms = start.elapsed().as_millis() as u64,
+                        "rented energy settled"
+                    );
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                tracing::debug!(
+                    err = %err,
+                    tries,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    "failed to query account resources while waiting for rented energy"
+                );
+            }
+        }
+
+        if start.elapsed() >= max_wait {
+            tracing::warn!(
+                energy_required,
+                energy_available = last_available.unwrap_or(0),
+                tries,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                "rented energy did not settle before timeout; broadcasting anyway"
+            );
+            return Ok(());
+        }
+
+        tokio::time::sleep(delay).await;
+        delay = delay.saturating_mul(2);
+        if delay > max_delay {
+            delay = max_delay;
+        }
+    }
 }
 
 fn encode_trc20_transfer(
