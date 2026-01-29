@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    NotFound(String),
     Forbidden(String),
     Conflict(String),
     TooManyRequests(String),
@@ -16,6 +17,7 @@ impl ApiError {
     pub(crate) fn kind(&self) -> &'static str {
         match self {
             Self::BadRequest(_) => "bad_request",
+            Self::NotFound(_) => "not_found",
             Self::Forbidden(_) => "forbidden",
             Self::Conflict(_) => "conflict",
             Self::TooManyRequests(_) => "too_many_requests",
@@ -27,6 +29,7 @@ impl ApiError {
     pub(crate) fn message(&self) -> &str {
         match self {
             Self::BadRequest(m)
+            | Self::NotFound(m)
             | Self::Forbidden(m)
             | Self::Conflict(m)
             | Self::TooManyRequests(m)
@@ -38,6 +41,7 @@ impl ApiError {
     pub(crate) fn status_code(&self) -> StatusCode {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
@@ -53,6 +57,7 @@ impl IntoResponse for ApiError {
         let status = self.status_code();
         let msg = match self {
             Self::BadRequest(m)
+            | Self::NotFound(m)
             | Self::Forbidden(m)
             | Self::Conflict(m)
             | Self::TooManyRequests(m)
