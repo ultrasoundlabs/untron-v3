@@ -26,7 +26,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::{AllowOrigin, Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
@@ -118,9 +118,12 @@ async fn main() -> anyhow::Result<()> {
 
     let request_id_header = HeaderName::from_static("x-request-id");
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        // "Permissive" CORS for browser clients (incl. credentialed requests):
+        // mirror the request origin instead of using `*`.
+        .allow_origin(AllowOrigin::mirror_request())
         .allow_methods(Any)
         .allow_headers(Any)
+        .allow_credentials(true)
         .expose_headers([request_id_header.clone()]);
     let app = Router::new()
         .route("/realtor", get(api::get_realtor).post(api::post_realtor))
