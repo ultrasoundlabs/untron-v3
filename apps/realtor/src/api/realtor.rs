@@ -327,8 +327,95 @@ pub async fn post_realtor(
 
         tracing::info!(ms = req_start.elapsed().as_millis() as u64, "post_realtor: completed request successfully (inner)");
 
+        // Derive receiver addresses without depending on indexer state.
+        // This avoids races when clients immediately need the deposit address after lease creation.
+        let (receiver_address_tron, receiver_address_evm) = {
+            use crate::util::compute_create2_address;
+            use crate::util::parse_bytes32;
+            use alloy::eips::BlockId;
+            use alloy::primitives::{B256, keccak256};
+            use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+            use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
+            use alloy::sol_types::SolCall;
+            use tron::TronAddress;
+            use untron_v3_bindings::untron_controller::UntronController;
+
+            async fn fetch_receiver_init_code_hash(
+                tron_rpc_url: &str,
+                controller: alloy::primitives::Address,
+            ) -> Result<B256, ApiError> {
+                let transport = BuiltInConnectionString::connect(tron_rpc_url)
+                    .await
+                    .map_err(|e| ApiError::Upstream(format!("connect tron rpc: {e}")))?;
+                let client = RpcClient::builder().transport(transport, false);
+                let provider: DynProvider =
+                    DynProvider::new(ProviderBuilder::default().connect_client(client));
+
+                let contract = UntronController::new(controller, provider.clone());
+                let call = contract.receiverBytecode();
+
+                // Tron JSON-RPC accepts `data` but may reject `input` (and may even error if both are present).
+                // Alloy defaults to `input`, so normalize into `data`-only.
+                let request = call.clone().into_transaction_request().normalized_data();
+                let return_data = provider
+                    .call(request)
+                    .block(BlockId::latest())
+                    .await
+                    .map_err(|e| ApiError::Upstream(format!("eth_call(receiverBytecode): {e}")))?;
+
+                if return_data.is_empty() {
+                    return Ok(B256::ZERO);
+                }
+                let decoded =
+                    <UntronController::receiverBytecodeCall as SolCall>::abi_decode_returns(
+                        return_data.as_ref(),
+                    )
+                    .map_err(|e| {
+                        ApiError::Upstream(format!("decode receiverBytecode() return: {e}"))
+                    })?;
+                if decoded.is_empty() {
+                    return Ok(B256::ZERO);
+                }
+                Ok(keccak256(decoded))
+            }
+
+            let maybe = (|| {
+                let tron_rpc_url = state.cfg.tron_rpc_url.as_deref()?;
+                let controller = state.cfg.hub.controller_address?;
+                let salt = parse_bytes32(&receiver_salt_hex).ok()?;
+                Some((tron_rpc_url, controller, salt))
+            })();
+
+            if let Some((tron_rpc_url, controller, salt)) = maybe {
+                let init_code_hash = state
+                    .tron_receiver_init_code_hash
+                    .get_or_try_init(|| fetch_receiver_init_code_hash(tron_rpc_url, controller))
+                    .await
+                    .ok()
+                    .copied()
+                    .unwrap_or(B256::ZERO);
+                if init_code_hash == B256::ZERO {
+                    (None, None)
+                } else {
+                    let receiver_evm = compute_create2_address(
+                        TronAddress::MAINNET_PREFIX,
+                        controller,
+                        salt,
+                        init_code_hash,
+                    );
+                    let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
+                    let receiver_tron = TronAddress::from_evm(receiver_evm).to_string();
+                    (Some(receiver_tron), Some(receiver_evm_str))
+                }
+            } else {
+                (None, None)
+            }
+        };
+
         Ok(Json(CreateLeaseResponse {
             receiver_salt: receiver_salt_hex,
+            receiver_address_tron,
+            receiver_address_evm,
             userop_hash,
             nukeable_after,
         }))

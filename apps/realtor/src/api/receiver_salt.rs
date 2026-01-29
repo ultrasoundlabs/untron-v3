@@ -2,8 +2,8 @@ use crate::AppState;
 use crate::api::ApiError;
 use crate::util::parse_bytes32;
 use alloy::primitives::Address;
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 
 pub(super) fn normalize_receiver_salt_hex(receiver_salt: &str) -> Result<String, ApiError> {
     let b = parse_bytes32(receiver_salt)

@@ -64,9 +64,25 @@ pub struct CreateLeaseResponse {
         pattern = "^0x[0-9a-fA-F]{64}$"
     )]
     pub receiver_salt: String,
+
+    /// Deterministically-derived receiver address (Tron base58).
+    ///
+    /// This is derived from `receiver_salt` using the controller's receiver scheme, and may be
+    /// absent if the realtor is not configured with the necessary hub + Tron RPC settings.
+    #[schema(example = "TX9xZ4mV2h4h9qv7q8qXbW1d7m8m1y1y1y")]
+    pub receiver_address_tron: Option<String>,
+
+    /// Deterministically-derived receiver address (EVM checksum address on hub chain).
+    ///
+    /// This is derived from `receiver_salt` using the controller's receiver scheme, and may be
+    /// absent if the realtor is not configured with the necessary hub + Tron RPC settings.
+    #[schema(example = "0x0000000000000000000000000000000000000000")]
+    pub receiver_address_evm: Option<String>,
+
     /// UserOperation hash.
     #[schema(example = "0x0000000000000000000000000000000000000000000000000000000000000000")]
     pub userop_hash: String,
+
     /// Unix timestamp after which the lease is nukeable, computed as `now + duration_seconds`.
     #[schema(example = 1700000000)]
     pub nukeable_after: u64,
