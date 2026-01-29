@@ -20,6 +20,9 @@ struct Inner {
 
     receiver_salt_zero_balance_fallback_total: Counter<u64>,
     receiver_salt_balance_picker_fallback_total: Counter<u64>,
+
+    lease_lookup_retries_total: Counter<u64>,
+    lease_lookup_retry_success_total: Counter<u64>,
 }
 
 impl RealtorTelemetry {
@@ -64,6 +67,17 @@ impl RealtorTelemetry {
             .with_description("Times balance-based receiver selection failed and fell back")
             .build();
 
+        let lease_lookup_retries_total = meter
+            .u64_counter("realtor.lease_lookup_retries_total")
+            .with_description(
+                "Number of retries performed while waiting for lease data to appear in the indexer",
+            )
+            .build();
+        let lease_lookup_retry_success_total = meter
+            .u64_counter("realtor.lease_lookup_retry_success_total")
+            .with_description("Times a lease lookup succeeded after at least one retry")
+            .build();
+
         Self {
             inner: Arc::new(Inner {
                 http_requests_total,
@@ -74,6 +88,8 @@ impl RealtorTelemetry {
                 userops_sent_total,
                 receiver_salt_zero_balance_fallback_total,
                 receiver_salt_balance_picker_fallback_total,
+                lease_lookup_retries_total,
+                lease_lookup_retry_success_total,
             }),
         }
     }
@@ -113,6 +129,19 @@ impl RealtorTelemetry {
 
     pub fn userop_sent(&self) {
         self.inner.userops_sent_total.add(1, &[]);
+    }
+
+    pub fn lease_lookup_retry(&self, phase: &'static str) {
+        let attrs = [KeyValue::new("phase", phase)];
+        self.inner.lease_lookup_retries_total.add(1, &attrs);
+    }
+
+    pub fn lease_lookup_retry_success(&self, phase: &'static str, retries: u64) {
+        let attrs = [
+            KeyValue::new("phase", phase),
+            KeyValue::new("retries", retries.to_string()),
+        ];
+        self.inner.lease_lookup_retry_success_total.add(1, &attrs);
     }
 
     pub fn receiver_salt_zero_balance_fallback(&self, preferred_order: &'static str) {

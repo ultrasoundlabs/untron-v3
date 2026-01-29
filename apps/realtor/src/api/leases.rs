@@ -20,6 +20,7 @@ use axum::{
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::time::{Duration, sleep};
 use tron::TronAddress;
 use untron_v3_bindings::untron_controller::UntronController;
 
@@ -33,6 +34,7 @@ use untron_v3_bindings::untron_controller::UntronController;
     responses(
         (status = 200, description = "OK", body = LeaseViewResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 404, description = "Not found", body = ErrorResponse),
         (status = 403, description = "Forbidden", body = ErrorResponse),
         (status = 502, description = "Upstream error", body = ErrorResponse),
         (status = 500, description = "Internal error", body = ErrorResponse)
@@ -55,17 +57,44 @@ pub async fn get_lease(
             Ok(id) => id,
             Err(_) => {
                 let receiver_salt_hex = normalize_receiver_salt_hex(&lease_id)?;
-                let latest = state
-                    .indexer
-                    .latest_lease_by_receiver_salt(receiver_salt_hex.as_str())
-                    .await
-                    .map_err(|e| {
-                        ApiError::Upstream(format!(
-                            "indexer hub_leases latest by receiver_salt: {e}"
-                        ))
-                    })?;
+
+                // The indexer may lag right after a lease is created. To avoid spurious failures
+                // for partners that query immediately, retry a few times before returning 404.
+                const MAX_ATTEMPTS: usize = 8;
+                const RETRY_DELAY_MS: u64 = 500;
+
+                let mut latest = None;
+                let mut retries: u64 = 0;
+                for attempt in 0..MAX_ATTEMPTS {
+                    let res = state
+                        .indexer
+                        .latest_lease_by_receiver_salt(receiver_salt_hex.as_str())
+                        .await
+                        .map_err(|e| {
+                            ApiError::Upstream(format!(
+                                "indexer hub_leases latest by receiver_salt: {e}"
+                            ))
+                        })?;
+                    if res.is_some() {
+                        latest = res;
+                        break;
+                    }
+
+                    if attempt + 1 < MAX_ATTEMPTS {
+                        retries += 1;
+                        state.telemetry.lease_lookup_retry("latest_by_receiver_salt");
+                        sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+                    }
+                }
+
+                if retries > 0 && latest.is_some() {
+                    state
+                        .telemetry
+                        .lease_lookup_retry_success("latest_by_receiver_salt", retries);
+                }
+
                 let Some(latest) = latest else {
-                    return Err(ApiError::BadRequest(format!(
+                    return Err(ApiError::NotFound(format!(
                         "unknown receiver_salt (no leases found): {receiver_salt_hex}"
                     )));
                 };
@@ -80,13 +109,38 @@ pub async fn get_lease(
             }
         };
 
-        let row = state
-            .indexer
-            .lease_view_row(lease_id)
-            .await
-            .map_err(|e| ApiError::Upstream(format!("indexer lease_view: {e}")))?;
+        // Lease view can also lag briefly after creation.
+        const VIEW_MAX_ATTEMPTS: usize = 8;
+        const VIEW_RETRY_DELAY_MS: u64 = 500;
+
+        let mut row = None;
+        let mut retries: u64 = 0;
+        for attempt in 0..VIEW_MAX_ATTEMPTS {
+            let res = state
+                .indexer
+                .lease_view_row(lease_id)
+                .await
+                .map_err(|e| ApiError::Upstream(format!("indexer lease_view: {e}")))?;
+            if res.is_some() {
+                row = res;
+                break;
+            }
+
+            if attempt + 1 < VIEW_MAX_ATTEMPTS {
+                retries += 1;
+                state.telemetry.lease_lookup_retry("lease_view_row");
+                sleep(Duration::from_millis(VIEW_RETRY_DELAY_MS)).await;
+            }
+        }
+
+        if retries > 0 && row.is_some() {
+            state
+                .telemetry
+                .lease_lookup_retry_success("lease_view_row", retries);
+        }
+
         let Some(row) = row else {
-            return Err(ApiError::BadRequest(format!(
+            return Err(ApiError::NotFound(format!(
                 "unknown lease_id (not found in indexer lease_view): {lease_id}"
             )));
         };
