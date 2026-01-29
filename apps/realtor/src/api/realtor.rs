@@ -379,35 +379,36 @@ pub async fn post_realtor(
                 Ok(keccak256(decoded))
             }
 
-            let Some(tron_rpc_url) = state.cfg.tron_rpc_url.as_deref() else {
-                (None, None)
-            };
-            let Some(controller) = state.cfg.hub.controller_address else {
-                (None, None)
-            };
-            let Ok(salt) = parse_bytes32(&receiver_salt_hex) else {
-                (None, None)
-            };
+            let maybe = (|| {
+                let tron_rpc_url = state.cfg.tron_rpc_url.as_deref()?;
+                let controller = state.cfg.hub.controller_address?;
+                let salt = parse_bytes32(&receiver_salt_hex).ok()?;
+                Some((tron_rpc_url, controller, salt))
+            })();
 
-            let init_code_hash = state
-                .tron_receiver_init_code_hash
-                .get_or_try_init(|| fetch_receiver_init_code_hash(tron_rpc_url, controller))
-                .await
-                .ok()
-                .copied()
-                .unwrap_or(B256::ZERO);
-            if init_code_hash == B256::ZERO {
-                (None, None)
+            if let Some((tron_rpc_url, controller, salt)) = maybe {
+                let init_code_hash = state
+                    .tron_receiver_init_code_hash
+                    .get_or_try_init(|| fetch_receiver_init_code_hash(tron_rpc_url, controller))
+                    .await
+                    .ok()
+                    .copied()
+                    .unwrap_or(B256::ZERO);
+                if init_code_hash == B256::ZERO {
+                    (None, None)
+                } else {
+                    let receiver_evm = compute_create2_address(
+                        TronAddress::MAINNET_PREFIX,
+                        controller,
+                        salt,
+                        init_code_hash,
+                    );
+                    let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
+                    let receiver_tron = TronAddress::from_evm(receiver_evm).to_string();
+                    (Some(receiver_tron), Some(receiver_evm_str))
+                }
             } else {
-                let receiver_evm = compute_create2_address(
-                    TronAddress::MAINNET_PREFIX,
-                    controller,
-                    salt,
-                    init_code_hash,
-                );
-                let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
-                let receiver_tron = TronAddress::from_evm(receiver_evm).to_string();
-                (Some(receiver_tron), Some(receiver_evm_str))
+                (None, None)
             }
         };
 

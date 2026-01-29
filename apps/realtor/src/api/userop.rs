@@ -20,7 +20,12 @@ pub(super) async fn send_userop(
 
     let sub = tokio::time::timeout(timeout, sender.send_call(to, data))
         .await
-        .map_err(|_| ApiError::Upstream(format!("send userop: timeout after {}ms", timeout.as_millis())))?
+        .map_err(|_| {
+            ApiError::Upstream(format!(
+                "send userop: timeout after {}ms",
+                timeout.as_millis()
+            ))
+        })?
         .map_err(|e| ApiError::Upstream(format!("send userop: {e}")))?;
 
     let ms = start.elapsed().as_millis() as u64;
