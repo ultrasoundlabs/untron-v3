@@ -122,9 +122,6 @@ async fn main() -> anyhow::Result<()> {
         // mirror the request origin instead of using `*`.
         .allow_origin(AllowOrigin::mirror_request())
         .allow_methods(Any)
-        // NOTE: tower-http rejects allow_credentials(true) + allow_headers(Any/*).
-        // We don't need cookies/credentials for this API, so keep it explicitly off.
-        .allow_credentials(false)
         .allow_headers(Any)
         .allow_credentials(true)
         .expose_headers([request_id_header.clone()]);
