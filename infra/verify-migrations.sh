@@ -97,4 +97,8 @@ for v in "${expected_views[@]}"; do
   "${psql_cmd[@]}" -qAtc "select 1 from api.${v} limit 0" >/dev/null
 done
 
+echo "==> Verifying derived billing views exist and compile"
+"${psql_cmd[@]}" -qAtc "select 1 from pg_views where schemaname='realtor' and viewname='principal_leases'" | grep -qx "1"
+"${psql_cmd[@]}" -qAtc "select 1 from realtor.principal_leases limit 0" >/dev/null
+
 echo "==> OK: migrations applied and views verified (${#expected_views[@]} views)"
