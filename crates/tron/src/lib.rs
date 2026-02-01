@@ -4,6 +4,7 @@ pub mod proof;
 pub mod rental;
 pub mod resources;
 pub mod sender;
+pub mod tx;
 pub mod wallet;
 
 pub use address::TronAddress;
@@ -15,6 +16,9 @@ pub use rental::{
 };
 pub use resources::{AccountResources, ChainFees, TxCostQuote};
 pub use sender::{FeePolicy, SignedTronTx};
+pub use tx::{
+    DecodedTriggerSmartContract, TRIGGER_SMART_CONTRACT_TYPE, decode_trigger_smart_contract,
+};
 pub use wallet::{BroadcastedTronTx, TronWallet};
 
 pub mod protocol {

@@ -15,6 +15,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use std::time::Instant;
+use tron::{TronAddress, decode_trigger_smart_contract};
 
 fn pre_entitle_finalized(
     block_number: u64,
@@ -47,6 +48,18 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
     }
 
     let hub_contract = ctx.hub_contract();
+    let start = Instant::now();
+    let tron_usdt_res = hub_contract.tronUsdt().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "tronUsdt",
+        tron_usdt_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let tron_usdt = tron_usdt_res.context("hub tronUsdt")?;
+    if tron_usdt == Address::ZERO {
+        tracing::warn!("hub tronUsdt is unset; skipping pre-entitle planning");
+        return Ok(Plan::none());
+    }
 
     let needs_subjective = rows
         .iter()
@@ -70,6 +83,7 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         None
     };
 
+    let mut tron = ctx.tron_read.clone();
     for row in rows.into_iter().take(20) {
         let receiver_salt = parse_bytes32(
             row.receiver_salt
@@ -92,6 +106,27 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         }
 
         let action = row.recommended_action.as_deref().unwrap_or("");
+
+        // The hub can only pre-entitle deposits that are direct calls to Tron USDT. If a deposit
+        // transfer was caused by another smart contract call (DEX, router, etc), `preEntitle` will
+        // revert and the correct path is to wait for finality and then pull from the receiver.
+        //
+        // We check this offchain to avoid repeatedly submitting userops that will never simulate.
+        let tx = tron
+            .get_transaction_by_id(txid)
+            .await
+            .context("tron get_transaction_by_id")?;
+        let decoded =
+            decode_trigger_smart_contract(&tx).context("decode tron trigger smart contract")?;
+        if decoded.contract.evm() != tron_usdt {
+            tracing::info!(
+                txid = %txid_hex,
+                tron_to = %decoded.contract,
+                tron_usdt = %TronAddress::from_evm(tron_usdt),
+                "receiver deposit is not a direct Tron USDT call; skipping preEntitle"
+            );
+            continue;
+        }
 
         // For subjective pre-entitle we want to act as soon as we see the deposit.
         // If subjective isn't possible (missing fields / no principal), we fall back to objective,

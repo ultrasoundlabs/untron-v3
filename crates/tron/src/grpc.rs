@@ -123,6 +123,17 @@ impl TronGrpc {
         Ok(resp.into_inner())
     }
 
+    pub async fn get_transaction_by_id(&mut self, txid: [u8; 32]) -> Result<Transaction> {
+        let resp = self
+            .wallet
+            .get_transaction_by_id(self.req(BytesMessage {
+                value: txid.to_vec(),
+            }))
+            .await
+            .context("GetTransactionById")?;
+        Ok(resp.into_inner())
+    }
+
     pub async fn trigger_contract(
         &mut self,
         msg: TriggerSmartContract,

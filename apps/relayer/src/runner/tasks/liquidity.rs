@@ -1,10 +1,10 @@
 use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
-use tron::{TronAddress, wallet::encode_pull_from_receivers};
+use tron::{TronAddress, decode_trigger_smart_contract, wallet::encode_pull_from_receivers};
 
 use crate::evm::IERC20;
 use crate::runner::model::{Plan, StateUpdate};
-use crate::runner::util::{number_to_u256, parse_bytes32};
+use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::Provider;
@@ -141,10 +141,25 @@ pub async fn plan_liquidity(
     // receiver deposits.
     let projected_demand = ready_claims_amt;
 
+    // If a receiver deposit is *not* directly pre-entitleable (e.g. a DEX/router call that caused a
+    // USDT transfer), the hub's `preEntitle` path will never work. In that case, the relayer should
+    // wait for Tron finality and then pull from the receiver so the controller event chain can
+    // account for it.
+    let forced_pull_salts = find_unentitleable_receiver_salts(ctx, tick).await?;
+
     if projected_demand.is_zero() {
-        return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
-            key: "pull_from_receivers",
-        }));
+        if forced_pull_salts.is_empty() {
+            return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
+                key: "pull_from_receivers",
+            }));
+        }
+
+        let tron_plan = plan_pull_specific_receivers(ctx, state, tick, &forced_pull_salts).await?;
+        let intent = tron_plan.intent.map(LiquidityIntent::Tron);
+        return Ok(Plan {
+            intent,
+            updates: tron_plan.updates,
+        });
     }
 
     let usdt_balance = state.hub_usdt_balance(ctx).await?;
@@ -152,7 +167,9 @@ pub async fn plan_liquidity(
     let hub_intent = plan_hub_fill(ctx, state, usdt_addr, usdt_balance, &created_claims).await?;
 
     let tron_plan = if projected_demand > usdt_balance {
-        plan_pull_from_receivers(ctx, state, tick, projected_demand).await?
+        plan_pull_from_receivers(ctx, state, tick, projected_demand, &forced_pull_salts).await?
+    } else if !forced_pull_salts.is_empty() {
+        plan_pull_specific_receivers(ctx, state, tick, &forced_pull_salts).await?
     } else {
         Plan::none().update(StateUpdate::DelayedTronClear {
             key: "pull_from_receivers",
@@ -429,11 +446,130 @@ async fn plan_hub_fill(
     Ok(None)
 }
 
+async fn find_unentitleable_receiver_salts(
+    ctx: &RelayerContext,
+    tick: &Tick,
+) -> Result<Vec<FixedBytes<32>>> {
+    let hub_contract = ctx.hub_contract();
+    let start = std::time::Instant::now();
+    let tron_usdt_res = hub_contract.tronUsdt().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "tronUsdt",
+        tron_usdt_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let tron_usdt = tron_usdt_res.context("hub tronUsdt")?;
+    if tron_usdt == Address::ZERO {
+        return Ok(Vec::new());
+    }
+
+    let rows = ctx
+        .indexer
+        .receiver_usdt_transfer_actionability_pre_entitle(20)
+        .await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut tron = ctx.tron_read.clone();
+    for row in rows.into_iter().take(20) {
+        let block_number = match row.block_number {
+            Some(n) => u64::try_from(n).ok(),
+            None => None,
+        };
+        let Some(block_number) = block_number else {
+            continue;
+        };
+        if !super::tron_block_finalized(
+            block_number,
+            tick.tron_head,
+            ctx.cfg.jobs.tron_finality_blocks,
+            ctx.cfg.tron.block_lag,
+        ) {
+            continue;
+        }
+
+        let txid_hex = match row.tx_hash.as_deref() {
+            Some(v) => v,
+            None => continue,
+        };
+        let txid = parse_txid32(txid_hex)?;
+
+        let tx = tron
+            .get_transaction_by_id(txid)
+            .await
+            .context("tron get_transaction_by_id")?;
+        let decoded = match decode_trigger_smart_contract(&tx) {
+            Ok(d) => d,
+            Err(err) => {
+                tracing::warn!(txid = %txid_hex, err = %err, "failed to decode tron tx; skipping forced pull detection for row");
+                continue;
+            }
+        };
+        if decoded.contract.evm() == tron_usdt {
+            continue;
+        }
+
+        let Some(salt_hex) = row.receiver_salt.as_deref() else {
+            continue;
+        };
+        let receiver_salt = parse_bytes32(salt_hex)?;
+        tracing::info!(
+            txid = %txid_hex,
+            receiver_salt = %salt_hex,
+            tron_to = %decoded.contract,
+            tron_usdt = %TronAddress::from_evm(tron_usdt),
+            "found unentitleable receiver deposit; will pullFromReceivers after finality"
+        );
+        return Ok(vec![receiver_salt]);
+    }
+
+    Ok(Vec::new())
+}
+
+async fn plan_pull_specific_receivers(
+    ctx: &RelayerContext,
+    state: &RelayerState,
+    tick: &Tick,
+    receiver_salts: &[FixedBytes<32>],
+) -> Result<Plan<TronIntent>> {
+    if receiver_salts.is_empty() {
+        return Ok(Plan::none());
+    }
+
+    let Some(controller_usdt) = ctx.indexer.controller_usdt().await? else {
+        return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
+            key: "pull_from_receivers",
+        }));
+    };
+    let token_tron = controller_usdt
+        .usdt
+        .as_deref()
+        .context("missing controller usdt")?;
+    let token_tron = TronAddress::parse_text(token_tron).context("parse controller usdt")?;
+
+    let (ready, updates) = state.plan_tron_delay(
+        "pull_from_receivers",
+        ctx.cfg.tron.block_lag,
+        tick.tron_head,
+    );
+    if !ready {
+        return Ok(Plan::none().extend_updates(updates));
+    }
+
+    Ok(Plan::intent(TronIntent::PullFromReceivers {
+        token_tron,
+        receiver_salts: receiver_salts.to_vec(),
+    })
+    .extend_updates(updates))
+}
+
 async fn plan_pull_from_receivers(
     ctx: &RelayerContext,
     state: &RelayerState,
     tick: &Tick,
     total_claims: U256,
+    forced_receiver_salts: &[FixedBytes<32>],
 ) -> Result<Plan<TronIntent>> {
     let Some(controller_usdt) = ctx.indexer.controller_usdt().await? else {
         return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
@@ -480,7 +616,13 @@ async fn plan_pull_from_receivers(
         total_claims,
         ctx.cfg.jobs.pull_liquidity_ppm,
     )?;
-    let selected = select_receiver_salts(rows, desired)?;
+    let mut selected = select_receiver_salts(rows, desired)?;
+    for salt in forced_receiver_salts {
+        if selected.iter().any(|s| s == salt) {
+            continue;
+        }
+        selected.push(*salt);
+    }
 
     if selected.is_empty() {
         return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
