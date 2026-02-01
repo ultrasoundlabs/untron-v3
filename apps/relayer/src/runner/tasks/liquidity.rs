@@ -1,6 +1,9 @@
 use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
-use tron::{TronAddress, decode_trigger_smart_contract, wallet::encode_pull_from_receivers};
+use tron::{
+    TronAddress, decode_trc20_call_data, decode_trigger_smart_contract,
+    wallet::encode_pull_from_receivers,
+};
 
 use crate::evm::IERC20;
 use crate::runner::model::{Plan, StateUpdate};
@@ -473,6 +476,12 @@ async fn find_unentitleable_receiver_salts(
 
     let mut tron = ctx.tron_read.clone();
     for row in rows.into_iter().take(20) {
+        let receiver_salt_hex = row.receiver_salt.as_deref().unwrap_or_default();
+        let txid_hex = match row.tx_hash.as_deref() {
+            Some(v) => v,
+            None => continue,
+        };
+
         let block_number = match row.block_number {
             Some(n) => u64::try_from(n).ok(),
             None => None,
@@ -488,11 +497,6 @@ async fn find_unentitleable_receiver_salts(
         ) {
             continue;
         }
-
-        let txid_hex = match row.tx_hash.as_deref() {
-            Some(v) => v,
-            None => continue,
-        };
         let txid = parse_txid32(txid_hex)?;
 
         let tx = tron
@@ -506,19 +510,28 @@ async fn find_unentitleable_receiver_salts(
                 continue;
             }
         };
+        let selector_hex = decoded
+            .data
+            .get(0..4)
+            .map(hex::encode)
+            .unwrap_or_else(|| "<missing>".to_string());
+        let decoded_trc20 = decode_trc20_call_data(&decoded.data, decoded.owner).ok();
         if decoded.contract.evm() == tron_usdt {
             continue;
         }
 
-        let Some(salt_hex) = row.receiver_salt.as_deref() else {
-            continue;
-        };
-        let receiver_salt = parse_bytes32(salt_hex)?;
+        let receiver_salt = parse_bytes32(receiver_salt_hex)?;
         tracing::info!(
             txid = %txid_hex,
-            receiver_salt = %salt_hex,
+            receiver_salt = %receiver_salt_hex,
+            recommended_action = ?row.recommended_action,
+            preentitle_time_ok = row.preentitle_time_ok,
+            amount = ?row.amount,
+            expected_lease_id = ?row.expected_lease_id,
             tron_to = %decoded.contract,
             tron_usdt = %TronAddress::from_evm(tron_usdt),
+            tron_selector = %selector_hex,
+            trc20_call = ?decoded_trc20,
             "found unentitleable receiver deposit; will pullFromReceivers after finality"
         );
         return Ok(vec![receiver_salt]);

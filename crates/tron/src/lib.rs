@@ -17,7 +17,8 @@ pub use rental::{
 pub use resources::{AccountResources, ChainFees, TxCostQuote};
 pub use sender::{FeePolicy, SignedTronTx};
 pub use tx::{
-    DecodedTriggerSmartContract, TRIGGER_SMART_CONTRACT_TYPE, decode_trigger_smart_contract,
+    DecodedTrc20Call, DecodedTriggerSmartContract, SELECTOR_TRANSFER, SELECTOR_TRANSFER_FROM,
+    TRIGGER_SMART_CONTRACT_TYPE, decode_trc20_call_data, decode_trigger_smart_contract,
 };
 pub use wallet::{BroadcastedTronTx, TronWallet};
 

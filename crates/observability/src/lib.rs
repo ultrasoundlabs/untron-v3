@@ -118,7 +118,9 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             .build();
         let tracer = tracer_provider.tracer(cfg.service_name.to_string());
 
-        let meter_provider = SdkMeterProvider::builder().with_resource(resource.clone()).build();
+        let meter_provider = SdkMeterProvider::builder()
+            .with_resource(resource.clone())
+            .build();
         (tracer_provider, meter_provider, None, tracer, None)
     } else {
         // Best-effort: if OTLP exporter init fails (bad env / no deps), keep the process running with
@@ -126,7 +128,8 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let mut init_err: Option<anyhow::Error> = None;
 
         let tracer_provider = match (|| -> Result<_> {
-            let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
+            let protocol =
+                std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
 
             let span_exporter = if protocol.starts_with("http") {
                 // The OTLP/HTTP exporter requires an explicit HTTP client.
@@ -159,7 +162,8 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
         let tracer = tracer_provider.tracer(cfg.service_name.to_string());
 
         let meter_provider = match (|| -> Result<_> {
-            let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
+            let protocol =
+                std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
 
             let metric_exporter = if protocol.starts_with("http") {
                 // The OTLP/HTTP exporter requires an explicit HTTP client.
@@ -186,7 +190,9 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             Ok(mp) => mp,
             Err(e) => {
                 init_err.get_or_insert(e);
-                SdkMeterProvider::builder().with_resource(resource.clone()).build()
+                SdkMeterProvider::builder()
+                    .with_resource(resource.clone())
+                    .build()
             }
         };
 
@@ -204,10 +210,13 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
                         .with_http_client(client)
                         .build()?
                 } else {
-                    opentelemetry_otlp::LogExporter::builder().with_tonic().build()?
+                    opentelemetry_otlp::LogExporter::builder()
+                        .with_tonic()
+                        .build()?
                 };
 
-                let processor = opentelemetry_sdk::logs::BatchLogProcessor::builder(log_exporter).build();
+                let processor =
+                    opentelemetry_sdk::logs::BatchLogProcessor::builder(log_exporter).build();
 
                 Ok(opentelemetry_sdk::logs::SdkLoggerProvider::builder()
                     .with_resource(resource.clone())
@@ -224,7 +233,13 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
             None
         };
 
-        (tracer_provider, meter_provider, logger_provider, tracer, init_err)
+        (
+            tracer_provider,
+            meter_provider,
+            logger_provider,
+            tracer,
+            init_err,
+        )
     };
 
     global::set_tracer_provider(tracer_provider.clone());
@@ -236,7 +251,9 @@ pub fn init(cfg: Config<'_>) -> Result<OtelGuard> {
     // Log formatting: include trace/span ids when we're inside an active tracing span.
     // This makes Tempo -> Loki trace-to-logs correlation possible once logs are ingested.
 
-    let fmt_layer = tracing_subscriber::fmt::layer().compact().with_target(false);
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .compact()
+        .with_target(false);
 
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 

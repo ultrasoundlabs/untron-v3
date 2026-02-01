@@ -15,7 +15,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use std::time::Instant;
-use tron::{TronAddress, decode_trigger_smart_contract};
+use tron::{DecodedTrc20Call, TronAddress, decode_trc20_call_data, decode_trigger_smart_contract};
 
 fn pre_entitle_finalized(
     block_number: u64,
@@ -61,6 +61,15 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         return Ok(Plan::none());
     }
 
+    let start = Instant::now();
+    let controller_address_res = hub_contract.CONTROLLER_ADDRESS().call().await;
+    ctx.telemetry.hub_rpc_ms(
+        "CONTROLLER_ADDRESS",
+        controller_address_res.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
+    let controller_address = controller_address_res.context("hub CONTROLLER_ADDRESS")?;
+
     let needs_subjective = rows
         .iter()
         .any(|r| r.recommended_action.as_deref() == Some("subjective_pre_entitle"));
@@ -85,6 +94,7 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
 
     let mut tron = ctx.tron_read.clone();
     for row in rows.into_iter().take(20) {
+        let receiver_salt_hex = row.receiver_salt.as_deref().unwrap_or_default();
         let receiver_salt = parse_bytes32(
             row.receiver_salt
                 .as_deref()
@@ -101,29 +111,167 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
             processed_res.is_ok(),
             start.elapsed().as_millis() as u64,
         );
-        if processed_res.context("hub depositProcessed")? {
+        let processed = processed_res.context("hub depositProcessed")?;
+        if processed {
+            tracing::debug!(
+                txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
+                "pre-entitle candidate skipped (already processed on hub)"
+            );
             continue;
         }
 
         let action = row.recommended_action.as_deref().unwrap_or("");
 
-        // The hub can only pre-entitle deposits that are direct calls to Tron USDT. If a deposit
-        // transfer was caused by another smart contract call (DEX, router, etc), `preEntitle` will
-        // revert and the correct path is to wait for finality and then pull from the receiver.
-        //
-        // We check this offchain to avoid repeatedly submitting userops that will never simulate.
-        let tx = tron
-            .get_transaction_by_id(txid)
+        let block_number_u64 = row
+            .block_number
+            .and_then(|n| u64::try_from(n).ok())
+            .unwrap_or_default();
+        let finalized_ok = pre_entitle_finalized(
+            block_number_u64,
+            tick.tron_head,
+            ctx.cfg.jobs.tron_finality_blocks,
+            ctx.cfg.tron.block_lag,
+        );
+
+        // Fetch and decode the Tron tx to explain / predict whether the hub's `preEntitle` call will
+        // simulate successfully. This is intentionally verbose: it helps operators understand why
+        // we pick preEntitle vs subjectivePreEntitle vs skipping (waiting for pullFromReceivers).
+        let tx = match tron.get_transaction_by_id(txid).await {
+            Ok(tx) => tx,
+            Err(err) => {
+                tracing::warn!(
+                    txid = %txid_hex,
+                    receiver_salt = %receiver_salt_hex,
+                    err = %err,
+                    "pre-entitle candidate skipped (failed to fetch tron tx)"
+                );
+                continue;
+            }
+        };
+        let decoded = match decode_trigger_smart_contract(&tx) {
+            Ok(d) => d,
+            Err(err) => {
+                tracing::info!(
+                    txid = %txid_hex,
+                    receiver_salt = %receiver_salt_hex,
+                    recommended_action = %action,
+                    err = %err,
+                    "pre-entitle candidate skipped (not a TriggerSmartContract tx; hub preEntitle would revert)"
+                );
+                continue;
+            }
+        };
+
+        let selector_hex = decoded
+            .data
+            .get(0..4)
+            .map(hex::encode)
+            .unwrap_or_else(|| "<missing>".to_string());
+
+        let is_direct_tron_usdt_call = decoded.contract.evm() == tron_usdt;
+
+        let decoded_trc20 = match decode_trc20_call_data(&decoded.data, decoded.owner) {
+            Ok(v) => Some(v),
+            Err(err) => {
+                tracing::info!(
+                    txid = %txid_hex,
+                    receiver_salt = %receiver_salt_hex,
+                    recommended_action = %action,
+                    tron_owner = %decoded.owner,
+                    tron_to = %decoded.contract,
+                    tron_selector = %selector_hex,
+                    err = %err,
+                    "pre-entitle candidate not recognized as TRC-20 transfer; hub preEntitle would revert"
+                );
+                None
+            }
+        };
+
+        let (call_kind, trc20_from, trc20_to, trc20_amount) = match decoded_trc20 {
+            Some(DecodedTrc20Call::Transfer { from, to, amount }) => {
+                ("transfer", Some(from), Some(to), Some(amount))
+            }
+            Some(DecodedTrc20Call::TransferFrom { from, to, amount }) => {
+                ("transferFrom", Some(from), Some(to), Some(amount))
+            }
+            None => ("unknown", None, None, None),
+        };
+
+        let predicted_receiver = match hub_contract
+            .predictReceiverAddress_1(controller_address, receiver_salt)
+            .call()
             .await
-            .context("tron get_transaction_by_id")?;
-        let decoded =
-            decode_trigger_smart_contract(&tx).context("decode tron trigger smart contract")?;
-        if decoded.contract.evm() != tron_usdt {
+        {
+            Ok(addr) => Some(addr),
+            Err(err) => {
+                tracing::warn!(
+                    txid = %txid_hex,
+                    receiver_salt = %receiver_salt_hex,
+                    err = %err,
+                    "failed to predict receiver address on hub"
+                );
+                None
+            }
+        };
+
+        let predicted_receiver_tron = predicted_receiver.map(|a| TronAddress::from_evm(a));
+        let recipient_matches_receiver = predicted_receiver
+            .zip(trc20_to)
+            .map(|(pred, to)| pred == to.evm());
+
+        tracing::debug!(
+            txid = %txid_hex,
+            receiver_salt = %receiver_salt_hex,
+            recommended_action = %action,
+            preentitle_time_ok = row.preentitle_time_ok,
+            last_pull_timestamp = row.last_pull_timestamp,
+            expected_lease_id = ?row.expected_lease_id,
+            amount = ?row.amount,
+            block_number = row.block_number,
+            tron_head = tick.tron_head,
+            finalized_ok,
+            tron_owner = %decoded.owner,
+            tron_to = %decoded.contract,
+            tron_usdt = %TronAddress::from_evm(tron_usdt),
+            is_direct_tron_usdt_call,
+            tron_selector = %selector_hex,
+            trc20_kind = %call_kind,
+            trc20_from = ?trc20_from,
+            trc20_to = ?trc20_to,
+            trc20_amount = ?trc20_amount,
+            predicted_receiver = ?predicted_receiver_tron,
+            recipient_matches_receiver = ?recipient_matches_receiver,
+            "pre-entitle candidate evaluated"
+        );
+
+        // The hub can only pre-entitle deposits that are direct calls to Tron USDT. If the USDT
+        // transfer into the receiver was caused by another contract call (DEX, router, etc),
+        // `preEntitle` will revert (NotTronUsdt). In that case, we should wait for finality and
+        // then pull from the receiver.
+        if !is_direct_tron_usdt_call {
             tracing::info!(
                 txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
                 tron_to = %decoded.contract,
                 tron_usdt = %TronAddress::from_evm(tron_usdt),
-                "receiver deposit is not a direct Tron USDT call; skipping preEntitle"
+                "pre-entitle skipped (Tron tx is not a direct call to Tron USDT); will rely on pullFromReceivers"
+            );
+            continue;
+        }
+
+        // If calldata doesn't decode (or doesn't target the predicted receiver), preEntitle would
+        // revert; skip it to avoid noisy AA simulation failures.
+        if decoded_trc20.is_none() {
+            continue;
+        }
+        if recipient_matches_receiver == Some(false) {
+            tracing::info!(
+                txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
+                trc20_to = ?trc20_to,
+                predicted_receiver = ?predicted_receiver_tron,
+                "pre-entitle skipped (Tron calldata recipient does not match predicted receiver); will rely on pullFromReceivers"
             );
             continue;
         }
@@ -141,12 +289,29 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
                             number_to_u256(lease_id_num).context("parse expected_lease_id")?;
 
                         if principal >= raw_amount {
+                            tracing::info!(
+                                txid = %txid_hex,
+                                receiver_salt = %receiver_salt_hex,
+                                lease_id = %lease_id,
+                                raw_amount = %raw_amount,
+                                safe_lp_principal = %principal,
+                                "pre-entitle decision: subjectivePreEntitle (principal sufficient)"
+                            );
                             return Ok(Plan::intent(HubIntent::SubjectivePreEntitle {
                                 txid,
                                 lease_id,
                                 raw_amount,
                             }));
                         }
+
+                        tracing::info!(
+                            txid = %txid_hex,
+                            receiver_salt = %receiver_salt_hex,
+                            lease_id = %lease_id,
+                            raw_amount = %raw_amount,
+                            safe_lp_principal = %principal,
+                            "pre-entitle decision: skip subjectivePreEntitle (principal insufficient); will consider objective preEntitle"
+                        );
                     }
                     (None, _) => tracing::warn!(
                         "subjective_pre_entitle row missing amount; falling back to objective preEntitle"
@@ -159,20 +324,33 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         }
 
         // Objective pre-entitle requires finalized Tron blocks.
-        let block_number = row
-            .block_number
-            .context("missing receiver transfer block_number")?;
-        let block_number_u64 =
-            u64::try_from(block_number).context("receiver transfer block_number out of range")?;
-        if !pre_entitle_finalized(
-            block_number_u64,
-            tick.tron_head,
-            ctx.cfg.jobs.tron_finality_blocks,
-            ctx.cfg.tron.block_lag,
-        ) {
+        if row.block_number.is_none() {
+            tracing::warn!(
+                txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
+                "pre-entitle candidate missing block_number; skipping"
+            );
+            continue;
+        }
+        if !finalized_ok {
+            tracing::debug!(
+                txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
+                block_number = row.block_number,
+                tron_head = tick.tron_head,
+                tron_finality_blocks = ctx.cfg.jobs.tron_finality_blocks,
+                tron_block_lag = ctx.cfg.tron.block_lag,
+                "pre-entitle decision: wait (Tron tx not finalized yet)"
+            );
             continue;
         }
 
+        tracing::info!(
+            txid = %txid_hex,
+            receiver_salt = %receiver_salt_hex,
+            block_number = row.block_number,
+            "pre-entitle decision: preEntitle (objective proof)"
+        );
         return Ok(Plan::intent(HubIntent::PreEntitle {
             receiver_salt,
             txid,

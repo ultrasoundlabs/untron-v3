@@ -186,7 +186,8 @@ impl Safe4337UserOpSender {
         to: Address,
         data: Vec<u8>,
     ) -> Result<Safe4337UserOpSubmission> {
-        self.send_call_with_nonce_operation(nonce, to, data, 0).await
+        self.send_call_with_nonce_operation(nonce, to, data, 0)
+            .await
     }
 
     pub async fn send_call_with_nonce_operation(
