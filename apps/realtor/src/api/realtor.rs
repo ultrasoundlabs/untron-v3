@@ -4,7 +4,7 @@ use super::lease_terms::resolve_lease_terms;
 use super::offer::compute_offer;
 use super::receiver_salt::{
     ensure_receiver_is_free, normalize_receiver_salt_hex, pick_receiver_salt_for_beneficiary,
-    pick_receiver_salt_random_free,
+    pick_receiver_salt_random_free, should_skip_known_receiver_salts,
 };
 use super::userop::send_userop;
 use super::{
@@ -252,10 +252,20 @@ pub async fn post_realtor(
                 }
                 receiver_salt_hex
             }
-            None => match pick_receiver_salt_for_beneficiary(&state, now, beneficiary).await? {
-                Some(s) => s,
-                None => pick_receiver_salt_random_free(&state, now).await?,
-            },
+            None => {
+                if should_skip_known_receiver_salts(req.duration_seconds) {
+                    tracing::info!(
+                        duration_seconds = req.duration_seconds,
+                        "duration > 1 day; skipping known receiver salts and selecting random salt"
+                    );
+                    pick_receiver_salt_random_free(&state, now).await?
+                } else {
+                    match pick_receiver_salt_for_beneficiary(&state, now, beneficiary).await? {
+                        Some(s) => s,
+                        None => pick_receiver_salt_random_free(&state, now).await?,
+                    }
+                }
+            }
         };
 
         tracing::info!(ms = t_salt.elapsed().as_millis() as u64, receiver_salt = %receiver_salt_hex, "post_realtor: selected receiver salt");

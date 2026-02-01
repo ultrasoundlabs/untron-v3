@@ -5,6 +5,12 @@ use alloy::primitives::Address;
 use rand::RngCore;
 use rand::rngs::OsRng;
 
+pub(super) const ONE_DAY_SECONDS: u64 = 60 * 60 * 24;
+
+pub(super) fn should_skip_known_receiver_salts(duration_seconds: u64) -> bool {
+    duration_seconds > ONE_DAY_SECONDS
+}
+
 pub(super) fn normalize_receiver_salt_hex(receiver_salt: &str) -> Result<String, ApiError> {
     let b = parse_bytes32(receiver_salt)
         .map_err(|e| ApiError::BadRequest(format!("receiver_salt: {e}")))?;
@@ -200,4 +206,16 @@ async fn receiver_nukeable_after(
         .and_then(|r| r.nukeable_after)
         .and_then(|v| u64::try_from(v).ok())
         .unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ONE_DAY_SECONDS, should_skip_known_receiver_salts};
+
+    #[test]
+    fn long_duration_skips_known_receiver_salts() {
+        assert!(!should_skip_known_receiver_salts(1));
+        assert!(!should_skip_known_receiver_salts(ONE_DAY_SECONDS));
+        assert!(should_skip_known_receiver_salts(ONE_DAY_SECONDS + 1));
+    }
 }
