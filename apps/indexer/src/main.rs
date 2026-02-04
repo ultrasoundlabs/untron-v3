@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod domain;
 mod event_chain;
+mod hub_claims;
 mod hub_deposit_processed;
 mod metrics;
 mod receiver_usdt;
@@ -195,6 +196,21 @@ async fn main() -> Result<()> {
                 }
             });
         }
+    }
+
+    // KPI loop: hub pending claims (claim queue health) from DB state.
+    // Kept separate from ingestion so queue health stays visible even if stream tasks are backoff-restarting.
+    {
+        let dbh = dbh.clone();
+        let shutdown = shutdown.clone();
+        join_set.spawn(async move {
+            hub_claims::run_pending_claims_kpi(hub_claims::RunPendingClaimsKpiParams {
+                dbh,
+                poll_interval: Duration::from_secs(10),
+                shutdown,
+            })
+            .await
+        });
     }
 
     if hub_deposit_processed_cfg.enabled {
