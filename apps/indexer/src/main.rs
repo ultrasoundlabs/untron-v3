@@ -137,6 +137,30 @@ async fn main() -> Result<()> {
 
         // Receiver USDT indexer has its own env-driven knobs; it only requires controller RPC access + DB.
         if receiver_usdt_cfg.enabled {
+            // KPI loop: how long deposits sit in recommended_action=subjective_pre_entitle.
+            // We keep this separate from the ingestion loop so visibility doesn't depend on log ranges.
+            {
+                let dbh = dbh.clone();
+                let shutdown = shutdown.clone();
+                let chain_id = cfg.chain_id;
+                join_set.spawn(async move {
+                    let poll_interval = receiver_usdt_cfg
+                        .poll_interval
+                        .min(Duration::from_secs(30))
+                        .max(Duration::from_secs(5));
+                    receiver_usdt::run_subjective_pre_entitle_kpi(
+                        receiver_usdt::RunSubjectivePreEntitleKpiParams {
+                            dbh,
+                            chain_id,
+                            token: "usdt",
+                            poll_interval,
+                            shutdown,
+                        },
+                    )
+                    .await
+                });
+            }
+
             join_set.spawn(async move {
                 let mut backoff = Duration::from_millis(250);
                 loop {
