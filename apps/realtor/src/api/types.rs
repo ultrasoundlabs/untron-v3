@@ -83,6 +83,12 @@ pub struct CreateLeaseResponse {
     #[schema(example = "0x0000000000000000000000000000000000000000000000000000000000000000")]
     pub userop_hash: String,
 
+    /// Global lease id (uint256) assigned by the hub contract.
+    ///
+    /// This service waits for a userop receipt (or, failing that, the indexer) before returning.
+    #[schema(example = 1, minimum = 1)]
+    pub lease_id: u64,
+
     /// Unix timestamp after which the lease is nukeable, computed as `now + duration_seconds`.
     #[schema(example = 1700000000)]
     pub nukeable_after: u64,

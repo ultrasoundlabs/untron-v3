@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::Address,
+    primitives::{Address, Bytes},
     providers::{DynProvider, Provider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
 };
@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use alloy::rpc::types::eth::erc4337::PackedUserOperation;
 use alloy::rpc::types::eth::erc4337::SendUserOperationResponse;
+use alloy::rpc::types::eth::erc4337::UserOperationReceipt;
 
 use crate::packing::redact_url;
 
@@ -286,6 +287,56 @@ impl BundlerPool {
 
         Err(last_err
             .unwrap_or_else(|| anyhow::anyhow!("all bundlers failed for eth_supportedEntryPoints")))
+    }
+
+    pub(crate) async fn get_user_operation_receipt(
+        &mut self,
+        user_op_hash: Bytes,
+    ) -> Result<Option<UserOperationReceipt>> {
+        let mut last_err: Option<anyhow::Error> = None;
+
+        let order = rotate_order(self.next_idx, self.providers.len());
+        for idx in order {
+            let url = &self.urls[idx];
+            let url = redact_url(url);
+            let provider = &self.providers[idx];
+
+            // Use raw_request to tolerate `null` responses (not found yet).
+            let fut = provider.raw_request(
+                "eth_getUserOperationReceipt".into(),
+                (user_op_hash.clone(),),
+            );
+
+            match tokio::time::timeout(RPC_TIMEOUT, fut).await {
+                Ok(Ok(v)) => {
+                    let v: Option<UserOperationReceipt> = v;
+                    self.mark_success(idx);
+                    return Ok(v);
+                }
+                Ok(Err(err)) => {
+                    let err = anyhow::Error::new(err).context("eth_getUserOperationReceipt");
+                    tracing::warn!(
+                        bundler = %url,
+                        err = %format!("{err:#}"),
+                        "bundler rpc failed"
+                    );
+                    last_err = Some(err);
+                }
+                Err(_) => {
+                    let err = anyhow::anyhow!("timed out");
+                    tracing::warn!(
+                        bundler = %url,
+                        err = %err,
+                        "bundler rpc timed out (eth_getUserOperationReceipt)"
+                    );
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            anyhow::anyhow!("all bundlers failed for eth_getUserOperationReceipt")
+        }))
     }
 }
 

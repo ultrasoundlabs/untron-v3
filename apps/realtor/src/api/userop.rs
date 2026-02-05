@@ -1,10 +1,9 @@
 use crate::api::ApiError;
 use aa::Safe4337UserOpSender;
 use alloy::primitives::Address;
-use tokio::sync::MutexGuard;
 
 pub(super) async fn send_userop(
-    mut sender: MutexGuard<'_, Safe4337UserOpSender>,
+    sender: &mut Safe4337UserOpSender,
     to: Address,
     data: Vec<u8>,
     timeout: std::time::Duration,

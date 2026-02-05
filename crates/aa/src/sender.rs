@@ -10,10 +10,11 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
 };
+use std::time::Duration;
 use anyhow::{Context, Result};
 use k256::ecdsa::SigningKey;
 
-use alloy::rpc::types::eth::erc4337::PackedUserOperation;
+use alloy::rpc::types::eth::erc4337::{PackedUserOperation, UserOperationReceipt};
 
 const GAS_BUFFER_PCT: u64 = 10;
 const PAYMASTER_POST_OP_GAS_BUFFER_PCT: u64 = 10;
@@ -171,6 +172,47 @@ impl Safe4337UserOpSender {
 
     pub fn safe_address(&self) -> Address {
         self.safe
+    }
+
+    pub async fn wait_user_operation_receipt(
+        &mut self,
+        userop_hash0x: &str,
+        timeout: Duration,
+    ) -> Result<UserOperationReceipt> {
+        let start = std::time::Instant::now();
+
+        let userop_hash0x = userop_hash0x.trim();
+        let hex_str = userop_hash0x.strip_prefix("0x").unwrap_or(userop_hash0x);
+        let bytes = hex::decode(hex_str).context("invalid userop hash hex")?;
+        let userop_hash = Bytes::from(bytes);
+
+        let deadline = std::time::Instant::now() + timeout;
+        let mut backoff = Duration::from_millis(250);
+
+        loop {
+            match self.bundlers.get_user_operation_receipt(userop_hash.clone()).await {
+                Ok(Some(r)) => {
+                    tracing::info!(
+                        ms = start.elapsed().as_millis() as u64,
+                        "eth_getUserOperationReceipt resolved"
+                    );
+                    return Ok(r);
+                }
+                Ok(None) => {
+                    // Not found yet.
+                }
+                Err(e) => {
+                    tracing::warn!(err = %format!("{e:#}"), "eth_getUserOperationReceipt failed; will fall back / retry");
+                }
+            }
+
+            if std::time::Instant::now() >= deadline {
+                anyhow::bail!("timed out waiting for eth_getUserOperationReceipt");
+            }
+
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(Duration::from_secs(2));
+        }
     }
 
     pub async fn send_call(
