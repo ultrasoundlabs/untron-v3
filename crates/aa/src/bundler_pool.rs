@@ -324,6 +324,15 @@ impl BundlerPool {
                         receipt.entry("type").or_insert_with(|| serde_json::json!("0x0"));
                     }
 
+                    // Some bundlers also omit ERC-4337 optional-ish fields. Alloy's
+                    // `UserOperationReceipt` currently models them as required.
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.entry("paymaster")
+                            .or_insert_with(|| serde_json::json!("0x0000000000000000000000000000000000000000"));
+                        // On success, reason is empty.
+                        obj.entry("reason").or_insert_with(|| serde_json::json!("0x"));
+                    }
+
                     let v: UserOperationReceipt = serde_json::from_value(v).with_context(|| {
                         "deserialize eth_getUserOperationReceipt response"
                     })?;
