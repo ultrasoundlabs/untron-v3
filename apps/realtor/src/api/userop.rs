@@ -8,7 +8,7 @@ pub(super) async fn send_userop(
     to: Address,
     data: Vec<u8>,
     timeout: std::time::Duration,
-) -> Result<(String, String), ApiError> {
+) -> Result<(String, String, u64), ApiError> {
     let start = std::time::Instant::now();
 
     tracing::info!(
@@ -33,8 +33,9 @@ pub(super) async fn send_userop(
         ms,
         userop_hash = %sub.userop_hash,
         nonce = %sub.nonce,
+        send_attempts = sub.send_attempts,
         "send_userop: send_call completed"
     );
 
-    Ok((sub.userop_hash, sub.nonce.to_string()))
+    Ok((sub.userop_hash, sub.nonce.to_string(), sub.send_attempts))
 }

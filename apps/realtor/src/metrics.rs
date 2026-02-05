@@ -17,6 +17,7 @@ struct Inner {
 
     leases_created_total: Counter<u64>,
     userops_sent_total: Counter<u64>,
+    userop_send_retries_total: Counter<u64>,
 
     receiver_salt_zero_balance_fallback_total: Counter<u64>,
     receiver_salt_balance_picker_fallback_total: Counter<u64>,
@@ -58,6 +59,11 @@ impl RealtorTelemetry {
             .with_description("Total user operations submitted to bundler")
             .build();
 
+        let userop_send_retries_total = meter
+            .u64_counter("realtor.userop_send_retries_total")
+            .with_description("Total bundler retry attempts performed while submitting userops")
+            .build();
+
         let receiver_salt_zero_balance_fallback_total = meter
             .u64_counter("realtor.receiver_salt_zero_balance_fallback_total")
             .with_description("Times auto-selection had to use a zero-balance receiver salt")
@@ -86,6 +92,7 @@ impl RealtorTelemetry {
                 indexer_http_ms,
                 leases_created_total,
                 userops_sent_total,
+                userop_send_retries_total,
                 receiver_salt_zero_balance_fallback_total,
                 receiver_salt_balance_picker_fallback_total,
                 lease_lookup_retries_total,
@@ -129,6 +136,14 @@ impl RealtorTelemetry {
 
     pub fn userop_sent(&self) {
         self.inner.userops_sent_total.add(1, &[]);
+    }
+
+    pub fn userop_send_retries(&self, retries: u64) {
+        if retries == 0 {
+            return;
+        }
+        let attrs = [KeyValue::new("retries", retries.to_string())];
+        self.inner.userop_send_retries_total.add(retries, &attrs);
     }
 
     pub fn lease_lookup_retry(&self, phase: &'static str) {
