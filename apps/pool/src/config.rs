@@ -43,6 +43,7 @@ pub struct OneClickConfig {
 pub struct JobConfig {
     pub poll_interval: Duration,
     pub usdt_balance_threshold: String,
+    pub usdt_balance_keep_usdt: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +89,7 @@ struct Env {
 
     pool_poll_interval_secs: u64,
     pool_usdt_balance_threshold: String,
+    pool_usdt_balance_keep_usdt: String,
 }
 
 impl Default for Env {
@@ -116,6 +118,7 @@ impl Default for Env {
             oneclick_backoff_max_secs: 3600,
             pool_poll_interval_secs: 15,
             pool_usdt_balance_threshold: "0".to_string(),
+            pool_usdt_balance_keep_usdt: "1".to_string(),
         }
     }
 }
@@ -231,6 +234,7 @@ pub fn load_config() -> Result<AppConfig> {
         jobs: JobConfig {
             poll_interval: Duration::from_secs(env.pool_poll_interval_secs.max(1)),
             usdt_balance_threshold: env.pool_usdt_balance_threshold,
+            usdt_balance_keep_usdt: env.pool_usdt_balance_keep_usdt,
         },
     })
 }
@@ -260,6 +264,7 @@ mod tests {
             );
 
             std::env::set_var("POOL_USDT_BALANCE_THRESHOLD", "0");
+            std::env::set_var("POOL_USDT_BALANCE_KEEP_USDT", "1");
         }
     }
 
@@ -318,6 +323,7 @@ mod tests {
             "ONECLICK_DESTINATION_ASSET",
             "ONECLICK_BENEFICIARY",
             "POOL_USDT_BALANCE_THRESHOLD",
+            "POOL_USDT_BALANCE_KEEP_USDT",
         ]);
 
         let err = load_config().unwrap_err().to_string();
@@ -343,6 +349,7 @@ mod tests {
             "ONECLICK_DESTINATION_ASSET",
             "ONECLICK_BENEFICIARY",
             "POOL_USDT_BALANCE_THRESHOLD",
+            "POOL_USDT_BALANCE_KEEP_USDT",
         ]);
 
         set_required_env_for_success();

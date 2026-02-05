@@ -20,10 +20,6 @@ use tron::{
     TronWallet, wallet::trc20_balance_of,
 };
 
-fn usdt_keep_units() -> alloy::primitives::U256 {
-    alloy::primitives::U256::from(1u64)
-}
-
 fn build_oneclick_client(user_agent: &str, bearer_token: Option<&str>) -> Result<reqwest::Client> {
     let mut headers = HeaderMap::new();
     if let Some(token) = bearer_token {
@@ -168,6 +164,10 @@ impl PoolService {
             "POOL_USDT_BALANCE_THRESHOLD",
             &self.cfg.jobs.usdt_balance_threshold,
         )?;
+        let keep_units = crate::util::parse_u256_decimal(
+            "POOL_USDT_BALANCE_KEEP_USDT",
+            &self.cfg.jobs.usdt_balance_keep_usdt,
+        )?;
 
         let mut interval = tokio::time::interval(self.cfg.jobs.poll_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -177,7 +177,7 @@ impl PoolService {
                 _ = shutdown.cancelled() => break,
                 _ = interval.tick() => {
                     let start = std::time::Instant::now();
-                    match self.tick(threshold).await {
+                    match self.tick(threshold, keep_units).await {
                         Ok(()) => self.telemetry.tick_ok(start.elapsed().as_millis() as u64),
                         Err(err) => {
                             self.telemetry.tick_err(start.elapsed().as_millis() as u64);
@@ -191,7 +191,11 @@ impl PoolService {
         Ok(())
     }
 
-    async fn tick(&mut self, threshold: alloy::primitives::U256) -> Result<()> {
+    async fn tick(
+        &mut self,
+        threshold: alloy::primitives::U256,
+        keep_units: alloy::primitives::U256,
+    ) -> Result<()> {
         if let Some(remaining) = self.backoff.lock().await.in_cooldown() {
             tracing::warn!(
                 remaining_secs = remaining.as_secs(),
@@ -221,8 +225,7 @@ impl PoolService {
             return Ok(());
         }
 
-        // Keep 1 unit (0.000001 USDT) on the account to avoid edge cases with zero-balance receivers.
-        let keep_units = usdt_keep_units();
+        // Keep some USDT (configurable) on the account to avoid edge cases with zero-balance receivers.
         let swap_budget = balance.saturating_sub(keep_units);
         if swap_budget.is_zero() {
             tracing::info!(
@@ -777,8 +780,8 @@ mod tests {
     }
 
     #[test]
-    fn usdt_keep_units_leaves_one_min_unit() {
-        let keep = usdt_keep_units();
+    fn swap_budget_saturating_sub_respects_keep_units() {
+        let keep = U256::from(1u64);
         assert_eq!(U256::ZERO.saturating_sub(keep), U256::ZERO);
         assert_eq!(U256::from(1u64).saturating_sub(keep), U256::ZERO);
         assert_eq!(U256::from(2u64).saturating_sub(keep), U256::from(1u64));
