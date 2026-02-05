@@ -363,15 +363,15 @@ impl Safe4337UserOpSender {
 
         userop.signature = self.sign_userop(&userop)?.into();
 
+        let nonce = userop.nonce;
         let resp = self
-            .bundlers
-            .send_user_operation(&userop, self.cfg.entrypoint)
+            .send_user_operation_with_retries(userop)
             .await
             .context("bundler send userop")?;
 
         Ok(Safe4337UserOpSubmission {
             userop_hash: hex_bytes0x(&resp.user_op_hash),
-            nonce: userop.nonce,
+            nonce,
         })
     }
 
@@ -566,9 +566,9 @@ impl Safe4337UserOpSender {
         }
 
         userop.signature = self.sign_userop(&userop)?.into();
+        let nonce = userop.nonce;
         let resp = self
-            .bundlers
-            .send_user_operation(&userop, self.cfg.entrypoint)
+            .send_user_operation_with_retries(userop)
             .await
             .context("bundler send userop")?;
 
@@ -578,8 +578,104 @@ impl Safe4337UserOpSender {
 
         Ok(Safe4337UserOpSubmission {
             userop_hash: hex_bytes0x(&resp.user_op_hash),
-            nonce: userop.nonce,
+            nonce,
         })
+    }
+
+    async fn send_user_operation_with_retries(
+        &mut self,
+        mut userop: PackedUserOperation,
+    ) -> Result<alloy::rpc::types::eth::erc4337::SendUserOperationResponse> {
+        // Goal: handle transient bundler rejects during gas spikes by retrying with bumped
+        // EIP-1559 fees, without relying on bundler-specific gas price RPCs.
+        const MAX_RETRIES: usize = 3;
+
+        fn parse_min_priority_fee_wei(msg: &str) -> Option<U256> {
+            let needle = "maxPriorityFeePerGas must be at least ";
+            let i = msg.find(needle)?;
+            let s = &msg[i + needle.len()..];
+            let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.is_empty() {
+                return None;
+            }
+            digits.parse::<u128>().ok().map(U256::from)
+        }
+
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                // Always bump by +25% (rounded up) as a generic strategy.
+                let bump_num = U256::from(125u64);
+                let bump_den = U256::from(100u64);
+                userop.max_priority_fee_per_gas =
+                    (userop.max_priority_fee_per_gas.saturating_mul(bump_num)
+                        + (bump_den - U256::from(1u64)))
+                        / bump_den;
+                if userop.max_priority_fee_per_gas < U256::from(MIN_PRIORITY_FEE_WEI) {
+                    userop.max_priority_fee_per_gas = U256::from(MIN_PRIORITY_FEE_WEI);
+                }
+
+                // Keep maxFee >= priority fee.
+                if userop.max_fee_per_gas < userop.max_priority_fee_per_gas {
+                    userop.max_fee_per_gas = userop.max_priority_fee_per_gas;
+                }
+
+                // Any fee change requires re-signing.
+                userop.signature = self.sign_userop(&userop)?.into();
+
+                tracing::warn!(
+                    attempt,
+                    max_fee_per_gas = %userop.max_fee_per_gas,
+                    max_priority_fee_per_gas = %userop.max_priority_fee_per_gas,
+                    "retrying eth_sendUserOperation with bumped fees"
+                );
+            }
+
+            match self
+                .bundlers
+                .send_user_operation(&userop, self.cfg.entrypoint)
+                .await
+            {
+                Ok(resp) => return Ok(resp),
+                Err(err) => {
+                    let msg = err.to_string();
+
+                    if let Some(min) = parse_min_priority_fee_wei(&msg) {
+                        // If the bundler tells us the minimum, snap up to it (plus a small cushion)
+                        // rather than doing blind multiplicative bumps.
+                        let cushion = U256::from(110u64);
+                        let denom = U256::from(100u64);
+                        let target =
+                            (min.saturating_mul(cushion) + (denom - U256::from(1u64))) / denom;
+                        if userop.max_priority_fee_per_gas < target {
+                            userop.max_priority_fee_per_gas = target;
+                            if userop.max_fee_per_gas < userop.max_priority_fee_per_gas {
+                                userop.max_fee_per_gas = userop.max_priority_fee_per_gas;
+                            }
+                            userop.signature = self.sign_userop(&userop)?.into();
+                            tracing::warn!(
+                                attempt,
+                                min_required = %min,
+                                bumped_to = %userop.max_priority_fee_per_gas,
+                                "bundler rejected priority fee; bumping and retrying"
+                            );
+
+                            if attempt < MAX_RETRIES {
+                                continue;
+                            }
+                        }
+                    }
+
+                    // For other errors, only retry if we have attempts left.
+                    if attempt < MAX_RETRIES {
+                        tracing::warn!(attempt, err = %format!("{err:#}"), "eth_sendUserOperation failed; will retry");
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+
+        unreachable!("loop returns on success or last error")
     }
 
     fn sign_userop(&self, userop: &PackedUserOperation) -> Result<Vec<u8>> {
