@@ -293,8 +293,9 @@ pub async fn post_payout_config(
         };
         let data = call.abi_encode();
 
+        let mut sender = state.sender.lock().await;
         let (userop_hash, _nonce, send_attempts) = send_userop(
-            state.sender.lock().await,
+            &mut sender,
             state.cfg.hub.untron_v3,
             data,
             state.cfg.hub.bundler_timeout,

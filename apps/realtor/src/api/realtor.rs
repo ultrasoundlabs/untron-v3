@@ -321,12 +321,12 @@ pub async fn post_realtor(
         let data = call.abi_encode();
 
         let t_lock = Instant::now();
-        let sender = state.sender.lock().await;
+        let mut sender = state.sender.lock().await;
         tracing::info!(ms = t_lock.elapsed().as_millis() as u64, "post_realtor: acquired sender lock");
 
         let t_userop = Instant::now();
         let (userop_hash, nonce, send_attempts) = send_userop(
-            sender,
+            &mut sender,
             state.cfg.hub.untron_v3,
             data,
             state.cfg.hub.bundler_timeout,
@@ -349,6 +349,120 @@ pub async fn post_realtor(
         tracing::info!(%userop_hash, %nonce, "lease userop submitted");
 
         tracing::info!(ms = req_start.elapsed().as_millis() as u64, "post_realtor: completed request successfully (inner)");
+
+        // Resolve global lease id before returning.
+        //
+        // Strategy:
+        //  1) Prefer bundler receipt (eth_getUserOperationReceipt) and parse the LeaseCreated event.
+        //  2) Fallback to indexer latest lease by receiver_salt, waiting until it matches this request's nukeable_after.
+        let lease_id: u64 = {
+            use alloy::sol_types::SolEventInterface;
+            use untron_v3_bindings::r#untron_v3::UntronV3::UntronV3Events;
+
+            const RECEIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
+            fn lease_id_from_receipt(
+                state: &AppState,
+                receiver_salt_hex: &str,
+                expected_nukeable_after: u64,
+                receipt: &alloy::rpc::types::eth::erc4337::UserOperationReceipt,
+            ) -> Option<u64> {
+                let contract = state.cfg.hub.untron_v3;
+
+                for log in &receipt.logs {
+                    if log.address() != contract {
+                        continue;
+                    }
+                    if log.topics().is_empty() {
+                        continue;
+                    }
+
+                    let ev = match UntronV3Events::decode_raw_log(log.topics(), log.data().data.as_ref()) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    match ev {
+                        UntronV3Events::LeaseCreated(inner) => {
+                            let salt_hex = format!("0x{}", hex::encode(inner.receiverSalt.0));
+                            if salt_hex.to_lowercase() != receiver_salt_hex.to_lowercase() {
+                                continue;
+                            }
+                            if inner.nukeableAfter != expected_nukeable_after {
+                                continue;
+                            }
+                            let lease_id_u64 = u64::try_from(inner.leaseId).ok()?;
+                            if lease_id_u64 == 0 {
+                                continue;
+                            }
+                            return Some(lease_id_u64);
+                        }
+                        _ => continue,
+                    }
+                }
+                None
+            }
+
+            // (1) Receipt path (do not hold sender lock)
+            match aa::wait_user_operation_receipt(
+                state.cfg.hub.bundler_urls.clone(),
+                &userop_hash,
+                RECEIPT_TIMEOUT,
+            )
+            .await
+            {
+                Ok(receipt) => {
+                    if let Some(id) = lease_id_from_receipt(&state, &receiver_salt_hex, nukeable_after, &receipt) {
+                        id
+                    } else {
+                        tracing::warn!(%userop_hash, receiver_salt = %receiver_salt_hex, "userop receipt did not contain matching LeaseCreated event; falling back to indexer");
+                        0
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(%userop_hash, receiver_salt = %receiver_salt_hex, err = %format!("{e:#}"), "failed to fetch userop receipt; falling back to indexer");
+                    0
+                }
+            }
+        };
+
+        let lease_id: u64 = if lease_id != 0 {
+            lease_id
+        } else {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+            let mut backoff = std::time::Duration::from_millis(250);
+            loop {
+                let latest = state
+                    .indexer
+                    .latest_lease_by_receiver_salt(receiver_salt_hex.as_str())
+                    .await
+                    .map_err(|e| {
+                        ApiError::Upstream(format!(
+                            "indexer hub_leases latest by receiver_salt (fallback): {e}"
+                        ))
+                    })?;
+
+                if let Some(row) = latest {
+                    if let (Some(id), Some(nukeable)) = (row.lease_id, row.nukeable_after) {
+                        let id_u64 = id
+                            .as_u64()
+                            .or_else(|| id.as_i64().and_then(|v| u64::try_from(v).ok()))
+                            .or_else(|| id.to_string().parse::<u64>().ok());
+                        if id_u64.is_some() && u64::try_from(nukeable).ok() == Some(nukeable_after) {
+                            break id_u64.unwrap_or(0);
+                        }
+                    }
+                }
+
+                if std::time::Instant::now() >= deadline {
+                    return Err(ApiError::Upstream(
+                        "timed out waiting for indexer to surface newly-created lease".to_string(),
+                    ));
+                }
+
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_secs(2));
+            }
+        };
 
         // Derive receiver addresses without depending on indexer state.
         // This avoids races when clients immediately need the deposit address after lease creation.
@@ -440,6 +554,7 @@ pub async fn post_realtor(
             receiver_address_tron,
             receiver_address_evm,
             userop_hash,
+            lease_id,
             nukeable_after,
         }))
     }
