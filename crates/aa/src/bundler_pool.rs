@@ -302,6 +302,10 @@ impl BundlerPool {
             let provider = &self.providers[idx];
 
             // Use raw_request to tolerate `null` responses (not found yet).
+            //
+            // Some bundlers (notably Pimlico) return a receipt JSON shape that can omit
+            // EIP-2718 tx fields such as `type`. Alloy's `TransactionReceipt` requires that
+            // field, so we patch it in before deserializing.
             let fut = provider.raw_request(
                 "eth_getUserOperationReceipt".into(),
                 (user_op_hash.clone(),),
@@ -309,9 +313,23 @@ impl BundlerPool {
 
             match tokio::time::timeout(RPC_TIMEOUT, fut).await {
                 Ok(Ok(v)) => {
-                    let v: Option<UserOperationReceipt> = v;
+                    let v: Option<serde_json::Value> = v;
+                    let Some(mut v) = v else {
+                        self.mark_success(idx);
+                        return Ok(None);
+                    };
+
+                    // Patch missing receipt.type (EIP-2718) if bundler omitted it.
+                    if let Some(receipt) = v.get_mut("receipt").and_then(|r| r.as_object_mut()) {
+                        receipt.entry("type").or_insert_with(|| serde_json::json!("0x0"));
+                    }
+
+                    let v: UserOperationReceipt = serde_json::from_value(v).with_context(|| {
+                        "deserialize eth_getUserOperationReceipt response"
+                    })?;
+
                     self.mark_success(idx);
-                    return Ok(v);
+                    return Ok(Some(v));
                 }
                 Ok(Err(err)) => {
                     let err = anyhow::Error::new(err).context("eth_getUserOperationReceipt");
