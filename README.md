@@ -1,6 +1,8 @@
-# untron-v3
+# Untron V3
 
-Research and experiments related to a potential next iteration of the Untron protocol.
+Horizontally scalable cross-chain liquidity protocol for Tron and EVM with bulletproof security.
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/cd8adba8-3d43-4d83-b160-457a6a90eef9" />
 
 ## Quick Start
 
@@ -33,5 +35,3 @@ pnpm --filter @untron/tron-protocol run build
 **Foundry profiles**: `dev` (default), `ci` (strict), `production` (optimized)
 
 **Fix formatting**: `forge fmt` for Solidity, `pnpm prettier --write "**/*.{ts,js}"` for TS/JS
-
-TODO: configure wagmi.config.ts to only include contracts that we use
