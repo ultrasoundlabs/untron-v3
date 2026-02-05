@@ -17,7 +17,7 @@ use crate::packing::redact_url;
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
-pub(crate) struct BundlerPool {
+pub struct BundlerPool {
     urls: Vec<String>,
     providers: Vec<DynProvider>,
     next_idx: usize,
@@ -112,7 +112,7 @@ impl From<EstimateAny> for UserOperationGasEstimationV07 {
 }
 
 impl BundlerPool {
-    pub(crate) async fn new(urls: Vec<String>) -> Result<Self> {
+    pub async fn new(urls: Vec<String>) -> Result<Self> {
         if urls.is_empty() {
             anyhow::bail!("bundler urls must be non-empty");
         }
@@ -289,7 +289,7 @@ impl BundlerPool {
             .unwrap_or_else(|| anyhow::anyhow!("all bundlers failed for eth_supportedEntryPoints")))
     }
 
-    pub(crate) async fn get_user_operation_receipt(
+    pub async fn get_user_operation_receipt(
         &mut self,
         user_op_hash: Bytes,
     ) -> Result<Option<UserOperationReceipt>> {

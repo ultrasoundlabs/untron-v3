@@ -377,7 +377,10 @@ pub async fn post_realtor(
                         continue;
                     }
 
-                    let ev = UntronV3Events::decode_raw_log(log.topics(), log.data().data.as_ref()).ok()?;
+                    let ev = match UntronV3Events::decode_raw_log(log.topics(), log.data().data.as_ref()) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
                     match ev {
                         UntronV3Events::LeaseCreated(inner) => {
                             let salt_hex = format!("0x{}", hex::encode(inner.receiverSalt.0));
@@ -399,10 +402,13 @@ pub async fn post_realtor(
                 None
             }
 
-            // (1) Receipt path
-            match sender
-                .wait_user_operation_receipt(&userop_hash, RECEIPT_TIMEOUT)
-                .await
+            // (1) Receipt path (do not hold sender lock)
+            match aa::wait_user_operation_receipt(
+                state.cfg.hub.bundler_urls.clone(),
+                &userop_hash,
+                RECEIPT_TIMEOUT,
+            )
+            .await
             {
                 Ok(receipt) => {
                     if let Some(id) = lease_id_from_receipt(&state, &receiver_salt_hex, nukeable_after, &receipt) {
