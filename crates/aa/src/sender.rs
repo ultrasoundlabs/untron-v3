@@ -77,6 +77,8 @@ pub struct Safe4337UserOpSender {
 pub struct Safe4337UserOpSubmission {
     pub userop_hash: String,
     pub nonce: U256,
+    /// Number of eth_sendUserOperation attempts performed (including the successful one).
+    pub send_attempts: u64,
 }
 
 impl Safe4337UserOpSender {
@@ -364,7 +366,7 @@ impl Safe4337UserOpSender {
         userop.signature = self.sign_userop(&userop)?.into();
 
         let nonce = userop.nonce;
-        let resp = self
+        let (resp, send_attempts) = self
             .send_user_operation_with_retries(userop)
             .await
             .context("bundler send userop")?;
@@ -372,6 +374,7 @@ impl Safe4337UserOpSender {
         Ok(Safe4337UserOpSubmission {
             userop_hash: hex_bytes0x(&resp.user_op_hash),
             nonce,
+            send_attempts,
         })
     }
 
@@ -567,7 +570,7 @@ impl Safe4337UserOpSender {
 
         userop.signature = self.sign_userop(&userop)?.into();
         let nonce = userop.nonce;
-        let resp = self
+        let (resp, send_attempts) = self
             .send_user_operation_with_retries(userop)
             .await
             .context("bundler send userop")?;
@@ -579,13 +582,17 @@ impl Safe4337UserOpSender {
         Ok(Safe4337UserOpSubmission {
             userop_hash: hex_bytes0x(&resp.user_op_hash),
             nonce,
+            send_attempts,
         })
     }
 
     async fn send_user_operation_with_retries(
         &mut self,
         mut userop: PackedUserOperation,
-    ) -> Result<alloy::rpc::types::eth::erc4337::SendUserOperationResponse> {
+    ) -> Result<(
+        alloy::rpc::types::eth::erc4337::SendUserOperationResponse,
+        u64,
+    )> {
         // Goal: handle transient bundler rejects during gas spikes by retrying with bumped
         // EIP-1559 fees, without relying on bundler-specific gas price RPCs.
         const MAX_RETRIES: usize = 3;
@@ -635,7 +642,7 @@ impl Safe4337UserOpSender {
                 .send_user_operation(&userop, self.cfg.entrypoint)
                 .await
             {
-                Ok(resp) => return Ok(resp),
+                Ok(resp) => return Ok((resp, (attempt + 1) as u64)),
                 Err(err) => {
                     let msg = err.to_string();
 

@@ -293,16 +293,18 @@ pub async fn post_payout_config(
         };
         let data = call.abi_encode();
 
-        let (userop_hash, _nonce) =
-            send_userop(
-                state.sender.lock().await,
-                state.cfg.hub.untron_v3,
-                data,
-                state.cfg.hub.bundler_timeout,
-            )
-            .await?;
+        let (userop_hash, _nonce, send_attempts) = send_userop(
+            state.sender.lock().await,
+            state.cfg.hub.untron_v3,
+            data,
+            state.cfg.hub.bundler_timeout,
+        )
+        .await?;
 
         state.telemetry.userop_sent();
+        state
+            .telemetry
+            .userop_send_retries(send_attempts.saturating_sub(1));
 
         Ok(Json(SetPayoutConfigResponse { userop_hash }))
     }

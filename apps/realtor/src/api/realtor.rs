@@ -325,16 +325,25 @@ pub async fn post_realtor(
         tracing::info!(ms = t_lock.elapsed().as_millis() as u64, "post_realtor: acquired sender lock");
 
         let t_userop = Instant::now();
-        let (userop_hash, nonce) = send_userop(
+        let (userop_hash, nonce, send_attempts) = send_userop(
             sender,
             state.cfg.hub.untron_v3,
             data,
             state.cfg.hub.bundler_timeout,
         )
         .await?;
-        tracing::info!(ms = t_userop.elapsed().as_millis() as u64, %userop_hash, %nonce, "post_realtor: send_userop finished");
+        tracing::info!(
+            ms = t_userop.elapsed().as_millis() as u64,
+            %userop_hash,
+            %nonce,
+            send_attempts,
+            "post_realtor: send_userop finished"
+        );
 
         state.telemetry.userop_sent();
+        state
+            .telemetry
+            .userop_send_retries(send_attempts.saturating_sub(1));
         state.telemetry.lease_created();
 
         tracing::info!(%userop_hash, %nonce, "lease userop submitted");
