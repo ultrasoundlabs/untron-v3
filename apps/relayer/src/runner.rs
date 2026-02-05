@@ -92,6 +92,7 @@ pub struct RelayerContext {
 pub struct RelayerState {
     delayed_tron: HashMap<&'static str, u64>,
     tip_proof_resend_after: HashMap<FixedBytes<32>, u64>,
+    rebalance_in_flight: Option<RebalanceInFlight>,
     rebalance_cursor: usize,
     energy_rental_cursor: usize,
     fill_cursor: usize,
@@ -101,6 +102,14 @@ pub struct RelayerState {
     hub_swap_executor_cache: Option<HubSwapExecutorCache>,
     hub_safe_erc20_balance_cache: HashMap<alloy::primitives::Address, HubSafeErc20BalanceCache>,
     hub_lp_allowed_cache: Option<HubLpAllowedCache>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RebalanceInFlight {
+    txid: [u8; 32],
+    sent_at_tron_head: u64,
+    pre_balance: U256,
+    in_amount: U256,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -443,6 +452,7 @@ impl Relayer {
             state: RelayerState {
                 delayed_tron: HashMap::new(),
                 tip_proof_resend_after: HashMap::new(),
+                rebalance_in_flight: None,
                 rebalance_cursor: 0,
                 energy_rental_cursor: 0,
                 fill_cursor: 0,
@@ -563,12 +573,12 @@ impl Relayer {
 
     async fn run_controller_rebalance(&mut self, telemetry: &RelayerTelemetry, tick: &Tick) {
         let _ = run_job(telemetry, tasks::JOB_CONTROLLER_REBALANCE, || async {
-            let plan = tasks::plan_controller_rebalance(&self.ctx, &self.state, tick).await?;
+            let plan = tasks::plan_controller_rebalance(&self.ctx, &mut self.state, tick).await?;
             self.state.apply_updates(plan.updates);
             let Some(intent) = plan.intent else {
                 return Ok(());
             };
-            tasks::execute_controller_rebalance(&self.ctx, &mut self.state, intent).await
+            tasks::execute_controller_rebalance(&self.ctx, &mut self.state, tick.tron_head, intent).await
         })
         .await;
     }
@@ -923,6 +933,7 @@ mod tests {
         RelayerState {
             delayed_tron: HashMap::new(),
             tip_proof_resend_after: HashMap::new(),
+            rebalance_in_flight: None,
             rebalance_cursor: 0,
             energy_rental_cursor: 0,
             fill_cursor: 0,
