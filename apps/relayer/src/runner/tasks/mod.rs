@@ -81,6 +81,8 @@ pub enum TronIntent {
     },
     RebalanceUsdt {
         rebalancers: Vec<TronAddress>,
+        /// Controller USDT balance (min-units) observed during planning.
+        pre_balance: U256,
         in_amount: U256,
     },
 }

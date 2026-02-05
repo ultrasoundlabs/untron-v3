@@ -9,6 +9,7 @@ use tron::{
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::parse_u256_decimal;
 use crate::runner::{RelayerContext, RelayerState, Tick};
+use alloy::primitives::U256;
 
 fn order_rebalancers_by_priority(
     available: Vec<TronAddress>,
@@ -37,7 +38,7 @@ fn order_rebalancers_by_priority(
 
 pub async fn plan_controller_rebalance(
     ctx: &RelayerContext,
-    state: &RelayerState,
+    state: &mut RelayerState,
     tick: &Tick,
 ) -> Result<Plan<TronIntent>> {
     let Some(controller_usdt) = ctx.indexer.controller_usdt().await? else {
@@ -59,6 +60,52 @@ pub async fn plan_controller_rebalance(
         ctx.tron_wallet.address(),
     )
     .await?;
+
+    // Single-flight: if a prior rebalance is still "in flight" and we haven't observed its effect,
+    // don't spam additional rebalance transactions.
+    const REBALANCE_IN_FLIGHT_TIMEOUT_BLOCKS: u64 = 40;
+    if let Some(lock) = state.rebalance_in_flight {
+        // Clear the lock once we observe the controller balance drop by (roughly) the expected amount.
+        let expected_post = lock.pre_balance.saturating_sub(lock.in_amount);
+        let epsilon = U256::from(1u64);
+        let effect_observed = balance <= expected_post.saturating_add(epsilon);
+
+        if effect_observed {
+            tracing::info!(
+                txid = %hex::encode(lock.txid),
+                pre_balance = %lock.pre_balance,
+                in_amount = %lock.in_amount,
+                balance_now = %balance,
+                "rebalance effect observed; clearing in-flight lock"
+            );
+            state.rebalance_in_flight = None;
+        } else {
+            let timeout_at = lock.sent_at_tron_head.saturating_add(REBALANCE_IN_FLIGHT_TIMEOUT_BLOCKS);
+            if tick.tron_head < timeout_at {
+                tracing::debug!(
+                    txid = %hex::encode(lock.txid),
+                    sent_at_tron_head = lock.sent_at_tron_head,
+                    tron_head = tick.tron_head,
+                    pre_balance = %lock.pre_balance,
+                    in_amount = %lock.in_amount,
+                    balance_now = %balance,
+                    "rebalance in-flight; skipping new rebalanceUsdt"
+                );
+                return Ok(Plan::none());
+            }
+
+            tracing::warn!(
+                txid = %hex::encode(lock.txid),
+                sent_at_tron_head = lock.sent_at_tron_head,
+                tron_head = tick.tron_head,
+                pre_balance = %lock.pre_balance,
+                in_amount = %lock.in_amount,
+                balance_now = %balance,
+                "rebalance in-flight timed out; clearing lock and allowing retry"
+            );
+            state.rebalance_in_flight = None;
+        }
+    }
 
     let threshold = parse_u256_decimal(&ctx.cfg.jobs.controller_rebalance_threshold_usdt)?;
     if balance <= threshold {
@@ -120,6 +167,7 @@ pub async fn plan_controller_rebalance(
 
     Ok(Plan::intent(TronIntent::RebalanceUsdt {
         rebalancers: parsed,
+        pre_balance: balance,
         in_amount,
     })
     .extend_updates(updates))
@@ -128,10 +176,12 @@ pub async fn plan_controller_rebalance(
 pub async fn execute_controller_rebalance(
     ctx: &RelayerContext,
     state: &mut RelayerState,
+    tron_head: u64,
     intent: TronIntent,
 ) -> Result<()> {
     let TronIntent::RebalanceUsdt {
         rebalancers,
+        pre_balance,
         in_amount,
     } = intent
     else {
@@ -159,9 +209,20 @@ pub async fn execute_controller_rebalance(
                 tracing::info!(
                     txid = %hex::encode(txid),
                     rebalancer = %reb,
+                    pre_balance = %pre_balance,
                     in_amount = %in_amount,
                     "sent rebalanceUsdt"
                 );
+
+                // Single-flight lock: do not attempt another rebalance until we observe the
+                // controller balance drop (or we time out).
+                state.rebalance_in_flight = Some(crate::runner::RebalanceInFlight {
+                    txid,
+                    sent_at_tron_head: tron_head,
+                    pre_balance,
+                    in_amount,
+                });
+
                 state.rebalance_cursor =
                     rebalance_cursor_after_attempts(start_cursor, len, attempt + 1);
                 return Ok(());
