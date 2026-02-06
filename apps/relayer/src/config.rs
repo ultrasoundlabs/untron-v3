@@ -316,9 +316,16 @@ fn parse_u256_csv_optional(label: &str, s: &str) -> Result<Vec<U256>> {
     for raw in trimmed.split(',') {
         let v = raw.trim();
         if v.is_empty() {
+            // Preserve positional alignment with the corresponding prioritized rebalancer.
+            // Empty entries mean "no cap" (0 = always preferred).
+            out.push(U256::ZERO);
             continue;
         }
         let v = v.replace('_', "");
+        if v.is_empty() {
+            out.push(U256::ZERO);
+            continue;
+        }
         let n = U256::from_str_radix(&v, 10)
             .with_context(|| format!("invalid {label} entry (expected base-10 u256): {raw}"))?;
         out.push(n);

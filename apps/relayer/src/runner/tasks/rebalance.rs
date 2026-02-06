@@ -315,10 +315,22 @@ mod tests {
             vec![oneclick, lz]
         );
 
+        // Exactly at cap: still preferred.
+        assert_eq!(
+            apply_priority_limits(&priority, &limits, U256::from(10_000u64)),
+            vec![oneclick, lz]
+        );
+
         // Above cap: oneclick no longer preferred, lz still preferred.
         assert_eq!(
             apply_priority_limits(&priority, &limits, U256::from(10_001u64)),
             vec![lz]
+        );
+
+        // No limits configured: all preferred.
+        assert_eq!(
+            apply_priority_limits(&priority, &[], U256::from(999_999u64)),
+            vec![oneclick, lz]
         );
     }
 
