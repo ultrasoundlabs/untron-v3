@@ -139,48 +139,48 @@ contract CCTPV2Bridger is IBridger, Ownable {
                 _FINALITY_STANDARD
             );
     }
-+
-+    /// @notice Returns the fee rate for a destination chain.
-+    /// @dev Values reflect observed Circle CCTP V2 fee requirements as of 2026-02.
-+    ///      Expressed in ppm of amount (1 bps = 100 ppm).
-+    function _feePpmForChainId(uint256 targetChainId) internal pure returns (uint32) {
-+        // Ethereum
-+        if (targetChainId == 1) return 100; // 1.0 bps
-+
-+        // Arbitrum One
-+        if (targetChainId == 42161) return 130; // 1.3 bps
-+
-+        // Base
-+        if (targetChainId == 8453) return 130; // 1.3 bps
-+
-+        // OP Mainnet
-+        if (targetChainId == 10) return 130; // 1.3 bps
-+
-+        // World Chain
-+        if (targetChainId == 480) return 130; // 1.3 bps
-+
-+        // Codex
-+        if (targetChainId == 999) return 150; // 1.5 bps
-+
-+        // Unichain
-+        if (targetChainId == 130) return 150; // 1.5 bps
-+
-+        // Ink
-+        if (targetChainId == 57073) return 200; // 2.0 bps
-+
-+        // Linea
-+        if (targetChainId == 59144) return 1100; // 11 bps
-+
-+        // Default for other supported destinations.
-+        return _DEFAULT_FEE_PPM;
-+    }
-+
-+    function _computeMaxFee(uint256 amount, uint256 targetChainId) internal pure returns (uint256) {
-+        uint256 feePpm = uint256(_feePpmForChainId(targetChainId));
-+        // ceil(amount * feePpm / 1e6)
-+        uint256 numer = amount * feePpm;
-+        return (numer + (_FEE_PPM_DENOMINATOR - 1)) / _FEE_PPM_DENOMINATOR;
-+    }
+
+    /// @notice Returns the fee rate for a destination chain.
+    /// @dev Values reflect observed Circle CCTP V2 fee requirements as of 2026-02.
+    ///      Expressed in ppm of amount (1 bps = 100 ppm).
+    function _feePpmForChainId(uint256 targetChainId) internal pure returns (uint32) {
+        // Ethereum
+        if (targetChainId == 1) return 100; // 1.0 bps
+
+        // Arbitrum One
+        if (targetChainId == 42161) return 130; // 1.3 bps
+
+        // Base
+        if (targetChainId == 8453) return 130; // 1.3 bps
+
+        // OP Mainnet
+        if (targetChainId == 10) return 130; // 1.3 bps
+
+        // World Chain
+        if (targetChainId == 480) return 130; // 1.3 bps
+
+        // Codex
+        if (targetChainId == 999) return 150; // 1.5 bps
+
+        // Unichain
+        if (targetChainId == 130) return 150; // 1.5 bps
+
+        // Ink
+        if (targetChainId == 57073) return 200; // 2.0 bps
+
+        // Linea
+        if (targetChainId == 59144) return 1100; // 11 bps
+
+        // Default for other supported destinations.
+        return _DEFAULT_FEE_PPM;
+    }
+
+    function _computeMaxFee(uint256 amount, uint256 targetChainId) internal pure returns (uint256) {
+        uint256 feePpm = uint256(_feePpmForChainId(targetChainId));
+        // ceil(amount * feePpm / 1e6)
+        uint256 numer = amount * feePpm;
+        return (numer + (_FEE_PPM_DENOMINATOR - 1)) / _FEE_PPM_DENOMINATOR;
+    }
 
     /// @notice Withdraws tokens accidentally left in this contract.
     /// @dev Owner-only escape hatch. Bridging custody is expected to be ephemeral (UntronV3 transfers in and immediately calls `bridge`).
