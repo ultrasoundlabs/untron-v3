@@ -1,5 +1,5 @@
 use aa::SafeDeterministicDeploymentConfig;
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::time::Duration;
@@ -87,6 +87,11 @@ pub struct JobConfig {
     pub controller_rebalance_threshold_usdt: String,
     pub controller_rebalance_keep_usdt: String,
     pub controller_rebalance_prioritized_rebalancers: Vec<TronAddress>,
+    /// Per-prioritized-rebalancer max rebalance amount (USDT min-units) under which the address is
+    /// considered "preferred". If the limit is 0 (or missing), it is always preferred.
+    ///
+    /// This list is positionally aligned with `controller_rebalance_prioritized_rebalancers`.
+    pub controller_rebalance_prioritized_rebalancers_limits_usdt: Vec<U256>,
 
     pub pull_liquidity_ppm: u64,
 }
@@ -183,6 +188,11 @@ struct Env {
     #[serde(default)]
     controller_rebalance_prioritized_rebalancers: String,
 
+    // Optional comma-separated list of USDT min-unit limits aligned with
+    // CONTROLLER_REBALANCE_PRIORITIZED_REBALANCERS. 0 means "always preferred".
+    #[serde(default)]
+    controller_rebalance_prioritized_rebalancers_limits_usdt: String,
+
     pull_liquidity_ppm: u64,
 }
 
@@ -226,6 +236,7 @@ impl Default for Env {
             controller_rebalance_threshold_usdt: "0".to_string(),
             controller_rebalance_keep_usdt: "1".to_string(),
             controller_rebalance_prioritized_rebalancers: String::new(),
+            controller_rebalance_prioritized_rebalancers_limits_usdt: String::new(),
             pull_liquidity_ppm: 500_000,
         }
     }
@@ -291,6 +302,26 @@ fn parse_tron_address_csv_optional(label: &str, s: &str) -> Result<Vec<TronAddre
         if seen.insert(addr) {
             out.push(addr);
         }
+    }
+    Ok(out)
+}
+
+fn parse_u256_csv_optional(label: &str, s: &str) -> Result<Vec<U256>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::new();
+    for raw in trimmed.split(',') {
+        let v = raw.trim();
+        if v.is_empty() {
+            continue;
+        }
+        let v = v.replace('_', "");
+        let n = U256::from_str_radix(&v, 10)
+            .with_context(|| format!("invalid {label} entry (expected base-10 u256): {raw}"))?;
+        out.push(n);
     }
     Ok(out)
 }
@@ -453,6 +484,10 @@ pub fn load_config() -> Result<AppConfig> {
             controller_rebalance_prioritized_rebalancers: parse_tron_address_csv_optional(
                 "CONTROLLER_REBALANCE_PRIORITIZED_REBALANCERS",
                 &env.controller_rebalance_prioritized_rebalancers,
+            )?,
+            controller_rebalance_prioritized_rebalancers_limits_usdt: parse_u256_csv_optional(
+                "CONTROLLER_REBALANCE_PRIORITIZED_REBALANCERS_LIMITS_USDT",
+                &env.controller_rebalance_prioritized_rebalancers_limits_usdt,
             )?,
             pull_liquidity_ppm: env.pull_liquidity_ppm.min(1_000_000),
         },

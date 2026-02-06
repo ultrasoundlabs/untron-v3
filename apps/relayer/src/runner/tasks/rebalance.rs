@@ -36,6 +36,26 @@ fn order_rebalancers_by_priority(
     out
 }
 
+fn apply_priority_limits(
+    priority: &[TronAddress],
+    limits: &[U256],
+    in_amount: U256,
+) -> Vec<TronAddress> {
+    if priority.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    for (i, &addr) in priority.iter().enumerate() {
+        let limit = limits.get(i).copied().unwrap_or(U256::ZERO);
+        // limit=0 means "always preferred".
+        if limit.is_zero() || in_amount <= limit {
+            out.push(addr);
+        }
+    }
+    out
+}
+
 pub async fn plan_controller_rebalance(
     ctx: &RelayerContext,
     state: &mut RelayerState,
@@ -80,7 +100,9 @@ pub async fn plan_controller_rebalance(
             );
             state.rebalance_in_flight = None;
         } else {
-            let timeout_at = lock.sent_at_tron_head.saturating_add(REBALANCE_IN_FLIGHT_TIMEOUT_BLOCKS);
+            let timeout_at = lock
+                .sent_at_tron_head
+                .saturating_add(REBALANCE_IN_FLIGHT_TIMEOUT_BLOCKS);
             if tick.tron_head < timeout_at {
                 tracing::debug!(
                     txid = %hex::encode(lock.txid),
@@ -160,10 +182,16 @@ pub async fn plan_controller_rebalance(
             parsed.push(addr);
         }
     }
-    parsed = order_rebalancers_by_priority(
-        parsed,
+    // Apply prioritized rebalancers, optionally capped by size.
+    // Limits are positional: aligned with CONTROLLER_REBALANCE_PRIORITIZED_REBALANCERS.
+    let effective_priority = apply_priority_limits(
         &ctx.cfg.jobs.controller_rebalance_prioritized_rebalancers,
+        &ctx.cfg
+            .jobs
+            .controller_rebalance_prioritized_rebalancers_limits_usdt,
+        in_amount,
     );
+    parsed = order_rebalancers_by_priority(parsed, &effective_priority);
 
     Ok(Plan::intent(TronIntent::RebalanceUsdt {
         rebalancers: parsed,
@@ -270,6 +298,28 @@ mod tests {
 
         let out = order_rebalancers_by_priority(vec![a, b, c], &[c, a]);
         assert_eq!(out, vec![c, a, b]);
+    }
+
+    #[test]
+    fn prioritized_rebalancers_can_be_capped_by_size() {
+        let oneclick =
+            TronAddress::parse_text("0x0000000000000000000000000000000000000001").unwrap();
+        let lz = TronAddress::parse_text("0x0000000000000000000000000000000000000002").unwrap();
+
+        let priority = vec![oneclick, lz];
+        let limits = vec![U256::from(10_000u64), U256::ZERO];
+
+        // Below cap: both are preferred in order.
+        assert_eq!(
+            apply_priority_limits(&priority, &limits, U256::from(9_999u64)),
+            vec![oneclick, lz]
+        );
+
+        // Above cap: oneclick no longer preferred, lz still preferred.
+        assert_eq!(
+            apply_priority_limits(&priority, &limits, U256::from(10_001u64)),
+            vec![lz]
+        );
     }
 
     #[test]
