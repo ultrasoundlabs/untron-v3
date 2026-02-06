@@ -34,7 +34,7 @@ interface ITokenMessengerV2 {
 /// @title CCTPV2Bridger
 /// @notice Simple, stateless CCTP V2 bridger (USDC-only).
 /// @dev Uses Fast Transfer params: destinationCaller=0x0 (anyone can relay),
-///      maxFee is chain-specific (rounded up), minFinalityThreshold=1000 (fast finality).
+///      maxFee=2 bps (rounded up), minFinalityThreshold=1000 (fast finality).
 /// @author Ultrasound Labs
 contract CCTPV2Bridger is IBridger, Ownable {
     error NotUntron();
@@ -65,15 +65,7 @@ contract CCTPV2Bridger is IBridger, Ownable {
     mapping(uint256 => bool) public isSupportedChainId;
 
     uint32 internal constant _FINALITY_STANDARD = 1000; // fast finality
-
-    // Fee rates expressed in ppm (parts-per-million of the transfer amount).
-    // 1 bps = 0.01% = 100 ppm.
-    uint256 internal constant _FEE_PPM_DENOMINATOR = 1_000_000;
-
-    // Default fee for EVM chains in Circle CCTP V2.
-    // Circle appears to accept fees >= required (but not below). We set a safe default and override
-    // for known chains with higher/lower requirements.
-    uint32 internal constant _DEFAULT_FEE_PPM = 150; // 1.5 bps
+    uint256 internal constant _TWO_BPS_DENOMINATOR = 5_000;
 
     /// @notice Creates a new CCTP V2 bridger instance.
     /// @param untron The UntronV3 contract allowed to call `bridge`.
@@ -115,8 +107,8 @@ contract CCTPV2Bridger is IBridger, Ownable {
         uint32 destinationDomain = _circleDomainForChainId(targetChainId);
 
         // `amount` is the desired mint amount on destination; provide the maxFee from this contract's balance.
-        // maxFee is rounded up.
-        uint256 maxFee = _computeMaxFee(amount, targetChainId);
+        uint256 maxFee = amount / _TWO_BPS_DENOMINATOR;
+        if (amount % _TWO_BPS_DENOMINATOR != 0) ++maxFee;
         uint256 burnAmount = amount + maxFee;
 
         uint256 balance = USDC.balanceOf(address(this));
@@ -135,51 +127,9 @@ contract CCTPV2Bridger is IBridger, Ownable {
                 mintRecipient,
                 token,
                 bytes32(0), // destinationCaller = 0 => anyone can call receiveMessage on destination
-                maxFee,
+                maxFee, // maxFee = 2 bps (rounded up)
                 _FINALITY_STANDARD
             );
-    }
-
-    /// @notice Returns the fee rate for a destination chain.
-    /// @dev Values reflect observed Circle CCTP V2 fee requirements as of 2026-02.
-    ///      Expressed in ppm of amount (1 bps = 100 ppm).
-    function _feePpmForChainId(uint256 targetChainId) internal pure returns (uint32) {
-        // Ethereum
-        if (targetChainId == 1) return 100; // 1.0 bps
-
-        // Arbitrum One
-        if (targetChainId == 42161) return 130; // 1.3 bps
-
-        // Base
-        if (targetChainId == 8453) return 130; // 1.3 bps
-
-        // OP Mainnet
-        if (targetChainId == 10) return 130; // 1.3 bps
-
-        // World Chain
-        if (targetChainId == 480) return 130; // 1.3 bps
-
-        // Codex
-        if (targetChainId == 999) return 150; // 1.5 bps
-
-        // Unichain
-        if (targetChainId == 130) return 150; // 1.5 bps
-
-        // Ink
-        if (targetChainId == 57073) return 200; // 2.0 bps
-
-        // Linea
-        if (targetChainId == 59144) return 1100; // 11 bps
-
-        // Default for other supported destinations.
-        return _DEFAULT_FEE_PPM;
-    }
-
-    function _computeMaxFee(uint256 amount, uint256 targetChainId) internal pure returns (uint256) {
-        uint256 feePpm = uint256(_feePpmForChainId(targetChainId));
-        // ceil(amount * feePpm / 1e6)
-        uint256 numer = amount * feePpm;
-        return (numer + (_FEE_PPM_DENOMINATOR - 1)) / _FEE_PPM_DENOMINATOR;
     }
 
     /// @notice Withdraws tokens accidentally left in this contract.
