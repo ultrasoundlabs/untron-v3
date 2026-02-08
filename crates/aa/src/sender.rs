@@ -85,7 +85,7 @@ pub struct Safe4337UserOpSubmission {
 }
 
 impl Safe4337UserOpSender {
-    async fn debug_trace_safe_execute_userop_call(&self, call_data: &Bytes) {
+    async fn debug_trace_safe_execute_userop_call(&self, call_data: &Bytes) -> Option<String> {
         let tx = json!({
             "from": format!("{:#x}", self.cfg.entrypoint),
             "to": format!("{:#x}", self.safe),
@@ -106,20 +106,24 @@ impl Safe4337UserOpSender {
 
         match trace_res {
             Ok(trace) => {
+                let trace_error = summarize_trace_error(&trace);
                 tracing::error!(
                     safe = %self.safe,
                     entrypoint = %self.cfg.entrypoint,
-                    trace_error = %summarize_trace_error(&trace),
+                    trace_error = %trace_error,
                     "debug_traceCall captured preflight failure path"
                 );
+                Some(trace_error)
             }
             Err(err) => {
+                let trace_err = format!("{err:#}");
                 tracing::warn!(
                     safe = %self.safe,
                     entrypoint = %self.cfg.entrypoint,
-                    err = %format!("{err:#}"),
+                    err = %trace_err,
                     "debug_traceCall unavailable or failed during preflight"
                 );
+                None
             }
         }
     }
@@ -136,14 +140,19 @@ impl Safe4337UserOpSender {
             Ok(_) => Ok(()),
             Err(err) => {
                 let err_fmt = format!("{err:#}");
-                self.debug_trace_safe_execute_userop_call(&call_data).await;
+                let trace_summary = self.debug_trace_safe_execute_userop_call(&call_data).await;
                 tracing::error!(
                     safe = %self.safe,
                     entrypoint = %self.cfg.entrypoint,
                     err = %err_fmt,
+                    trace = trace_summary.as_deref().unwrap_or("-"),
                     "preflight eth_call for Safe4337 executeUserOp failed"
                 );
-                Err(anyhow::Error::new(err).context("preflight eth_call safe executeUserOp"))
+                let mut wrapped = anyhow::Error::new(err).context("preflight eth_call safe executeUserOp");
+                if let Some(summary) = trace_summary {
+                    wrapped = wrapped.context(format!("trace: {summary}"));
+                }
+                Err(wrapped)
             }
         }
     }
