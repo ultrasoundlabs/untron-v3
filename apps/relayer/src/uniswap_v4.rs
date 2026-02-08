@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use uniswap_v4_sdk::{
     position_manager::encode_modify_liquidities,
     prelude::{
-        Actions, BestTradeOptions, Pool, SettleAllParams, SimpleTickDataProvider, TakeAllParams,
-        Trade, V4Planner, has_swap_permissions,
+        Actions, BestTradeOptions, HookOptions, Pool, SettleAllParams, SimpleTickDataProvider,
+        TakeAllParams, Trade, V4Planner, has_permission, has_swap_permissions,
         sdk_core::{
             entities::{BaseCurrencyCore, FractionBase},
             prelude::{BaseCurrency, BigInt, Currency, CurrencyAmount, Percent},
@@ -79,13 +79,27 @@ impl UniswapV4Client {
             .await
             .with_context(|| format!("load allowed Uniswap v4 pool[{idx}]"))?;
 
-            if has_swap_permissions(pool.hooks) {
+            let hook_before_swap = has_permission(pool.hooks, HookOptions::BeforeSwap);
+            let hook_after_swap = has_permission(pool.hooks, HookOptions::AfterSwap);
+            let hook_before_swap_returns_delta =
+                has_permission(pool.hooks, HookOptions::BeforeSwapReturnsDelta);
+            let hook_after_swap_returns_delta =
+                has_permission(pool.hooks, HookOptions::AfterSwapReturnsDelta);
+            let has_swap_impacting_hooks = has_swap_permissions(pool.hooks)
+                || hook_before_swap_returns_delta
+                || hook_after_swap_returns_delta;
+
+            if has_swap_impacting_hooks {
                 tracing::warn!(
                     hooks = %pool.hooks,
                     currency0 = %currency_address(&pool.currency0),
                     currency1 = %currency_address(&pool.currency1),
                     fee = %pool.fee,
                     tick_spacing = %pool.tick_spacing,
+                    hook_before_swap,
+                    hook_after_swap,
+                    hook_before_swap_returns_delta,
+                    hook_after_swap_returns_delta,
                     "skipping allowed Uniswap v4 pool with swap-impacting hooks (unsupported by sdk simulator)"
                 );
                 continue;

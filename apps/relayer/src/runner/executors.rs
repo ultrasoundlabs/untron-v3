@@ -86,7 +86,7 @@ impl HubExecutor {
                     operation,
                     data_len,
                     data_selector = %data_selector,
-                    err = %err,
+                    err = %format!("{err:#}"),
                     "hub userop submit failed"
                 );
                 Err(err)

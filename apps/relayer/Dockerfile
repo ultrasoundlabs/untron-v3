@@ -18,9 +18,14 @@ COPY apps/relayer ./apps/relayer
 
 WORKDIR /repo/apps/relayer
 
-# Limit parallelism to avoid OOM in constrained builders (e.g. Railway / small VMs)
-ENV CARGO_BUILD_JOBS=1
-RUN cargo build --release -j 1 --bin relayer
+# Build with all available cores by default.
+# Set `--build-arg CARGO_BUILD_JOBS=<n>` to override when needed.
+ARG CARGO_BUILD_JOBS
+RUN if [ -n "$CARGO_BUILD_JOBS" ]; then \
+      cargo build --release -j "$CARGO_BUILD_JOBS" --bin relayer; \
+    else \
+      cargo build --release -j "$(nproc)" --bin relayer; \
+    fi
 
 FROM debian:bookworm-slim AS runtime
 
