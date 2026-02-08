@@ -14,6 +14,7 @@ use alloy::primitives::{
     Address, FixedBytes, U256,
     aliases::{U48, U160},
 };
+use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
 use untron_v3_bindings::untron_v3::UntronV3::Call as SwapCall;
 use untron_v3_indexer_client::types;
@@ -287,7 +288,22 @@ async fn plan_hub_fill(
         .map(|c| c.allow_topup)
         .unwrap_or(false);
 
-    for offset in 0..l {
+    let hub_chain_id = match ctx.cfg.hub.chain_id {
+        Some(id) => id,
+        None => {
+            let start = std::time::Instant::now();
+            let id_res = ctx.hub_provider.get_chain_id().await;
+            ctx.telemetry.hub_rpc_ms(
+                "eth_chainId",
+                id_res.is_ok(),
+                start.elapsed().as_millis() as u64,
+            );
+            id_res.context("eth_chainId")?
+        }
+    };
+    let hub_contract = ctx.hub_contract();
+
+    'candidate: for offset in 0..l {
         let idx = (state.fill_cursor + offset) % l;
         let (c, claims) = &created_claims[idx];
         if claims.is_empty() {
@@ -317,6 +333,71 @@ async fn plan_hub_fill(
         let Some(rate_ppm) = c.rate_ppm else {
             continue;
         };
+
+        let swap_rate_start = std::time::Instant::now();
+        let onchain_rate_res = hub_contract.swapRatePpm(c.addr).call().await;
+        ctx.telemetry.hub_rpc_ms(
+            "swapRatePpm",
+            onchain_rate_res.is_ok(),
+            swap_rate_start.elapsed().as_millis() as u64,
+        );
+        let onchain_rate = match onchain_rate_res {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::warn!(err = %err, token = %c.addr, "failed to query swapRatePpm; skipping token");
+                continue;
+            }
+        };
+        if onchain_rate.is_zero() {
+            tracing::warn!(
+                token = %c.addr,
+                "on-chain swapRatePpm is zero; skipping non-USDT fill"
+            );
+            continue;
+        }
+
+        let mut required_remote_chains = HashSet::new();
+        for claim in claims.iter().take(max_claims as usize) {
+            let target_chain = claim
+                .target_chain_id
+                .and_then(|v| u64::try_from(v).ok())
+                .unwrap_or(hub_chain_id);
+            if target_chain != hub_chain_id {
+                required_remote_chains.insert(target_chain);
+            }
+        }
+        for target_chain in required_remote_chains {
+            let bridger_start = std::time::Instant::now();
+            let bridger_res = hub_contract
+                .bridgers(c.addr, U256::from(target_chain))
+                .call()
+                .await;
+            ctx.telemetry.hub_rpc_ms(
+                "bridgers",
+                bridger_res.is_ok(),
+                bridger_start.elapsed().as_millis() as u64,
+            );
+            let bridger = match bridger_res {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::warn!(
+                        err = %err,
+                        token = %c.addr,
+                        target_chain,
+                        "failed to query bridger; skipping token"
+                    );
+                    continue 'candidate;
+                }
+            };
+            if bridger == Address::ZERO {
+                tracing::warn!(
+                    token = %c.addr,
+                    target_chain,
+                    "missing bridger for claim target chain; skipping token"
+                );
+                continue 'candidate;
+            }
+        }
 
         let expected_out_total = compute_expected_out_total(claims, max_claims, rate_ppm)?;
         if expected_out_total.is_zero() {
