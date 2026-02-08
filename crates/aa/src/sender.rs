@@ -819,8 +819,14 @@ fn summarize_trace_error(trace: &Value) -> String {
         let call_type = node.get("type").and_then(Value::as_str).unwrap_or("unknown");
         let to = node.get("to").and_then(Value::as_str).unwrap_or("unknown");
         let input = node.get("input").and_then(Value::as_str).unwrap_or("");
-        let selector = if input.len() >= 10 { &input[..10] } else { input };
-        let this = format!("type={call_type} to={to} selector={selector}");
+        let selector = if input.len() >= 10 { &input[..10] } else { "-" };
+        let output = node.get("output").and_then(Value::as_str);
+        let output_selector = output
+            .filter(|v| v.len() >= 10)
+            .map(|v| &v[..10])
+            .unwrap_or("-");
+        let this =
+            format!("type={call_type} to={to} selector={selector} output_selector={output_selector}");
 
         if let Some(calls) = node.get("calls").and_then(Value::as_array) {
             for child in calls {
