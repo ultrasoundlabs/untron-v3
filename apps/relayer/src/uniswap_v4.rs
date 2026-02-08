@@ -1,5 +1,5 @@
 use crate::config::UniswapV4Config;
-use alloy::sol_types::SolCall;
+use alloy::sol_types::{SolCall, SolValue};
 use alloy::{
     primitives::{
         Address, Bytes, U256,
@@ -8,10 +8,11 @@ use alloy::{
     providers::DynProvider,
 };
 use anyhow::{Context, Result};
+use core::convert::TryFrom;
 use std::collections::{HashMap, HashSet, VecDeque};
 use uniswap_v4_sdk::prelude::{
     Actions, BestTradeOptions, HookOptions, Pool, SettleAllParams, SimpleTickDataProvider,
-    TakeAllParams, Trade, V4Planner, has_permission, has_swap_permissions,
+    TakeAllParams, Trade, V4Planner, encode_route_to_path, has_permission, has_swap_permissions,
     sdk_core::{
         entities::{BaseCurrencyCore, FractionBase},
         prelude::{BaseCurrency, BigInt, Currency, CurrencyAmount, Percent},
@@ -22,8 +23,42 @@ type V4Pool = Pool<SimpleTickDataProvider<DynProvider>>;
 const PERMIT2_ADDRESS: Address =
     alloy::primitives::address!("000000000022D473030F116dDEE9F6B43aC78BA3");
 const UNIVERSAL_ROUTER_COMMAND_V4_SWAP: u8 = 0x10;
+const V4_ACTION_SWAP_EXACT_IN_SINGLE: u8 = 0x06;
+const V4_ACTION_SWAP_EXACT_IN: u8 = 0x07;
 
 alloy::sol! {
+    struct URPoolKey {
+        address currency0;
+        address currency1;
+        uint24 fee;
+        int24 tickSpacing;
+        address hooks;
+    }
+
+    struct URPathKey {
+        address intermediateCurrency;
+        uint24 fee;
+        int24 tickSpacing;
+        address hooks;
+        bytes hookData;
+    }
+
+    struct URSwapExactInSingleParams {
+        URPoolKey poolKey;
+        bool zeroForOne;
+        uint128 amountIn;
+        uint128 amountOutMinimum;
+        bytes hookData;
+    }
+
+    struct URSwapExactInParams {
+        address currencyIn;
+        URPathKey[] path;
+        uint256[] maxHopSlippage;
+        uint128 amountIn;
+        uint128 amountOutMinimum;
+    }
+
     interface IUniversalRouter {
         function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline)
             external
@@ -250,9 +285,65 @@ impl UniswapV4Client {
         let to_amount_min = bigint_to_u256(&min_out_amount.quotient())?;
 
         let mut planner = V4Planner::default();
-        planner
-            .add_trade(&trade, Some(slippage_tolerance))
-            .map_err(|e| anyhow::anyhow!("encode swap action failed: {e:?}"))?;
+        let route = trade.route();
+        let amount_in_u128 = u128::try_from(amount_usdt)
+            .map_err(|_| anyhow::anyhow!("amount_in does not fit uint128 for v4 router"))?;
+        let amount_out_min_u128 = u128::try_from(to_amount_min)
+            .map_err(|_| anyhow::anyhow!("amount_out_min does not fit uint128 for v4 router"))?;
+
+        // Encode swap action params using current v4-router ABI to avoid SDK/router drift.
+        if route.pools.len() == 1 {
+            let pool = &route.pools[0];
+            let currency_in_addr = currency_address(&route.path_input);
+            let currency0_addr = currency_address(&pool.currency0);
+            let currency1_addr = currency_address(&pool.currency1);
+            let zero_for_one = currency_in_addr == currency0_addr;
+            if !zero_for_one && currency_in_addr != currency1_addr {
+                anyhow::bail!("route input currency does not match single-hop pool currencies");
+            }
+
+            let fee_u32: u32 = pool.fee.to::<u32>();
+            let swap_single = URSwapExactInSingleParams {
+                poolKey: URPoolKey {
+                    currency0: currency0_addr,
+                    currency1: currency1_addr,
+                    fee: U24::from(fee_u32),
+                    tickSpacing: pool.tick_spacing,
+                    hooks: pool.hooks,
+                },
+                zeroForOne: zero_for_one,
+                amountIn: amount_in_u128,
+                amountOutMinimum: amount_out_min_u128,
+                hookData: Bytes::default(),
+            };
+            planner.actions.push(V4_ACTION_SWAP_EXACT_IN_SINGLE);
+            planner.params.push(swap_single.abi_encode().into());
+        } else {
+            let encoded_path = encode_route_to_path(route, false);
+            let mut path = Vec::with_capacity(encoded_path.len());
+            for key in encoded_path {
+                let fee_u32 = u32::try_from(key.fee)
+                    .map_err(|_| anyhow::anyhow!("route fee does not fit uint24"))?;
+                path.push(URPathKey {
+                    intermediateCurrency: key.intermediateCurrency,
+                    fee: U24::from(fee_u32),
+                    tickSpacing: key.tickSpacing,
+                    hooks: key.hooks,
+                    hookData: key.hookData,
+                });
+            }
+
+            let swap_multi = URSwapExactInParams {
+                currencyIn: currency_address(&route.path_input),
+                path,
+                maxHopSlippage: Vec::new(),
+                amountIn: amount_in_u128,
+                amountOutMinimum: amount_out_min_u128,
+            };
+            planner.actions.push(V4_ACTION_SWAP_EXACT_IN);
+            planner.params.push(swap_multi.abi_encode().into());
+        }
+
         planner.add_action(&Actions::SETTLE_ALL(SettleAllParams {
             currency: usdt,
             maxAmount: amount_usdt,
