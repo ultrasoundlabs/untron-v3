@@ -21,6 +21,8 @@ use uniswap_v4_sdk::{
 };
 
 type V4Pool = Pool<SimpleTickDataProvider<DynProvider>>;
+const PERMIT2_ADDRESS: Address =
+    alloy::primitives::address!("000000000022D473030F116dDEE9F6B43aC78BA3");
 
 #[derive(Clone)]
 pub struct UniswapV4Client {
@@ -234,7 +236,7 @@ impl UniswapV4Client {
         }));
 
         Ok(UniswapV4Quote {
-            approval_address: self.position_manager,
+            approval_address: PERMIT2_ADDRESS,
             to: self.position_manager,
             data: encode_modify_liquidities(planner.finalize(), U256::MAX),
             value: U256::ZERO,

@@ -8,6 +8,11 @@ alloy::sol! {
         function balanceOf(address owner) external view returns (uint256);
     }
 
+    interface IAllowanceTransfer {
+        function approve(address token, address spender, uint160 amount, uint48 expiration)
+            external;
+    }
+
     interface MultiSend {
         function multiSend(bytes transactions) external;
     }

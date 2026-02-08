@@ -6,11 +6,14 @@ use tron::{
     wallet::encode_pull_from_receivers,
 };
 
-use crate::evm::IERC20;
+use crate::evm::{IAllowanceTransfer, IERC20};
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
-use alloy::primitives::{Address, FixedBytes, U256};
+use alloy::primitives::{
+    Address, FixedBytes, U256,
+    aliases::{U48, U160},
+};
 use alloy::sol_types::SolCall;
 use untron_v3_bindings::untron_v3::UntronV3::Call as SwapCall;
 use untron_v3_indexer_client::types;
@@ -416,6 +419,18 @@ async fn plan_hub_fill(
             amount: total_usdt,
         }
         .abi_encode();
+        let total_usdt_be = total_usdt.to_be_bytes::<32>();
+        if total_usdt_be[..12].iter().any(|b| *b != 0) {
+            anyhow::bail!("USDT amount exceeds uint160");
+        }
+        let permit2_amount = U160::from_be_slice(&total_usdt_be[12..]);
+        let permit2_approve = IAllowanceTransfer::approveCall {
+            token: usdt_addr,
+            spender: quote.to,
+            amount: permit2_amount,
+            expiration: U48::MAX,
+        }
+        .abi_encode();
 
         let calls = vec![
             SwapCall {
@@ -427,6 +442,11 @@ async fn plan_hub_fill(
                 to: usdt_addr,
                 value: U256::ZERO,
                 data: approve_amt.into(),
+            },
+            SwapCall {
+                to: quote.approval_address,
+                value: U256::ZERO,
+                data: permit2_approve.into(),
             },
             SwapCall {
                 to: quote.to,
