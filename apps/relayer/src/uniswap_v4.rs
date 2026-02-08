@@ -64,6 +64,11 @@ alloy::sol! {
             external
             payable;
     }
+
+    #[sol(rpc)]
+    interface IV4SwapRouterState {
+        function poolManager() external view returns (address);
+    }
 }
 
 #[derive(Clone)]
@@ -101,6 +106,22 @@ impl UniswapV4Client {
             anyhow::bail!(
                 "UNISWAP_V4_SWAP_ROUTER_ADDRESS points to the v4 PositionManager; \
                  this swap path requires a router endpoint (e.g. Universal Router), not PositionManager"
+            );
+        }
+        let router_pool_manager = IV4SwapRouterState::new(swap_router, provider.clone())
+            .poolManager()
+            .call()
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to read poolManager() from UNISWAP_V4_SWAP_ROUTER_ADDRESS={swap_router}"
+                )
+            })?;
+        if router_pool_manager != pool_manager {
+            anyhow::bail!(
+                "UNISWAP_V4_SWAP_ROUTER_ADDRESS={swap_router} is wired to poolManager={router_pool_manager}, \
+                 but relayer is configured for poolManager={pool_manager}. \
+                 Use the router deployment for this chain."
             );
         }
 
