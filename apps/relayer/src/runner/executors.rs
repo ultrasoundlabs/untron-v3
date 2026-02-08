@@ -43,6 +43,11 @@ impl HubExecutor {
         data: Vec<u8>,
         operation: u8,
     ) -> Result<()> {
+        let data_len = data.len();
+        let data_selector = match data.get(0..4) {
+            Some(sel) => format!("0x{}", hex::encode(sel)),
+            None => "0x".to_string(),
+        };
         let start = Instant::now();
         let submission = {
             let mut sender = self.sender.lock().await;
@@ -75,6 +80,15 @@ impl HubExecutor {
                 self.telemetry
                     .hub_submit_ms(name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
+                tracing::error!(
+                    %name,
+                    to = %to,
+                    operation,
+                    data_len,
+                    data_selector = %data_selector,
+                    err = %err,
+                    "hub userop submit failed"
+                );
                 Err(err)
             }
         }

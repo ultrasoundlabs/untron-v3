@@ -17,6 +17,13 @@ use alloy::{
 use std::time::Instant;
 use tron::{DecodedTrc20Call, TronAddress, decode_trc20_call_data, decode_trigger_smart_contract};
 
+fn selector_hex(data: &[u8]) -> String {
+    match data.get(0..4) {
+        Some(sel) => format!("0x{}", hex::encode(sel)),
+        None => "0x".to_string(),
+    }
+}
+
 fn pre_entitle_finalized(
     block_number: u64,
     tron_head: u64,
@@ -531,12 +538,37 @@ pub async fn execute_hub_intent(
             top_up_amount,
             swap_executor,
         } => {
+            tracing::info!(
+                target_token = %target_token,
+                max_claims,
+                call_count = calls.len(),
+                top_up_amount = %top_up_amount,
+                swap_executor = %swap_executor,
+                "prepared fill intent"
+            );
+            for (idx, call) in calls.iter().enumerate() {
+                let data_selector = selector_hex(call.data.as_ref());
+                tracing::debug!(
+                    call_index = idx,
+                    to = %call.to,
+                    value = %call.value,
+                    data_len = call.data.len(),
+                    data_selector = %data_selector,
+                    "fill swap subcall"
+                );
+            }
+
             let fill_data = fillCall {
                 targetToken: target_token,
                 maxClaims: U256::from(max_claims),
                 calls,
             }
             .abi_encode();
+            tracing::debug!(
+                fill_selector = %selector_hex(&fill_data),
+                fill_data_len = fill_data.len(),
+                "encoded fill calldata"
+            );
 
             if top_up_amount.is_zero() {
                 (ctx.hub_contract_address, 0u8, fill_data)
@@ -578,6 +610,14 @@ pub async fn execute_hub_intent(
         }
     };
 
+    tracing::info!(
+        %name,
+        to = %to,
+        operation,
+        data_len = data.len(),
+        data_selector = %selector_hex(&data),
+        "submitting hub intent"
+    );
     ctx.hub.submit(state, name, to, data, operation).await
 }
 
