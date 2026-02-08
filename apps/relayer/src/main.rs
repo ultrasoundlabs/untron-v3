@@ -1,9 +1,9 @@
 mod config;
 mod evm;
 mod indexer;
-mod lifi;
 mod metrics;
 mod runner;
+mod uniswap_v4;
 
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;

@@ -45,18 +45,27 @@ pub struct HubConfig {
 
     pub paymasters: Vec<PaymasterServiceConfig>,
 
-    pub lifi: Option<LifiConfig>,
+    pub uniswap_v4: Option<UniswapV4Config>,
 }
 
 #[derive(Debug, Clone)]
-pub struct LifiConfig {
-    pub base_url: String,
-    pub api_key: Option<String>,
-    pub integrator: Option<String>,
+pub struct UniswapV4Config {
+    pub pool_manager: Option<Address>,
+    pub position_manager: Option<Address>,
+    pub allowed_pools: Vec<UniswapV4AllowedPool>,
     /// Slippage as a decimal fraction (e.g. 0.003 = 0.3%).
     pub slippage: f64,
     /// If true, allow topping up swap output with Safe-held target tokens.
     pub allow_topup: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct UniswapV4AllowedPool {
+    pub currency0: Address,
+    pub currency1: Address,
+    pub fee: u32,
+    pub tick_spacing: i32,
+    pub hooks: Address,
 }
 
 #[derive(Debug, Clone)]
@@ -138,19 +147,19 @@ struct Env {
     hub_paymasters_json: String,
 
     #[serde(default)]
-    lifi_api_base_url: String,
+    uniswap_v4_pool_manager_address: String,
 
     #[serde(default)]
-    lifi_api_key: String,
+    uniswap_v4_position_manager_address: String,
 
     #[serde(default)]
-    lifi_integrator: String,
+    uniswap_v4_allowed_pools_json: String,
 
     #[serde(default)]
-    lifi_slippage: f64,
+    uniswap_v4_slippage: f64,
 
     #[serde(default)]
-    lifi_allow_topup: bool,
+    uniswap_v4_allow_topup: bool,
 
     tron_grpc_url: String,
 
@@ -215,11 +224,11 @@ impl Default for Env {
             hub_owner_private_key_hex: String::new(),
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
-            lifi_api_base_url: String::new(),
-            lifi_api_key: String::new(),
-            lifi_integrator: String::new(),
-            lifi_slippage: 0.003,
-            lifi_allow_topup: false,
+            uniswap_v4_pool_manager_address: String::new(),
+            uniswap_v4_position_manager_address: String::new(),
+            uniswap_v4_allowed_pools_json: String::new(),
+            uniswap_v4_slippage: 0.003,
+            uniswap_v4_allow_topup: false,
             tron_grpc_url: String::new(),
             tron_api_key: None,
             tron_private_key_hex: String::new(),
@@ -375,6 +384,63 @@ fn parse_tron_energy_rental_apis_json(s: &str) -> Result<Vec<JsonApiRentalProvid
     Ok(v)
 }
 
+#[derive(Debug, Deserialize)]
+struct UniswapV4AllowedPoolRaw {
+    currency0: String,
+    currency1: String,
+    fee: u32,
+    tick_spacing: i32,
+    #[serde(default)]
+    hooks: String,
+}
+
+fn parse_uniswap_v4_allowed_pools_json(s: &str) -> Result<Vec<UniswapV4AllowedPool>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let raws: Vec<UniswapV4AllowedPoolRaw> =
+        serde_json::from_str(trimmed).context("parse UNISWAP_V4_ALLOWED_POOLS_JSON")?;
+    let mut out = Vec::with_capacity(raws.len());
+
+    for (idx, raw) in raws.into_iter().enumerate() {
+        let currency0 = parse_address(
+            &format!("UNISWAP_V4_ALLOWED_POOLS_JSON[{idx}].currency0"),
+            &raw.currency0,
+        )?;
+        let currency1 = parse_address(
+            &format!("UNISWAP_V4_ALLOWED_POOLS_JSON[{idx}].currency1"),
+            &raw.currency1,
+        )?;
+        if currency0 == currency1 {
+            anyhow::bail!("UNISWAP_V4_ALLOWED_POOLS_JSON[{idx}] has identical currency0/currency1");
+        }
+        if raw.fee == 0 {
+            anyhow::bail!("UNISWAP_V4_ALLOWED_POOLS_JSON[{idx}].fee must be > 0");
+        }
+
+        let hooks = if raw.hooks.trim().is_empty() {
+            Address::ZERO
+        } else {
+            parse_address(
+                &format!("UNISWAP_V4_ALLOWED_POOLS_JSON[{idx}].hooks"),
+                &raw.hooks,
+            )?
+        };
+
+        out.push(UniswapV4AllowedPool {
+            currency0,
+            currency1,
+            fee: raw.fee,
+            tick_spacing: raw.tick_spacing,
+            hooks,
+        });
+    }
+
+    Ok(out)
+}
+
 pub fn load_config() -> Result<AppConfig> {
     let env: Env = envy::from_env().context("load relayer env config")?;
 
@@ -428,21 +494,22 @@ pub fn load_config() -> Result<AppConfig> {
     let bundlers = parse_csv("HUB_BUNDLER_URLS", &env.hub_bundler_urls)?;
     let paymasters = parse_paymasters_json(&env.hub_paymasters_json)?;
 
-    let lifi = if env.lifi_api_base_url.trim().is_empty() {
+    let allowed_v4_pools = parse_uniswap_v4_allowed_pools_json(&env.uniswap_v4_allowed_pools_json)?;
+    let uniswap_v4 = if allowed_v4_pools.is_empty() {
         None
     } else {
-        Some(LifiConfig {
-            base_url: env.lifi_api_base_url.trim_end_matches('/').to_string(),
-            api_key: {
-                let key = env.lifi_api_key.trim().to_string();
-                if key.is_empty() { None } else { Some(key) }
-            },
-            integrator: {
-                let v = env.lifi_integrator.trim().to_string();
-                if v.is_empty() { None } else { Some(v) }
-            },
-            slippage: env.lifi_slippage.clamp(0.0, 1.0),
-            allow_topup: env.lifi_allow_topup,
+        Some(UniswapV4Config {
+            pool_manager: parse_optional_address(
+                "UNISWAP_V4_POOL_MANAGER_ADDRESS",
+                &env.uniswap_v4_pool_manager_address,
+            )?,
+            position_manager: parse_optional_address(
+                "UNISWAP_V4_POSITION_MANAGER_ADDRESS",
+                &env.uniswap_v4_position_manager_address,
+            )?,
+            allowed_pools: allowed_v4_pools,
+            slippage: env.uniswap_v4_slippage.clamp(0.0, 1.0),
+            allow_topup: env.uniswap_v4_allow_topup,
         })
     };
 
@@ -464,7 +531,7 @@ pub fn load_config() -> Result<AppConfig> {
             bundler_urls: bundlers,
             owner_private_key: hub_owner_private_key,
             paymasters,
-            lifi,
+            uniswap_v4,
         },
         tron: TronConfig {
             grpc_url: env.tron_grpc_url,
@@ -611,5 +678,41 @@ mod tests {
         assert_eq!(a, expected);
 
         assert!(parse_address("A", "not an address").is_err());
+    }
+
+    #[test]
+    fn parse_uniswap_v4_allowed_pools_json_empty_ok() {
+        assert!(
+            parse_uniswap_v4_allowed_pools_json("   ")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn parse_uniswap_v4_allowed_pools_json_parses_and_defaults_hooks() {
+        let raw = r#"[{
+          "currency0":"0x0000000000000000000000000000000000000001",
+          "currency1":"0x0000000000000000000000000000000000000002",
+          "fee":500,
+          "tick_spacing":10
+        }]"#;
+        let out = parse_uniswap_v4_allowed_pools_json(raw).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].currency0,
+            "0x0000000000000000000000000000000000000001"
+                .parse::<Address>()
+                .unwrap()
+        );
+        assert_eq!(
+            out[0].currency1,
+            "0x0000000000000000000000000000000000000002"
+                .parse::<Address>()
+                .unwrap()
+        );
+        assert_eq!(out[0].fee, 500);
+        assert_eq!(out[0].tick_spacing, 10);
+        assert_eq!(out[0].hooks, Address::ZERO);
     }
 }

@@ -1,5 +1,6 @@
 use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use tron::{
     TronAddress, decode_trc20_call_data, decode_trigger_smart_contract,
     wallet::encode_pull_from_receivers,
@@ -10,7 +11,6 @@ use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{Address, FixedBytes, U256};
-use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
 use untron_v3_bindings::untron_v3::UntronV3::Call as SwapCall;
 use untron_v3_indexer_client::types;
@@ -90,6 +90,11 @@ pub async fn plan_liquidity(
         filter: usdt.to_string(),
         rate_ppm: None,
     });
+    let reachable_from_usdt = ctx
+        .uniswap_v4
+        .as_ref()
+        .map(|v4| v4.reachable_targets_from_usdt(usdt_addr))
+        .unwrap_or_else(HashSet::new);
 
     let swap_rates = ctx.indexer.hub_swap_rates().await?;
     for r in swap_rates {
@@ -100,6 +105,9 @@ pub async fn plan_liquidity(
             continue;
         };
         if addr == Address::ZERO || addr == usdt_addr {
+            continue;
+        }
+        if !reachable_from_usdt.contains(&addr) {
             continue;
         }
         let Some(rate_ppm_i64) = r.rate_ppm else {
@@ -271,7 +279,7 @@ async fn plan_hub_fill(
     let allow_topup = ctx
         .cfg
         .hub
-        .lifi
+        .uniswap_v4
         .as_ref()
         .map(|c| c.allow_topup)
         .unwrap_or(false);
@@ -300,7 +308,7 @@ async fn plan_hub_fill(
             }));
         }
 
-        let Some(lifi) = &ctx.lifi else {
+        let Some(uniswap_v4) = &ctx.uniswap_v4 else {
             continue;
         };
         let Some(rate_ppm) = c.rate_ppm else {
@@ -312,15 +320,6 @@ async fn plan_hub_fill(
             continue;
         }
 
-        let hub_chain_id = match ctx.cfg.hub.chain_id {
-            Some(id) => id,
-            None => ctx
-                .hub_provider
-                .get_chain_id()
-                .await
-                .context("eth_chainId")?,
-        };
-
         let swap_executor = match state.hub_swap_executor(ctx).await {
             Ok(v) => v,
             Err(err) => {
@@ -329,8 +328,8 @@ async fn plan_hub_fill(
             }
         };
 
-        let quote = match lifi
-            .quote_usdt_to_token(hub_chain_id, usdt_addr, c.addr, total_usdt, swap_executor)
+        let quote = match uniswap_v4
+            .quote_usdt_to_token(usdt_addr, c.addr, total_usdt)
             .await
         {
             Ok(q) => q,
@@ -339,7 +338,7 @@ async fn plan_hub_fill(
                     err = %err,
                     token = %c.addr,
                     total_usdt = %total_usdt,
-                    "LI.FI quote failed; skipping token this tick"
+                    "Uniswap v4 quote failed; skipping token this tick"
                 );
                 continue;
             }
@@ -348,7 +347,7 @@ async fn plan_hub_fill(
             tracing::warn!(
                 token = %c.addr,
                 value = %quote.value,
-                "LI.FI quote requires native value; SwapExecutor is not funded with ETH"
+                "Uniswap v4 quote requires native value; SwapExecutor is not funded with ETH"
             );
             continue;
         }

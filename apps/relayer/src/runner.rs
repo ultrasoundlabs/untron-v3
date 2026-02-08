@@ -3,7 +3,7 @@ mod model;
 mod tasks;
 mod util;
 
-use crate::lifi::LifiClient;
+use crate::uniswap_v4::UniswapV4Client;
 use crate::{config::AppConfig, indexer::IndexerApi, metrics::RelayerTelemetry};
 use aa::paymaster::PaymasterService;
 use aa::{
@@ -80,7 +80,7 @@ pub struct RelayerContext {
     pub hub_provider: DynProvider,
     pub hub_contract_address: alloy::primitives::Address,
     pub hub: HubExecutor,
-    pub lifi: Option<LifiClient>,
+    pub uniswap_v4: Option<UniswapV4Client>,
 
     pub tron_controller: TronAddress,
     pub tron_read: TronGrpc,
@@ -356,14 +356,6 @@ impl Relayer {
             cfg.indexer.timeout,
             telemetry.clone(),
         )?);
-        let lifi = cfg
-            .hub
-            .lifi
-            .as_ref()
-            .map(LifiClient::new)
-            .transpose()
-            .context("init LI.FI client")?;
-
         let transport = BuiltInConnectionString::connect(&cfg.hub.rpc_url)
             .await
             .with_context(|| format!("connect hub rpc: {}", cfg.hub.rpc_url))?;
@@ -371,6 +363,23 @@ impl Relayer {
         let provider = ProviderBuilder::default().connect_client(client);
         let hub_provider = DynProvider::new(provider);
         let hub_contract_address = cfg.hub.untron_v3;
+        let uniswap_v4 = if let Some(v4_cfg) = cfg.hub.uniswap_v4.as_ref() {
+            let hub_chain_id = match cfg.hub.chain_id {
+                Some(id) => id,
+                None => {
+                    let id = hub_provider.get_chain_id().await.context("eth_chainId")?;
+                    cfg.hub.chain_id = Some(id);
+                    id
+                }
+            };
+            Some(
+                UniswapV4Client::new(v4_cfg, hub_chain_id, hub_provider.clone())
+                    .await
+                    .context("init Uniswap v4 client")?,
+            )
+        } else {
+            None
+        };
 
         let hub_sender_cfg = Safe4337UserOpSenderConfig {
             rpc_url: cfg.hub.rpc_url.clone(),
@@ -442,7 +451,7 @@ impl Relayer {
                 hub_provider,
                 hub_contract_address,
                 hub,
-                lifi,
+                uniswap_v4,
                 tron_controller,
                 tron_read,
                 tron_write,
@@ -578,7 +587,8 @@ impl Relayer {
             let Some(intent) = plan.intent else {
                 return Ok(());
             };
-            tasks::execute_controller_rebalance(&self.ctx, &mut self.state, tick.tron_head, intent).await
+            tasks::execute_controller_rebalance(&self.ctx, &mut self.state, tick.tron_head, intent)
+                .await
         })
         .await;
     }

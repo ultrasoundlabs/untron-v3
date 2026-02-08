@@ -50,6 +50,7 @@ dependencies = [
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-provider",
  "alloy-pubsub",
@@ -1625,6 +1626,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bnum"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f781dba93de3a5ef6dc5b17c9958b208f6f3f021623b360fb605ea51ce443f10"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "borsh"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1897,6 +1908,12 @@ checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "crossbeam-queue"
@@ -2239,6 +2256,17 @@ dependencies = [
  "concurrent-queue",
  "parking",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fastnum"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4089ab2dfd45d8ddc92febb5ca80644389d5ebb954f40231274a3f18341762e2"
+dependencies = [
+ "bnum",
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -3518,6 +3546,10 @@ name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+dependencies = [
+ "critical-section",
+ "portable-atomic",
+]
 
 [[package]]
 name = "one-click-sdk-rs"
@@ -3915,6 +3947,12 @@ dependencies = [
  "tron",
  "untron-observability",
 ]
+
+[[package]]
+name = "portable-atomic"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
 
 [[package]]
 name = "potential_utf"
@@ -4559,6 +4597,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tron",
+ "uniswap-v4-sdk",
  "untron-observability",
  "untron-v3-bindings",
  "untron-v3-indexer-client",
@@ -6354,6 +6393,68 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "uniswap-lens"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d052f721e7beb41b8cbed47285172144ce6ba75cebe5745568e4bedf654609d9"
+dependencies = [
+ "alloy",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "uniswap-sdk-core"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d7ad381e5fdc03b1df0b763af9bf440c1b7be9b1cdcee335bc0dfc021eb697b"
+dependencies = [
+ "alloy-primitives",
+ "derive_more",
+ "fastnum",
+ "lazy_static",
+ "num-integer",
+ "num-traits",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "uniswap-v3-sdk"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5029054e814a26705cc165e0e384966d2c03882228873ec81a5dbd6a84ba5dc0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-sol-types",
+ "base64",
+ "derive_more",
+ "num-integer",
+ "num-traits",
+ "once_cell",
+ "serde_json",
+ "thiserror 2.0.17",
+ "uniswap-lens",
+ "uniswap-sdk-core",
+]
+
+[[package]]
+name = "uniswap-v4-sdk"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c21f232d719f1449192c32a1883bdfd65ad4a6b5767e4a75b05865a0c8dbcc"
+dependencies = [
+ "alloy",
+ "alloy-contract",
+ "alloy-primitives",
+ "alloy-sol-types",
+ "derive_more",
+ "thiserror 2.0.17",
+ "tokio",
+ "uniswap-sdk-core",
+ "uniswap-v3-sdk",
+]
 
 [[package]]
 name = "unsafe-libyaml"

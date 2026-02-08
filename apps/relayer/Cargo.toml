@@ -23,3 +23,4 @@ untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }
 untron-observability = { path = "../../crates/observability" }
 tron = { path = "../../crates/tron" }
+uniswap-v4-sdk = { version = "1.0.0", features = ["extensions", "std"] }
