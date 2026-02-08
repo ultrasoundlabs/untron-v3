@@ -822,6 +822,14 @@ fn summarize_trace_error(trace: &Value) -> String {
         let selector = if input.len() >= 10 { &input[..10] } else { input };
         let this = format!("type={call_type} to={to} selector={selector}");
 
+        if let Some(calls) = node.get("calls").and_then(Value::as_array) {
+            for child in calls {
+                if let Some(inner) = walk(child) {
+                    return Some(format!("{this} -> {inner}"));
+                }
+            }
+        }
+
         let err = node.get("error").and_then(Value::as_str);
         let revert_reason = node.get("revertReason").and_then(Value::as_str);
         if err.is_some() || revert_reason.is_some() {
@@ -830,14 +838,6 @@ fn summarize_trace_error(trace: &Value) -> String {
                 err.unwrap_or("-"),
                 revert_reason.unwrap_or("-")
             ));
-        }
-
-        if let Some(calls) = node.get("calls").and_then(Value::as_array) {
-            for child in calls {
-                if let Some(inner) = walk(child) {
-                    return Some(format!("{this} -> {inner}"));
-                }
-            }
         }
         None
     }
