@@ -9,10 +9,12 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
+    rpc::types::{TransactionInput, TransactionRequest},
 };
 use std::time::Duration;
 use anyhow::{Context, Result};
 use k256::ecdsa::SigningKey;
+use serde_json::{Value, json};
 
 use alloy::rpc::types::eth::erc4337::{PackedUserOperation, UserOperationReceipt};
 
@@ -83,6 +85,69 @@ pub struct Safe4337UserOpSubmission {
 }
 
 impl Safe4337UserOpSender {
+    async fn debug_trace_safe_execute_userop_call(&self, call_data: &Bytes) {
+        let tx = json!({
+            "from": format!("{:#x}", self.cfg.entrypoint),
+            "to": format!("{:#x}", self.safe),
+            "data": hex_bytes0x(call_data),
+        });
+        let trace_cfg = json!({
+            "tracer": "callTracer",
+            "tracerConfig": {
+                "onlyTopCall": false,
+                "withLog": false
+            }
+        });
+
+        let trace_res: Result<Value, _> = self
+            .provider
+            .raw_request("debug_traceCall".into(), (tx, "latest", trace_cfg))
+            .await;
+
+        match trace_res {
+            Ok(trace) => {
+                tracing::error!(
+                    safe = %self.safe,
+                    entrypoint = %self.cfg.entrypoint,
+                    trace_error = %summarize_trace_error(&trace),
+                    "debug_traceCall captured preflight failure path"
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    safe = %self.safe,
+                    entrypoint = %self.cfg.entrypoint,
+                    err = %format!("{err:#}"),
+                    "debug_traceCall unavailable or failed during preflight"
+                );
+            }
+        }
+    }
+
+    async fn preflight_safe_execute_userop_call(&self, call_data: Bytes) -> Result<()> {
+        let tx = TransactionRequest {
+            from: Some(self.cfg.entrypoint),
+            to: Some(self.safe.into()),
+            input: TransactionInput::new(call_data.clone()),
+            ..Default::default()
+        };
+
+        match self.provider.call(tx).await {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                let err_fmt = format!("{err:#}");
+                self.debug_trace_safe_execute_userop_call(&call_data).await;
+                tracing::error!(
+                    safe = %self.safe,
+                    entrypoint = %self.cfg.entrypoint,
+                    err = %err_fmt,
+                    "preflight eth_call for Safe4337 executeUserOp failed"
+                );
+                Err(anyhow::Error::new(err).context("preflight eth_call safe executeUserOp"))
+            }
+        }
+    }
+
     pub async fn new(cfg: Safe4337UserOpSenderConfig) -> Result<Self> {
         let transport = BuiltInConnectionString::connect(&cfg.rpc_url)
             .await
@@ -278,6 +343,8 @@ impl Safe4337UserOpSender {
             operation,
         }
         .abi_encode();
+        self.preflight_safe_execute_userop_call(call_data.clone().into())
+            .await?;
 
         let base_userop = PackedUserOperation {
             sender: self.safe,
@@ -736,6 +803,37 @@ impl Safe4337UserOpSender {
             userop,
         )
     }
+}
+
+fn summarize_trace_error(trace: &Value) -> String {
+    fn walk(node: &Value) -> Option<String> {
+        let call_type = node.get("type").and_then(Value::as_str).unwrap_or("unknown");
+        let to = node.get("to").and_then(Value::as_str).unwrap_or("unknown");
+        let input = node.get("input").and_then(Value::as_str).unwrap_or("");
+        let selector = if input.len() >= 10 { &input[..10] } else { input };
+        let this = format!("type={call_type} to={to} selector={selector}");
+
+        let err = node.get("error").and_then(Value::as_str);
+        let revert_reason = node.get("revertReason").and_then(Value::as_str);
+        if err.is_some() || revert_reason.is_some() {
+            return Some(format!(
+                "{this} error={} revert_reason={}",
+                err.unwrap_or("-"),
+                revert_reason.unwrap_or("-")
+            ));
+        }
+
+        if let Some(calls) = node.get("calls").and_then(Value::as_array) {
+            for child in calls {
+                if let Some(inner) = walk(child) {
+                    return Some(format!("{this} -> {inner}"));
+                }
+            }
+        }
+        None
+    }
+
+    walk(trace).unwrap_or_else(|| "no explicit error found in trace".to_string())
 }
 
 fn to_paymaster_userop(
