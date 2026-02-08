@@ -1,4 +1,5 @@
 use crate::config::UniswapV4Config;
+use alloy::sol_types::SolCall;
 use alloy::{
     primitives::{
         Address, Bytes, U256,
@@ -8,25 +9,31 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
-use uniswap_v4_sdk::{
-    position_manager::encode_modify_liquidities,
-    prelude::{
-        Actions, BestTradeOptions, HookOptions, Pool, SettleAllParams, SimpleTickDataProvider,
-        TakeAllParams, Trade, V4Planner, has_permission, has_swap_permissions,
-        sdk_core::{
-            entities::{BaseCurrencyCore, FractionBase},
-            prelude::{BaseCurrency, BigInt, Currency, CurrencyAmount, Percent},
-        },
+use uniswap_v4_sdk::prelude::{
+    Actions, BestTradeOptions, HookOptions, Pool, SettleAllParams, SimpleTickDataProvider,
+    TakeAllParams, Trade, V4Planner, has_permission, has_swap_permissions,
+    sdk_core::{
+        entities::{BaseCurrencyCore, FractionBase},
+        prelude::{BaseCurrency, BigInt, Currency, CurrencyAmount, Percent},
     },
 };
 
 type V4Pool = Pool<SimpleTickDataProvider<DynProvider>>;
 const PERMIT2_ADDRESS: Address =
     alloy::primitives::address!("000000000022D473030F116dDEE9F6B43aC78BA3");
+const UNIVERSAL_ROUTER_COMMAND_V4_SWAP: u8 = 0x10;
+
+alloy::sol! {
+    interface IUniversalRouter {
+        function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline)
+            external
+            payable;
+    }
+}
 
 #[derive(Clone)]
 pub struct UniswapV4Client {
-    position_manager: Address,
+    swap_router: Address,
     slippage: f64,
     pools: Vec<V4Pool>,
     currency_by_address: HashMap<Address, Currency>,
@@ -51,10 +58,16 @@ impl UniswapV4Client {
             .pool_manager
             .or_else(|| known.and_then(|v| v.v4_pool_manager))
             .context("missing Uniswap v4 pool manager address for chain (set UNISWAP_V4_POOL_MANAGER_ADDRESS)")?;
-        let position_manager = cfg
-            .position_manager
-            .or_else(|| known.and_then(|v| v.v4_position_manager))
-            .context("missing Uniswap v4 position manager address for chain (set UNISWAP_V4_POSITION_MANAGER_ADDRESS)")?;
+        let swap_router = cfg
+            .swap_router
+            .context("missing Uniswap swap router address (set UNISWAP_V4_SWAP_ROUTER_ADDRESS)")?;
+
+        if known.and_then(|v| v.v4_position_manager) == Some(swap_router) {
+            anyhow::bail!(
+                "UNISWAP_V4_SWAP_ROUTER_ADDRESS points to the v4 PositionManager; \
+                 this swap path requires a router endpoint (e.g. Universal Router), not PositionManager"
+            );
+        }
 
         let mut pools = Vec::with_capacity(cfg.allowed_pools.len());
         let mut currency_by_address = HashMap::new();
@@ -141,7 +154,7 @@ impl UniswapV4Client {
         }
 
         Ok(Self {
-            position_manager,
+            swap_router,
             slippage: cfg.slippage,
             pools,
             currency_by_address,
@@ -249,10 +262,19 @@ impl UniswapV4Client {
             minAmount: to_amount_min,
         }));
 
+        let commands = Bytes::from(vec![UNIVERSAL_ROUTER_COMMAND_V4_SWAP]);
+        let inputs = vec![planner.finalize()];
+        let calldata = IUniversalRouter::executeCall {
+            commands,
+            inputs,
+            deadline: U256::MAX,
+        }
+        .abi_encode();
+
         Ok(UniswapV4Quote {
             approval_address: PERMIT2_ADDRESS,
-            to: self.position_manager,
-            data: encode_modify_liquidities(planner.finalize(), U256::MAX),
+            to: self.swap_router,
+            data: calldata.into(),
             value: U256::ZERO,
             to_amount_min,
         })

@@ -51,7 +51,7 @@ pub struct HubConfig {
 #[derive(Debug, Clone)]
 pub struct UniswapV4Config {
     pub pool_manager: Option<Address>,
-    pub position_manager: Option<Address>,
+    pub swap_router: Option<Address>,
     pub allowed_pools: Vec<UniswapV4AllowedPool>,
     /// Slippage as a decimal fraction (e.g. 0.003 = 0.3%).
     pub slippage: f64,
@@ -150,6 +150,9 @@ struct Env {
     uniswap_v4_pool_manager_address: String,
 
     #[serde(default)]
+    uniswap_v4_swap_router_address: String,
+
+    #[serde(default)]
     uniswap_v4_position_manager_address: String,
 
     #[serde(default)]
@@ -225,6 +228,7 @@ impl Default for Env {
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
             uniswap_v4_pool_manager_address: String::new(),
+            uniswap_v4_swap_router_address: String::new(),
             uniswap_v4_position_manager_address: String::new(),
             uniswap_v4_allowed_pools_json: String::new(),
             uniswap_v4_slippage: 0.003,
@@ -498,15 +502,21 @@ pub fn load_config() -> Result<AppConfig> {
     let uniswap_v4 = if allowed_v4_pools.is_empty() {
         None
     } else {
+        let swap_router = parse_optional_address(
+            "UNISWAP_V4_SWAP_ROUTER_ADDRESS",
+            &env.uniswap_v4_swap_router_address,
+        )?
+        .or(parse_optional_address(
+            "UNISWAP_V4_POSITION_MANAGER_ADDRESS",
+            &env.uniswap_v4_position_manager_address,
+        )?);
+
         Some(UniswapV4Config {
             pool_manager: parse_optional_address(
                 "UNISWAP_V4_POOL_MANAGER_ADDRESS",
                 &env.uniswap_v4_pool_manager_address,
             )?,
-            position_manager: parse_optional_address(
-                "UNISWAP_V4_POSITION_MANAGER_ADDRESS",
-                &env.uniswap_v4_position_manager_address,
-            )?,
+            swap_router,
             allowed_pools: allowed_v4_pools,
             slippage: env.uniswap_v4_slippage.clamp(0.0, 1.0),
             allow_topup: env.uniswap_v4_allow_topup,

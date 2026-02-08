@@ -839,10 +839,12 @@ fn summarize_trace_error(trace: &Value) -> String {
         let err = node.get("error").and_then(Value::as_str);
         let revert_reason = node.get("revertReason").and_then(Value::as_str);
         if err.is_some() || revert_reason.is_some() {
+            let output_data = output.unwrap_or("-");
             return Some(format!(
-                "{this} error={} revert_reason={}",
+                "{this} error={} revert_reason={} output={}",
                 err.unwrap_or("-"),
-                revert_reason.unwrap_or("-")
+                revert_reason.unwrap_or("-"),
+                output_data
             ));
         }
         None
