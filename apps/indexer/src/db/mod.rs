@@ -8,11 +8,13 @@ use std::time::Duration;
 
 pub mod deposit_processed;
 pub mod event_chain;
+mod hub_pending_claims;
 mod instance;
 pub mod receiver_usdt;
 mod receiver_usdt_subjective_pre_entitle;
 mod types;
 
+pub use hub_pending_claims::pending_claims_stats;
 pub use receiver_usdt_subjective_pre_entitle::subjective_pre_entitle_stats;
 
 pub use instance::{ResolvedStream, ensure_instance_config, ensure_schema_version};
