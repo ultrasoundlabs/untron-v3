@@ -13,6 +13,7 @@ COPY crates/bindings ./crates/bindings
 COPY crates/indexer-client ./crates/indexer-client
 COPY crates/tron ./crates/tron
 COPY crates/aa ./crates/aa
+COPY crates/rpc-fallback ./crates/rpc-fallback
 COPY crates/observability ./crates/observability
 COPY apps/relayer ./apps/relayer
 
