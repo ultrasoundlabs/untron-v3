@@ -472,7 +472,6 @@ pub async fn post_realtor(
             use alloy::eips::BlockId;
             use alloy::primitives::{B256, keccak256};
             use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-            use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
             use alloy::sol_types::SolCall;
             use tron::TronAddress;
             use untron_v3_bindings::untron_controller::UntronController;
@@ -481,10 +480,15 @@ pub async fn post_realtor(
                 tron_rpc_url: &str,
                 controller: alloy::primitives::Address,
             ) -> Result<B256, ApiError> {
-                let transport = BuiltInConnectionString::connect(tron_rpc_url)
-                    .await
-                    .map_err(|e| ApiError::Upstream(format!("connect tron rpc: {e}")))?;
-                let client = RpcClient::builder().transport(transport, false);
+                let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(2_500);
+                let client = untron_rpc_fallback::rpc_client_from_urls_csv(
+                    tron_rpc_url,
+                    std::time::Duration::from_millis(per_try_timeout_ms),
+                )
+                .map_err(|e| ApiError::Upstream(format!("connect tron rpc (fallback): {e}")))?;
                 let provider: DynProvider =
                     DynProvider::new(ProviderBuilder::default().connect_client(client));
 

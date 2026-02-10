@@ -6,7 +6,6 @@ use crate::AppState;
 use crate::util::{number_to_u64, parse_hex_bytes};
 use alloy::primitives::{Address, B256, Signature, U256, keccak256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
 use alloy::sol_types::{SolCall, SolStruct};
 use axum::http::HeaderMap;
 use axum::{Json, extract::State};
@@ -240,10 +239,15 @@ pub async fn post_payout_config(
             Some(addr) if addr == lessee => true,
             _ => {
                 // If the lessee is a contract, try ERC-1271.
-                let transport = BuiltInConnectionString::connect(&state.cfg.hub.rpc_url)
-                    .await
-                    .map_err(|e| ApiError::Upstream(format!("connect rpc: {e}")))?;
-                let client = RpcClient::builder().transport(transport, false);
+                let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(2_500);
+                let client = untron_rpc_fallback::rpc_client_from_urls_csv(
+                    &state.cfg.hub.rpc_url,
+                    std::time::Duration::from_millis(per_try_timeout_ms),
+                )
+                .map_err(|e| ApiError::Upstream(format!("connect rpc (fallback): {e}")))?;
                 let provider: DynProvider =
                     DynProvider::new(ProviderBuilder::default().connect_client(client));
 

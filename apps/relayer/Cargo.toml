@@ -22,4 +22,5 @@ untron-v3-indexer-client = { path = "../../crates/indexer-client" }
 untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }
 untron-observability = { path = "../../crates/observability" }
+untron-rpc-fallback = { path = "../../crates/rpc-fallback" }
 tron = { path = "../../crates/tron" }

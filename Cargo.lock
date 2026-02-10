@@ -798,10 +798,13 @@ checksum = "64b722073c76f2de7e118d546ee1921c50710f97feb32aed50db94cfa5b663e1"
 dependencies = [
  "alloy-json-rpc",
  "alloy-transport",
+ "opentelemetry",
+ "opentelemetry-http",
  "reqwest",
  "serde_json",
  "tower",
  "tracing",
+ "tracing-opentelemetry",
  "url",
 ]
 
@@ -3028,6 +3031,7 @@ dependencies = [
  "tower",
  "tracing",
  "untron-observability",
+ "untron-rpc-fallback",
  "untron-v3-bindings",
 ]
 
@@ -4444,6 +4448,7 @@ dependencies = [
  "tracing",
  "tron",
  "untron-observability",
+ "untron-rpc-fallback",
  "untron-v3-bindings",
  "untron-v3-indexer-client",
  "utoipa",
@@ -4560,6 +4565,7 @@ dependencies = [
  "tracing",
  "tron",
  "untron-observability",
+ "untron-rpc-fallback",
  "untron-v3-bindings",
  "untron-v3-indexer-client",
 ]
@@ -6377,6 +6383,22 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "untron-rpc-fallback"
+version = "0.1.0"
+dependencies = [
+ "alloy-json-rpc",
+ "alloy-rpc-client",
+ "alloy-transport",
+ "alloy-transport-http",
+ "anyhow",
+ "parking_lot",
+ "tokio",
+ "tower",
+ "tracing",
+ "url",
 ]
 
 [[package]]
