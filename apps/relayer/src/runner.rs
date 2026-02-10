@@ -13,7 +13,6 @@ use aa::{
 use alloy::{
     primitives::{FixedBytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
-    rpc::client::{BuiltInConnectionString, RpcClient},
 };
 use anyhow::{Context, Result};
 use std::{
@@ -355,11 +354,15 @@ impl Relayer {
             &cfg.indexer.base_url,
             cfg.indexer.timeout,
             telemetry.clone(),
-        )?);
-        let transport = BuiltInConnectionString::connect(&cfg.hub.rpc_url)
-            .await
-            .with_context(|| format!("connect hub rpc: {}", cfg.hub.rpc_url))?;
-        let client = RpcClient::builder().transport(transport, false);
+        )?);        let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2_500);
+        let client = untron_rpc_fallback::rpc_client_from_urls_csv(
+            &cfg.hub.rpc_url,
+            std::time::Duration::from_millis(per_try_timeout_ms),
+        )
+        .with_context(|| format!("connect hub rpc (fallback): {}", cfg.hub.rpc_url))?;
         let provider = ProviderBuilder::default().connect_client(client);
         let hub_provider = DynProvider::new(provider);
         let hub_contract_address = cfg.hub.untron_v3;
@@ -382,7 +385,9 @@ impl Relayer {
         };
 
         let hub_sender_cfg = Safe4337UserOpSenderConfig {
-            rpc_url: cfg.hub.rpc_url.clone(),
+            rpc_url: untron_rpc_fallback::FallbackHttpTransport::first_url_from_csv(&cfg.hub.rpc_url)
+            .with_context(|| format!("parse HUB_RPC_URL: {}", cfg.hub.rpc_url))?
+            .to_string(),
             chain_id: cfg.hub.chain_id,
             entrypoint: cfg.hub.entrypoint,
             safe: cfg.hub.safe,
