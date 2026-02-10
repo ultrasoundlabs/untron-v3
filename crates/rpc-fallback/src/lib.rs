@@ -48,7 +48,7 @@ impl FallbackHttpTransport {
 
     pub fn urls_from_csv(csv: &str) -> anyhow::Result<Vec<Url>> {
         let urls = csv
-            .split(',')
+            .split(|c: char| c == ',' || c.is_whitespace())
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| Url::parse(s).map_err(|e| anyhow::anyhow!("invalid rpc url '{s}': {e}")))

@@ -446,7 +446,14 @@ fn parse_uniswap_v4_allowed_pools_json(s: &str) -> Result<Vec<UniswapV4AllowedPo
 }
 
 pub fn load_config() -> Result<AppConfig> {
-    let env: Env = envy::from_env().context("load relayer env config")?;
+    let mut env: Env = envy::from_env().context("load relayer env config")?;
+
+    // Prefer HUB_RPC_URLS if set (same convention as indexer) to avoid config mismatch.
+    if let Ok(v) = std::env::var("HUB_RPC_URLS") {
+        if !v.trim().is_empty() {
+            env.hub_rpc_url = v;
+        }
+    }
 
     if env.indexer_api_base_url.trim().is_empty() {
         anyhow::bail!("INDEXER_API_BASE_URL must be set");
