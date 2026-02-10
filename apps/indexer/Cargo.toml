@@ -22,4 +22,5 @@ tokio-util = "0.7.16"
 tower = "0.5.2"
 tracing = "0.1.44"
 untron-observability = { path = "../../crates/observability" }
+untron-rpc-fallback = { path = "../../crates/rpc-fallback" }
 untron-v3-bindings = { path = "../../crates/bindings" }

@@ -1,6 +1,6 @@
 [workspace]
 members = [
   "apps/indexer", "apps/pool", "apps/realtor", "apps/relayer",
-  "crates/observability", "crates/tron",
+  "crates/observability", "crates/tron", "crates/rpc-fallback",
 ]
 resolver = "2"

@@ -1,0 +1,16 @@
+[package]
+name = "untron-rpc-fallback"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+alloy-json-rpc = "1.2.1"
+alloy-transport = "1.2.1"
+alloy-transport-http = { version = "1.2.1", features = ["reqwest"] }
+alloy-rpc-client = "1.2.1"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["time"] }
+tower = "0.5"
+tracing = "0.1"
+url = "2"

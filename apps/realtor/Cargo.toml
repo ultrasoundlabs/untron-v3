@@ -28,6 +28,7 @@ untron-v3-bindings = { path = "../../crates/bindings" }
 aa = { path = "../../crates/aa" }
 tron = { path = "../../crates/tron" }
 untron-observability = { path = "../../crates/observability" }
+untron-rpc-fallback = { path = "../../crates/rpc-fallback" }
 # utoipa v5 is OpenAPI 3.1-only; keep Realtor on OpenAPI 3.0.x so downstream tooling
 # (and our merged spec) can stay 3.0.3.
 utoipa = "4.2.3"
