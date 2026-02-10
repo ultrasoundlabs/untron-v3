@@ -354,16 +354,7 @@ impl Relayer {
             &cfg.indexer.base_url,
             cfg.indexer.timeout,
             telemetry.clone(),
-        )?);
-        let lifi = cfg
-            .hub
-            .lifi
-            .as_ref()
-            .map(LifiClient::new)
-            .transpose()
-            .context("init LI.FI client")?;
-
-        let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
+        )?);        let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(2_500);
