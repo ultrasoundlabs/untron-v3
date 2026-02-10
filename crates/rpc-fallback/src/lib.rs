@@ -57,6 +57,13 @@ impl FallbackHttpTransport {
         Ok(urls)
     }
 
+    /// Return the first URL from a CSV list.
+    ///
+    /// Useful for components that still require a single RPC endpoint string.
+    pub fn first_url_from_csv(csv: &str) -> anyhow::Result<Url> {
+        Ok(Self::urls_from_csv(csv)?.into_iter().next().expect("non-empty"))
+    }
+
     pub fn rpc_client(self) -> RpcClient {
         // `false` means "not local" (used by alloy for some defaults). We keep it false.
         RpcClient::builder().transport(self, false)

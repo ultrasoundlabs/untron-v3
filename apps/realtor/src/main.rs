@@ -18,6 +18,7 @@ use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::sol_types::SolCall;
 use axum::Json;
+use anyhow::Context;
 use axum::extract::MatchedPath;
 use axum::http::{Request, Response, header::HeaderName};
 use axum::{Router, routing::get};
@@ -60,7 +61,9 @@ async fn main() -> anyhow::Result<()> {
         telemetry.clone(),
     )?;
     let sender_cfg = Safe4337UserOpSenderConfig {
-        rpc_url: cfg.hub.rpc_url.clone(),
+        rpc_url: untron_rpc_fallback::FallbackHttpTransport::first_url_from_csv(&cfg.hub.rpc_url)
+            .context("parse HUB_RPC_URL")?
+            .to_string(),
         chain_id: cfg.hub.chain_id,
         entrypoint: cfg.hub.entrypoint,
         safe: cfg.hub.safe,

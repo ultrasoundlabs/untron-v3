@@ -385,7 +385,9 @@ impl Relayer {
         };
 
         let hub_sender_cfg = Safe4337UserOpSenderConfig {
-            rpc_url: cfg.hub.rpc_url.clone(),
+            rpc_url: untron_rpc_fallback::FallbackHttpTransport::first_url_from_csv(&cfg.hub.rpc_url)
+            .with_context(|| format!("parse HUB_RPC_URL: {}", cfg.hub.rpc_url))?
+            .to_string(),
             chain_id: cfg.hub.chain_id,
             entrypoint: cfg.hub.entrypoint,
             safe: cfg.hub.safe,
