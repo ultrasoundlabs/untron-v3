@@ -2,7 +2,6 @@ use crate::contracts::{ISafe, ISafeModuleSetup, ISafeProxyFactory};
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
 use alloy::rpc::types::eth::transaction::{TransactionInput, TransactionRequest};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol_types::SolCall;
@@ -34,10 +33,9 @@ fn singleton_as_u256_be32(singleton: Address) -> [u8; 32] {
 }
 
 async fn dyn_provider_for_rpc(rpc_url: &str) -> Result<DynProvider> {
-    let transport = BuiltInConnectionString::connect(rpc_url)
-        .await
-        .with_context(|| format!("connect rpc: {rpc_url}"))?;
-    let client = RpcClient::builder().transport(transport, false);
+    // Treat rpc_url as a CSV list; apply best-effort per-request failover.
+    let client = untron_rpc_fallback::rpc_client_from_urls_csv(rpc_url, Duration::from_secs(4))
+        .with_context(|| format!("connect rpc (fallback csv): {rpc_url}"))?;
     let provider = ProviderBuilder::default().connect_client(client);
     Ok(DynProvider::new(provider))
 }
@@ -47,10 +45,8 @@ async fn wallet_provider_for_rpc(rpc_url: &str, private_key: [u8; 32]) -> Result
         PrivateKeySigner::from_bytes(&private_key.into()).context("invalid private key")?;
     let wallet = EthereumWallet::from(signer);
 
-    let transport = BuiltInConnectionString::connect(rpc_url)
-        .await
-        .with_context(|| format!("connect rpc: {rpc_url}"))?;
-    let client = RpcClient::builder().transport(transport, false);
+    let client = untron_rpc_fallback::rpc_client_from_urls_csv(rpc_url, Duration::from_secs(4))
+        .with_context(|| format!("connect rpc (fallback csv): {rpc_url}"))?;
     let provider = ProviderBuilder::default()
         .wallet(wallet)
         .connect_client(client);

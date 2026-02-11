@@ -8,7 +8,6 @@ use alloy::sol_types::SolCall;
 use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
-    rpc::client::{BuiltInConnectionString, RpcClient},
     rpc::types::{TransactionInput, TransactionRequest},
 };
 use anyhow::{Context, Result};
@@ -108,10 +107,13 @@ impl Safe4337UserOpSender {
     }
 
     pub async fn new(cfg: Safe4337UserOpSenderConfig) -> Result<Self> {
-        let transport = BuiltInConnectionString::connect(&cfg.rpc_url)
-            .await
-            .with_context(|| format!("connect rpc: {}", cfg.rpc_url))?;
-        let client = RpcClient::builder().transport(transport, false);
+        // NOTE: cfg.rpc_url is treated as a CSV list of HTTP(S) JSON-RPC endpoints.
+        // We use a best-effort per-request failover transport (sticky on success).
+        let client = untron_rpc_fallback::rpc_client_from_urls_csv(
+            &cfg.rpc_url,
+            std::time::Duration::from_secs(4),
+        )
+        .with_context(|| format!("connect rpc (fallback csv): {}", cfg.rpc_url))?;
         let provider = ProviderBuilder::default().connect_client(client);
         let provider = DynProvider::new(provider);
 
