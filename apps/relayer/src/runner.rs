@@ -544,6 +544,7 @@ impl Relayer {
             tron_grpc_write,
             grpc_urls.clone(),
             cfg.tron.api_key.clone(),
+            tron_read_grpc_idx,
             tron_wallet.clone(),
             fee_policy,
             energy_rental,

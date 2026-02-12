@@ -117,22 +117,42 @@ impl BundlerPool {
             anyhow::bail!("bundler urls must be non-empty");
         }
 
+        let mut healthy_urls = Vec::with_capacity(urls.len());
         let mut providers = Vec::with_capacity(urls.len());
+        let mut last_connect_err: Option<anyhow::Error> = None;
         for url in &urls {
-            let transport =
-                tokio::time::timeout(RPC_TIMEOUT, BuiltInConnectionString::connect(url))
-                    .await
-                    .map_err(|_| {
-                        anyhow::anyhow!("timed out connecting bundler rpc: {}", redact_url(url))
-                    })?
-                    .with_context(|| format!("connect bundler rpc: {}", redact_url(url)))?;
-            let client = RpcClient::builder().transport(transport, false);
-            let provider = ProviderBuilder::default().connect_client(client);
-            providers.push(DynProvider::new(provider));
+            match tokio::time::timeout(RPC_TIMEOUT, BuiltInConnectionString::connect(url)).await {
+                Ok(Ok(transport)) => {
+                    let client = RpcClient::builder().transport(transport, false);
+                    let provider = ProviderBuilder::default().connect_client(client);
+                    providers.push(DynProvider::new(provider));
+                    healthy_urls.push(url.clone());
+                }
+                Ok(Err(err)) => {
+                    let redacted = redact_url(url);
+                    tracing::warn!(bundler = %redacted, err = %err, "failed to connect bundler rpc endpoint");
+                    last_connect_err = Some(
+                        anyhow::Error::new(err).context(format!("connect bundler rpc: {redacted}")),
+                    );
+                }
+                Err(_) => {
+                    let redacted = redact_url(url);
+                    let err = anyhow::anyhow!("timed out connecting bundler rpc: {redacted}");
+                    tracing::warn!(bundler = %redacted, err = %err, "failed to connect bundler rpc endpoint");
+                    last_connect_err = Some(err);
+                }
+            }
+        }
+
+        if providers.is_empty() {
+            if let Some(err) = last_connect_err {
+                return Err(err.context("all bundler rpc endpoints failed to connect"));
+            }
+            anyhow::bail!("all bundler rpc endpoints failed to connect");
         }
 
         Ok(Self {
-            urls,
+            urls: healthy_urls,
             providers,
             next_idx: 0,
         })
@@ -321,21 +341,24 @@ impl BundlerPool {
 
                     // Patch missing receipt.type (EIP-2718) if bundler omitted it.
                     if let Some(receipt) = v.get_mut("receipt").and_then(|r| r.as_object_mut()) {
-                        receipt.entry("type").or_insert_with(|| serde_json::json!("0x0"));
+                        receipt
+                            .entry("type")
+                            .or_insert_with(|| serde_json::json!("0x0"));
                     }
 
                     // Some bundlers also omit ERC-4337 optional-ish fields. Alloy's
                     // `UserOperationReceipt` currently models them as required.
                     if let Some(obj) = v.as_object_mut() {
-                        obj.entry("paymaster")
-                            .or_insert_with(|| serde_json::json!("0x0000000000000000000000000000000000000000"));
+                        obj.entry("paymaster").or_insert_with(|| {
+                            serde_json::json!("0x0000000000000000000000000000000000000000")
+                        });
                         // On success, reason is empty.
-                        obj.entry("reason").or_insert_with(|| serde_json::json!("0x"));
+                        obj.entry("reason")
+                            .or_insert_with(|| serde_json::json!("0x"));
                     }
 
-                    let v: UserOperationReceipt = serde_json::from_value(v).with_context(|| {
-                        "deserialize eth_getUserOperationReceipt response"
-                    })?;
+                    let v: UserOperationReceipt = serde_json::from_value(v)
+                        .with_context(|| "deserialize eth_getUserOperationReceipt response")?;
 
                     self.mark_success(idx);
                     return Ok(Some(v));

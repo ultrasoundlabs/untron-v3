@@ -71,7 +71,9 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-        let providers = rpc::RpcProviders::from_config(&stream_cfg.rpc).await?;
+        let providers =
+            rpc::RpcProviders::from_config(stream_cfg.stream, stream_cfg.chain_id, &stream_cfg.rpc)
+                .await?;
 
         if stream_cfg.stream == config::Stream::Controller {
             controller_for_receiver_usdt = Some(stream_cfg.clone());

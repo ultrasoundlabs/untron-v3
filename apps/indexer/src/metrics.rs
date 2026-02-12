@@ -265,17 +265,6 @@ impl StreamTelemetry {
             .record(range_total_ms, &self.inner.attrs);
     }
 
-    pub fn observe_rpc_latency_ms(&self, method: &'static str, ms: u64) {
-        self.inner.rpc_latency_ms.record(
-            ms,
-            &[
-                self.inner.attrs[0].clone(),
-                self.inner.attrs[1].clone(),
-                KeyValue::new("method", method),
-            ],
-        );
-    }
-
     pub fn observe_db_latency_ms(&self, op: &'static str, ms: u64) {
         self.inner.db_latency_ms.record(
             ms,

@@ -63,11 +63,27 @@ pub struct PoolService {
 impl PoolService {
     pub async fn new(cfg: AppConfig, telemetry: PoolTelemetry) -> Result<Self> {
         let tron_urls = cfg.tron.grpc_urls.clone();
-        let tron_url_cursor = 0;
         let tron_api_key = cfg.tron.api_key.clone();
-        let tron = TronGrpc::connect(&tron_urls[tron_url_cursor], tron_api_key.as_deref())
-            .await
-            .context("connect TRON gRPC")?;
+        let mut tron = None;
+        let mut tron_url_cursor = 0usize;
+        let mut last_connect_err: Option<anyhow::Error> = None;
+        for (idx, url) in tron_urls.iter().enumerate() {
+            match TronGrpc::connect(url, tron_api_key.as_deref()).await {
+                Ok(g) => {
+                    tron = Some(g);
+                    tron_url_cursor = idx;
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(tron_grpc = %url, err = %err, "failed to connect Tron gRPC endpoint");
+                    last_connect_err = Some(err);
+                }
+            }
+        }
+        let tron = tron.context("connect TRON gRPC")?;
+        if let Some(err) = last_connect_err {
+            tracing::info!(err = %err, "using fallback Tron gRPC endpoint");
+        }
 
         let tron_wallet = TronWallet::new(cfg.tron.private_key)?;
         let tron_usdt = TronAddress::parse_text(&cfg.tron.usdt_contract_address)
