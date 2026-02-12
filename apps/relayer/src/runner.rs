@@ -516,11 +516,6 @@ impl Relayer {
             tracing::info!(err = %err, "using fallback Tron gRPC endpoint");
         }
 
-        {
-            let mut g = active_tron_read_grpc.lock().await;
-            let _ = g.get_now_block2().await?;
-        }
-
         let tron_controller = TronAddress::parse_text(&cfg.tron.controller_address)
             .context("parse TRON_CONTROLLER_ADDRESS")?;
         let tron_wallet = Arc::new(TronWallet::new(cfg.tron.private_key)?);
@@ -554,24 +549,35 @@ impl Relayer {
         let tron_proof = Arc::new(TronTxProofBuilder::new(cfg.jobs.tron_finality_blocks));
         let tron_read_grpc_api_key = cfg.tron.api_key.clone();
 
+        let ctx = RelayerContext {
+            cfg,
+            telemetry,
+            indexer,
+            hub_provider,
+            hub_contract_address,
+            hub,
+            uniswap_v4,
+            tron_controller,
+            active_tron_read_grpc,
+            tron_read_grpc_urls: grpc_urls,
+            tron_read_grpc_url_cursor,
+            tron_read_grpc_api_key,
+            tron_write,
+            tron_wallet,
+            tron_proof,
+        };
+
+        // Startup read probe should use the same endpoint failover path as runtime reads.
+        ctx.with_tron_read_retry("startup_get_now_block2", |tron| {
+            Box::pin(async move {
+                let _ = tron.get_now_block2().await?;
+                Ok(())
+            })
+        })
+        .await?;
+
         Ok(Self {
-            ctx: RelayerContext {
-                cfg,
-                telemetry,
-                indexer,
-                hub_provider,
-                hub_contract_address,
-                hub,
-                uniswap_v4,
-                tron_controller,
-                active_tron_read_grpc,
-                tron_read_grpc_urls: grpc_urls,
-                tron_read_grpc_url_cursor,
-                tron_read_grpc_api_key,
-                tron_write,
-                tron_wallet,
-                tron_proof,
-            },
+            ctx,
             state: RelayerState {
                 delayed_tron: HashMap::new(),
                 tip_proof_resend_after: HashMap::new(),
