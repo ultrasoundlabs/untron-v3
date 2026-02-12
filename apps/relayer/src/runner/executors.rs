@@ -2,7 +2,7 @@ use super::RelayerState;
 use crate::metrics::RelayerTelemetry;
 use aa::Safe4337UserOpSender;
 use alloy::primitives::{Address, U256};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -97,7 +97,10 @@ impl HubExecutor {
 
 #[derive(Clone)]
 pub struct TronExecutor {
-    grpc: Arc<Mutex<TronGrpc>>,
+    active_grpc: Arc<Mutex<TronGrpc>>,
+    grpc_urls: Vec<String>,
+    grpc_api_key: Option<String>,
+    grpc_url_cursor: Arc<Mutex<usize>>,
     wallet: Arc<TronWallet>,
     fee_policy: FeePolicy,
     energy_rental: Vec<JsonApiRentalProvider>,
@@ -107,7 +110,9 @@ pub struct TronExecutor {
 
 impl TronExecutor {
     pub fn new(
-        grpc: Arc<Mutex<TronGrpc>>,
+        active_grpc: Arc<Mutex<TronGrpc>>,
+        grpc_urls: Vec<String>,
+        grpc_api_key: Option<String>,
         wallet: Arc<TronWallet>,
         fee_policy: FeePolicy,
         energy_rental: Vec<JsonApiRentalProvider>,
@@ -115,7 +120,10 @@ impl TronExecutor {
         telemetry: RelayerTelemetry,
     ) -> Self {
         Self {
-            grpc,
+            active_grpc,
+            grpc_urls,
+            grpc_api_key,
+            grpc_url_cursor: Arc::new(Mutex::new(0)),
             wallet,
             fee_policy,
             energy_rental,
@@ -132,16 +140,58 @@ impl TronExecutor {
         call_value_sun: i64,
     ) -> Result<[u8; 32]> {
         let start = Instant::now();
-        let mut grpc = self.grpc.lock().await;
-        let txid = self
-            .broadcast_trigger_smart_contract_managed(
-                &mut grpc,
-                state,
-                contract,
-                data,
-                call_value_sun,
-            )
-            .await;
+        let len = self.grpc_urls.len();
+        if len == 0 {
+            anyhow::bail!("no TRON_GRPC_URLS configured");
+        }
+
+        let start_cursor = *self.grpc_url_cursor.lock().await;
+        let attempts = if len == 1 { 2 } else { len };
+        let mut txid: Result<[u8; 32]> = Err(anyhow::anyhow!(
+            "all TRON_GRPC_URLS endpoints failed for op=broadcast_trigger_smart_contract"
+        ));
+
+        for attempt in 0..attempts {
+            let idx = (start_cursor + attempt) % len;
+            let force_reconnect = len == 1 && attempt > 0;
+
+            if let Err(err) = self.ensure_tron_connected(idx, force_reconnect).await {
+                tracing::warn!(
+                    tron_grpc = %self.grpc_urls[idx],
+                    op = "broadcast_trigger_smart_contract",
+                    err = %err,
+                    "failed to connect Tron gRPC endpoint"
+                );
+                txid = Err(err);
+                continue;
+            }
+
+            let mut grpc = self.active_grpc.lock().await;
+            match self
+                .broadcast_trigger_smart_contract_managed(
+                    &mut grpc,
+                    state,
+                    contract,
+                    data.clone(),
+                    call_value_sun,
+                )
+                .await
+            {
+                Ok(v) => {
+                    txid = Ok(v);
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        tron_grpc = %self.grpc_urls[idx],
+                        op = "broadcast_trigger_smart_contract",
+                        err = %err,
+                        "tron write operation failed; trying next endpoint"
+                    );
+                    txid = Err(err);
+                }
+            }
+        }
 
         match txid {
             Ok(txid) => {
@@ -157,6 +207,31 @@ impl TronExecutor {
                 Err(err)
             }
         }
+    }
+
+    async fn ensure_tron_connected(&self, idx: usize, force_reconnect: bool) -> Result<()> {
+        let len = self.grpc_urls.len();
+        if len == 0 {
+            anyhow::bail!("no TRON_GRPC_URLS configured");
+        }
+        let idx = idx % len;
+
+        let cur = *self.grpc_url_cursor.lock().await;
+        if idx == cur && !force_reconnect {
+            return Ok(());
+        }
+
+        let url = self.grpc_urls[idx].clone();
+        let grpc = TronGrpc::connect(&url, self.grpc_api_key.as_deref())
+            .await
+            .with_context(|| format!("connect TRON gRPC: {url}"))?;
+        {
+            let mut guard = self.active_grpc.lock().await;
+            *guard = grpc;
+        }
+        *self.grpc_url_cursor.lock().await = idx;
+        tracing::info!(tron_grpc = %url, "switched relayer Tron write endpoint");
+        Ok(())
     }
 
     async fn broadcast_trigger_smart_contract_managed(

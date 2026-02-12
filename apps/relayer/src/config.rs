@@ -70,7 +70,7 @@ pub struct UniswapV4AllowedPool {
 
 #[derive(Debug, Clone)]
 pub struct TronConfig {
-    pub grpc_url: String,
+    pub grpc_urls: Vec<String>,
     pub api_key: Option<String>,
     pub private_key: [u8; 32],
     pub controller_address: String,
@@ -164,7 +164,11 @@ struct Env {
     #[serde(default)]
     uniswap_v4_allow_topup: bool,
 
+    #[serde(default)]
     tron_grpc_url: String,
+
+    #[serde(default)]
+    tron_grpc_urls: String,
 
     tron_api_key: Option<String>,
 
@@ -234,6 +238,7 @@ impl Default for Env {
             uniswap_v4_slippage: 0.003,
             uniswap_v4_allow_topup: false,
             tron_grpc_url: String::new(),
+            tron_grpc_urls: String::new(),
             tron_api_key: None,
             tron_private_key_hex: String::new(),
             tron_controller_address: String::new(),
@@ -295,6 +300,14 @@ fn parse_csv(label: &str, s: &str) -> Result<Vec<String>> {
         anyhow::bail!("{label} must be non-empty");
     }
     Ok(urls)
+}
+
+fn parse_csv_optional(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn parse_tron_address_csv_optional(label: &str, s: &str) -> Result<Vec<TronAddress>> {
@@ -461,8 +474,15 @@ pub fn load_config() -> Result<AppConfig> {
     if env.hub_rpc_url.trim().is_empty() {
         anyhow::bail!("HUB_RPC_URL must be set");
     }
-    if env.tron_grpc_url.trim().is_empty() {
-        anyhow::bail!("TRON_GRPC_URL must be set");
+    let tron_grpc_urls = if !env.tron_grpc_urls.trim().is_empty() {
+        parse_csv_optional(&env.tron_grpc_urls)
+    } else if !env.tron_grpc_url.trim().is_empty() {
+        vec![env.tron_grpc_url.trim().to_string()]
+    } else {
+        Vec::new()
+    };
+    if tron_grpc_urls.is_empty() {
+        anyhow::bail!("TRON_GRPC_URLS (or TRON_GRPC_URL) must be set");
     }
     if env.tron_private_key_hex.trim().is_empty() {
         anyhow::bail!("TRON_PRIVATE_KEY_HEX must be set");
@@ -551,7 +571,7 @@ pub fn load_config() -> Result<AppConfig> {
             uniswap_v4,
         },
         tron: TronConfig {
-            grpc_url: env.tron_grpc_url,
+            grpc_urls: tron_grpc_urls,
             api_key: env.tron_api_key.filter(|s| !s.trim().is_empty()),
             private_key: parse_hex_32("TRON_PRIVATE_KEY_HEX", &env.tron_private_key_hex)?,
             controller_address: env.tron_controller_address,

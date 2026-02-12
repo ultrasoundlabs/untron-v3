@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     tracing::info!(
         indexer = %cfg.indexer.base_url,
         hub_rpc = %cfg.hub.rpc_url,
-        tron_grpc = %cfg.tron.grpc_url,
+        tron_grpc_urls = %cfg.tron.grpc_urls.join(","),
         "config loaded"
     );
 

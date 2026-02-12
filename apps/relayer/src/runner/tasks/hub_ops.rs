@@ -92,7 +92,6 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         None
     };
 
-    let mut tron = ctx.tron_read.clone();
     for row in rows.into_iter().take(20) {
         let receiver_salt_hex = row.receiver_salt.as_deref().unwrap_or_default();
         let receiver_salt = parse_bytes32(
@@ -137,7 +136,12 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         // Fetch and decode the Tron tx to explain / predict whether the hub's `preEntitle` call will
         // simulate successfully. This is intentionally verbose: it helps operators understand why
         // we pick preEntitle vs subjectivePreEntitle vs skipping (waiting for pullFromReceivers).
-        let tx = match tron.get_transaction_by_id(txid).await {
+        let tx = match ctx
+            .with_tron_read_retry("get_transaction_by_id", |tron| {
+                Box::pin(async move { tron.get_transaction_by_id(txid).await })
+            })
+            .await
+        {
             Ok(tx) => tx,
             Err(err) => {
                 tracing::warn!(
@@ -414,9 +418,14 @@ pub async fn execute_hub_intent(
 
     let (to, operation, data) = match intent {
         HubIntent::RelayControllerEventChain { proof_txid, events } => {
-            let mut tron = ctx.tron_read.clone();
             let start = Instant::now();
-            let bundle_res = ctx.tron_proof.build(&mut tron, proof_txid).await;
+            let tron_proof = ctx.tron_proof.clone();
+            let bundle_res = ctx
+                .with_tron_read_retry("build_proof", |tron| {
+                    let tron_proof = tron_proof.clone();
+                    Box::pin(async move { tron_proof.build(tron, proof_txid).await })
+                })
+                .await;
             ctx.telemetry
                 .tron_proof_ms(bundle_res.is_ok(), start.elapsed().as_millis() as u64);
             let bundle = bundle_res?;
@@ -445,9 +454,14 @@ pub async fn execute_hub_intent(
             receiver_salt,
             txid,
         } => {
-            let mut tron = ctx.tron_read.clone();
             let start = Instant::now();
-            let bundle_res = ctx.tron_proof.build(&mut tron, txid).await;
+            let tron_proof = ctx.tron_proof.clone();
+            let bundle_res = ctx
+                .with_tron_read_retry("build_proof", |tron| {
+                    let tron_proof = tron_proof.clone();
+                    Box::pin(async move { tron_proof.build(tron, txid).await })
+                })
+                .await;
             ctx.telemetry
                 .tron_proof_ms(bundle_res.is_ok(), start.elapsed().as_millis() as u64);
             let bundle = bundle_res?;

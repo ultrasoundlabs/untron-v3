@@ -33,6 +33,7 @@ use self::{
     tasks::HubIntent,
     util::{run_job, tron_head_block},
 };
+use futures::future::BoxFuture;
 
 pub struct Relayer {
     ctx: RelayerContext,
@@ -82,7 +83,10 @@ pub struct RelayerContext {
     pub uniswap_v4: Option<UniswapV4Client>,
 
     pub tron_controller: TronAddress,
-    pub tron_read: TronGrpc,
+    active_tron_read_grpc: Arc<Mutex<TronGrpc>>,
+    tron_read_grpc_urls: Vec<String>,
+    tron_read_grpc_url_cursor: Arc<Mutex<usize>>,
+    tron_read_grpc_api_key: Option<String>,
     pub tron_write: TronExecutor,
     pub tron_wallet: Arc<TronWallet>,
     pub tron_proof: Arc<TronTxProofBuilder>,
@@ -345,6 +349,78 @@ impl RelayerContext {
     pub fn hub_contract(&self) -> UntronV3Instance<DynProvider> {
         UntronV3Instance::new(self.hub_contract_address, self.hub_provider.clone())
     }
+
+    async fn ensure_tron_read_connected(&self, idx: usize, force_reconnect: bool) -> Result<()> {
+        let len = self.tron_read_grpc_urls.len();
+        if len == 0 {
+            anyhow::bail!("no TRON_GRPC_URLS configured");
+        }
+        let idx = idx % len;
+
+        let cur = *self.tron_read_grpc_url_cursor.lock().await;
+        if idx == cur && !force_reconnect {
+            return Ok(());
+        }
+
+        let url = self.tron_read_grpc_urls[idx].clone();
+        let grpc = TronGrpc::connect(&url, self.tron_read_grpc_api_key.as_deref())
+            .await
+            .with_context(|| format!("connect TRON gRPC: {url}"))?;
+
+        {
+            let mut guard = self.active_tron_read_grpc.lock().await;
+            *guard = grpc;
+        }
+        *self.tron_read_grpc_url_cursor.lock().await = idx;
+        tracing::info!(tron_grpc = %url, "switched relayer Tron read endpoint");
+        Ok(())
+    }
+
+    pub async fn with_tron_read_retry<T, F>(&self, op_name: &'static str, mut op: F) -> Result<T>
+    where
+        F: for<'a> FnMut(&'a mut TronGrpc) -> BoxFuture<'a, Result<T>>,
+    {
+        let len = self.tron_read_grpc_urls.len();
+        if len == 0 {
+            anyhow::bail!("no TRON_GRPC_URLS configured");
+        }
+
+        let start = *self.tron_read_grpc_url_cursor.lock().await;
+        let attempts = if len == 1 { 2 } else { len };
+        let mut last_err: Option<anyhow::Error> = None;
+
+        for attempt in 0..attempts {
+            let idx = (start + attempt) % len;
+            let force_reconnect = len == 1 && attempt > 0;
+
+            if let Err(err) = self.ensure_tron_read_connected(idx, force_reconnect).await {
+                tracing::warn!(
+                    tron_grpc = %self.tron_read_grpc_urls[idx],
+                    op = op_name,
+                    err = %err,
+                    "failed to connect Tron gRPC endpoint"
+                );
+                last_err = Some(err);
+                continue;
+            }
+
+            let mut grpc = self.active_tron_read_grpc.lock().await;
+            match op(&mut grpc).await {
+                Ok(v) => return Ok(v),
+                Err(err) => {
+                    tracing::warn!(
+                        tron_grpc = %self.tron_read_grpc_urls[idx],
+                        op = op_name,
+                        err = %err,
+                        "tron read operation failed; trying next endpoint"
+                    );
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("all TRON_GRPC_URLS endpoints failed")))
+    }
 }
 
 impl Relayer {
@@ -354,7 +430,8 @@ impl Relayer {
             &cfg.indexer.base_url,
             cfg.indexer.timeout,
             telemetry.clone(),
-        )?);        let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
+        )?);
+        let per_try_timeout_ms: u64 = std::env::var("RPC_PER_TRY_TIMEOUT_MS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(2_500);
@@ -385,9 +462,7 @@ impl Relayer {
         };
 
         let hub_sender_cfg = Safe4337UserOpSenderConfig {
-            rpc_url: untron_rpc_fallback::FallbackHttpTransport::first_url_from_csv(&cfg.hub.rpc_url)
-            .with_context(|| format!("parse HUB_RPC_URL: {}", cfg.hub.rpc_url))?
-            .to_string(),
+            rpc_url: cfg.hub.rpc_url.clone(),
             chain_id: cfg.hub.chain_id,
             entrypoint: cfg.hub.entrypoint,
             safe: cfg.hub.safe,
@@ -417,15 +492,42 @@ impl Relayer {
         let hub_sender = Arc::new(Mutex::new(hub_sender_inner));
         let hub = HubExecutor::new(hub_sender, telemetry.clone());
 
-        let mut tron_read =
-            TronGrpc::connect(&cfg.tron.grpc_url, cfg.tron.api_key.as_deref()).await?;
+        let grpc_urls = cfg.tron.grpc_urls.clone();
+        let mut active_tron_read_grpc = None;
+        let mut tron_read_grpc_idx = 0usize;
+        let mut last_connect_err: Option<anyhow::Error> = None;
+        for (idx, url) in grpc_urls.iter().enumerate() {
+            match TronGrpc::connect(url, cfg.tron.api_key.as_deref()).await {
+                Ok(g) => {
+                    active_tron_read_grpc = Some(g);
+                    tron_read_grpc_idx = idx;
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(tron_grpc = %url, err = %err, "failed to connect Tron gRPC endpoint");
+                    last_connect_err = Some(err);
+                }
+            }
+        }
+        let active_tron_read_grpc = active_tron_read_grpc.context("connect TRON gRPC")?;
+        let active_tron_read_grpc = Arc::new(Mutex::new(active_tron_read_grpc));
+        let tron_read_grpc_url_cursor = Arc::new(Mutex::new(tron_read_grpc_idx));
+        if let Some(err) = last_connect_err {
+            tracing::info!(err = %err, "using fallback Tron gRPC endpoint");
+        }
 
-        let _ = tron_read.get_now_block2().await?;
+        {
+            let mut g = active_tron_read_grpc.lock().await;
+            let _ = g.get_now_block2().await?;
+        }
 
         let tron_controller = TronAddress::parse_text(&cfg.tron.controller_address)
             .context("parse TRON_CONTROLLER_ADDRESS")?;
         let tron_wallet = Arc::new(TronWallet::new(cfg.tron.private_key)?);
-        let tron_grpc_write = Arc::new(Mutex::new(tron_read.clone()));
+        let tron_grpc_write = {
+            let g = active_tron_read_grpc.lock().await;
+            Arc::new(Mutex::new(g.clone()))
+        };
         let fee_policy = FeePolicy {
             // No env config: cap is effectively disabled.
             fee_limit_cap_sun: i64::MAX as u64,
@@ -440,6 +542,8 @@ impl Relayer {
             .collect::<Vec<_>>();
         let tron_write = TronExecutor::new(
             tron_grpc_write,
+            grpc_urls.clone(),
+            cfg.tron.api_key.clone(),
             tron_wallet.clone(),
             fee_policy,
             energy_rental,
@@ -447,6 +551,7 @@ impl Relayer {
             telemetry.clone(),
         );
         let tron_proof = Arc::new(TronTxProofBuilder::new(cfg.jobs.tron_finality_blocks));
+        let tron_read_grpc_api_key = cfg.tron.api_key.clone();
 
         Ok(Self {
             ctx: RelayerContext {
@@ -458,7 +563,10 @@ impl Relayer {
                 hub,
                 uniswap_v4,
                 tron_controller,
-                tron_read,
+                active_tron_read_grpc,
+                tron_read_grpc_urls: grpc_urls,
+                tron_read_grpc_url_cursor,
+                tron_read_grpc_api_key,
                 tron_write,
                 tron_wallet,
                 tron_proof,
@@ -551,9 +659,11 @@ impl Relayer {
     }
 
     async fn collect_tick(&self) -> Result<Tick> {
-        let mut tron = self.ctx.tron_read.clone();
         let tron_start = std::time::Instant::now();
-        let tron_head_res = tron_head_block(&mut tron).await;
+        let tron_head_res = self
+            .ctx
+            .with_tron_read_retry("get_now_block2", |tron| Box::pin(tron_head_block(tron)))
+            .await;
         self.ctx.telemetry.tron_grpc_ms(
             "get_now_block2",
             tron_head_res.is_ok(),

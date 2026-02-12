@@ -72,14 +72,15 @@ pub async fn plan_controller_rebalance(
         .context("missing controller usdt")?;
     let token_tron = TronAddress::parse_text(token_tron).context("parse controller usdt")?;
 
-    let mut tron = ctx.tron_read.clone();
-    let balance = trc20_balance_of(
-        &mut tron,
-        token_tron,
-        ctx.tron_controller,
-        ctx.tron_wallet.address(),
-    )
-    .await?;
+    let tron_controller = ctx.tron_controller;
+    let wallet_address = ctx.tron_wallet.address();
+    let balance = ctx
+        .with_tron_read_retry("trc20_balance_of", |tron| {
+            Box::pin(async move {
+                trc20_balance_of(tron, token_tron, tron_controller, wallet_address).await
+            })
+        })
+        .await?;
 
     // Single-flight: if a prior rebalance is still "in flight" and we haven't observed its effect,
     // don't spam additional rebalance transactions.

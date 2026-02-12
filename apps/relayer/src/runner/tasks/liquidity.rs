@@ -574,7 +574,6 @@ async fn find_unentitleable_receiver_salts(
         return Ok(Vec::new());
     }
 
-    let mut tron = ctx.tron_read.clone();
     for row in rows.into_iter().take(20) {
         let receiver_salt_hex = row.receiver_salt.as_deref().unwrap_or_default();
         let txid_hex = match row.tx_hash.as_deref() {
@@ -599,8 +598,10 @@ async fn find_unentitleable_receiver_salts(
         }
         let txid = parse_txid32(txid_hex)?;
 
-        let tx = tron
-            .get_transaction_by_id(txid)
+        let tx = ctx
+            .with_tron_read_retry("get_transaction_by_id", |tron| {
+                Box::pin(async move { tron.get_transaction_by_id(txid).await })
+            })
             .await
             .context("tron get_transaction_by_id")?;
         let decoded = match decode_trigger_smart_contract(&tx) {
