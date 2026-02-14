@@ -180,7 +180,17 @@ pub async fn ensure_instance_config(
             .await
             .context("read chain.stream_cursor")?;
 
+            // Ensure `chain.ingest_cursor` exists too.
+            let ingest_cursor_exists: Option<i64> = query_scalar(
+                "select next_block from chain.ingest_cursor where stream = $1::chain.stream",
+            )
+            .bind(stream.as_str())
+            .fetch_optional(&db.pool)
+            .await
+            .context("read chain.ingest_cursor")?;
+
             if cursor_exists.is_none() {
+                // Fresh/manual DB that forgot to seed cursors.
                 configure_instance(
                     &db.pool,
                     stream,
@@ -189,6 +199,16 @@ pub async fn ensure_instance_config(
                     &genesis_tip_hex,
                 )
                 .await?;
+            } else if ingest_cursor_exists.is_none() {
+                // Upgrade safety: existing stream_cursor has applied seq > 0, so configure_instance
+                // would throw. Just seed ingest_cursor.
+                sqlx::query(
+                    "insert into chain.ingest_cursor(stream, next_block) values ($1::chain.stream, 0) on conflict (stream) do nothing",
+                )
+                .bind(stream.as_str())
+                .execute(&db.pool)
+                .await
+                .context("seed chain.ingest_cursor")?;
             }
         }
     }

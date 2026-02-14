@@ -149,6 +149,21 @@ pub(super) async fn process_range_with_provider(
         if inserted.is_none() {
             return Ok(None);
         }
+
+        // Advance ingestion cursor only after the range commit succeeds.
+        // This makes ingestion resume explicit and prevents permanent holes.
+        let Some(((), advance_ms)) = r#async::timed_await_or_cancel(shutdown, async {
+            db::event_chain::advance_ingest_cursor(dbh, state.stream, to_block.saturating_add(1))
+                .await
+        })
+        .await?
+        else {
+            return Ok(None);
+        };
+        state
+            .telemetry
+            .observe_db_latency_ms("advance_ingest_cursor", advance_ms);
+
         let db_ms = db_start.elapsed().as_millis() as u64;
         state.telemetry.observe_db_latency_ms("insert_batch", db_ms);
         // best-effort: counts are accurate even if some rows were conflict-updated

@@ -146,6 +146,10 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
     let mut head_attempts: u32 = 0;
     let mut head_backoff = TRANSIENT_BACKOFF_INITIAL;
 
+    let mut last_gap_check = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(3600))
+        .unwrap_or_else(std::time::Instant::now);
+
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => {
@@ -202,6 +206,37 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
 
         progress.update_event_chain_chunk_blocks(state.chunk_current);
         progress.maybe_report(head, safe_head, from_block);
+
+        // Detect canonical event_seq gaps early; these wedge projections.
+        // Cheap check: missing = max(event_seq) - count(*) for canonical rows.
+        if last_gap_check.elapsed() >= Duration::from_secs(30) {
+            last_gap_check = std::time::Instant::now();
+            let gaps_res = timed_await_or_cancel(&shutdown, async {
+                db::event_chain::canonical_seq_gap_count(&dbh, state.stream).await
+            })
+            .await;
+            match gaps_res {
+                Ok(Some((gaps, ms))) => {
+                    state
+                        .telemetry
+                        .observe_db_latency_ms("canonical_seq_gap_count", ms);
+                    let gaps_u64 = u64::try_from(gaps).unwrap_or(0);
+                    state.telemetry.set_seq_gaps(gaps_u64);
+                    if gaps > 0 {
+                        warn!(
+                            stream = state.stream.as_str(),
+                            gaps,
+                            next_block = from_block,
+                            "detected canonical event_seq gaps; projections may wedge until backfilled"
+                        );
+                    }
+                }
+                Ok(None) => return Ok(()),
+                Err(e) => {
+                    warn!(stream = state.stream.as_str(), err = %e, "gap check failed; continuing");
+                }
+            }
+        }
 
         let reorg_res = r#async::await_or_cancel(&shutdown, async {
             reorg::detect_reorg_start(
