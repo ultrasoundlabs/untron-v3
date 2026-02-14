@@ -11,6 +11,24 @@ pub fn parse_b256_hex(value: &str) -> Result<B256> {
 }
 
 pub async fn resume_from_block(db: &Db, stream: Stream, deployment_block: u64) -> Result<u64> {
+    // Prefer explicit ingestion cursor if present; fall back to legacy max(block)+1.
+    //
+    // This prevents permanent gaps when a transient failure causes us to miss a block range but later
+    // ingest newer blocks (max(block) advances and we'd never go back).
+    let next_block: Option<i64> = query_scalar(
+        "select nullif(next_block, 0) from chain.ingest_cursor where stream = $1::chain.stream",
+    )
+    .bind(stream.as_str())
+    .fetch_optional(&db.pool)
+    .await
+    .context("read chain.ingest_cursor")?;
+
+    if let Some(b) = next_block {
+        let b = u64::try_from(b).unwrap_or(deployment_block);
+        return Ok(b.max(deployment_block));
+    }
+
+    // Legacy fallback.
     let max_block: Option<i64> = query_scalar(
         "select max(block_number) from chain.event_appended where stream = $1::chain.stream and canonical",
     )
@@ -29,6 +47,48 @@ pub async fn resume_from_block(db: &Db, stream: Stream, deployment_block: u64) -
     };
 
     Ok(next)
+}
+
+pub async fn advance_ingest_cursor(db: &Db, stream: Stream, next_block: u64) -> Result<()> {
+    let next_block = i64::try_from(next_block).context("next_block out of range for bigint")?;
+    sqlx::query(
+        r#"
+        insert into chain.ingest_cursor(stream, next_block)
+        values ($1::chain.stream, $2)
+        on conflict (stream) do update
+          set next_block = greatest(chain.ingest_cursor.next_block, excluded.next_block),
+              updated_at = now()
+        "#,
+    )
+    .bind(stream.as_str())
+    .bind(next_block)
+    .execute(&db.pool)
+    .await
+    .context("advance chain.ingest_cursor")?;
+
+    Ok(())
+}
+
+pub async fn canonical_seq_gap_count(db: &Db, stream: Stream) -> Result<i64> {
+    // For streams where event_seq starts at 1, the number of missing sequences is:
+    //   missing = max_seq - count
+    // This is cheap (index-only-ish) and good enough for alerting.
+    let (max_seq, n): (Option<i64>, i64) = sqlx::query_as(
+        r#"
+        select max(event_seq) as max_seq, count(*) as n
+        from chain.event_appended
+        where stream = $1::chain.stream and canonical
+        "#,
+    )
+    .bind(stream.as_str())
+    .fetch_one(&db.pool)
+    .await
+    .context("read seq gap stats")?;
+
+    let Some(max_seq) = max_seq else {
+        return Ok(0);
+    };
+    Ok(max_seq.saturating_sub(n))
 }
 
 #[derive(Debug, Clone)]

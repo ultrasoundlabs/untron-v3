@@ -41,6 +41,7 @@ struct Inner {
     tip_lag_blocks: Arc<AtomicU64>,
     safe_lag_blocks: Arc<AtomicU64>,
     chunk_blocks: Arc<AtomicU64>,
+    seq_gaps: Arc<AtomicU64>,
     _g_head_block: ObservableGauge<u64>,
     _g_safe_head_block: ObservableGauge<u64>,
     _g_next_block: ObservableGauge<u64>,
@@ -48,6 +49,7 @@ struct Inner {
     _g_tip_lag_blocks: ObservableGauge<u64>,
     _g_safe_lag_blocks: ObservableGauge<u64>,
     _g_chunk_blocks: ObservableGauge<u64>,
+    _g_seq_gaps: ObservableGauge<u64>,
 }
 
 impl StreamTelemetry {
@@ -119,6 +121,7 @@ impl StreamTelemetry {
         let tip_lag_blocks = Arc::new(AtomicU64::new(0));
         let safe_lag_blocks = Arc::new(AtomicU64::new(0));
         let chunk_blocks = Arc::new(AtomicU64::new(0));
+        let seq_gaps = Arc::new(AtomicU64::new(0));
 
         let attrs_clone = attrs.clone();
         let head_block_clone = head_block.clone();
@@ -190,6 +193,16 @@ impl StreamTelemetry {
             })
             .build();
 
+        let attrs_clone = attrs.clone();
+        let seq_gaps_clone = seq_gaps.clone();
+        let _g_seq_gaps = meter
+            .u64_observable_gauge("indexer.event_seq_gaps")
+            .with_description("Number of missing canonical event_seq values (max_seq - count)")
+            .with_callback(move |observer| {
+                observer.observe(seq_gaps_clone.load(Ordering::Relaxed), &attrs_clone);
+            })
+            .build();
+
         Self {
             inner: Arc::new(Inner {
                 attrs,
@@ -212,6 +225,7 @@ impl StreamTelemetry {
                 tip_lag_blocks,
                 safe_lag_blocks,
                 chunk_blocks,
+                seq_gaps,
                 _g_head_block,
                 _g_safe_head_block,
                 _g_next_block,
@@ -219,6 +233,7 @@ impl StreamTelemetry {
                 _g_tip_lag_blocks,
                 _g_safe_lag_blocks,
                 _g_chunk_blocks,
+                _g_seq_gaps,
             }),
         }
     }
@@ -245,6 +260,10 @@ impl StreamTelemetry {
         self.inner
             .safe_lag_blocks
             .store(safe_head.saturating_sub(next), Ordering::Relaxed);
+    }
+
+    pub fn set_seq_gaps(&self, gaps: u64) {
+        self.inner.seq_gaps.store(gaps, Ordering::Relaxed);
     }
 
     pub fn observe_range(

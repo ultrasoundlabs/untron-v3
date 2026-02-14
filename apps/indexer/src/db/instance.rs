@@ -180,7 +180,16 @@ pub async fn ensure_instance_config(
             .await
             .context("read chain.stream_cursor")?;
 
-            if cursor_exists.is_none() {
+            // Ensure `chain.ingest_cursor` exists too.
+            let ingest_cursor_exists: Option<i64> = query_scalar(
+                "select next_block from chain.ingest_cursor where stream = $1::chain.stream",
+            )
+            .bind(stream.as_str())
+            .fetch_optional(&db.pool)
+            .await
+            .context("read chain.ingest_cursor")?;
+
+            if cursor_exists.is_none() || ingest_cursor_exists.is_none() {
                 configure_instance(
                     &db.pool,
                     stream,
