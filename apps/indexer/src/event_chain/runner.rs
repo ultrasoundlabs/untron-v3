@@ -226,7 +226,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
                         warn!(
                             stream = state.stream.as_str(),
                             gaps,
-                            applied_through_seq = from_block.saturating_sub(1),
+                            next_block = from_block,
                             "detected canonical event_seq gaps; projections may wedge until backfilled"
                         );
                     }

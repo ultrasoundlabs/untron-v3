@@ -82,3 +82,9 @@ begin
     set next_block = 0,
         updated_at = now();
 end $$;
+
+-- Seed ingest_cursor for streams that already exist (upgrade safety).
+insert into chain.ingest_cursor(stream, next_block)
+select stream, 0
+from chain.instance
+on conflict (stream) do nothing;

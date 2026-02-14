@@ -15,15 +15,14 @@ pub async fn resume_from_block(db: &Db, stream: Stream, deployment_block: u64) -
     //
     // This prevents permanent gaps when a transient failure causes us to miss a block range but later
     // ingest newer blocks (max(block) advances and we'd never go back).
-    let next_block: Option<i64> = query_scalar(
-        "select nullif(next_block, 0) from chain.ingest_cursor where stream = $1::chain.stream",
-    )
-    .bind(stream.as_str())
-    .fetch_optional(&db.pool)
-    .await
-    .context("read chain.ingest_cursor")?;
+    let next_block: Option<i64> =
+        query_scalar("select next_block from chain.ingest_cursor where stream = $1::chain.stream")
+            .bind(stream.as_str())
+            .fetch_optional(&db.pool)
+            .await
+            .context("read chain.ingest_cursor")?;
 
-    if let Some(b) = next_block {
+    if let Some(b) = next_block.filter(|&b| b > 0) {
         let b = u64::try_from(b).unwrap_or(deployment_block);
         return Ok(b.max(deployment_block));
     }
@@ -56,7 +55,7 @@ pub async fn advance_ingest_cursor(db: &Db, stream: Stream, next_block: u64) -> 
         insert into chain.ingest_cursor(stream, next_block)
         values ($1::chain.stream, $2)
         on conflict (stream) do update
-          set next_block = greatest(chain.ingest_cursor.next_block, excluded.next_block),
+          set next_block = excluded.next_block,
               updated_at = now()
         "#,
     )
