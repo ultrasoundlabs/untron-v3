@@ -62,17 +62,29 @@ struct RpcPackedUserOperationV07 {
 struct RpcUserOperationV07Expanded {
     sender: Address,
     nonce: U256,
-    init_code: Bytes,
+
+    // v0.7 expanded shape uses factory + factoryData instead of initCode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    factory: Option<Address>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    factory_data: Option<Bytes>,
+
     call_data: Bytes,
     call_gas_limit: U256,
     verification_gas_limit: U256,
     pre_verification_gas: U256,
     max_fee_per_gas: U256,
     max_priority_fee_per_gas: U256,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     paymaster: Option<Address>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     paymaster_verification_gas_limit: Option<U256>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     paymaster_post_op_gas_limit: Option<U256>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     paymaster_data: Option<Bytes>,
+
     signature: Bytes,
 }
 
@@ -131,12 +143,11 @@ fn to_rpc_packed_v07(op: &PackedUserOperation) -> Result<RpcPackedUserOperationV
 }
 
 fn to_rpc_expanded_v07(op: &PackedUserOperation) -> Result<RpcUserOperationV07Expanded> {
-    let init_code = Bytes::from(pack_init_code(op.factory, op.factory_data.as_ref())?);
-
     Ok(RpcUserOperationV07Expanded {
         sender: op.sender,
         nonce: op.nonce,
-        init_code,
+        factory: op.factory,
+        factory_data: op.factory_data.clone(),
         call_data: op.call_data.clone(),
         call_gas_limit: op.call_gas_limit,
         verification_gas_limit: op.verification_gas_limit,
