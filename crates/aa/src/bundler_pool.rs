@@ -27,6 +27,14 @@ fn looks_like_packed_userop_unsupported(err: &anyhow::Error) -> bool {
         || (s.contains("maxFeePerGas") && s.contains("received undefined"))
 }
 
+fn looks_like_wrapped_params_expected(err: &anyhow::Error) -> bool {
+    let s = format!("{err:#}");
+    // Pimlico sometimes validates against a schema where params[0] is an object:
+    //   { userOp: <op>, entryPoint: <addr> }
+    // and errors come back pointing at `params[0].userOp.*`.
+    s.contains("params[0].userOp")
+}
+
 /// Canonical EntryPoint v0.7 "packed" JSON shape.
 ///
 /// Some bundlers/paymasters only accept the expanded field set (`callGasLimit`, `paymaster`, ...),
@@ -86,6 +94,13 @@ struct RpcUserOperationV07Expanded {
     paymaster_data: Option<Bytes>,
 
     signature: Bytes,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RpcUserOpAndEntryPoint<T> {
+    user_op: T,
+    entry_point: Address,
 }
 
 fn pack_u128_pair_be(
@@ -350,7 +365,7 @@ impl BundlerPool {
                         let rpc_op = to_rpc_expanded_v07(user_op)?;
                         let fut = provider.raw_request(
                             "eth_estimateUserOperationGas".into(),
-                            (rpc_op, entry_point),
+                            (rpc_op.clone(), entry_point),
                         );
                         match tokio::time::timeout(RPC_TIMEOUT, fut).await {
                             Ok(Ok(v)) => {
@@ -361,12 +376,53 @@ impl BundlerPool {
                             Ok(Err(err2)) => {
                                 let err2 = anyhow::Error::new(err2)
                                     .context("eth_estimateUserOperationGas (expanded fallback)");
-                                tracing::warn!(
-                                    bundler = %url,
-                                    err = %format!("{err2:#}"),
-                                    "bundler rpc failed"
-                                );
-                                last_err = Some(err2);
+
+                                // Some endpoints appear to expect wrapped params:
+                                //   [ { userOp, entryPoint } ]
+                                if looks_like_wrapped_params_expected(&err2) {
+                                    let wrapped = RpcUserOpAndEntryPoint {
+                                        user_op: rpc_op,
+                                        entry_point,
+                                    };
+                                    let fut = provider.raw_request(
+                                        "eth_estimateUserOperationGas".into(),
+                                        (wrapped,),
+                                    );
+                                    match tokio::time::timeout(RPC_TIMEOUT, fut).await {
+                                        Ok(Ok(v)) => {
+                                            let v: EstimateAny = v;
+                                            self.mark_success(idx);
+                                            return Ok(v.into());
+                                        }
+                                        Ok(Err(err3)) => {
+                                            let err3 = anyhow::Error::new(err3).context(
+                                                "eth_estimateUserOperationGas (expanded wrapped fallback)",
+                                            );
+                                            tracing::warn!(
+                                                bundler = %url,
+                                                err = %format!("{err3:#}"),
+                                                "bundler rpc failed"
+                                            );
+                                            last_err = Some(err3);
+                                        }
+                                        Err(_) => {
+                                            let err = anyhow::anyhow!("timed out");
+                                            tracing::warn!(
+                                                bundler = %url,
+                                                err = %err,
+                                                "bundler rpc timed out (eth_estimateUserOperationGas expanded wrapped fallback)"
+                                            );
+                                            last_err = Some(err);
+                                        }
+                                    }
+                                } else {
+                                    tracing::warn!(
+                                        bundler = %url,
+                                        err = %format!("{err2:#}"),
+                                        "bundler rpc failed"
+                                    );
+                                    last_err = Some(err2);
+                                }
                             }
                             Err(_) => {
                                 let err = anyhow::anyhow!("timed out");
@@ -439,8 +495,8 @@ impl BundlerPool {
                         );
 
                         let rpc_op = to_rpc_expanded_v07(user_op)?;
-                        let fut =
-                            provider.raw_request("eth_sendUserOperation".into(), (rpc_op, entry_point));
+                        let fut = provider
+                            .raw_request("eth_sendUserOperation".into(), (rpc_op.clone(), entry_point));
                         match tokio::time::timeout(RPC_TIMEOUT, fut).await {
                             Ok(Ok(v)) => {
                                 let v: SendUserOperationResponseAny = v;
@@ -451,12 +507,49 @@ impl BundlerPool {
                             Ok(Err(err2)) => {
                                 let err2 = anyhow::Error::new(err2)
                                     .context("eth_sendUserOperation (expanded fallback)");
-                                tracing::warn!(
-                                    bundler = %url,
-                                    err = %format!("{err2:#}"),
-                                    "bundler rpc failed"
-                                );
-                                last_err = Some(err2);
+
+                                if looks_like_wrapped_params_expected(&err2) {
+                                    let wrapped = RpcUserOpAndEntryPoint {
+                                        user_op: rpc_op,
+                                        entry_point,
+                                    };
+                                    let fut = provider
+                                        .raw_request("eth_sendUserOperation".into(), (wrapped,));
+                                    match tokio::time::timeout(RPC_TIMEOUT, fut).await {
+                                        Ok(Ok(v)) => {
+                                            let v: SendUserOperationResponseAny = v;
+                                            let v: SendUserOperationResponse = v.into();
+                                            self.mark_success(idx);
+                                            return Ok(v);
+                                        }
+                                        Ok(Err(err3)) => {
+                                            let err3 = anyhow::Error::new(err3)
+                                                .context("eth_sendUserOperation (expanded wrapped fallback)");
+                                            tracing::warn!(
+                                                bundler = %url,
+                                                err = %format!("{err3:#}"),
+                                                "bundler rpc failed"
+                                            );
+                                            last_err = Some(err3);
+                                        }
+                                        Err(_) => {
+                                            let err = anyhow::anyhow!("timed out");
+                                            tracing::warn!(
+                                                bundler = %url,
+                                                err = %err,
+                                                "bundler rpc timed out (eth_sendUserOperation expanded wrapped fallback)"
+                                            );
+                                            last_err = Some(err);
+                                        }
+                                    }
+                                } else {
+                                    tracing::warn!(
+                                        bundler = %url,
+                                        err = %format!("{err2:#}"),
+                                        "bundler rpc failed"
+                                    );
+                                    last_err = Some(err2);
+                                }
                             }
                             Err(_) => {
                                 let err = anyhow::anyhow!("timed out");
