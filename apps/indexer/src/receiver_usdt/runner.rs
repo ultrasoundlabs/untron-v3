@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use std::{collections::HashMap, time::Duration};
 use tokio::{task::JoinSet, time};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::shared::progress::ProgressReporter;
 use crate::shared::rpc_telemetry::RpcTelemetry;
@@ -279,13 +279,16 @@ async fn discovery_loop(
     let mut ticker = time::interval(receiver_usdt_cfg.discovery_interval);
     ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
+    let mut consecutive_failures: u32 = 0;
+    let mut first_failure_at: Option<std::time::Instant> = None;
+
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => return Ok(()),
             _ = ticker.tick() => {}
         }
 
-        if let Err(e) = upsert_watchlist_once(
+        match upsert_watchlist_once(
             dbh,
             controller_cfg,
             receiver_usdt_cfg,
@@ -294,7 +297,33 @@ async fn discovery_loop(
         )
         .await
         {
-            warn!(err = %e, "receiver_usdt discovery tick failed");
+            Ok(()) => {
+                consecutive_failures = 0;
+                first_failure_at = None;
+            }
+            Err(e) => {
+                consecutive_failures = consecutive_failures.saturating_add(1);
+                let started = first_failure_at.get_or_insert_with(std::time::Instant::now);
+                let failed_for = started.elapsed();
+
+                // A single failure can be transient; repeated failures mean receiver discovery is
+                // effectively stalled (and deposits may not be discovered/processed correctly).
+                if consecutive_failures >= 3 || failed_for >= Duration::from_secs(120) {
+                    error!(
+                        consecutive_failures,
+                        failed_for_s = failed_for.as_secs(),
+                        err = ?e,
+                        "receiver_usdt discovery is failing repeatedly; receiver watchlist updates may be stalled"
+                    );
+                } else {
+                    warn!(
+                        consecutive_failures,
+                        failed_for_s = failed_for.as_secs(),
+                        err = %e,
+                        "receiver_usdt discovery tick failed"
+                    );
+                }
+            }
         }
     }
 }

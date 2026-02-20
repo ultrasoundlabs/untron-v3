@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use untron_v3_bindings::untron_v3::UntronV3;
 
 pub struct RunHubDepositProcessedParams {
@@ -79,7 +79,8 @@ pub async fn run_hub_deposit_processed_cache(params: RunHubDepositProcessedParam
             "checking depositProcessed(txId) for candidates"
         );
 
-        let results: Vec<(String, bool)> = stream::iter(candidates.into_iter())
+        let attempted = candidates.len();
+        let results_raw: Vec<Result<(String, bool)>> = stream::iter(candidates.into_iter())
             .map(|tx_hash| {
                 let hub = hub.clone();
                 async move {
@@ -100,17 +101,40 @@ pub async fn run_hub_deposit_processed_cache(params: RunHubDepositProcessedParam
                 }
             })
             .buffer_unordered(concurrency)
-            .filter_map(|r| async {
-                match r {
-                    Ok(v) => Some(v),
-                    Err(e) => {
-                        warn!(err = ?e, "depositProcessed check failed");
-                        None
-                    }
-                }
-            })
             .collect()
             .await;
+
+        let mut failed: usize = 0;
+        let mut results: Vec<(String, bool)> = Vec::with_capacity(attempted);
+
+        for r in results_raw {
+            match r {
+                Ok(v) => results.push(v),
+                Err(e) => {
+                    failed += 1;
+                    warn!(err = ?e, "depositProcessed check failed");
+                }
+            }
+        }
+
+        if attempted > 0 {
+            let ok = results.len();
+            // If we are systematically failing these checks, deposits may remain stuck in
+            // subjective_pre_entitle even though they are actually processed.
+            if ok == 0 && attempted >= 10 {
+                error!(
+                    attempted,
+                    failed,
+                    "depositProcessed checks are failing (0 successes); deposit processing may be stalled"
+                );
+            } else if failed * 2 > attempted && attempted >= 20 {
+                error!(
+                    attempted,
+                    failed,
+                    "depositProcessed checks have a high failure rate; deposit processing may be degraded"
+                );
+            }
+        }
 
         if !results.is_empty() {
             db::deposit_processed::upsert_deposit_processed_cache(&dbh, &results).await?;

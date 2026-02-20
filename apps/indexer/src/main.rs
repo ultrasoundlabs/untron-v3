@@ -116,7 +116,19 @@ async fn main() -> Result<()> {
                 .await;
 
                 match res {
-                    Ok(()) => warn!(stream = stream_label, "stream task exited; restarting"),
+                    Ok(()) => {
+                        // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                        // that as an error.
+                        if shutdown.is_cancelled() {
+                            return Ok(());
+                        }
+                        // Stream tasks should be effectively long-lived; an unexpected clean exit
+                        // is service-affecting (it stops ingestion until restart).
+                        error!(
+                            stream = stream_label,
+                            "stream task exited unexpectedly; restarting"
+                        )
+                    }
                     Err(e) => {
                         // Use Debug formatting for `anyhow::Error` to include the full cause chain.
                         error!(stream = stream_label, err = ?e, "stream task failed; restarting")
@@ -187,7 +199,16 @@ async fn main() -> Result<()> {
                     .await;
 
                     match res {
-                        Ok(()) => warn!("receiver_usdt task exited; restarting"),
+                        Ok(()) => {
+                            // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                            // that as an error.
+                            if shutdown.is_cancelled() {
+                                return Ok(());
+                            }
+                            // This task should be long-lived; a clean exit indicates receiver USDT
+                            // discovery/backfill has stopped until restart.
+                            error!("receiver_usdt task exited unexpectedly; restarting")
+                        }
                         // Use Debug formatting for `anyhow::Error` to include the full cause chain.
                         Err(e) => error!(err = ?e, "receiver_usdt task failed; restarting"),
                     }
@@ -229,7 +250,16 @@ async fn main() -> Result<()> {
                     .await;
 
                     match res {
-                        Ok(()) => warn!("hub_deposit_processed task exited; restarting"),
+                        Ok(()) => {
+                            // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                            // that as an error.
+                            if shutdown.is_cancelled() {
+                                return Ok(());
+                            }
+                            // This task should be long-lived; a clean exit means depositProcessed
+                            // caching is stopped until restart.
+                            error!("hub_deposit_processed task exited unexpectedly; restarting")
+                        }
                         Err(e) => error!(err = ?e, "hub_deposit_processed task failed; restarting"),
                     }
 
