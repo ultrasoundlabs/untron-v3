@@ -54,33 +54,46 @@ async fn upsert_watchlist_tx(
     let deployment_block: i64 =
         i64::try_from(deployment_block).context("deployment_block out of range for bigint")?;
 
-    let mut qb = QueryBuilder::new(
-        "insert into ctl.receiver_watchlist (receiver_salt, receiver_evm, receiver, source, backfill_next_block) ",
-    );
+    // We bind 5 params per row (salt, evm, tron, source, deployment_block).
+    // Postgres hard-limits prepared statement parameters to 65535.
+    // If we exceed it, sqlx errors with "too many arguments for query".
+    const PARAMS_PER_ROW: usize = 5;
+    const MAX_PARAMS: usize = 65_535;
+    const MAX_ROWS_PER_QUERY: usize = MAX_PARAMS / PARAMS_PER_ROW;
+    // Leave some headroom and keep individual statements reasonably sized.
+    const CHUNK_ROWS: usize = 10_000;
 
-    qb.push_values(
-        rows,
-        |mut b, (salt, receiver_evm, receiver_tron, source)| {
-            b.push_bind(salt);
-            b.push_bind(receiver_evm);
-            b.push_bind(receiver_tron);
-            b.push_bind(source);
-            b.push_bind(deployment_block);
-        },
-    );
+    let chunk_size = CHUNK_ROWS.min(MAX_ROWS_PER_QUERY.max(1));
 
-    qb.push(
-        " on conflict (receiver_salt) do update set \
+    for chunk in rows.chunks(chunk_size) {
+        let mut qb = QueryBuilder::new(
+            "insert into ctl.receiver_watchlist (receiver_salt, receiver_evm, receiver, source, backfill_next_block) ",
+        );
+
+        qb.push_values(
+            chunk,
+            |mut b, (salt, receiver_evm, receiver_tron, source)| {
+                b.push_bind(salt);
+                b.push_bind(receiver_evm);
+                b.push_bind(receiver_tron);
+                b.push_bind(source);
+                b.push_bind(deployment_block);
+            },
+        );
+
+        qb.push(
+            " on conflict (receiver_salt) do update set \
           receiver_evm = excluded.receiver_evm, \
           receiver = excluded.receiver, \
           source = case when ctl.receiver_watchlist.source = 'env' then 'env' else excluded.source end, \
           updated_at = now()",
-    );
+        );
 
-    qb.build()
-        .execute(&mut **tx)
-        .await
-        .context("upsert ctl.receiver_watchlist")?;
+        qb.build()
+            .execute(&mut **tx)
+            .await
+            .context("upsert ctl.receiver_watchlist")?;
+    }
 
     Ok(())
 }
