@@ -105,8 +105,7 @@ pub async fn run_hub_deposit_processed_cache(params: RunHubDepositProcessedParam
             .await;
 
         let mut failed: usize = 0;
-        let mut results: Vec<(String, bool)> = Vec::new();
-        results.reserve(attempted);
+        let mut results: Vec<(String, bool)> = Vec::with_capacity(attempted);
 
         for r in results_raw {
             match r {

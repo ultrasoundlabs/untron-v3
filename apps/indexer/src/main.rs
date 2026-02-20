@@ -117,6 +117,11 @@ async fn main() -> Result<()> {
 
                 match res {
                     Ok(()) => {
+                        // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                        // that as an error.
+                        if shutdown.is_cancelled() {
+                            return Ok(());
+                        }
                         // Stream tasks should be effectively long-lived; an unexpected clean exit
                         // is service-affecting (it stops ingestion until restart).
                         error!(
@@ -195,6 +200,11 @@ async fn main() -> Result<()> {
 
                     match res {
                         Ok(()) => {
+                            // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                            // that as an error.
+                            if shutdown.is_cancelled() {
+                                return Ok(());
+                            }
                             // This task should be long-lived; a clean exit indicates receiver USDT
                             // discovery/backfill has stopped until restart.
                             error!("receiver_usdt task exited unexpectedly; restarting")
@@ -241,6 +251,11 @@ async fn main() -> Result<()> {
 
                     match res {
                         Ok(()) => {
+                            // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                            // that as an error.
+                            if shutdown.is_cancelled() {
+                                return Ok(());
+                            }
                             // This task should be long-lived; a clean exit means depositProcessed
                             // caching is stopped until restart.
                             error!("hub_deposit_processed task exited unexpectedly; restarting")
