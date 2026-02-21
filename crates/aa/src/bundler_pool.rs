@@ -17,28 +17,14 @@ use crate::packing::{pack_init_code, pack_paymaster_and_data, redact_url};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn looks_like_packed_userop_unsupported(err: &anyhow::Error) -> bool {
-    let s = format!("{err:#}");
-    // Observed from Pimlico (and similar) when we send packed v0.7 fields:
-    // - `Unrecognized keys: "accountGasLimits", "gasFees", "paymasterAndData"`
-    // - and/or complaints that `maxFeePerGas` is undefined (because it expects expanded fields)
-    (s.contains("Unrecognized keys")
-        && (s.contains("accountGasLimits") || s.contains("gasFees") || s.contains("paymasterAndData")))
-        || (s.contains("maxFeePerGas") && s.contains("received undefined"))
-}
-
 /// Canonical EntryPoint v0.7 "packed" JSON shape.
 ///
-/// Some bundlers/paymasters only accept the expanded field set (`callGasLimit`, `paymaster`, ...),
-/// while others accept the canonical packed form (`accountGasLimits`, `gasFees`,
-/// `paymasterAndData`).
+/// Some bundlers/paymasters accept the expanded field set (`callGasLimit`, `paymaster`, ...).
+/// However, the Safe4337 module validates signatures against the *packed* `paymasterAndData` bytes,
+/// and bundlers may reconstruct those bytes differently than our signer does.
 ///
-/// The Safe4337 module validates signatures against the *packed* `paymasterAndData` bytes.
-/// When a bundler reconstructs those bytes from expanded fields, any packing mismatch can
-/// surface as `AA34 signature error`.
-///
-/// We *prefer* sending the canonical packed form (eliminates bundler-side packing ambiguity),
-/// but we fall back to the expanded form for bundlers that don't support packed userops.
+/// To eliminate packing ambiguity (and avoid AA34 signature errors when using paymasters), we
+/// always send the canonical packed form to bundlers.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RpcPackedUserOperationV07 {
@@ -50,29 +36,6 @@ struct RpcPackedUserOperationV07 {
     pre_verification_gas: U256,
     gas_fees: Bytes,
     paymaster_and_data: Bytes,
-    signature: Bytes,
-}
-
-/// EntryPoint v0.7 expanded userop JSON shape.
-///
-/// Many bundlers (incl. some Pimlico endpoints) accept only this shape for
-/// `eth_estimateUserOperationGas` / `eth_sendUserOperation`.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RpcUserOperationV07Expanded {
-    sender: Address,
-    nonce: U256,
-    init_code: Bytes,
-    call_data: Bytes,
-    call_gas_limit: U256,
-    verification_gas_limit: U256,
-    pre_verification_gas: U256,
-    max_fee_per_gas: U256,
-    max_priority_fee_per_gas: U256,
-    paymaster: Option<Address>,
-    paymaster_verification_gas_limit: Option<U256>,
-    paymaster_post_op_gas_limit: Option<U256>,
-    paymaster_data: Option<Bytes>,
     signature: Bytes,
 }
 
@@ -126,27 +89,6 @@ fn to_rpc_packed_v07(op: &PackedUserOperation) -> Result<RpcPackedUserOperationV
         pre_verification_gas: op.pre_verification_gas,
         gas_fees,
         paymaster_and_data,
-        signature: op.signature.clone(),
-    })
-}
-
-fn to_rpc_expanded_v07(op: &PackedUserOperation) -> Result<RpcUserOperationV07Expanded> {
-    let init_code = Bytes::from(pack_init_code(op.factory, op.factory_data.as_ref())?);
-
-    Ok(RpcUserOperationV07Expanded {
-        sender: op.sender,
-        nonce: op.nonce,
-        init_code,
-        call_data: op.call_data.clone(),
-        call_gas_limit: op.call_gas_limit,
-        verification_gas_limit: op.verification_gas_limit,
-        pre_verification_gas: op.pre_verification_gas,
-        max_fee_per_gas: op.max_fee_per_gas,
-        max_priority_fee_per_gas: op.max_priority_fee_per_gas,
-        paymaster: op.paymaster,
-        paymaster_verification_gas_limit: op.paymaster_verification_gas_limit,
-        paymaster_post_op_gas_limit: op.paymaster_post_op_gas_limit,
-        paymaster_data: op.paymaster_data.clone(),
         signature: op.signature.clone(),
     })
 }
@@ -326,55 +268,13 @@ impl BundlerPool {
                     return Ok(v.into());
                 }
                 Ok(Err(err)) => {
-                    // Some bundlers (incl. certain Pimlico endpoints) reject packed v0.7 userops.
-                    // Fall back to the expanded shape to avoid returning 502s from /realtor.
                     let err = anyhow::Error::new(err).context("eth_estimateUserOperationGas");
-                    if looks_like_packed_userop_unsupported(&err) {
-                        tracing::warn!(
-                            bundler = %url,
-                            err = %format!("{err:#}"),
-                            "bundler rejected packed userop; retrying with expanded v0.7 shape"
-                        );
-
-                        let rpc_op = to_rpc_expanded_v07(user_op)?;
-                        let fut = provider.raw_request(
-                            "eth_estimateUserOperationGas".into(),
-                            (rpc_op, entry_point),
-                        );
-                        match tokio::time::timeout(RPC_TIMEOUT, fut).await {
-                            Ok(Ok(v)) => {
-                                let v: EstimateAny = v;
-                                self.mark_success(idx);
-                                return Ok(v.into());
-                            }
-                            Ok(Err(err2)) => {
-                                let err2 = anyhow::Error::new(err2)
-                                    .context("eth_estimateUserOperationGas (expanded fallback)");
-                                tracing::warn!(
-                                    bundler = %url,
-                                    err = %format!("{err2:#}"),
-                                    "bundler rpc failed"
-                                );
-                                last_err = Some(err2);
-                            }
-                            Err(_) => {
-                                let err = anyhow::anyhow!("timed out");
-                                tracing::warn!(
-                                    bundler = %url,
-                                    err = %err,
-                                    "bundler rpc timed out (eth_estimateUserOperationGas expanded fallback)"
-                                );
-                                last_err = Some(err);
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            bundler = %url,
-                            err = %format!("{err:#}"),
-                            "bundler rpc failed"
-                        );
-                        last_err = Some(err);
-                    }
+                    tracing::warn!(
+                        bundler = %url,
+                        err = %format!("{err:#}"),
+                        "bundler rpc failed"
+                    );
+                    last_err = Some(err);
                 }
                 Err(_) => {
                     let err = anyhow::anyhow!("timed out");
@@ -420,51 +320,12 @@ impl BundlerPool {
                 }
                 Ok(Err(err)) => {
                     let err = anyhow::Error::new(err).context("eth_sendUserOperation");
-                    if looks_like_packed_userop_unsupported(&err) {
-                        tracing::warn!(
-                            bundler = %url,
-                            err = %format!("{err:#}"),
-                            "bundler rejected packed userop; retrying eth_sendUserOperation with expanded v0.7 shape"
-                        );
-
-                        let rpc_op = to_rpc_expanded_v07(user_op)?;
-                        let fut =
-                            provider.raw_request("eth_sendUserOperation".into(), (rpc_op, entry_point));
-                        match tokio::time::timeout(RPC_TIMEOUT, fut).await {
-                            Ok(Ok(v)) => {
-                                let v: SendUserOperationResponseAny = v;
-                                let v: SendUserOperationResponse = v.into();
-                                self.mark_success(idx);
-                                return Ok(v);
-                            }
-                            Ok(Err(err2)) => {
-                                let err2 = anyhow::Error::new(err2)
-                                    .context("eth_sendUserOperation (expanded fallback)");
-                                tracing::warn!(
-                                    bundler = %url,
-                                    err = %format!("{err2:#}"),
-                                    "bundler rpc failed"
-                                );
-                                last_err = Some(err2);
-                            }
-                            Err(_) => {
-                                let err = anyhow::anyhow!("timed out");
-                                tracing::warn!(
-                                    bundler = %url,
-                                    err = %err,
-                                    "bundler rpc timed out (eth_sendUserOperation expanded fallback)"
-                                );
-                                last_err = Some(err);
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            bundler = %url,
-                            err = %format!("{err:#}"),
-                            "bundler rpc failed"
-                        );
-                        last_err = Some(err);
-                    }
+                    tracing::warn!(
+                        bundler = %url,
+                        err = %format!("{err:#}"),
+                        "bundler rpc failed"
+                    );
+                    last_err = Some(err);
                 }
                 Err(_) => {
                     let err = anyhow::anyhow!("timed out");
