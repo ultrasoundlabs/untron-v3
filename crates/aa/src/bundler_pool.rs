@@ -5,93 +5,16 @@ use alloy::{
 };
 use alloy_provider::ext::Erc4337Api;
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::time::Duration;
 
-use alloy::primitives::U256;
 use alloy::rpc::types::eth::erc4337::PackedUserOperation;
 use alloy::rpc::types::eth::erc4337::SendUserOperationResponse;
 use alloy::rpc::types::eth::erc4337::UserOperationReceipt;
 
-use crate::packing::{pack_init_code, pack_paymaster_and_data, redact_url};
+use crate::packing::redact_url;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Canonical EntryPoint v0.7 "packed" JSON shape.
-///
-/// Some bundlers/paymasters accept the expanded field set (`callGasLimit`, `paymaster`, ...).
-/// However, the Safe4337 module validates signatures against the *packed* `paymasterAndData` bytes,
-/// and bundlers may reconstruct those bytes differently than our signer does.
-///
-/// To eliminate packing ambiguity (and avoid AA34 signature errors when using paymasters), we
-/// always send the canonical packed form to bundlers.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RpcPackedUserOperationV07 {
-    sender: Address,
-    nonce: U256,
-    init_code: Bytes,
-    call_data: Bytes,
-    account_gas_limits: Bytes,
-    pre_verification_gas: U256,
-    gas_fees: Bytes,
-    paymaster_and_data: Bytes,
-    signature: Bytes,
-}
-
-fn pack_u128_pair_be(
-    a: U256,
-    b: U256,
-    label_a: &'static str,
-    label_b: &'static str,
-) -> Result<Bytes> {
-    let a: u128 = u128::try_from(a).with_context(|| format!("{label_a} overflows uint128"))?;
-    let b: u128 = u128::try_from(b).with_context(|| format!("{label_b} overflows uint128"))?;
-
-    let mut out = [0u8; 32];
-    out[..16].copy_from_slice(&a.to_be_bytes());
-    out[16..].copy_from_slice(&b.to_be_bytes());
-    Ok(Bytes::from(out.to_vec()))
-}
-
-fn to_rpc_packed_v07(op: &PackedUserOperation) -> Result<RpcPackedUserOperationV07> {
-    let init_code = Bytes::from(pack_init_code(op.factory, op.factory_data.as_ref())?);
-
-    // EntryPoint v0.7 packs two uint128s in big-endian byte order.
-    // accountGasLimits := verificationGasLimit (hi 16) || callGasLimit (lo 16)
-    // gasFees         := maxPriorityFeePerGas (hi 16) || maxFeePerGas (lo 16)
-    let account_gas_limits = pack_u128_pair_be(
-        op.verification_gas_limit,
-        op.call_gas_limit,
-        "verificationGasLimit",
-        "callGasLimit",
-    )?;
-    let gas_fees = pack_u128_pair_be(
-        op.max_priority_fee_per_gas,
-        op.max_fee_per_gas,
-        "maxPriorityFeePerGas",
-        "maxFeePerGas",
-    )?;
-
-    let paymaster_and_data = Bytes::from(pack_paymaster_and_data(
-        op.paymaster,
-        op.paymaster_verification_gas_limit,
-        op.paymaster_post_op_gas_limit,
-        op.paymaster_data.as_ref(),
-    )?);
-
-    Ok(RpcPackedUserOperationV07 {
-        sender: op.sender,
-        nonce: op.nonce,
-        init_code,
-        call_data: op.call_data.clone(),
-        account_gas_limits,
-        pre_verification_gas: op.pre_verification_gas,
-        gas_fees,
-        paymaster_and_data,
-        signature: op.signature.clone(),
-    })
-}
 
 #[derive(Clone)]
 pub struct BundlerPool {
@@ -257,9 +180,10 @@ impl BundlerPool {
             // Use a tolerant response type: many bundlers return v0.7 field names
             // (`verificationGasLimit`, `paymasterVerificationGasLimit`, ...), but alloy's
             // `UserOperationGasEstimation` type currently models v0.6 response names.
-            let rpc_op = to_rpc_packed_v07(user_op)?;
-            let fut =
-                provider.raw_request("eth_estimateUserOperationGas".into(), (rpc_op, entry_point));
+            let fut = provider.raw_request(
+                "eth_estimateUserOperationGas".into(),
+                (user_op.clone(), entry_point),
+            );
 
             match tokio::time::timeout(RPC_TIMEOUT, fut).await {
                 Ok(Ok(v)) => {
@@ -308,8 +232,10 @@ impl BundlerPool {
 
             // Use a tolerant response type: some bundlers return `{ userOpHash }`, others return
             // the hash string directly.
-            let rpc_op = to_rpc_packed_v07(user_op)?;
-            let fut = provider.raw_request("eth_sendUserOperation".into(), (rpc_op, entry_point));
+            let fut = provider.raw_request(
+                "eth_sendUserOperation".into(),
+                (user_op.clone(), entry_point),
+            );
 
             match tokio::time::timeout(RPC_TIMEOUT, fut).await {
                 Ok(Ok(v)) => {
