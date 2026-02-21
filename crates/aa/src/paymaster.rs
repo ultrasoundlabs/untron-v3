@@ -102,28 +102,6 @@ pub struct PaymasterDataResult {
     pub paymaster_data: Option<Bytes>,
 }
 
-/// Pimlico-style sponsorship call which returns paymaster fields + updated gas limits.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SponsorUserOperationResult {
-    #[serde(default)]
-    pub paymaster: Option<Address>,
-    #[serde(default)]
-    pub paymaster_data: Option<Bytes>,
-
-    #[serde(default)]
-    pub pre_verification_gas: Option<U256>,
-    #[serde(default)]
-    pub verification_gas_limit: Option<U256>,
-    #[serde(default)]
-    pub call_gas_limit: Option<U256>,
-
-    #[serde(default)]
-    pub paymaster_verification_gas_limit: Option<U256>,
-    #[serde(default)]
-    pub paymaster_post_op_gas_limit: Option<U256>,
-}
-
 #[derive(Debug, Clone)]
 pub struct PaymasterPool {
     http: Client,
@@ -228,27 +206,6 @@ impl PaymasterPool {
         )
         .await
         .context("pm_getPaymasterData")
-    }
-
-    pub async fn sponsor_user_operation(
-        &mut self,
-        idx: usize,
-        user_op: &PaymasterUserOp,
-        entry_point: Address,
-        chain_id: u64,
-    ) -> Result<SponsorUserOperationResult> {
-        let Some(svc) = self.selector.services.get(idx) else {
-            anyhow::bail!("paymaster idx out of range");
-        };
-        let url = svc.url.clone();
-        let context = svc.context.clone();
-        self.jsonrpc(
-            &url,
-            "pm_sponsorUserOperation",
-            serde_json::json!([user_op, entry_point, hex_chain_id(chain_id), context]),
-        )
-        .await
-        .context("pm_sponsorUserOperation")
     }
 
     async fn jsonrpc<T: for<'de> Deserialize<'de>>(

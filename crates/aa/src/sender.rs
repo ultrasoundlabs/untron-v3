@@ -1,7 +1,7 @@
 use crate::bundler_pool::BundlerPool;
 use crate::contracts::{IEntryPointDeposits, IEntryPointNonces, Safe4337Module};
 use crate::packing::{add_gas_buffer, hex_bytes0x, redact_url};
-use crate::paymaster::{PaymasterPool, PaymasterService, PaymasterUserOp, SponsorUserOperationResult};
+use crate::paymaster::{PaymasterPool, PaymasterService, PaymasterUserOp};
 use crate::safe::{Safe4337Config, SafeDeterministicDeploymentConfig, ensure_safe_deployed};
 use crate::signing::sign_userop_with_key;
 use alloy::sol_types::SolCall;
@@ -17,7 +17,17 @@ use std::time::Duration;
 use alloy::rpc::types::eth::erc4337::{PackedUserOperation, UserOperationReceipt};
 
 const GAS_BUFFER_PCT: u64 = 10;
+const PAYMASTER_POST_OP_GAS_BUFFER_PCT: u64 = 10;
+
+// ERC-4337 bundler sanity checks expect paymasterVerificationGasLimit < MAX_VERIFICATION_GAS (500_000).
+const MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE: u64 = 500_000;
+const DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT: u64 = 450_000;
 const MIN_PRIORITY_FEE_WEI: u128 = 200_000;
+
+fn cap_paymaster_verification_gas_limit(v: U256) -> (U256, bool) {
+    let max = U256::from(MAX_PAYMASTER_VERIFICATION_GAS_LIMIT_EXCLUSIVE - 1);
+    if v > max { (max, true) } else { (v, false) }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymasterFinalizationMode {
@@ -449,55 +459,199 @@ impl Safe4337UserOpSender {
         svc: &PaymasterService,
         mut userop: PackedUserOperation,
     ) -> Result<Safe4337UserOpSubmission> {
-        // Pimlico's recommended flow is `pm_sponsorUserOperation`, which returns BOTH paymaster
-        // fields and the gas limits that the paymaster expects. This avoids the class of failures
-        // where we fetch paymasterData, then tweak gas limits afterwards (invalidating the
-        // paymasterData and/or causing AA34).
-        let pm_userop = to_paymaster_userop(&userop, PaymasterFinalizationMode::SkipIfStubFinal)?;
-
-        let sponsored: SponsorUserOperationResult = pool
-            .sponsor_user_operation(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
+        let pm_userop = to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
+        let stub = pool
+            .get_stub_data(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
             .await?;
 
-        let paymaster = sponsored
-            .paymaster
-            .context("pm_sponsorUserOperation missing paymaster")?;
-        let paymaster_data = sponsored
-            .paymaster_data
-            .context("pm_sponsorUserOperation missing paymasterData")?;
-        let pm_ver = sponsored
-            .paymaster_verification_gas_limit
-            .context("pm_sponsorUserOperation missing paymasterVerificationGasLimit")?;
-        let pm_post = sponsored
-            .paymaster_post_op_gas_limit
-            .context("pm_sponsorUserOperation missing paymasterPostOpGasLimit")?;
+        if self.cfg.options.paymaster_finalization == PaymasterFinalizationMode::SkipIfStubFinal
+            && let Some(s) = &stub.sponsor
+        {
+            tracing::info!(
+                paymaster = %redact_url(&svc.url),
+                sponsor = %s.name,
+                icon = ?s.icon,
+                "paymaster stub sponsor"
+            );
+        }
 
-        // Apply returned fields verbatim (no buffering after-the-fact).
+        let paymaster = stub
+            .paymaster
+            .context("pm_getPaymasterStubData missing paymaster")?;
+        let paymaster_data = stub
+            .paymaster_data
+            .context("pm_getPaymasterStubData missing paymasterData")?;
+        let stub_len = paymaster_data.len();
+
         userop.paymaster = Some(paymaster);
         userop.paymaster_data = Some(paymaster_data);
-        userop.paymaster_verification_gas_limit = Some(pm_ver);
-        userop.paymaster_post_op_gas_limit = Some(pm_post);
+        let stub_pm_ver = stub.paymaster_verification_gas_limit;
+        userop.paymaster_verification_gas_limit =
+            Some(stub_pm_ver.unwrap_or(U256::from(DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT)));
 
-        if let Some(v) = sponsored.pre_verification_gas {
-            userop.pre_verification_gas = v;
-        }
-        if let Some(v) = sponsored.verification_gas_limit {
-            userop.verification_gas_limit = v;
-        }
-        if let Some(v) = sponsored.call_gas_limit {
-            userop.call_gas_limit = v;
-        }
+        let stub_pm_post = stub.paymaster_post_op_gas_limit;
+        let pm_post = stub_pm_post.context(
+            "pm_getPaymasterStubData missing paymasterPostOpGasLimit (required for v0.7)",
+        )?;
+        userop.paymaster_post_op_gas_limit =
+            Some(add_gas_buffer(pm_post, PAYMASTER_POST_OP_GAS_BUFFER_PCT)?);
 
-        // Sign once after sponsorship fields are final.
         userop.signature = self.sign_userop(&userop)?.into();
+        let estimate = self
+            .bundlers
+            .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
+            .await
+            .context("bundler estimate userop gas")?;
 
+        userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+        userop.verification_gas_limit =
+            add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
+        userop.pre_verification_gas =
+            add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
+
+        let pm_ver_base = match userop.paymaster_verification_gas_limit {
+            Some(v) if v > estimate.paymaster_verification_gas_limit => v,
+            _ => estimate.paymaster_verification_gas_limit,
+        };
+        let (pm_ver, capped) =
+            cap_paymaster_verification_gas_limit(add_gas_buffer(pm_ver_base, GAS_BUFFER_PCT)?);
+        if capped {
+            tracing::warn!(
+                paymaster = %redact_url(&svc.url),
+                pm_ver = %pm_ver,
+                "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
+            );
+        }
+        userop.paymaster_verification_gas_limit = Some(pm_ver);
+
+        match self.cfg.options.paymaster_finalization {
+            PaymasterFinalizationMode::SkipIfStubFinal => {
+                if stub.is_final != Some(true) {
+                    let pm_userop_final =
+                        to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
+                    let final_data = pool
+                        .get_data(idx, &pm_userop_final, self.cfg.entrypoint, self.chain_id)
+                        .await?;
+
+                    if let Some(p) = final_data.paymaster
+                        && p != paymaster
+                    {
+                        anyhow::bail!("pm_getPaymasterData returned unexpected paymaster address");
+                    }
+                    let paymaster_data = final_data
+                        .paymaster_data
+                        .context("pm_getPaymasterData missing paymasterData")?;
+                    if paymaster_data.len() != stub_len {
+                        tracing::warn!(
+                            paymaster = %redact_url(&svc.url),
+                            stub_len,
+                            final_len = paymaster_data.len(),
+                            "paymasterData length differs between stub and final; bundler preVerificationGas may be off"
+                        );
+                    }
+                    userop.paymaster_data = Some(paymaster_data);
+
+                    userop.signature = self.sign_userop(&userop)?.into();
+                    let estimate = self
+                        .bundlers
+                        .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
+                        .await
+                        .context("bundler re-estimate userop gas after paymaster finalization")?;
+
+                    userop.call_gas_limit =
+                        add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+                    userop.verification_gas_limit =
+                        add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
+                    userop.pre_verification_gas =
+                        add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
+
+                    let pm_ver_base = match userop.paymaster_verification_gas_limit {
+                        Some(v) if v > estimate.paymaster_verification_gas_limit => v,
+                        _ => estimate.paymaster_verification_gas_limit,
+                    };
+                    let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
+                        pm_ver_base,
+                        GAS_BUFFER_PCT,
+                    )?);
+                    if capped {
+                        tracing::warn!(
+                            paymaster = %redact_url(&svc.url),
+                            pm_ver = %pm_ver,
+                            "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
+                        );
+                    }
+                    userop.paymaster_verification_gas_limit = Some(pm_ver);
+                }
+            }
+            PaymasterFinalizationMode::AlwaysFetchFinal => {
+                let pm_userop =
+                    to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
+                let final_data = pool
+                    .get_data(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
+                    .await?;
+
+                if let Some(p) = final_data.paymaster
+                    && p != paymaster
+                {
+                    anyhow::bail!("pm_getPaymasterData returned unexpected paymaster address");
+                }
+                let paymaster_data = final_data
+                    .paymaster_data
+                    .context("pm_getPaymasterData missing paymasterData")?;
+                let final_len = paymaster_data.len();
+                if final_len != stub_len {
+                    tracing::warn!(
+                        paymaster = %redact_url(&svc.url),
+                        stub_len,
+                        final_len,
+                        "paymasterData length differs between stub and final; bundler preVerificationGas may be off"
+                    );
+                }
+                userop.paymaster = Some(paymaster);
+                userop.paymaster_data = Some(paymaster_data);
+
+                userop.signature = self.sign_userop(&userop)?.into();
+                let estimate = self
+                    .bundlers
+                    .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
+                    .await
+                    .context("bundler re-estimate userop gas after paymaster finalization")?;
+
+                userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
+                userop.verification_gas_limit =
+                    add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
+                userop.pre_verification_gas =
+                    add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
+
+                let pm_ver_base = match userop.paymaster_verification_gas_limit {
+                    Some(v) if v > estimate.paymaster_verification_gas_limit => v,
+                    _ => estimate.paymaster_verification_gas_limit,
+                };
+                let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
+                    pm_ver_base,
+                    GAS_BUFFER_PCT,
+                )?);
+                if capped {
+                    tracing::warn!(
+                        paymaster = %redact_url(&svc.url),
+                        pm_ver = %pm_ver,
+                        "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
+                    );
+                }
+                userop.paymaster_verification_gas_limit = Some(pm_ver);
+            }
+        }
+
+        userop.signature = self.sign_userop(&userop)?.into();
         let nonce = userop.nonce;
         let (resp, send_attempts) = self
             .send_user_operation_with_retries(userop)
             .await
             .context("bundler send userop")?;
 
-        tracing::info!(paymaster = %redact_url(&svc.url), "userop sponsored");
+        if self.cfg.options.paymaster_finalization == PaymasterFinalizationMode::AlwaysFetchFinal {
+            tracing::info!(paymaster = %redact_url(&svc.url), "userop sponsored");
+        }
 
         Ok(Safe4337UserOpSubmission {
             userop_hash: hex_bytes0x(&resp.user_op_hash),
