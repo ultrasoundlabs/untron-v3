@@ -338,6 +338,17 @@ fn parse_preknown_receiver_salts_csv(s: &str) -> Result<Vec<String>> {
 pub fn load_config() -> Result<AppConfig> {
     let mut env: Env = envy::from_env().context("load realtor env config")?;
 
+    // Railway injects a dynamic PORT; honor it unless API_BIND was explicitly configured.
+    // This prevents the service from coming up on a fixed :3000 while the edge routes to :PORT.
+    if let Ok(port) = std::env::var("PORT") {
+        if let Ok(port_u16) = port.parse::<u16>() {
+            let bind_is_default = env.api_bind.trim().is_empty() || env.api_bind.trim() == "0.0.0.0:3000";
+            if bind_is_default {
+                env.api_bind = format!("0.0.0.0:{port_u16}");
+            }
+        }
+    }
+
     // Prefer HUB_RPC_URLS if set (same convention as indexer) to avoid config mismatch.
     if let Ok(v) = std::env::var("HUB_RPC_URLS") {
         if !v.trim().is_empty() {
