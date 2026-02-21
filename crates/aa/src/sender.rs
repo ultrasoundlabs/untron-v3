@@ -338,7 +338,7 @@ impl Safe4337UserOpSender {
                     Err(err) => {
                         tracing::warn!(
                             paymaster = %redact_url(&svc.url),
-                            err = %err,
+                            err = %format!("{err:#}"),
                             "paymaster attempt failed; trying next"
                         );
                     }
