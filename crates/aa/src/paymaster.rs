@@ -237,6 +237,8 @@ impl PaymasterPool {
         entry_point: Address,
         chain_id: u64,
     ) -> Result<SponsorUserOperationResult> {
+        let _ = chain_id;
+
         let Some(svc) = self.selector.services.get(idx) else {
             anyhow::bail!("paymaster idx out of range");
         };
