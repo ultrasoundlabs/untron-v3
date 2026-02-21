@@ -550,37 +550,6 @@ impl Safe4337UserOpSender {
                         );
                     }
                     userop.paymaster_data = Some(paymaster_data);
-
-                    userop.signature = self.sign_userop(&userop)?.into();
-                    let estimate = self
-                        .bundlers
-                        .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
-                        .await
-                        .context("bundler re-estimate userop gas after paymaster finalization")?;
-
-                    userop.call_gas_limit =
-                        add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
-                    userop.verification_gas_limit =
-                        add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
-                    userop.pre_verification_gas =
-                        add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
-
-                    let pm_ver_base = match userop.paymaster_verification_gas_limit {
-                        Some(v) if v > estimate.paymaster_verification_gas_limit => v,
-                        _ => estimate.paymaster_verification_gas_limit,
-                    };
-                    let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
-                        pm_ver_base,
-                        GAS_BUFFER_PCT,
-                    )?);
-                    if capped {
-                        tracing::warn!(
-                            paymaster = %redact_url(&svc.url),
-                            pm_ver = %pm_ver,
-                            "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
-                        );
-                    }
-                    userop.paymaster_verification_gas_limit = Some(pm_ver);
                 }
             }
             PaymasterFinalizationMode::AlwaysFetchFinal => {
@@ -609,39 +578,10 @@ impl Safe4337UserOpSender {
                 }
                 userop.paymaster = Some(paymaster);
                 userop.paymaster_data = Some(paymaster_data);
-
-                userop.signature = self.sign_userop(&userop)?.into();
-                let estimate = self
-                    .bundlers
-                    .estimate_user_operation_gas(&userop, self.cfg.entrypoint)
-                    .await
-                    .context("bundler re-estimate userop gas after paymaster finalization")?;
-
-                userop.call_gas_limit = add_gas_buffer(estimate.call_gas_limit, GAS_BUFFER_PCT)?;
-                userop.verification_gas_limit =
-                    add_gas_buffer(estimate.verification_gas_limit, GAS_BUFFER_PCT)?;
-                userop.pre_verification_gas =
-                    add_gas_buffer(estimate.pre_verification_gas, GAS_BUFFER_PCT)?;
-
-                let pm_ver_base = match userop.paymaster_verification_gas_limit {
-                    Some(v) if v > estimate.paymaster_verification_gas_limit => v,
-                    _ => estimate.paymaster_verification_gas_limit,
-                };
-                let (pm_ver, capped) = cap_paymaster_verification_gas_limit(add_gas_buffer(
-                    pm_ver_base,
-                    GAS_BUFFER_PCT,
-                )?);
-                if capped {
-                    tracing::warn!(
-                        paymaster = %redact_url(&svc.url),
-                        pm_ver = %pm_ver,
-                        "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
-                    );
-                }
-                userop.paymaster_verification_gas_limit = Some(pm_ver);
             }
         }
 
+        // Do not mutate any signed UserOperation fields after paymaster finalization.
         userop.signature = self.sign_userop(&userop)?.into();
         let nonce = userop.nonce;
         let (resp, send_attempts) = self
@@ -667,6 +607,8 @@ impl Safe4337UserOpSender {
         alloy::rpc::types::eth::erc4337::SendUserOperationResponse,
         u64,
     )> {
+        let sponsored = userop.paymaster.is_some();
+
         // Goal: handle transient bundler rejects during gas spikes by retrying with bumped
         // EIP-1559 fees, without relying on bundler-specific gas price RPCs.
         const MAX_RETRIES: usize = 3;
@@ -684,31 +626,38 @@ impl Safe4337UserOpSender {
 
         for attempt in 0..=MAX_RETRIES {
             if attempt > 0 {
-                // Always bump by +25% (rounded up) as a generic strategy.
-                let bump_num = U256::from(125u64);
-                let bump_den = U256::from(100u64);
-                userop.max_priority_fee_per_gas =
-                    (userop.max_priority_fee_per_gas.saturating_mul(bump_num)
-                        + (bump_den - U256::from(1u64)))
-                        / bump_den;
-                if userop.max_priority_fee_per_gas < U256::from(MIN_PRIORITY_FEE_WEI) {
-                    userop.max_priority_fee_per_gas = U256::from(MIN_PRIORITY_FEE_WEI);
+                if sponsored {
+                    tracing::warn!(
+                        attempt,
+                        "retrying sponsored eth_sendUserOperation without fee bump"
+                    );
+                } else {
+                    // Always bump by +25% (rounded up) as a generic strategy.
+                    let bump_num = U256::from(125u64);
+                    let bump_den = U256::from(100u64);
+                    userop.max_priority_fee_per_gas =
+                        (userop.max_priority_fee_per_gas.saturating_mul(bump_num)
+                            + (bump_den - U256::from(1u64)))
+                            / bump_den;
+                    if userop.max_priority_fee_per_gas < U256::from(MIN_PRIORITY_FEE_WEI) {
+                        userop.max_priority_fee_per_gas = U256::from(MIN_PRIORITY_FEE_WEI);
+                    }
+
+                    // Keep maxFee >= priority fee.
+                    if userop.max_fee_per_gas < userop.max_priority_fee_per_gas {
+                        userop.max_fee_per_gas = userop.max_priority_fee_per_gas;
+                    }
+
+                    // Any fee change requires re-signing.
+                    userop.signature = self.sign_userop(&userop)?.into();
+
+                    tracing::warn!(
+                        attempt,
+                        max_fee_per_gas = %userop.max_fee_per_gas,
+                        max_priority_fee_per_gas = %userop.max_priority_fee_per_gas,
+                        "retrying eth_sendUserOperation with bumped fees"
+                    );
                 }
-
-                // Keep maxFee >= priority fee.
-                if userop.max_fee_per_gas < userop.max_priority_fee_per_gas {
-                    userop.max_fee_per_gas = userop.max_priority_fee_per_gas;
-                }
-
-                // Any fee change requires re-signing.
-                userop.signature = self.sign_userop(&userop)?.into();
-
-                tracing::warn!(
-                    attempt,
-                    max_fee_per_gas = %userop.max_fee_per_gas,
-                    max_priority_fee_per_gas = %userop.max_priority_fee_per_gas,
-                    "retrying eth_sendUserOperation with bumped fees"
-                );
             }
 
             match self
@@ -720,7 +669,11 @@ impl Safe4337UserOpSender {
                 Err(err) => {
                     let msg = err.to_string();
 
-                    if let Some(min) = parse_min_priority_fee_wei(&msg) {
+                    if sponsored && msg.contains("AA34") {
+                        return Err(err);
+                    }
+
+                    if !sponsored && let Some(min) = parse_min_priority_fee_wei(&msg) {
                         // If the bundler tells us the minimum, snap up to it (plus a small cushion)
                         // rather than doing blind multiplicative bumps.
                         let cushion = U256::from(110u64);
