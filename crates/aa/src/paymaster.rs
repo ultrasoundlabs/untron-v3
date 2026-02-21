@@ -242,33 +242,13 @@ impl PaymasterPool {
         };
         let url = svc.url.clone();
         let context = svc.context.clone();
-        // Pimlico docs for EntryPoint v0.7/0.8 show params:
-        //   [ userOp, entryPoint, context ]
-        // (no chainId parameter).
-        // We try that first, but keep a compatibility fallback for paymaster services
-        // that follow the ERC-7677 4-param shape.
-        match self
-            .jsonrpc(
-                &url,
-                "pm_sponsorUserOperation",
-                serde_json::json!([user_op, entry_point, context.clone()]),
-            )
-            .await
-        {
-            Ok(v) => Ok(v),
-            Err(err) => {
-                let err2 = err.context("pm_sponsorUserOperation (3-param)");
-                // Fallback: some services might expect (userOp, entryPoint, chainId, context).
-                self.jsonrpc(
-                    &url,
-                    "pm_sponsorUserOperation",
-                    serde_json::json!([user_op, entry_point, hex_chain_id(chain_id), context]),
-                )
-                .await
-                .context("pm_sponsorUserOperation (4-param fallback)")
-                .map_err(|fallback_err| fallback_err.context(err2))
-            }
-        }
+        self.jsonrpc(
+            &url,
+            "pm_sponsorUserOperation",
+            serde_json::json!([user_op, entry_point, hex_chain_id(chain_id), context]),
+        )
+        .await
+        .context("pm_sponsorUserOperation")
     }
 
     async fn jsonrpc<T: for<'de> Deserialize<'de>>(
