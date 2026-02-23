@@ -1,9 +1,9 @@
 use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tron::{
-    TronAddress, decode_trc20_call_data, decode_trigger_smart_contract,
-    wallet::encode_pull_from_receivers,
+    decode_trc20_call_data, decode_trigger_smart_contract, wallet::encode_pull_from_receivers,
+    TronAddress,
 };
 
 use crate::evm::{IAllowanceTransfer, IERC20};
@@ -11,8 +11,8 @@ use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{
+    aliases::{U160, U48},
     Address, FixedBytes, U256,
-    aliases::{U48, U160},
 };
 use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
@@ -704,6 +704,7 @@ async fn plan_pull_from_receivers(
     }
 
     let mut rows = Vec::new();
+    let mut balance_by_salt = HashMap::new();
     let mut total_liquidity = U256::ZERO;
     for r in balances {
         let Some(salt_hex) = r.receiver_salt else {
@@ -717,6 +718,7 @@ async fn plan_pull_from_receivers(
             .checked_add(bal)
             .context("receiver liquidity overflow")?;
         let salt = parse_bytes32(&salt_hex)?;
+        balance_by_salt.insert(salt, bal);
         rows.push((salt, bal));
     }
     if total_liquidity.is_zero() {
@@ -737,6 +739,11 @@ async fn plan_pull_from_receivers(
         }
         selected.push(*salt);
     }
+    selected.sort_by(|a, b| {
+        let a_bal = balance_by_salt.get(a).copied().unwrap_or(U256::ZERO);
+        let b_bal = balance_by_salt.get(b).copied().unwrap_or(U256::ZERO);
+        b_bal.cmp(&a_bal).then_with(|| a.cmp(b))
+    });
 
     if selected.is_empty() {
         return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
@@ -818,6 +825,104 @@ pub async fn execute_liquidity_intent(
     }
 }
 
+async fn cap_pull_from_receivers_by_energy_limit(
+    ctx: &RelayerContext,
+    token_tron: TronAddress,
+    receiver_salts: &[FixedBytes<32>],
+) -> Vec<FixedBytes<32>> {
+    let energy_limit = ctx.cfg.tron.pull_from_receivers_energy_limit;
+    if energy_limit == 0 || receiver_salts.len() <= 1 {
+        return receiver_salts.to_vec();
+    }
+
+    let estimate = |count: usize| async move {
+        let data = encode_pull_from_receivers(token_tron.evm(), &receiver_salts[..count]);
+        ctx.tron_write
+            .estimate_trigger_smart_contract_energy(ctx.tron_controller, data, 0)
+            .await
+    };
+
+    let total = receiver_salts.len();
+    let total_energy = match estimate(total).await {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::warn!(
+                receivers = total,
+                energy_limit,
+                err = %err,
+                "failed to estimate pullFromReceivers energy; keeping full receiver set"
+            );
+            return receiver_salts.to_vec();
+        }
+    };
+
+    if total_energy <= energy_limit {
+        return receiver_salts.to_vec();
+    }
+
+    let first_energy = match estimate(1).await {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::warn!(
+                receivers = total,
+                energy_limit,
+                err = %err,
+                "failed to estimate pullFromReceivers energy for single receiver; keeping full receiver set"
+            );
+            return receiver_salts.to_vec();
+        }
+    };
+
+    if first_energy > energy_limit {
+        tracing::warn!(
+            receivers_total = total,
+            receivers_selected = 1,
+            estimated_energy_total = total_energy,
+            estimated_energy_selected = first_energy,
+            energy_limit,
+            "pullFromReceivers exceeds configured energy limit even for a single receiver; sending one"
+        );
+        return vec![receiver_salts[0]];
+    }
+
+    let mut lo = 1usize;
+    let mut hi = total.saturating_sub(1);
+    let mut best = 1usize;
+    while lo <= hi {
+        let mid = lo + (hi - lo) / 2;
+        match estimate(mid).await {
+            Ok(mid_energy) if mid_energy <= energy_limit => {
+                best = mid;
+                lo = mid.saturating_add(1);
+            }
+            Ok(_) => {
+                hi = mid.saturating_sub(1);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    receivers_mid = mid,
+                    energy_limit,
+                    err = %err,
+                    "failed to estimate pullFromReceivers energy while splitting; trying smaller receiver set"
+                );
+                hi = mid.saturating_sub(1);
+            }
+        }
+    }
+
+    if best < total {
+        tracing::info!(
+            receivers_total = total,
+            receivers_selected = best,
+            estimated_energy_total = total_energy,
+            energy_limit,
+            "split pullFromReceivers by configured energy limit"
+        );
+    }
+
+    receiver_salts[..best].to_vec()
+}
+
 pub async fn execute_pull_from_receivers(
     ctx: &RelayerContext,
     state: &mut RelayerState,
@@ -836,6 +941,8 @@ pub async fn execute_pull_from_receivers(
         return Ok(());
     }
 
+    let receiver_salts =
+        cap_pull_from_receivers_by_energy_limit(ctx, token_tron, &receiver_salts).await;
     let data = encode_pull_from_receivers(token_tron.evm(), &receiver_salts);
 
     let txid = ctx

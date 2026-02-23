@@ -76,6 +76,9 @@ pub struct TronConfig {
     pub controller_address: String,
 
     pub block_lag: u64,
+    /// Max estimated energy per `pullFromReceivers` tx. If exceeded, relayer splits receiver set.
+    /// Set to 0 to disable splitting by energy.
+    pub pull_from_receivers_energy_limit: u64,
     /// Optional list of external energy rental providers.
     pub energy_rental_providers: Vec<JsonApiRentalProviderConfig>,
     /// Max time to poll Tron until rented energy is reflected in AccountResource.
@@ -176,6 +179,9 @@ struct Env {
 
     tron_block_lag: u64,
 
+    #[serde(default = "default_tron_pull_from_receivers_energy_limit")]
+    tron_pull_from_receivers_energy_limit: u64,
+
     #[serde(default)]
     tron_energy_rental_apis_json: String,
 
@@ -238,6 +244,7 @@ impl Default for Env {
             tron_private_key_hex: String::new(),
             tron_controller_address: String::new(),
             tron_block_lag: 0,
+            tron_pull_from_receivers_energy_limit: default_tron_pull_from_receivers_energy_limit(),
             tron_energy_rental_apis_json: String::new(),
             tron_energy_rental_confirm_max_wait_secs: 6,
             relayer_tick_interval_secs: 5,
@@ -252,6 +259,10 @@ impl Default for Env {
             pull_liquidity_ppm: 500_000,
         }
     }
+}
+
+fn default_tron_pull_from_receivers_energy_limit() -> u64 {
+    1_000_000
 }
 
 fn parse_address(label: &str, s: &str) -> Result<Address> {
@@ -570,6 +581,7 @@ pub fn load_config() -> Result<AppConfig> {
             private_key: parse_hex_32("TRON_PRIVATE_KEY_HEX", &env.tron_private_key_hex)?,
             controller_address: env.tron_controller_address,
             block_lag: env.tron_block_lag,
+            pull_from_receivers_energy_limit: env.tron_pull_from_receivers_energy_limit,
             energy_rental_providers: parse_tron_energy_rental_apis_json(
                 &env.tron_energy_rental_apis_json,
             )?,
@@ -627,11 +639,9 @@ mod tests {
 
     #[test]
     fn parse_tron_address_csv_optional_empty_ok_and_dedups() {
-        assert!(
-            parse_tron_address_csv_optional("T", "   ")
-                .unwrap()
-                .is_empty()
-        );
+        assert!(parse_tron_address_csv_optional("T", "   ")
+            .unwrap()
+            .is_empty());
 
         let a = TronAddress::parse_text("T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb").unwrap();
         let b = TronAddress::parse_text("0x0000000000000000000000000000000000000001").unwrap();
@@ -669,11 +679,9 @@ mod tests {
 
     #[test]
     fn parse_tron_energy_rental_apis_json_empty_ok() {
-        assert!(
-            parse_tron_energy_rental_apis_json("   ")
-                .unwrap()
-                .is_empty()
-        );
+        assert!(parse_tron_energy_rental_apis_json("   ")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -712,11 +720,9 @@ mod tests {
 
     #[test]
     fn parse_uniswap_v4_allowed_pools_json_empty_ok() {
-        assert!(
-            parse_uniswap_v4_allowed_pools_json("   ")
-                .unwrap()
-                .is_empty()
-        );
+        assert!(parse_uniswap_v4_allowed_pools_json("   ")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

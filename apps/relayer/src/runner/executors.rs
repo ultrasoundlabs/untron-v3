@@ -8,7 +8,8 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tron::{
-    JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc, TronWallet,
+    protocol::TriggerSmartContract, JsonApiRentalProvider, RentalContext, RentalResourceKind,
+    TronAddress, TronGrpc, TronWallet,
 };
 
 #[derive(Clone)]
@@ -204,6 +205,76 @@ impl TronExecutor {
                 Err(err)
             }
         }
+    }
+
+    pub async fn estimate_trigger_smart_contract_energy(
+        &self,
+        contract: TronAddress,
+        data: Vec<u8>,
+        call_value_sun: i64,
+    ) -> Result<u64> {
+        let len = self.grpc_urls.len();
+        if len == 0 {
+            anyhow::bail!("no TRON_GRPC_URLS configured");
+        }
+
+        let owner = self.wallet.address().prefixed_bytes().to_vec();
+        let contract_addr = contract.prefixed_bytes().to_vec();
+
+        let start_cursor = *self.grpc_url_cursor.lock().await;
+        let attempts = if len == 1 { 2 } else { len };
+        let mut last_err: Option<anyhow::Error> = None;
+
+        for attempt in 0..attempts {
+            let idx = (start_cursor + attempt) % len;
+            let force_reconnect = len == 1 && attempt > 0;
+
+            if let Err(err) = self.ensure_tron_connected(idx, force_reconnect).await {
+                tracing::warn!(
+                    tron_grpc = %self.grpc_urls[idx],
+                    op = "estimate_trigger_smart_contract_energy",
+                    err = %err,
+                    "failed to connect Tron gRPC endpoint"
+                );
+                last_err = Some(err);
+                continue;
+            }
+
+            let mut grpc = self.active_grpc.lock().await;
+            let energy_required_i64 = match grpc
+                .estimate_energy(TriggerSmartContract {
+                    owner_address: owner.clone(),
+                    contract_address: contract_addr.clone(),
+                    call_value: call_value_sun,
+                    data: data.clone(),
+                    call_token_value: 0,
+                    token_id: 0,
+                })
+                .await
+            {
+                Ok(v) => v.energy_required,
+                Err(err) => {
+                    tracing::warn!(
+                        tron_grpc = %self.grpc_urls[idx],
+                        op = "estimate_trigger_smart_contract_energy",
+                        err = %err,
+                        "tron write operation failed; trying next endpoint"
+                    );
+                    last_err = Some(err);
+                    continue;
+                }
+            };
+
+            let energy_required =
+                u64::try_from(energy_required_i64).context("energy_required out of range")?;
+            return Ok(energy_required);
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            anyhow::anyhow!(
+                "all TRON_GRPC_URLS endpoints failed for op=estimate_trigger_smart_contract_energy"
+            )
+        }))
     }
 
     async fn ensure_tron_connected(&self, idx: usize, force_reconnect: bool) -> Result<()> {
