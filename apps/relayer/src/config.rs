@@ -76,8 +76,6 @@ pub struct TronConfig {
     pub controller_address: String,
 
     pub block_lag: u64,
-    /// Extra headroom on computed fee_limit (ppm, i.e. 100_000 = +10%).
-    pub fee_limit_headroom_ppm: u64,
     /// Optional list of external energy rental providers.
     pub energy_rental_providers: Vec<JsonApiRentalProviderConfig>,
     /// Max time to poll Tron until rented energy is reflected in AccountResource.
@@ -179,9 +177,6 @@ struct Env {
     tron_block_lag: u64,
 
     #[serde(default)]
-    tron_fee_limit_headroom_ppm: u64,
-
-    #[serde(default)]
     tron_energy_rental_apis_json: String,
 
     #[serde(default)]
@@ -243,7 +238,6 @@ impl Default for Env {
             tron_private_key_hex: String::new(),
             tron_controller_address: String::new(),
             tron_block_lag: 0,
-            tron_fee_limit_headroom_ppm: 100_000,
             tron_energy_rental_apis_json: String::new(),
             tron_energy_rental_confirm_max_wait_secs: 6,
             relayer_tick_interval_secs: 5,
@@ -576,7 +570,6 @@ pub fn load_config() -> Result<AppConfig> {
             private_key: parse_hex_32("TRON_PRIVATE_KEY_HEX", &env.tron_private_key_hex)?,
             controller_address: env.tron_controller_address,
             block_lag: env.tron_block_lag,
-            fee_limit_headroom_ppm: env.tron_fee_limit_headroom_ppm.min(1_000_000),
             energy_rental_providers: parse_tron_energy_rental_apis_json(
                 &env.tron_energy_rental_apis_json,
             )?,

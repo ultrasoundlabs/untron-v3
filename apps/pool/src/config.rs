@@ -17,8 +17,6 @@ pub struct TronConfig {
     pub private_key: [u8; 32],
     pub usdt_contract_address: String,
 
-    pub fee_limit_cap_sun: u64,
-    pub fee_limit_headroom_ppm: u64,
     pub energy_rental_providers: Vec<JsonApiRentalProviderConfig>,
     pub energy_rental_settle_delay: Duration,
 }
@@ -58,10 +56,6 @@ struct Env {
     tron_usdt_contract_address: String,
 
     #[serde(default)]
-    tron_fee_limit_cap_sun: u64,
-    #[serde(default)]
-    tron_fee_limit_headroom_ppm: u64,
-    #[serde(default)]
     tron_energy_rental_apis_json: String,
     #[serde(default)]
     tron_energy_rental_settle_delay_secs: u64,
@@ -100,8 +94,6 @@ impl Default for Env {
             tron_api_key: None,
             tron_private_key_hex: String::new(),
             tron_usdt_contract_address: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t".to_string(),
-            tron_fee_limit_cap_sun: 30_000_000,
-            tron_fee_limit_headroom_ppm: 100_000,
             tron_energy_rental_apis_json: String::new(),
             tron_energy_rental_settle_delay_secs: 6,
             oneclick_base_url: "https://1click.chaindefuser.com".to_string(),
@@ -192,8 +184,6 @@ pub fn load_config() -> Result<AppConfig> {
                 &env.tron_private_key_hex,
             )?,
             usdt_contract_address: env.tron_usdt_contract_address,
-            fee_limit_cap_sun: env.tron_fee_limit_cap_sun.max(1),
-            fee_limit_headroom_ppm: env.tron_fee_limit_headroom_ppm.min(1_000_000),
             energy_rental_providers: parse_tron_energy_rental_apis_json(
                 &env.tron_energy_rental_apis_json,
             )?,

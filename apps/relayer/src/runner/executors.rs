@@ -8,8 +8,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tron::{
-    FeePolicy, JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc,
-    TronWallet,
+    JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc, TronWallet,
 };
 
 #[derive(Clone)]
@@ -102,7 +101,6 @@ pub struct TronExecutor {
     grpc_api_key: Option<String>,
     grpc_url_cursor: Arc<Mutex<usize>>,
     wallet: Arc<TronWallet>,
-    fee_policy: FeePolicy,
     energy_rental: Vec<JsonApiRentalProvider>,
     energy_rental_confirm_max_wait: Duration,
     telemetry: RelayerTelemetry,
@@ -115,7 +113,6 @@ impl TronExecutor {
         grpc_api_key: Option<String>,
         initial_grpc_url_cursor: usize,
         wallet: Arc<TronWallet>,
-        fee_policy: FeePolicy,
         energy_rental: Vec<JsonApiRentalProvider>,
         energy_rental_confirm_max_wait: Duration,
         telemetry: RelayerTelemetry,
@@ -126,7 +123,6 @@ impl TronExecutor {
             grpc_api_key,
             grpc_url_cursor: Arc::new(Mutex::new(initial_grpc_url_cursor)),
             wallet,
-            fee_policy,
             energy_rental,
             energy_rental_confirm_max_wait,
             telemetry,
@@ -247,27 +243,8 @@ impl TronExecutor {
 
         let signed = self
             .wallet
-            .build_and_sign_trigger_smart_contract(
-                grpc,
-                contract,
-                data,
-                call_value_sun,
-                self.fee_policy,
-            )
+            .build_and_sign_trigger_smart_contract(grpc, contract, data, call_value_sun)
             .await?;
-
-        // Preflight balance check: nodes commonly require `balance >= fee_limit` even if resources are rented.
-        let account = grpc
-            .get_account(self.wallet.address().prefixed_bytes().to_vec())
-            .await?;
-        let fee_limit_i64 = i64::try_from(signed.fee_limit_sun).unwrap_or(i64::MAX);
-        if account.balance < fee_limit_i64 {
-            anyhow::bail!(
-                "insufficient TRX for fee_limit: balance={} sun, fee_limit={} sun",
-                account.balance,
-                fee_limit_i64
-            );
-        }
 
         // Attempt energy rental for the shortfall (best-effort, fall back to paying TRX).
         if !self.energy_rental.is_empty() {

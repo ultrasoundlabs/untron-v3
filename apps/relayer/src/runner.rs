@@ -22,9 +22,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tron::{
-    FeePolicy, JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, TronWallet,
-};
+use tron::{JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, TronWallet};
 use untron_v3_bindings::untron_v3::UntronV3::UntronV3Instance;
 
 use self::{
@@ -523,11 +521,6 @@ impl Relayer {
             let g = active_tron_read_grpc.lock().await;
             Arc::new(Mutex::new(g.clone()))
         };
-        let fee_policy = FeePolicy {
-            // No env config: cap is effectively disabled.
-            fee_limit_cap_sun: i64::MAX as u64,
-            fee_limit_headroom_ppm: cfg.tron.fee_limit_headroom_ppm,
-        };
         let energy_rental = cfg
             .tron
             .energy_rental_providers
@@ -541,7 +534,6 @@ impl Relayer {
             cfg.tron.api_key.clone(),
             tron_read_grpc_idx,
             tron_wallet.clone(),
-            fee_policy,
             energy_rental,
             cfg.tron.energy_rental_confirm_max_wait,
             telemetry.clone(),

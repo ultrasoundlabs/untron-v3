@@ -16,8 +16,8 @@ use tokio::sync::Mutex;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use tron::{
-    FeePolicy, JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc,
-    TronWallet, wallet::trc20_balance_of,
+    JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc, TronWallet,
+    wallet::trc20_balance_of,
 };
 
 fn build_oneclick_client(user_agent: &str, bearer_token: Option<&str>) -> Result<reqwest::Client> {
@@ -51,7 +51,6 @@ pub struct PoolService {
     tron_api_key: Option<String>,
     tron_wallet: TronWallet,
     tron_usdt: TronAddress,
-    fee_policy: FeePolicy,
     energy_rental: Vec<JsonApiRentalProvider>,
     energy_rental_cursor: usize,
 
@@ -88,11 +87,6 @@ impl PoolService {
         let tron_wallet = TronWallet::new(cfg.tron.private_key)?;
         let tron_usdt = TronAddress::parse_text(&cfg.tron.usdt_contract_address)
             .context("parse TRON_USDT_CONTRACT_ADDRESS")?;
-
-        let fee_policy = FeePolicy {
-            fee_limit_cap_sun: cfg.tron.fee_limit_cap_sun,
-            fee_limit_headroom_ppm: cfg.tron.fee_limit_headroom_ppm,
-        };
 
         let energy_rental = cfg
             .tron
@@ -134,7 +128,6 @@ impl PoolService {
             tron_api_key,
             tron_wallet,
             tron_usdt,
-            fee_policy,
             energy_rental,
             energy_rental_cursor: 0,
             oneclick,
@@ -470,14 +463,12 @@ impl PoolService {
             let res = {
                 let tron = &mut self.tron;
                 let wallet = &self.tron_wallet;
-                let fee_policy = self.fee_policy;
                 let energy_rental = &self.energy_rental;
                 let energy_rental_cursor = &mut self.energy_rental_cursor;
                 let telemetry = &self.telemetry;
                 broadcast_trc20_transfer_single(
                     tron,
                     wallet,
-                    fee_policy,
                     energy_rental,
                     energy_rental_cursor,
                     telemetry,
@@ -508,7 +499,6 @@ impl PoolService {
 async fn broadcast_trc20_transfer_single(
     tron: &mut TronGrpc,
     wallet: &TronWallet,
-    fee_policy: FeePolicy,
     energy_rental: &[JsonApiRentalProvider],
     energy_rental_cursor: &mut usize,
     telemetry: &PoolTelemetry,
@@ -519,21 +509,8 @@ async fn broadcast_trc20_transfer_single(
     const MIN_ENERGY_RENTAL_AMOUNT: u64 = 32_000;
 
     let signed = wallet
-        .build_and_sign_trigger_smart_contract(tron, token_contract, data, 0, fee_policy)
+        .build_and_sign_trigger_smart_contract(tron, token_contract, data, 0)
         .await?;
-
-    // Preflight balance check: nodes commonly require `balance >= fee_limit` even if resources are rented.
-    let account = tron
-        .get_account(wallet.address().prefixed_bytes().to_vec())
-        .await?;
-    let fee_limit_i64 = i64::try_from(signed.fee_limit_sun).unwrap_or(i64::MAX);
-    if account.balance < fee_limit_i64 {
-        anyhow::bail!(
-            "insufficient TRX for fee_limit: balance={} sun, fee_limit={} sun",
-            account.balance,
-            fee_limit_i64
-        );
-    }
 
     // Attempt energy rental for the shortfall (best-effort, fall back to paying TRX).
     if !energy_rental.is_empty() {

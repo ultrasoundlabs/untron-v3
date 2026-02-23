@@ -46,16 +46,9 @@ impl TronWallet {
         contract: TronAddress,
         data: Vec<u8>,
         call_value_sun: i64,
-        fee_policy: crate::sender::FeePolicy,
     ) -> Result<[u8; 32]> {
         let res = self
-            .broadcast_trigger_smart_contract_result(
-                grpc,
-                contract,
-                data,
-                call_value_sun,
-                fee_policy,
-            )
+            .broadcast_trigger_smart_contract_result(grpc, contract, data, call_value_sun)
             .await?;
 
         if !res.ok() {
@@ -75,27 +68,11 @@ impl TronWallet {
         contract: TronAddress,
         data: Vec<u8>,
         call_value_sun: i64,
-        fee_policy: crate::sender::FeePolicy,
     ) -> Result<BroadcastedTronTx> {
-        let account = grpc
-            .get_account(self.address.prefixed_bytes().to_vec())
-            .await
-            .context("get Tron account")?;
-
         let signed = self
-            .build_and_sign_trigger_smart_contract(grpc, contract, data, call_value_sun, fee_policy)
+            .build_and_sign_trigger_smart_contract(grpc, contract, data, call_value_sun)
             .await
             .context("build_and_sign_trigger_smart_contract")?;
-
-        let fee_limit_i64 = i64::try_from(signed.fee_limit_sun).unwrap_or(i64::MAX);
-        let balance = account.balance;
-        if balance < fee_limit_i64 {
-            anyhow::bail!(
-                "insufficient TRX for fee_limit: balance={} sun, fee_limit={} sun",
-                balance,
-                fee_limit_i64
-            );
-        }
 
         let ret = grpc
             .broadcast_transaction(signed.tx)
