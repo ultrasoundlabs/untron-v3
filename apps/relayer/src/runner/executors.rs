@@ -8,8 +8,8 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tron::{
-    protocol::TriggerSmartContract, JsonApiRentalProvider, RentalContext, RentalResourceKind,
-    TronAddress, TronGrpc, TronWallet,
+    JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc, TronWallet,
+    protocol::TriggerSmartContract,
 };
 
 #[derive(Clone)]
@@ -80,6 +80,8 @@ impl HubExecutor {
                 self.telemetry
                     .hub_submit_ms(name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
+                // During incidents, we need the *full* anyhow chain + underlying RPC payloads.
+                // `%format!("{err:#}")` often loses structured JSON-RPC error data.
                 tracing::error!(
                     %name,
                     to = %to,
@@ -87,6 +89,8 @@ impl HubExecutor {
                     data_len,
                     data_selector = %data_selector,
                     err = %format!("{err:#}"),
+                    raw_err = ?err,
+                    root_cause = ?err.root_cause(),
                     "hub userop submit failed"
                 );
                 Err(err)
