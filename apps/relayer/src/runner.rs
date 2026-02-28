@@ -97,6 +97,12 @@ pub struct RelayerState {
     rebalance_cursor: usize,
     energy_rental_cursor: usize,
     fill_cursor: usize,
+
+    // Hub-side circuit breakers to prevent one failing job from starving all other hub userops.
+    hub_job_backoff_until_tron_head: HashMap<&'static str, u64>,
+    hub_job_consecutive_failures: HashMap<&'static str, u32>,
+    last_tron_head: u64,
+
     hub_pending_nonce: Option<U256>,
     hub_usdt_balance_cache: Option<HubUsdtBalanceCache>,
     hub_head_block_cache: Option<HubHeadBlockCache>,
@@ -147,6 +153,56 @@ struct HubLpAllowedCache {
 impl RelayerState {
     pub fn invalidate_hub_usdt_balance_cache(&mut self) {
         self.hub_usdt_balance_cache = None;
+    }
+
+    fn filter_hub_candidates(&self, tron_head: u64, hub_candidates: &mut Vec<HubCandidate>) {
+        hub_candidates.retain(|c| {
+            if let Some(until) = self.hub_job_backoff_until_tron_head.get(c.job_name) {
+                if tron_head < *until {
+                    tracing::debug!(
+                        job = c.job_name,
+                        backoff_until_tron_head = *until,
+                        tron_head,
+                        "hub job in backoff; skipping candidate"
+                    );
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    pub fn hub_job_on_success(&mut self, job: &'static str) {
+        self.hub_job_consecutive_failures.remove(job);
+        self.hub_job_backoff_until_tron_head.remove(job);
+    }
+
+    pub fn hub_job_on_failure(&mut self, job: &'static str, tron_head: u64) {
+        let failures = self.hub_job_consecutive_failures.entry(job).or_insert(0);
+        *failures = failures.saturating_add(1);
+
+        // Hotfix: if relay_controller_chain is failing repeatedly, back it off so it doesn't
+        // starve pre_entitle / fill_claims.
+        if job == tasks::JOB_RELAY_CONTROLLER_CHAIN {
+            // Exponential-ish backoff in Tron blocks.
+            // 1-2 failures: no backoff
+            // 3+: 20, 40, 80, 160... blocks (capped)
+            if *failures >= 3 {
+                let base: u64 = 20;
+                let exp = (*failures as u32).saturating_sub(3);
+                let delay = base.saturating_mul(2u64.saturating_pow(exp)).min(600);
+                let until = tron_head.saturating_add(delay);
+                self.hub_job_backoff_until_tron_head.insert(job, until);
+                tracing::warn!(
+                    job,
+                    failures = *failures,
+                    tron_head,
+                    backoff_delay_blocks = delay,
+                    backoff_until_tron_head = until,
+                    "hub job failing repeatedly; applying backoff"
+                );
+            }
+        }
     }
 
     pub fn invalidate_hub_safe_erc20_balance_cache(&mut self) {
@@ -577,6 +633,9 @@ impl Relayer {
                 rebalance_cursor: 0,
                 energy_rental_cursor: 0,
                 fill_cursor: 0,
+                hub_job_backoff_until_tron_head: HashMap::new(),
+                hub_job_consecutive_failures: HashMap::new(),
+                last_tron_head: 0,
                 hub_pending_nonce: None,
                 hub_usdt_balance_cache: None,
                 hub_head_block_cache: None,
@@ -708,6 +767,7 @@ impl Relayer {
     }
 
     async fn plan_tick(&mut self, tick: &Tick, hub_locked: bool) -> Result<PlannedTick> {
+        self.state.last_tron_head = tick.tron_head;
         let hub_state = self.ctx.indexer.relayer_hub_state().await?;
 
         let (relay_plan, process_plan, pre_entitle_plan, deposit_lp_plan) = if hub_locked {
@@ -751,6 +811,10 @@ impl Relayer {
         if let Some(intent) = deposit_lp_plan.intent {
             hub_candidates.push(HubCandidate::new(intent));
         }
+
+        // Apply hub-side circuit breakers/backoff.
+        self.state
+            .filter_hub_candidates(tick.tron_head, &mut hub_candidates);
 
         let mut pull_intent: Option<tasks::TronIntent> = None;
         if let Some(liq) = liquidity_plan.intent {
@@ -1061,6 +1125,9 @@ mod tests {
             rebalance_cursor: 0,
             energy_rental_cursor: 0,
             fill_cursor: 0,
+            hub_job_backoff_until_tron_head: HashMap::new(),
+            hub_job_consecutive_failures: HashMap::new(),
+            last_tron_head: 0,
             hub_pending_nonce: None,
             hub_usdt_balance_cache: None,
             hub_head_block_cache: None,

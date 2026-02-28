@@ -73,6 +73,7 @@ impl HubExecutor {
                 state.invalidate_hub_usdt_balance_cache();
                 state.invalidate_hub_safe_erc20_balance_cache();
                 state.hub_pending_nonce = Some(sub.nonce);
+                state.hub_job_on_success(name);
                 tracing::info!(userop_hash = %sub.userop_hash, %name, "submitted hub userop");
                 Ok(())
             }
@@ -80,6 +81,7 @@ impl HubExecutor {
                 self.telemetry
                     .hub_submit_ms(name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
+                state.hub_job_on_failure(name, state.last_tron_head);
                 // During incidents, we need the *full* anyhow chain + underlying RPC payloads.
                 // `%format!("{err:#}")` often loses structured JSON-RPC error data.
                 tracing::error!(
