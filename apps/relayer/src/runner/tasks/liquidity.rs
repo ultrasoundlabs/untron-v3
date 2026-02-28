@@ -2,8 +2,8 @@ use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use tron::{
-    decode_trc20_call_data, decode_trigger_smart_contract, wallet::encode_pull_from_receivers,
-    TronAddress,
+    TronAddress, decode_trc20_call_data, decode_trigger_smart_contract,
+    wallet::encode_pull_from_receivers,
 };
 
 use crate::evm::{IAllowanceTransfer, IERC20};
@@ -11,8 +11,8 @@ use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
 use crate::runner::{RelayerContext, RelayerState, Tick};
 use alloy::primitives::{
-    aliases::{U160, U48},
     Address, FixedBytes, U256,
+    aliases::{U48, U160},
 };
 use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
@@ -816,10 +816,12 @@ pub async fn execute_liquidity_intent(
     intent: LiquidityIntent,
 ) -> Result<()> {
     match intent {
-        LiquidityIntent::Hub(hub) => super::hub_ops::execute_hub_intent(ctx, state, hub).await,
+        LiquidityIntent::Hub(hub) => {
+            super::hub_ops::execute_hub_intent(ctx, state, "liquidity_hub", hub).await
+        }
         LiquidityIntent::Tron(tron) => execute_pull_from_receivers(ctx, state, tick, tron).await,
         LiquidityIntent::HubAndTron { hub, tron } => {
-            super::hub_ops::execute_hub_intent(ctx, state, hub).await?;
+            super::hub_ops::execute_hub_intent(ctx, state, "liquidity_hub", hub).await?;
             execute_pull_from_receivers(ctx, state, tick, tron).await
         }
     }

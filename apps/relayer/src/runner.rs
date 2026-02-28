@@ -858,7 +858,7 @@ impl Relayer {
         };
         let name = chosen.job_name;
         let _ = run_job(telemetry, name, || async {
-            tasks::execute_hub_intent(&self.ctx, &mut self.state, chosen.intent).await
+            tasks::execute_hub_intent(&self.ctx, &mut self.state, name, chosen.intent).await
         })
         .await;
     }

@@ -405,6 +405,7 @@ pub async fn plan_deposit_lp(
 pub async fn execute_hub_intent(
     ctx: &RelayerContext,
     state: &mut RelayerState,
+    job_name: &'static str,
     intent: HubIntent,
 ) -> Result<()> {
     let name = match &intent {
@@ -608,7 +609,9 @@ pub async fn execute_hub_intent(
         data_len = data.len(),
         "submitting hub intent"
     );
-    ctx.hub.submit(state, name, to, data, operation).await
+    ctx.hub
+        .submit(state, job_name, name, to, data, operation)
+        .await
 }
 
 #[cfg(test)]

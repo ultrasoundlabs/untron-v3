@@ -38,7 +38,8 @@ impl HubExecutor {
     pub async fn submit(
         &self,
         state: &mut RelayerState,
-        name: &'static str,
+        job_name: &'static str,
+        intent_name: &'static str,
         to: Address,
         data: Vec<u8>,
         operation: u8,
@@ -68,24 +69,25 @@ impl HubExecutor {
         match submission {
             Ok(sub) => {
                 self.telemetry
-                    .hub_submit_ms(name, true, start.elapsed().as_millis() as u64);
+                    .hub_submit_ms(job_name, true, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_ok();
                 state.invalidate_hub_usdt_balance_cache();
                 state.invalidate_hub_safe_erc20_balance_cache();
                 state.hub_pending_nonce = Some(sub.nonce);
-                state.hub_job_on_success(name);
-                tracing::info!(userop_hash = %sub.userop_hash, %name, "submitted hub userop");
+                state.hub_job_on_success(job_name);
+                tracing::info!(userop_hash = %sub.userop_hash, job = %job_name, intent = %intent_name, "submitted hub userop");
                 Ok(())
             }
             Err(err) => {
                 self.telemetry
-                    .hub_submit_ms(name, false, start.elapsed().as_millis() as u64);
+                    .hub_submit_ms(job_name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
-                state.hub_job_on_failure(name, state.last_tron_head);
+                state.hub_job_on_failure(job_name, state.last_tron_head);
                 // During incidents, we need the *full* anyhow chain + underlying RPC payloads.
                 // `%format!("{err:#}")` often loses structured JSON-RPC error data.
                 tracing::error!(
-                    %name,
+                    job = %job_name,
+                    intent = %intent_name,
                     to = %to,
                     operation,
                     data_len,
