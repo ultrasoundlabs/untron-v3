@@ -192,12 +192,19 @@ impl BundlerPool {
                     return Ok(v.into());
                 }
                 Ok(Err(err)) => {
-                    let err = anyhow::Error::new(err).context("eth_estimateUserOperationGas");
+                    // Important: bundlers frequently return rich JSON-RPC error payloads (incl.
+                    // `error.data`) that contain the *actual* inner revert bytes.
+                    //
+                    // `anyhow` display formatting often loses this structure, so log the raw
+                    // error via Debug as well.
                     tracing::warn!(
                         bundler = %url,
-                        err = %format!("{err:#}"),
+                        method = "eth_estimateUserOperationGas",
+                        raw_err = ?err,
                         "bundler rpc failed"
                     );
+
+                    let err = anyhow::Error::new(err).context("eth_estimateUserOperationGas");
                     last_err = Some(err);
                 }
                 Err(_) => {
@@ -245,12 +252,14 @@ impl BundlerPool {
                     return Ok(v);
                 }
                 Ok(Err(err)) => {
-                    let err = anyhow::Error::new(err).context("eth_sendUserOperation");
                     tracing::warn!(
                         bundler = %url,
-                        err = %format!("{err:#}"),
+                        method = "eth_sendUserOperation",
+                        raw_err = ?err,
                         "bundler rpc failed"
                     );
+
+                    let err = anyhow::Error::new(err).context("eth_sendUserOperation");
                     last_err = Some(err);
                 }
                 Err(_) => {
@@ -285,12 +294,14 @@ impl BundlerPool {
                     return Ok(v);
                 }
                 Ok(Err(err)) => {
-                    let err = anyhow::Error::new(err).context("eth_supportedEntryPoints");
                     tracing::warn!(
                         bundler = %url,
-                        err = %format!("{err:#}"),
+                        method = "eth_supportedEntryPoints",
+                        raw_err = ?err,
                         "bundler rpc failed"
                     );
+
+                    let err = anyhow::Error::new(err).context("eth_supportedEntryPoints");
                     last_err = Some(err);
                 }
                 Err(_) => {
@@ -364,12 +375,14 @@ impl BundlerPool {
                     return Ok(Some(v));
                 }
                 Ok(Err(err)) => {
-                    let err = anyhow::Error::new(err).context("eth_getUserOperationReceipt");
                     tracing::warn!(
                         bundler = %url,
-                        err = %format!("{err:#}"),
+                        method = "eth_getUserOperationReceipt",
+                        raw_err = ?err,
                         "bundler rpc failed"
                     );
+
+                    let err = anyhow::Error::new(err).context("eth_getUserOperationReceipt");
                     last_err = Some(err);
                 }
                 Err(_) => {
