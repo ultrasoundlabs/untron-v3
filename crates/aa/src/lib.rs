@@ -1,5 +1,6 @@
 mod bundler_pool;
 mod contracts;
+mod entrypoint_sim;
 mod packing;
 pub mod paymaster;
 mod safe;
@@ -51,4 +52,3 @@ pub async fn wait_user_operation_receipt(
         backoff = (backoff * 2).min(Duration::from_secs(2));
     }
 }
-
