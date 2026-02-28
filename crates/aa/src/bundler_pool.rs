@@ -197,7 +197,9 @@ impl BundlerPool {
                     //
                     // `anyhow` display formatting often loses this structure, so log the raw
                     // error via Debug as well.
-                    tracing::warn!(
+                    // NOTE: some deployments filter out WARN logs; emit at ERROR so we always
+                    // capture the rich bundler payload during incidents.
+                    tracing::error!(
                         bundler = %url,
                         method = "eth_estimateUserOperationGas",
                         raw_err = ?err,
@@ -252,7 +254,7 @@ impl BundlerPool {
                     return Ok(v);
                 }
                 Ok(Err(err)) => {
-                    tracing::warn!(
+                    tracing::error!(
                         bundler = %url,
                         method = "eth_sendUserOperation",
                         raw_err = ?err,
