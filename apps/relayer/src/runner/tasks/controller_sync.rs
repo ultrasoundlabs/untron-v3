@@ -2,6 +2,7 @@ use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
 use tron::wallet::encode_is_event_chain_tip;
 use untron_v3_bindings::untron_v3::UntronV3Base::ControllerEvent;
+use untron_v3_indexer_client::types::EventAppended;
 
 use crate::indexer::RelayerHubState;
 use crate::runner::model::{Plan, StateUpdate};
@@ -55,6 +56,46 @@ fn decode_controller_event(
     })
 }
 
+fn next_relay_target_seq(hub_seq: u64, latest_seq: u64, max_events: u64) -> Option<u64> {
+    if hub_seq >= latest_seq {
+        return None;
+    }
+
+    Some(hub_seq.saturating_add(max_events.max(1)).min(latest_seq))
+}
+
+async fn fetch_controller_events_from_seq(
+    ctx: &RelayerContext,
+    from_exclusive_seq: u64,
+    limit: u64,
+) -> Result<Vec<EventAppended>> {
+    let from_exclusive_seq_i64 =
+        i64::try_from(from_exclusive_seq).context("controller seq out of range")?;
+    let events = ctx
+        .indexer
+        .controller_events_from_seq(from_exclusive_seq_i64, limit)
+        .await?;
+    if events.len() != limit as usize {
+        anyhow::bail!(
+            "unexpected controller event range length: expected {}, got {}",
+            limit,
+            events.len()
+        );
+    }
+
+    Ok(events)
+}
+
+fn controller_event_tip_and_block(event: &EventAppended) -> Result<(String, u64)> {
+    let tip_hex = event
+        .new_tip
+        .clone()
+        .context("missing controller new_tip")?;
+    let block_number = u64::try_from(event.block_number.context("missing block_number")?)
+        .context("controller block_number out of range")?;
+    Ok((tip_hex, block_number))
+}
+
 pub async fn plan_controller_tip_proof(
     ctx: &RelayerContext,
     state: &RelayerState,
@@ -64,11 +105,27 @@ pub async fn plan_controller_tip_proof(
         return Ok(Plan::none());
     };
 
-    let tip_hex = latest.new_tip.context("missing controller new_tip")?;
-    let tip_block = latest
-        .block_number
-        .context("missing controller block_number")?;
-    let tip_block_u64 = u64::try_from(tip_block).context("controller block_number out of range")?;
+    let target_seq = latest.event_seq.context("missing controller event_seq")?;
+    let target_seq_u64 = u64::try_from(target_seq).context("controller event_seq out of range")?;
+
+    let hub_state = ctx.indexer.relayer_hub_state().await?;
+    let hub_seq_u256 = number_to_u256(&hub_state.last_controller_event_seq)?;
+    let hub_seq = u256_to_u64(hub_seq_u256).context("hub lastControllerEventSeq out of range")?;
+
+    let Some(proof_target_seq) = next_relay_target_seq(
+        hub_seq,
+        target_seq_u64,
+        ctx.cfg.jobs.relay_controller_max_events,
+    ) else {
+        return Ok(Plan::none());
+    };
+
+    let to_fetch = proof_target_seq - hub_seq;
+    let events = fetch_controller_events_from_seq(ctx, hub_seq, to_fetch).await?;
+    let last = events
+        .last()
+        .context("missing controller event for proof target")?;
+    let (tip_hex, tip_block_u64) = controller_event_tip_and_block(last)?;
     let tip = parse_bytes32(&tip_hex)?;
 
     let proof_exists = ctx.indexer.controller_tip_proof(&tip_hex).await?.is_some();
@@ -127,7 +184,31 @@ pub async fn plan_relay_controller_chain(
     let target_seq = latest.event_seq.context("missing controller event_seq")?;
     let target_tip_b32 = parse_bytes32(&target_tip)?;
 
-    let proof = match ctx.indexer.controller_tip_proof(&target_tip).await? {
+    let hub_tip_b32 = parse_bytes32(&hub_state.last_controller_event_tip)?;
+    if hub_tip_b32 == target_tip_b32 {
+        return Ok(Plan::none());
+    }
+
+    let hub_seq_u256 = number_to_u256(&hub_state.last_controller_event_seq)?;
+    let hub_seq = u256_to_u64(hub_seq_u256).context("hub lastControllerEventSeq out of range")?;
+    let target_seq_u64 = u64::try_from(target_seq).context("controller event_seq out of range")?;
+    let Some(relay_target_seq) = next_relay_target_seq(
+        hub_seq,
+        target_seq_u64,
+        ctx.cfg.jobs.relay_controller_max_events,
+    ) else {
+        return Ok(Plan::none());
+    };
+
+    let to_fetch = relay_target_seq - hub_seq;
+    let events = fetch_controller_events_from_seq(ctx, hub_seq, to_fetch).await?;
+
+    let relay_target_event = events
+        .last()
+        .context("missing controller event for relay target")?;
+    let (relay_tip, _) = controller_event_tip_and_block(relay_target_event)?;
+
+    let proof = match ctx.indexer.controller_tip_proof(&relay_tip).await? {
         Some(p) => p,
         None => return Ok(Plan::none()),
     };
@@ -140,32 +221,6 @@ pub async fn plan_relay_controller_chain(
         ctx.cfg.tron.block_lag,
     ) {
         return Ok(Plan::none());
-    }
-
-    let hub_tip_b32 = parse_bytes32(&hub_state.last_controller_event_tip)?;
-    if hub_tip_b32 == target_tip_b32 {
-        return Ok(Plan::none());
-    }
-
-    let hub_seq_u256 = number_to_u256(&hub_state.last_controller_event_seq)?;
-    let hub_seq = u256_to_u64(hub_seq_u256).context("hub lastControllerEventSeq out of range")?;
-    let target_seq_u64 = u64::try_from(target_seq).context("controller event_seq out of range")?;
-    if hub_seq >= target_seq_u64 {
-        return Ok(Plan::none());
-    }
-
-    let to_fetch = target_seq_u64 - hub_seq;
-    let hub_seq_i64 = i64::try_from(hub_seq).context("hub seq out of range")?;
-    let events = ctx
-        .indexer
-        .controller_events_from_seq(hub_seq_i64, to_fetch)
-        .await?;
-    if events.len() != to_fetch as usize {
-        anyhow::bail!(
-            "unexpected controller event range length: expected {}, got {}",
-            to_fetch,
-            events.len()
-        );
     }
 
     let mut controller_events = Vec::with_capacity(events.len());
@@ -272,5 +327,13 @@ mod tests {
         let err =
             decode_controller_event(&format!("0x{}", "11".repeat(32)), "0xzz", 1, 2).unwrap_err();
         assert!(err.to_string().contains("decode hex"));
+    }
+
+    #[test]
+    fn next_relay_target_seq_chunks_and_clamps() {
+        assert_eq!(next_relay_target_seq(5, 5, 10), None);
+        assert_eq!(next_relay_target_seq(5, 8, 10), Some(8));
+        assert_eq!(next_relay_target_seq(5, 20, 10), Some(15));
+        assert_eq!(next_relay_target_seq(5, 20, 0), Some(6));
     }
 }

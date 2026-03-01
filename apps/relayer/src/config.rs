@@ -91,6 +91,7 @@ pub struct JobConfig {
     pub tron_finality_blocks: u64,
     pub tip_proof_resend_blocks: u64,
 
+    pub relay_controller_max_events: u64,
     pub process_controller_max_events: u64,
     pub fill_max_claims: u64,
 
@@ -194,6 +195,8 @@ struct Env {
 
     tron_tip_proof_resend_blocks: u64,
 
+    relay_controller_max_events: u64,
+
     process_controller_max_events: u64,
 
     fill_max_claims: u64,
@@ -250,6 +253,7 @@ impl Default for Env {
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
+            relay_controller_max_events: 100,
             process_controller_max_events: 100,
             fill_max_claims: 50,
             controller_rebalance_threshold_usdt: "0".to_string(),
@@ -593,6 +597,7 @@ pub fn load_config() -> Result<AppConfig> {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),
             tron_finality_blocks: env.tron_finality_blocks,
             tip_proof_resend_blocks: env.tron_tip_proof_resend_blocks.max(1),
+            relay_controller_max_events: env.relay_controller_max_events.max(1),
             process_controller_max_events: env.process_controller_max_events,
             fill_max_claims: env.fill_max_claims,
             controller_rebalance_threshold_usdt: env.controller_rebalance_threshold_usdt,
@@ -639,9 +644,11 @@ mod tests {
 
     #[test]
     fn parse_tron_address_csv_optional_empty_ok_and_dedups() {
-        assert!(parse_tron_address_csv_optional("T", "   ")
-            .unwrap()
-            .is_empty());
+        assert!(
+            parse_tron_address_csv_optional("T", "   ")
+                .unwrap()
+                .is_empty()
+        );
 
         let a = TronAddress::parse_text("T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb").unwrap();
         let b = TronAddress::parse_text("0x0000000000000000000000000000000000000001").unwrap();
@@ -679,9 +686,11 @@ mod tests {
 
     #[test]
     fn parse_tron_energy_rental_apis_json_empty_ok() {
-        assert!(parse_tron_energy_rental_apis_json("   ")
-            .unwrap()
-            .is_empty());
+        assert!(
+            parse_tron_energy_rental_apis_json("   ")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -720,9 +729,11 @@ mod tests {
 
     #[test]
     fn parse_uniswap_v4_allowed_pools_json_empty_ok() {
-        assert!(parse_uniswap_v4_allowed_pools_json("   ")
-            .unwrap()
-            .is_empty());
+        assert!(
+            parse_uniswap_v4_allowed_pools_json("   ")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
