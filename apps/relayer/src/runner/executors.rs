@@ -104,6 +104,9 @@ impl HubExecutor {
                         let sender = self.sender.lock().await;
                         sender.safe_address()
                     };
+                    let hex0x =
+                        format!("0x{}", hex::encode(data_for_log.as_deref().unwrap_or(&[])));
+                    // Some log backends drop/trim very long lines; emit chunked logs.
                     tracing::error!(
                         job = %job_name,
                         intent = %intent_name,
@@ -112,12 +115,21 @@ impl HubExecutor {
                         operation,
                         data_len,
                         data_selector = %data_selector,
-                        calldata = %format!(
-                            "0x{}",
-                            hex::encode(data_for_log.as_deref().unwrap_or(&[]))
-                        ),
+                        calldata_len = hex0x.len(),
                         "debug: dumping failing hub calldata"
                     );
+                    const CHUNK: usize = 900;
+                    for (i, chunk) in hex0x.as_bytes().chunks(CHUNK).enumerate() {
+                        let s = std::str::from_utf8(chunk).unwrap_or("<non-utf8>");
+                        tracing::error!(
+                            job = %job_name,
+                            intent = %intent_name,
+                            chunk_index = i,
+                            chunk_total = (hex0x.len() + CHUNK - 1) / CHUNK,
+                            calldata_chunk = %s,
+                            "debug: hub calldata chunk"
+                        );
+                    }
                 }
 
                 // During incidents, we need the *full* anyhow chain + underlying RPC payloads.
