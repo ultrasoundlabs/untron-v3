@@ -49,6 +49,20 @@ impl HubExecutor {
             Some(sel) => format!("0x{}", hex::encode(sel)),
             None => "0x".to_string(),
         };
+
+        let debug_dump_calldata = job_name == "relay_controller_chain"
+            && std::env::var("RELAYER_DEBUG_DUMP_RELAY_CONTROLLER_CALLDATA")
+                .map(|v| v != "0" && v.to_lowercase() != "false")
+                .unwrap_or(false);
+
+        // Preserve calldata for debug logging on failure (bundler often returns error.data=null).
+        let data_for_log = if debug_dump_calldata {
+            Some(data.clone())
+        } else {
+            None
+        };
+        let data_for_send = data;
+
         let start = Instant::now();
         let submission = {
             let mut sender = self.sender.lock().await;
@@ -62,7 +76,7 @@ impl HubExecutor {
             let nonce = nonce_res?;
 
             sender
-                .send_call_with_nonce_operation(nonce, to, data, operation)
+                .send_call_with_nonce_operation(nonce, to, data_for_send, operation)
                 .await
         };
 
@@ -83,6 +97,29 @@ impl HubExecutor {
                     .hub_submit_ms(job_name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
                 state.hub_job_on_failure(job_name, state.last_tron_head);
+
+                if debug_dump_calldata {
+                    // Safe4337 smart account address; useful for reproducing the call via `cast call --from`.
+                    let safe = {
+                        let sender = self.sender.lock().await;
+                        sender.safe_address()
+                    };
+                    tracing::error!(
+                        job = %job_name,
+                        intent = %intent_name,
+                        from = %safe,
+                        to = %to,
+                        operation,
+                        data_len,
+                        data_selector = %data_selector,
+                        calldata = %format!(
+                            "0x{}",
+                            hex::encode(data_for_log.as_deref().unwrap_or(&[]))
+                        ),
+                        "debug: dumping failing hub calldata"
+                    );
+                }
+
                 // During incidents, we need the *full* anyhow chain + underlying RPC payloads.
                 // `%format!("{err:#}")` often loses structured JSON-RPC error data.
                 tracing::error!(
