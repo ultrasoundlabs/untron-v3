@@ -433,20 +433,18 @@ impl Safe4337UserOpSender {
         let estimate = match estimate_res {
             Ok(v) => v,
             Err(e) => {
-                if std::env::var("AA_DEBUG_SIMULATE_VALIDATION_ON_ESTIMATE_FAIL").is_ok() {
-                    tracing::warn!(
-                        safe = %self.safe,
-                        entrypoint = %self.cfg.entrypoint,
-                        "estimate failed; attempting EntryPoint.simulateValidation eth_call for richer revert"
-                    );
-                    // Best-effort; ignore errors and keep original estimate error.
-                    let _ = crate::entrypoint_sim::debug_simulate_validation(
-                        &self.provider,
-                        self.cfg.entrypoint,
-                        &userop,
-                    )
-                    .await;
-                }
+                tracing::warn!(
+                    safe = %self.safe,
+                    entrypoint = %self.cfg.entrypoint,
+                    "estimate failed; attempting EntryPoint.simulateValidation eth_call for richer revert"
+                );
+                // Best-effort; ignore errors and keep original estimate error.
+                let _ = crate::entrypoint_sim::debug_simulate_validation(
+                    &self.provider,
+                    self.cfg.entrypoint,
+                    &userop,
+                )
+                .await;
                 return Err(e).context("bundler estimate userop gas");
             }
         };
@@ -526,20 +524,18 @@ impl Safe4337UserOpSender {
         let estimate = match estimate_res {
             Ok(v) => v,
             Err(e) => {
-                if std::env::var("AA_DEBUG_SIMULATE_VALIDATION_ON_ESTIMATE_FAIL").is_ok() {
-                    tracing::warn!(
-                        safe = %self.safe,
-                        entrypoint = %self.cfg.entrypoint,
-                        paymaster = %redact_url(&svc.url),
-                        "estimate failed; attempting EntryPoint.simulateValidation eth_call for richer revert"
-                    );
-                    let _ = crate::entrypoint_sim::debug_simulate_validation(
-                        &self.provider,
-                        self.cfg.entrypoint,
-                        &userop,
-                    )
-                    .await;
-                }
+                tracing::warn!(
+                    safe = %self.safe,
+                    entrypoint = %self.cfg.entrypoint,
+                    paymaster = %redact_url(&svc.url),
+                    "estimate failed; attempting EntryPoint.simulateValidation eth_call for richer revert"
+                );
+                let _ = crate::entrypoint_sim::debug_simulate_validation(
+                    &self.provider,
+                    self.cfg.entrypoint,
+                    &userop,
+                )
+                .await;
                 return Err(e).context("bundler estimate userop gas");
             }
         };
