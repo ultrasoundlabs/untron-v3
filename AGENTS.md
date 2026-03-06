@@ -48,5 +48,5 @@ pnpm --filter @untron/v3-indexer dev      # cargo run -p indexer
 - PRs should include: what/why, how to test (commands), and any contract/API/migration impact. Ensure `pnpm verify` passes; Husky hooks run on commit/push (`--no-verify` only for emergencies).
 
 ## Security & Configuration Tips
-- Use the checked-in `.env.example` files (root/apps/infra) as templates; don’t commit secrets.
+- Use the checked-in `.env.example` files (root/apps/infra) as templates; don’t  commit secrets.
 - Local stack: `docker compose -f infra/docker-compose.yml up -d` (see `infra/README.md`).
