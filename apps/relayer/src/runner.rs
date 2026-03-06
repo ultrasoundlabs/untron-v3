@@ -11,7 +11,7 @@ use aa::{
     Safe4337UserOpSenderOptions,
 };
 use alloy::{
-    primitives::{FixedBytes, U256},
+    primitives::{B256, FixedBytes, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
@@ -26,7 +26,7 @@ use tron::{JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, Tro
 use untron_v3_bindings::untron_v3::UntronV3::UntronV3Instance;
 
 use self::{
-    executors::{HubExecutor, TronExecutor},
+    executors::{DirectHubExecutor, HubExecutor, TronExecutor},
     model::{Plan, StateUpdate},
     tasks::HubIntent,
     util::{run_job, tron_head_block},
@@ -104,6 +104,7 @@ pub struct RelayerState {
     last_tron_head: u64,
 
     hub_pending_nonce: Option<U256>,
+    hub_direct_relay_pending_tx: Option<B256>,
     hub_usdt_balance_cache: Option<HubUsdtBalanceCache>,
     hub_head_block_cache: Option<HubHeadBlockCache>,
     hub_swap_executor_cache: Option<HubSwapExecutorCache>,
@@ -497,15 +498,16 @@ impl Relayer {
         let provider = ProviderBuilder::default().connect_client(client);
         let hub_provider = DynProvider::new(provider);
         let hub_contract_address = cfg.hub.untron_v3;
+        let hub_chain_id = match cfg.hub.chain_id {
+            Some(id) => id,
+            None => {
+                let id = hub_provider.get_chain_id().await.context("eth_chainId")?;
+                cfg.hub.chain_id = Some(id);
+                id
+            }
+        };
+
         let uniswap_v4 = if let Some(v4_cfg) = cfg.hub.uniswap_v4.as_ref() {
-            let hub_chain_id = match cfg.hub.chain_id {
-                Some(id) => id,
-                None => {
-                    let id = hub_provider.get_chain_id().await.context("eth_chainId")?;
-                    cfg.hub.chain_id = Some(id);
-                    id
-                }
-            };
             Some(
                 UniswapV4Client::new(v4_cfg, hub_chain_id, hub_provider.clone())
                     .await
@@ -517,7 +519,7 @@ impl Relayer {
 
         let hub_sender_cfg = Safe4337UserOpSenderConfig {
             rpc_url: cfg.hub.rpc_url.clone(),
-            chain_id: cfg.hub.chain_id,
+            chain_id: Some(hub_chain_id),
             entrypoint: cfg.hub.entrypoint,
             safe: cfg.hub.safe,
             safe_4337_module: cfg.hub.safe_4337_module,
@@ -544,7 +546,13 @@ impl Relayer {
         tracing::info!(safe = %hub_safe, "hub safe ready");
         cfg.hub.safe = Some(hub_safe);
         let hub_sender = Arc::new(Mutex::new(hub_sender_inner));
-        let hub = HubExecutor::new(hub_sender, telemetry.clone());
+        let hub_direct = cfg
+            .hub
+            .direct_tx_private_key
+            .map(|pk| DirectHubExecutor::new(&cfg.hub.rpc_url, hub_chain_id, pk))
+            .transpose()
+            .context("init direct hub executor")?;
+        let hub = HubExecutor::new(hub_sender, hub_direct, telemetry.clone());
 
         let grpc_urls = cfg.tron.grpc_urls.clone();
         let mut active_tron_read_grpc = None;
@@ -637,6 +645,7 @@ impl Relayer {
                 hub_job_consecutive_failures: HashMap::new(),
                 last_tron_head: 0,
                 hub_pending_nonce: None,
+                hub_direct_relay_pending_tx: None,
                 hub_usdt_balance_cache: None,
                 hub_head_block_cache: None,
                 hub_swap_executor_cache: None,
@@ -798,9 +807,19 @@ impl Relayer {
         self.state.apply_updates(deposit_lp_plan.updates);
         self.state.apply_updates(liquidity_plan.updates);
 
+        let relay_direct_locked = self.relay_controller_chain_locked().await?;
+        if relay_direct_locked {
+            tracing::info!(
+                job = tasks::JOB_RELAY_CONTROLLER_CHAIN,
+                "relay_controller_chain direct tx still pending; skipping candidate"
+            );
+        }
+
         let mut hub_candidates = Vec::new();
-        if let Some(intent) = relay_plan.intent {
-            hub_candidates.push(HubCandidate::new(intent));
+        if !relay_direct_locked {
+            if let Some(intent) = relay_plan.intent {
+                hub_candidates.push(HubCandidate::new(intent));
+            }
         }
         if let Some(intent) = process_plan.intent {
             hub_candidates.push(HubCandidate::new(intent));
@@ -894,6 +913,22 @@ impl Relayer {
             return Ok(false);
         }
         Ok(true)
+    }
+
+    async fn relay_controller_chain_locked(&mut self) -> Result<bool> {
+        let Some(tx_hash) = self.state.hub_direct_relay_pending_tx else {
+            return Ok(false);
+        };
+        if self.ctx.hub.relay_controller_chain_direct_pending(tx_hash).await? {
+            return Ok(true);
+        }
+        tracing::info!(
+            tx_hash = %tx_hash,
+            job = tasks::JOB_RELAY_CONTROLLER_CHAIN,
+            "relay_controller_chain direct tx no longer pending"
+        );
+        self.state.hub_direct_relay_pending_tx = None;
+        Ok(false)
     }
 
     fn i64_to_u64_opt(v: Option<i64>) -> Option<u64> {
@@ -1129,6 +1164,7 @@ mod tests {
             hub_job_consecutive_failures: HashMap::new(),
             last_tron_head: 0,
             hub_pending_nonce: None,
+            hub_direct_relay_pending_tx: None,
             hub_usdt_balance_cache: None,
             hub_head_block_cache: None,
             hub_swap_executor_cache: None,

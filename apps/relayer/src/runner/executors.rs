@@ -1,7 +1,13 @@
 use super::RelayerState;
 use crate::metrics::RelayerTelemetry;
 use aa::Safe4337UserOpSender;
-use alloy::primitives::{Address, U256};
+use alloy::{
+    network::EthereumWallet,
+    primitives::{Address, B256, U256},
+    providers::{DynProvider, Provider, ProviderBuilder},
+    rpc::types::eth::transaction::{TransactionInput, TransactionRequest},
+    signers::local::PrivateKeySigner,
+};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,14 +19,120 @@ use tron::{
 };
 
 #[derive(Clone)]
+pub(crate) struct DirectHubExecutor {
+    provider: DynProvider,
+    from: Address,
+    chain_id: u64,
+}
+
+#[derive(Clone, Copy)]
+struct DirectHubTxSubmission {
+    tx_hash: B256,
+}
+
+impl DirectHubExecutor {
+    pub(crate) fn new(rpc_url: &str, chain_id: u64, private_key: [u8; 32]) -> Result<Self> {
+        let signer =
+            PrivateKeySigner::from_bytes(&private_key.into()).context("invalid direct tx private key")?;
+        let from = signer.address();
+        let wallet = EthereumWallet::from(signer);
+        let client = untron_rpc_fallback::rpc_client_from_urls_csv(rpc_url, Duration::from_secs(4))
+            .with_context(|| format!("connect hub rpc (fallback csv): {rpc_url}"))?;
+        let provider = ProviderBuilder::default().wallet(wallet).connect_client(client);
+        Ok(Self {
+            provider: DynProvider::new(provider),
+            from,
+            chain_id,
+        })
+    }
+
+    async fn submit_call(&self, to: Address, data: Vec<u8>) -> Result<DirectHubTxSubmission> {
+        let tx = TransactionRequest {
+            from: Some(self.from),
+            chain_id: Some(self.chain_id),
+            to: Some(to.into()),
+            input: TransactionInput::new(data.into()),
+            ..Default::default()
+        };
+
+        let nonce = self
+            .provider
+            .get_transaction_count(self.from)
+            .await
+            .context("eth_getTransactionCount direct hub tx")?;
+
+        let gas_price: u128 = self
+            .provider
+            .get_gas_price()
+            .await
+            .context("eth_gasPrice direct hub tx")?;
+        let priority: u128 = self
+            .provider
+            .get_max_priority_fee_per_gas()
+            .await
+            .unwrap_or(gas_price / 10);
+
+        let gas_limit: u64 = self
+            .provider
+            .estimate_gas(tx.clone())
+            .await
+            .context("eth_estimateGas direct hub tx")?;
+        let gas_limit = gas_limit.saturating_mul(12).saturating_div(10).max(100_000);
+
+        let tx = TransactionRequest {
+            nonce: Some(nonce),
+            gas: Some(gas_limit),
+            max_fee_per_gas: Some(gas_price),
+            max_priority_fee_per_gas: Some(priority),
+            ..tx
+        };
+
+        let pending = self
+            .provider
+            .send_transaction(tx)
+            .await
+            .context("send direct hub tx")?;
+        let tx_hash = *pending.tx_hash();
+
+        Ok(DirectHubTxSubmission { tx_hash })
+    }
+
+    async fn is_pending(&self, tx_hash: B256) -> Result<bool> {
+        Ok(self
+            .provider
+            .get_transaction_receipt(tx_hash)
+            .await
+            .context("eth_getTransactionReceipt direct hub tx")?
+            .is_none())
+    }
+}
+
+fn is_userop_gas_cap_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .to_string()
+            .contains("gas limits exceed the max gas per userOp")
+    })
+}
+
+#[derive(Clone)]
 pub struct HubExecutor {
     sender: Arc<Mutex<Safe4337UserOpSender>>,
+    direct: Option<DirectHubExecutor>,
     telemetry: RelayerTelemetry,
 }
 
 impl HubExecutor {
-    pub fn new(sender: Arc<Mutex<Safe4337UserOpSender>>, telemetry: RelayerTelemetry) -> Self {
-        Self { sender, telemetry }
+    pub fn new(
+        sender: Arc<Mutex<Safe4337UserOpSender>>,
+        direct: Option<DirectHubExecutor>,
+        telemetry: RelayerTelemetry,
+    ) -> Self {
+        Self {
+            sender,
+            direct,
+            telemetry,
+        }
     }
 
     pub async fn current_nonce(&self) -> Result<U256> {
@@ -61,6 +173,7 @@ impl HubExecutor {
         } else {
             None
         };
+        let data_for_direct = data.clone();
         let data_for_send = data;
 
         let start = Instant::now();
@@ -93,6 +206,50 @@ impl HubExecutor {
                 Ok(())
             }
             Err(err) => {
+                if job_name == "relay_controller_chain" && operation == 0 && is_userop_gas_cap_error(&err)
+                {
+                    if let Some(direct) = &self.direct {
+                        tracing::warn!(
+                            job = %job_name,
+                            intent = %intent_name,
+                            to = %to,
+                            err = %format!("{err:#}"),
+                            "AA rejected relay_controller_chain due to userop gas cap; falling back to direct hub tx"
+                        );
+
+                        match direct.submit_call(to, data_for_direct).await {
+                            Ok(sub) => {
+                                self.telemetry.hub_submit_ms(
+                                    job_name,
+                                    true,
+                                    start.elapsed().as_millis() as u64,
+                                );
+                                state.invalidate_hub_usdt_balance_cache();
+                                state.invalidate_hub_safe_erc20_balance_cache();
+                                state.hub_direct_relay_pending_tx = Some(sub.tx_hash);
+                                state.hub_job_on_success(job_name);
+                                tracing::info!(
+                                    tx_hash = %sub.tx_hash,
+                                    job = %job_name,
+                                    intent = %intent_name,
+                                    "submitted direct hub tx fallback"
+                                );
+                                return Ok(());
+                            }
+                            Err(direct_err) => {
+                                tracing::error!(
+                                    job = %job_name,
+                                    intent = %intent_name,
+                                    to = %to,
+                                    err = %format!("{direct_err:#}"),
+                                    raw_err = ?direct_err,
+                                    "direct hub tx fallback failed"
+                                );
+                            }
+                        }
+                    }
+                }
+
                 self.telemetry
                     .hub_submit_ms(job_name, false, start.elapsed().as_millis() as u64);
                 self.telemetry.hub_userop_err();
@@ -149,6 +306,13 @@ impl HubExecutor {
                 Err(err)
             }
         }
+    }
+
+    pub async fn relay_controller_chain_direct_pending(&self, tx_hash: B256) -> Result<bool> {
+        let Some(direct) = &self.direct else {
+            return Ok(false);
+        };
+        direct.is_pending(tx_hash).await
     }
 }
 

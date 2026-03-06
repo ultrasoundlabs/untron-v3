@@ -42,6 +42,7 @@ pub struct HubConfig {
     pub bundler_urls: Vec<String>,
 
     pub owner_private_key: [u8; 32],
+    pub direct_tx_private_key: Option<[u8; 32]>,
 
     pub paymasters: Vec<PaymasterServiceConfig>,
 
@@ -142,6 +143,9 @@ struct Env {
     hub_owner_private_key_hex: String,
 
     #[serde(default)]
+    hub_direct_tx_private_key_hex: String,
+
+    #[serde(default)]
     hub_bundler_urls: String,
 
     #[serde(default)]
@@ -230,6 +234,7 @@ impl Default for Env {
             hub_safe_singleton_address: String::new(),
             hub_safe_module_setup_address: String::new(),
             hub_owner_private_key_hex: String::new(),
+            hub_direct_tx_private_key_hex: String::new(),
             hub_bundler_urls: String::new(),
             hub_paymasters_json: String::new(),
             uniswap_v4_pool_manager_address: String::new(),
@@ -292,6 +297,14 @@ fn parse_hex_32(label: &str, s: &str) -> Result<[u8; 32]> {
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes);
     Ok(out)
+}
+
+fn parse_optional_hex_32(label: &str, s: &str) -> Result<Option<[u8; 32]>> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    parse_hex_32(label, trimmed).map(Some)
 }
 
 fn parse_csv(label: &str, s: &str) -> Result<Vec<String>> {
@@ -526,6 +539,11 @@ pub fn load_config() -> Result<AppConfig> {
     };
     let hub_owner_private_key =
         parse_hex_32("HUB_OWNER_PRIVATE_KEY_HEX", &env.hub_owner_private_key_hex)?;
+    let hub_direct_tx_private_key = parse_optional_hex_32(
+        "HUB_DIRECT_TX_PRIVATE_KEY_HEX",
+        &env.hub_direct_tx_private_key_hex,
+    )?
+    .or(Some(hub_owner_private_key));
 
     let bundlers = parse_csv("HUB_BUNDLER_URLS", &env.hub_bundler_urls)?;
     let paymasters = parse_paymasters_json(&env.hub_paymasters_json)?;
@@ -572,6 +590,7 @@ pub fn load_config() -> Result<AppConfig> {
             multisend: hub_multisend,
             bundler_urls: bundlers,
             owner_private_key: hub_owner_private_key,
+            direct_tx_private_key: hub_direct_tx_private_key,
             paymasters,
             uniswap_v4,
         },
