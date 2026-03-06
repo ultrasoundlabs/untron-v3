@@ -2,7 +2,7 @@ use super::{HubIntent, TronIntent};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use tron::{
-    TronAddress, decode_trc20_call_data, decode_trigger_smart_contract,
+    DecodedTrc20Call, TronAddress, decode_trc20_call_data, decode_trigger_smart_contract,
     wallet::encode_pull_from_receivers,
 };
 
@@ -574,6 +574,8 @@ async fn find_unentitleable_receiver_salts(
         return Ok(Vec::new());
     }
 
+    let mut controller_address: Option<Address> = None;
+
     for row in rows.into_iter().take(20) {
         let receiver_salt_hex = row.receiver_salt.as_deref().unwrap_or_default();
         let txid_hex = match row.tx_hash.as_deref() {
@@ -616,26 +618,110 @@ async fn find_unentitleable_receiver_salts(
             .get(0..4)
             .map(hex::encode)
             .unwrap_or_else(|| "<missing>".to_string());
-        let decoded_trc20 = decode_trc20_call_data(&decoded.data, decoded.owner).ok();
-        if decoded.contract.evm() == tron_usdt {
-            continue;
+
+        let is_direct_tron_usdt_call = decoded.contract.evm() == tron_usdt;
+        let decoded_trc20 = match decode_trc20_call_data(&decoded.data, decoded.owner) {
+            Ok(v) => Some(v),
+            Err(err) => {
+                if is_direct_tron_usdt_call {
+                    let receiver_salt = parse_bytes32(receiver_salt_hex)?;
+                    tracing::info!(
+                        txid = %txid_hex,
+                        receiver_salt = %receiver_salt_hex,
+                        recommended_action = ?row.recommended_action,
+                        preentitle_time_ok = row.preentitle_time_ok,
+                        amount = ?row.amount,
+                        expected_lease_id = ?row.expected_lease_id,
+                        tron_to = %decoded.contract,
+                        tron_usdt = %TronAddress::from_evm(tron_usdt),
+                        tron_selector = %selector_hex,
+                        err = %err,
+                        "found unentitleable receiver deposit (direct Tron USDT call with invalid TRC-20 calldata); will pullFromReceivers after finality"
+                    );
+                    return Ok(vec![receiver_salt]);
+                }
+                None
+            }
+        };
+
+        if !is_direct_tron_usdt_call {
+            let receiver_salt = parse_bytes32(receiver_salt_hex)?;
+            tracing::info!(
+                txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
+                recommended_action = ?row.recommended_action,
+                preentitle_time_ok = row.preentitle_time_ok,
+                amount = ?row.amount,
+                expected_lease_id = ?row.expected_lease_id,
+                tron_to = %decoded.contract,
+                tron_usdt = %TronAddress::from_evm(tron_usdt),
+                tron_selector = %selector_hex,
+                trc20_call = ?decoded_trc20,
+                "found unentitleable receiver deposit (not a direct Tron USDT call); will pullFromReceivers after finality"
+            );
+            return Ok(vec![receiver_salt]);
         }
 
+        let Some(trc20_call) = decoded_trc20 else {
+            continue;
+        };
+
+        let trc20_to = match trc20_call {
+            DecodedTrc20Call::Transfer { to, .. }
+            | DecodedTrc20Call::TransferFrom { to, .. } => to,
+        };
+
         let receiver_salt = parse_bytes32(receiver_salt_hex)?;
-        tracing::info!(
-            txid = %txid_hex,
-            receiver_salt = %receiver_salt_hex,
-            recommended_action = ?row.recommended_action,
-            preentitle_time_ok = row.preentitle_time_ok,
-            amount = ?row.amount,
-            expected_lease_id = ?row.expected_lease_id,
-            tron_to = %decoded.contract,
-            tron_usdt = %TronAddress::from_evm(tron_usdt),
-            tron_selector = %selector_hex,
-            trc20_call = ?decoded_trc20,
-            "found unentitleable receiver deposit; will pullFromReceivers after finality"
-        );
-        return Ok(vec![receiver_salt]);
+        let controller_address = match controller_address {
+            Some(v) => v,
+            None => {
+                let start = std::time::Instant::now();
+                let controller_address_res = hub_contract.CONTROLLER_ADDRESS().call().await;
+                ctx.telemetry.hub_rpc_ms(
+                    "CONTROLLER_ADDRESS",
+                    controller_address_res.is_ok(),
+                    start.elapsed().as_millis() as u64,
+                );
+                let v = controller_address_res.context("hub CONTROLLER_ADDRESS")?;
+                controller_address = Some(v);
+                v
+            }
+        };
+
+        let predicted_receiver = match hub_contract
+            .predictReceiverAddress_1(controller_address, receiver_salt)
+            .call()
+            .await
+        {
+            Ok(addr) => TronAddress::from_evm(addr),
+            Err(err) => {
+                tracing::warn!(
+                    txid = %txid_hex,
+                    receiver_salt = %receiver_salt_hex,
+                    err = %err,
+                    "failed to predict receiver address on hub while checking forced pull eligibility"
+                );
+                continue;
+            }
+        };
+
+        if trc20_to != predicted_receiver {
+            tracing::info!(
+                txid = %txid_hex,
+                receiver_salt = %receiver_salt_hex,
+                recommended_action = ?row.recommended_action,
+                preentitle_time_ok = row.preentitle_time_ok,
+                amount = ?row.amount,
+                expected_lease_id = ?row.expected_lease_id,
+                tron_to = %decoded.contract,
+                tron_usdt = %TronAddress::from_evm(tron_usdt),
+                tron_selector = %selector_hex,
+                trc20_to = %trc20_to,
+                predicted_receiver = %predicted_receiver,
+                "found unentitleable receiver deposit (direct Tron USDT call recipient mismatch); will pullFromReceivers after finality"
+            );
+            return Ok(vec![receiver_salt]);
+        }
     }
 
     Ok(Vec::new())
