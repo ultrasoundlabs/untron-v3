@@ -45,7 +45,7 @@ pnpm --filter @untron/v3-indexer dev      # cargo run -p indexer
 
 ## Commit & Pull Request Guidelines
 - Prefer Conventional Commit style used in history: `feat(scope): …`, `fix(scope): …`, `refactor(scope): …`, `chore(scope): …` (scopes like `indexer`, `realtor`, `relayer`, `tron`).
-- PRs should include: what/why, how to test (commands), and any contract/API/migration impact. Ensure `pnpm verify`  passes; Husky hooks run on commit/push (`--no-verify` only for emergencies).
+- PRs should include: what/why, how to test (commands), and any contract/API/migration impact. Ensure `pnpm verify` passes; Husky hooks run on commit/push (`--no-verify` only for emergencies).
 
 ## Security & Configuration Tips
 - Use the checked-in `.env.example` files (root/apps/infra) as templates; don’t commit secrets.
