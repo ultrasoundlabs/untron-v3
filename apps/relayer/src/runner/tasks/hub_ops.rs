@@ -1,5 +1,6 @@
 use super::HubIntent;
 use anyhow::{Context, Result};
+use serde::Serialize;
 use untron_v3_bindings::untron_v3::UntronV3::{
     depositCall, fillCall, preEntitleCall, processControllerEventsCall,
     relayControllerEventChainCall, subjectivePreEntitleCall,
@@ -14,8 +15,97 @@ use alloy::{
     primitives::{Address, FixedBytes, U256},
     sol_types::SolCall,
 };
+use std::path::PathBuf;
 use std::time::Instant;
 use tron::{DecodedTrc20Call, TronAddress, decode_trc20_call_data, decode_trigger_smart_contract};
+
+#[derive(Serialize)]
+struct RelayControllerDebugEvent {
+    sig: String,
+    data: String,
+    data_len: usize,
+    block_number: u64,
+    block_timestamp: u64,
+}
+
+#[derive(Serialize)]
+struct RelayControllerDebugDump {
+    proof_txid: String,
+    proof_index: String,
+    encoded_tx: String,
+    encoded_tx_len: usize,
+    proof: Vec<String>,
+    proof_len: usize,
+    blocks: Vec<String>,
+    block_lens: Vec<usize>,
+    event_count: usize,
+    event_data_bytes: usize,
+    calldata: String,
+    calldata_len: usize,
+    events: Vec<RelayControllerDebugEvent>,
+}
+
+fn relay_controller_debug_enabled() -> bool {
+    std::env::var("RELAYER_DEBUG_DUMP_RELAY_CONTROLLER_CALLDATA")
+        .map(|v| v != "0" && v.to_lowercase() != "false")
+        .unwrap_or(false)
+}
+
+fn relay_controller_debug_dump_path() -> PathBuf {
+    std::env::var_os("RELAYER_DEBUG_DUMP_RELAY_CONTROLLER_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("apps/relayer/debug-relay-controller-chain.json"))
+}
+
+fn write_relay_controller_debug_dump(
+    proof_txid: [u8; 32],
+    bundle: &tron::TronTxProofBundle,
+    events: &[untron_v3_bindings::untron_v3::UntronV3Base::ControllerEvent],
+    calldata: &[u8],
+) -> Result<PathBuf> {
+    let dump = RelayControllerDebugDump {
+        proof_txid: format!("0x{}", hex::encode(proof_txid)),
+        proof_index: bundle.index.to_string(),
+        encoded_tx: format!("0x{}", hex::encode(&bundle.encoded_tx)),
+        encoded_tx_len: bundle.encoded_tx.len(),
+        proof: bundle
+            .proof
+            .iter()
+            .map(|node| format!("0x{}", hex::encode(node.as_slice())))
+            .collect(),
+        proof_len: bundle.proof.len(),
+        blocks: bundle
+            .blocks
+            .iter()
+            .map(|block| format!("0x{}", hex::encode(block)))
+            .collect(),
+        block_lens: bundle.blocks.iter().map(std::vec::Vec::len).collect(),
+        event_count: events.len(),
+        event_data_bytes: events.iter().map(|event| event.data.len()).sum(),
+        calldata: format!("0x{}", hex::encode(calldata)),
+        calldata_len: calldata.len(),
+        events: events
+            .iter()
+            .map(|event| RelayControllerDebugEvent {
+                sig: format!("0x{}", hex::encode(event.sig.as_slice())),
+                data: format!("0x{}", hex::encode(&event.data)),
+                data_len: event.data.len(),
+                block_number: event.blockNumber,
+                block_timestamp: event.blockTimestamp,
+            })
+            .collect(),
+    };
+
+    let path = relay_controller_debug_dump_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create relay controller debug dir {}", parent.display()))?;
+    }
+    let body = serde_json::to_vec_pretty(&dump).context("serialize relay controller debug dump")?;
+    std::fs::write(&path, body)
+        .with_context(|| format!("write relay controller debug dump {}", path.display()))?;
+    Ok(path)
+}
 
 fn pre_entitle_finalized(
     block_number: u64,
@@ -435,12 +525,33 @@ pub async fn execute_hub_intent(
 
             let data = relayControllerEventChainCall {
                 blocks,
-                encodedTx: bundle.encoded_tx.into(),
-                proof: bundle.proof,
+                encodedTx: bundle.encoded_tx.clone().into(),
+                proof: bundle.proof.clone(),
                 index: bundle.index,
-                events,
+                events: events.clone(),
             }
             .abi_encode();
+
+            if relay_controller_debug_enabled() {
+                match write_relay_controller_debug_dump(proof_txid, &bundle, &events, &data) {
+                    Ok(path) => tracing::info!(
+                        proof_txid = %hex::encode(proof_txid),
+                        proof_index = %bundle.index,
+                        encoded_tx_len = bundle.encoded_tx.len(),
+                        proof_len = bundle.proof.len(),
+                        event_count = events.len(),
+                        calldata_len = data.len(),
+                        path = %path.display(),
+                        "wrote relay controller debug dump"
+                    ),
+                    Err(err) => tracing::warn!(
+                        proof_txid = %hex::encode(proof_txid),
+                        err = %err,
+                        "failed to write relay controller debug dump"
+                    ),
+                }
+            }
+
             (ctx.hub_contract_address, 0u8, data)
         }
         HubIntent::ProcessControllerEvents => (

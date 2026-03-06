@@ -419,9 +419,7 @@ impl Safe4337UserOpSender {
     ) -> Result<Safe4337UserOpSubmission> {
         // If we're here, either no paymasters are configured or they all failed. Surface a clearer
         // error than "eth_estimateUserOperationGas" if the Safe is unfunded.
-        if self.paymasters.is_none() {
-            self.preflight_self_paid().await?;
-        }
+        self.preflight_self_paid().await?;
 
         userop.signature = self.sign_userop(&userop)?.into();
 
@@ -445,7 +443,28 @@ impl Safe4337UserOpSender {
                     &userop,
                 )
                 .await;
-                return Err(e).context("bundler estimate userop gas");
+
+                tracing::warn!(
+                    safe = %self.safe,
+                    entrypoint = %self.cfg.entrypoint,
+                    call_gas_limit = %userop.call_gas_limit,
+                    verification_gas_limit = %userop.verification_gas_limit,
+                    pre_verification_gas = %userop.pre_verification_gas,
+                    err = %format!("{e:#}"),
+                    "continuing with manual self-paid userop gas after estimate failure"
+                );
+
+                let nonce = userop.nonce;
+                let (resp, send_attempts) = self
+                    .send_user_operation_with_retries(userop)
+                    .await
+                    .context("bundler send userop")?;
+
+                return Ok(Safe4337UserOpSubmission {
+                    userop_hash: hex_bytes0x(&resp.user_op_hash),
+                    nonce,
+                    send_attempts,
+                });
             }
         };
 
