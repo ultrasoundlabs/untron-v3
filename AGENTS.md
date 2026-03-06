@@ -14,7 +14,7 @@
 ## Build, Test, and Development Commands
 Prereqs: Node.js (20+ recommended), `pnpm` (see `package.json`), Rust toolchain, and Foundry (`forge`). For the full local stack, you’ll also need Docker.
 
-After cloning: `git submodule update --init --recursive` (contracts dependencies live under `packages/contracts/lib/`).
+After cloning:  `git submodule update --init --recursive` (contracts dependencies live under `packages/contracts/lib/`).
 
 ```bash
 pnpm install          # install workspace deps
