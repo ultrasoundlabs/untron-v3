@@ -317,7 +317,7 @@ impl Safe4337UserOpSender {
             factory: None,
             factory_data: None,
             call_data: call_data.into(),
-            call_gas_limit: U256::from(30_000_000u64),
+            call_gas_limit: U256::from(50_000_000u64),
             verification_gas_limit: U256::from(5_000_000u64),
             pre_verification_gas: U256::from(2_000_000u64),
             max_fee_per_gas,
