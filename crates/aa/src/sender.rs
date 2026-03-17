@@ -334,6 +334,7 @@ impl Safe4337UserOpSender {
                 .order()
                 .filter_map(|idx| pool.service(idx).cloned().map(|svc| (idx, svc)))
                 .collect::<Vec<_>>();
+            let mut paymaster_failures = Vec::with_capacity(attempts.len());
 
             for (idx, svc) in attempts {
                 match self
@@ -346,16 +347,21 @@ impl Safe4337UserOpSender {
                         return Ok(sub);
                     }
                     Err(err) => {
+                        let err_fmt = format!("{err:#}");
+                        paymaster_failures.push(format!("{}: {err_fmt}", redact_url(&svc.url)));
                         tracing::warn!(
                             paymaster = %redact_url(&svc.url),
-                            err = %err,
+                            err = %err_fmt,
                             "paymaster attempt failed; trying next"
                         );
                     }
                 }
             }
 
-            tracing::warn!("all configured paymasters failed; falling back to self-paid userop");
+            tracing::warn!(
+                failures = ?paymaster_failures,
+                "all configured paymasters failed; falling back to self-paid userop"
+            );
             self.paymasters = Some(pool);
         }
 
@@ -496,6 +502,18 @@ impl Safe4337UserOpSender {
         svc: &PaymasterService,
         mut userop: PackedUserOperation,
     ) -> Result<Safe4337UserOpSubmission> {
+        let paymaster_url = redact_url(&svc.url);
+        tracing::info!(
+            safe = %self.safe,
+            entrypoint = %self.cfg.entrypoint,
+            paymaster = %paymaster_url,
+            paymaster_idx = idx,
+            nonce = %userop.nonce,
+            call_data_len = userop.call_data.len(),
+            paymaster_finalization = ?self.cfg.options.paymaster_finalization,
+            "starting paymaster attempt"
+        );
+
         let pm_userop = to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
         let stub = pool
             .get_stub_data(idx, &pm_userop, self.cfg.entrypoint, self.chain_id)
@@ -519,14 +537,27 @@ impl Safe4337UserOpSender {
             .paymaster_data
             .context("pm_getPaymasterStubData missing paymasterData")?;
         let stub_len = paymaster_data.len();
+        let stub_pm_ver = stub.paymaster_verification_gas_limit;
+        let stub_pm_post = stub.paymaster_post_op_gas_limit;
+
+        tracing::info!(
+            safe = %self.safe,
+            entrypoint = %self.cfg.entrypoint,
+            paymaster = %paymaster_url,
+            paymaster_address = %paymaster,
+            sponsor = ?stub.sponsor,
+            is_final = ?stub.is_final,
+            paymaster_data_len = stub_len,
+            paymaster_verification_gas_limit = ?stub_pm_ver,
+            paymaster_post_op_gas_limit = ?stub_pm_post,
+            "received paymaster stub data"
+        );
 
         userop.paymaster = Some(paymaster);
         userop.paymaster_data = Some(paymaster_data);
-        let stub_pm_ver = stub.paymaster_verification_gas_limit;
         userop.paymaster_verification_gas_limit =
             Some(stub_pm_ver.unwrap_or(U256::from(DEFAULT_PAYMASTER_VERIFICATION_GAS_LIMIT)));
 
-        let stub_pm_post = stub.paymaster_post_op_gas_limit;
         let pm_post = stub_pm_post.context(
             "pm_getPaymasterStubData missing paymasterPostOpGasLimit (required for v0.7)",
         )?;
@@ -546,7 +577,9 @@ impl Safe4337UserOpSender {
                 tracing::warn!(
                     safe = %self.safe,
                     entrypoint = %self.cfg.entrypoint,
-                    paymaster = %redact_url(&svc.url),
+                    paymaster = %paymaster_url,
+                    paymaster_address = %paymaster,
+                    err = %format!("{e:#}"),
                     "estimate failed; attempting EntryPoint.simulateValidation eth_call for richer revert"
                 );
                 let _ = crate::entrypoint_sim::debug_simulate_validation(
@@ -573,16 +606,36 @@ impl Safe4337UserOpSender {
             cap_paymaster_verification_gas_limit(add_gas_buffer(pm_ver_base, GAS_BUFFER_PCT)?);
         if capped {
             tracing::warn!(
-                paymaster = %redact_url(&svc.url),
+                paymaster = %paymaster_url,
+                paymaster_address = %paymaster,
                 pm_ver = %pm_ver,
                 "capped paymasterVerificationGasLimit to bundler MAX_VERIFICATION_GAS-1"
             );
         }
         userop.paymaster_verification_gas_limit = Some(pm_ver);
 
+        tracing::info!(
+            safe = %self.safe,
+            entrypoint = %self.cfg.entrypoint,
+            paymaster = %paymaster_url,
+            paymaster_address = %paymaster,
+            call_gas_limit = %userop.call_gas_limit,
+            verification_gas_limit = %userop.verification_gas_limit,
+            pre_verification_gas = %userop.pre_verification_gas,
+            paymaster_verification_gas_limit = ?userop.paymaster_verification_gas_limit,
+            paymaster_post_op_gas_limit = ?userop.paymaster_post_op_gas_limit,
+            "prepared sponsored userop after gas estimation"
+        );
+
         match self.cfg.options.paymaster_finalization {
             PaymasterFinalizationMode::SkipIfStubFinal => {
                 if stub.is_final != Some(true) {
+                    tracing::info!(
+                        paymaster = %paymaster_url,
+                        paymaster_address = %paymaster,
+                        stub_len,
+                        "fetching finalized paymaster data"
+                    );
                     let pm_userop_final =
                         to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
                     let final_data = pool
@@ -597,18 +650,40 @@ impl Safe4337UserOpSender {
                     let paymaster_data = final_data
                         .paymaster_data
                         .context("pm_getPaymasterData missing paymasterData")?;
+                    let final_len = paymaster_data.len();
                     if paymaster_data.len() != stub_len {
                         tracing::warn!(
-                            paymaster = %redact_url(&svc.url),
+                            paymaster = %paymaster_url,
+                            paymaster_address = %paymaster,
                             stub_len,
-                            final_len = paymaster_data.len(),
+                            final_len,
                             "paymasterData length differs between stub and final; bundler preVerificationGas may be off"
                         );
                     }
+                    tracing::info!(
+                        paymaster = %paymaster_url,
+                        paymaster_address = %paymaster,
+                        stub_len,
+                        final_len,
+                        "received finalized paymaster data"
+                    );
                     userop.paymaster_data = Some(paymaster_data);
+                } else {
+                    tracing::info!(
+                        paymaster = %paymaster_url,
+                        paymaster_address = %paymaster,
+                        stub_len,
+                        "paymaster stub marked final; skipping pm_getPaymasterData"
+                    );
                 }
             }
             PaymasterFinalizationMode::AlwaysFetchFinal => {
+                tracing::info!(
+                    paymaster = %paymaster_url,
+                    paymaster_address = %paymaster,
+                    stub_len,
+                    "fetching finalized paymaster data"
+                );
                 let pm_userop =
                     to_paymaster_userop(&userop, self.cfg.options.paymaster_finalization)?;
                 let final_data = pool
@@ -626,12 +701,20 @@ impl Safe4337UserOpSender {
                 let final_len = paymaster_data.len();
                 if final_len != stub_len {
                     tracing::warn!(
-                        paymaster = %redact_url(&svc.url),
+                        paymaster = %paymaster_url,
+                        paymaster_address = %paymaster,
                         stub_len,
                         final_len,
                         "paymasterData length differs between stub and final; bundler preVerificationGas may be off"
                     );
                 }
+                tracing::info!(
+                    paymaster = %paymaster_url,
+                    paymaster_address = %paymaster,
+                    stub_len,
+                    final_len,
+                    "received finalized paymaster data"
+                );
                 userop.paymaster = Some(paymaster);
                 userop.paymaster_data = Some(paymaster_data);
             }
@@ -640,14 +723,35 @@ impl Safe4337UserOpSender {
         // Do not mutate any signed UserOperation fields after paymaster finalization.
         userop.signature = self.sign_userop(&userop)?.into();
         let nonce = userop.nonce;
+        tracing::info!(
+            safe = %self.safe,
+            entrypoint = %self.cfg.entrypoint,
+            paymaster = %paymaster_url,
+            paymaster_address = %paymaster,
+            nonce = %nonce,
+            call_gas_limit = %userop.call_gas_limit,
+            verification_gas_limit = %userop.verification_gas_limit,
+            pre_verification_gas = %userop.pre_verification_gas,
+            paymaster_verification_gas_limit = ?userop.paymaster_verification_gas_limit,
+            paymaster_post_op_gas_limit = ?userop.paymaster_post_op_gas_limit,
+            paymaster_data_len = ?userop.paymaster_data.as_ref().map(|data| data.len()),
+            "submitting sponsored userop"
+        );
         let (resp, send_attempts) = self
             .send_user_operation_with_retries(userop)
             .await
             .context("bundler send userop")?;
 
-        if self.cfg.options.paymaster_finalization == PaymasterFinalizationMode::AlwaysFetchFinal {
-            tracing::info!(paymaster = %redact_url(&svc.url), "userop sponsored");
-        }
+        tracing::info!(
+            safe = %self.safe,
+            entrypoint = %self.cfg.entrypoint,
+            paymaster = %paymaster_url,
+            paymaster_address = %paymaster,
+            nonce = %nonce,
+            userop_hash = %hex_bytes0x(&resp.user_op_hash),
+            send_attempts,
+            "userop sponsored"
+        );
 
         Ok(Safe4337UserOpSubmission {
             userop_hash: hex_bytes0x(&resp.user_op_hash),

@@ -1,3 +1,4 @@
+use crate::packing::redact_url;
 use alloy::primitives::{Address, Bytes, U256};
 use anyhow::{Context, Result};
 use reqwest::Client;
@@ -216,6 +217,7 @@ impl PaymasterPool {
     ) -> Result<T> {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
+        let paymaster = redact_url(url);
 
         let body = serde_json::json!({
             "jsonrpc": "2.0",
@@ -224,17 +226,46 @@ impl PaymasterPool {
             "params": params,
         });
 
-        let resp = self
-            .http
-            .post(url)
-            .json(&body)
-            .send()
-            .await
-            .with_context(|| format!("POST {url}"))?;
+        tracing::info!(paymaster = %paymaster, method, rpc_id = id, "calling paymaster rpc");
+
+        let resp = match self.http.post(url).json(&body).send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                tracing::warn!(
+                    paymaster = %paymaster,
+                    method,
+                    rpc_id = id,
+                    err = %format!("{err:#}"),
+                    "paymaster rpc transport failed"
+                );
+                return Err(err).with_context(|| format!("POST {url}"));
+            }
+        };
 
         let status = resp.status();
-        let text = resp.text().await.context("read response body")?;
+        let text = match resp.text().await {
+            Ok(text) => text,
+            Err(err) => {
+                tracing::warn!(
+                    paymaster = %paymaster,
+                    method,
+                    rpc_id = id,
+                    status = %status,
+                    err = %format!("{err:#}"),
+                    "failed to read paymaster rpc response body"
+                );
+                return Err(err).context("read response body");
+            }
+        };
         if !status.is_success() {
+            tracing::warn!(
+                paymaster = %paymaster,
+                method,
+                rpc_id = id,
+                status = %status,
+                body = %text,
+                "paymaster rpc returned non-success http status"
+            );
             anyhow::bail!("http {status}: {text}");
         }
 
@@ -256,25 +287,80 @@ impl PaymasterPool {
             data: Option<serde_json::Value>,
         }
 
-        let env: JsonRpcEnvelope<T> = serde_json::from_str(&text).context("decode jsonrpc")?;
+        let env: JsonRpcEnvelope<T> = match serde_json::from_str(&text) {
+            Ok(env) => env,
+            Err(err) => {
+                tracing::warn!(
+                    paymaster = %paymaster,
+                    method,
+                    rpc_id = id,
+                    err = %err,
+                    body = %text,
+                    "paymaster rpc returned invalid json"
+                );
+                return Err(err).with_context(|| format!("decode jsonrpc response body: {text}"));
+            }
+        };
         if let Some(v) = env.jsonrpc.as_deref()
             && v != "2.0"
         {
+            tracing::warn!(
+                paymaster = %paymaster,
+                method,
+                rpc_id = id,
+                jsonrpc_version = %v,
+                body = %text,
+                "paymaster rpc returned unexpected jsonrpc version"
+            );
             anyhow::bail!("unexpected jsonrpc version: {v}");
         }
         if let Some(v) = &env.id
             && v != &Value::from(id)
         {
+            tracing::warn!(
+                paymaster = %paymaster,
+                method,
+                rpc_id = id,
+                response_id = %v,
+                body = %text,
+                "paymaster rpc returned mismatched id"
+            );
             anyhow::bail!("jsonrpc id mismatch (expected {id}, got {v})");
         }
         if let Some(err) = env.error {
+            let data = err
+                .data
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_string());
+            tracing::warn!(
+                paymaster = %paymaster,
+                method,
+                rpc_id = id,
+                code = err.code,
+                message = %err.message,
+                data = %data,
+                "paymaster rpc returned jsonrpc error"
+            );
             anyhow::bail!(
-                "jsonrpc error {}: {} ({:?})",
+                "jsonrpc error {}: {} (data: {})",
                 err.code,
                 err.message,
-                err.data
+                data
             );
         }
+
+        if env.result.is_none() {
+            tracing::warn!(
+                paymaster = %paymaster,
+                method,
+                rpc_id = id,
+                body = %text,
+                "paymaster rpc response missing result"
+            );
+        } else {
+            tracing::info!(paymaster = %paymaster, method, rpc_id = id, "paymaster rpc succeeded");
+        }
+
         env.result.context("missing jsonrpc result")
     }
 }
