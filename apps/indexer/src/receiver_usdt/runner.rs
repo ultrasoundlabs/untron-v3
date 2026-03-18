@@ -571,7 +571,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     let shutdown = shutdown.clone();
                     let telemetry = telemetry.clone();
 
-                    let check_concurrency = block_header_concurrency.max(1).min(32);
+                    let check_concurrency = block_header_concurrency.clamp(1, 32);
                     let receivers = work
                         .receiver_map
                         .iter()

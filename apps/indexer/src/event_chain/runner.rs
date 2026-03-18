@@ -1,6 +1,6 @@
 use crate::shared::rpc_telemetry::RpcTelemetry;
 use crate::{
-    config::StreamConfig,
+    config::{GapRepairConfig, StreamConfig},
     db::{self, ResolvedStream},
     metrics::StreamTelemetry,
     rpc::RpcProviders,
@@ -13,7 +13,7 @@ use tokio::time;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use super::{errors, range, reorg, state::PollState};
+use super::{errors, range, reorg, repair, state::PollState};
 use crate::shared::progress::ProgressReporter;
 
 const MAX_TRANSIENT_RETRIES: u32 = 3;
@@ -31,6 +31,7 @@ fn shrink_chunk(current: u64) -> u64 {
     (current / 2).max(1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn shrink_chunk_with_backoff_reset(
     progress: &mut ProgressReporter,
     state: &mut PollState,
@@ -73,6 +74,7 @@ fn resolve_rpc_contract_address(
 pub struct RunStreamParams {
     pub dbh: db::Db,
     pub cfg: StreamConfig,
+    pub gap_repair: GapRepairConfig,
     pub resolved: ResolvedStream,
     pub providers: RpcProviders,
     pub shutdown: CancellationToken,
@@ -86,6 +88,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
     let RunStreamParams {
         dbh,
         cfg,
+        gap_repair,
         resolved,
         providers,
         shutdown,
@@ -149,6 +152,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
     let mut last_gap_check = std::time::Instant::now()
         .checked_sub(Duration::from_secs(3600))
         .unwrap_or_else(std::time::Instant::now);
+    let mut gap_repair_state = repair::GapRepairState::new();
 
     loop {
         tokio::select! {
@@ -286,6 +290,125 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
             }
             state.timestamps.cache.clear();
             from_block = from_block.min(reorg_start);
+        }
+
+        if gap_repair.enabled {
+            let gap_res = timed_await_or_cancel(&shutdown, async {
+                db::event_chain::blocking_gap_info(&dbh, state.stream, cfg.deployment_block).await
+            })
+            .await;
+
+            let blocking_gap = match gap_res {
+                Ok(Some((gap, ms))) => {
+                    state
+                        .telemetry
+                        .observe_db_latency_ms("blocking_gap_info", ms);
+                    gap
+                }
+                Ok(None) => return Ok(()),
+                Err(e) => return Err(e),
+            };
+
+            if let Some(gap) = blocking_gap {
+                gap_repair_state.observe_gap(gap.missing_seq, &gap_repair);
+
+                if !gap_repair_state.should_retry_now() {
+                    debug!(
+                        stream = state.stream.as_str(),
+                        missing_seq = gap.missing_seq,
+                        later_seq = gap.later_seq,
+                        retry_in_ms = gap_repair_state.retry_after().as_millis() as u64,
+                        "blocking gap detected; waiting before next repair attempt"
+                    );
+                    continue;
+                }
+
+                let attempt = gap_repair_state.attempt_number();
+                let window = gap_repair_state.repair_window(&gap, safe_head, &gap_repair);
+
+                info!(
+                    stream = state.stream.as_str(),
+                    missing_seq = gap.missing_seq,
+                    later_seq = gap.later_seq,
+                    attempt,
+                    repair_from_block = window.from_block,
+                    repair_to_block = window.to_block,
+                    "attempting blocking gap repair"
+                );
+
+                match repair::scan_window(&dbh, &shutdown, &mut state, window).await {
+                    Ok(()) => {
+                        let verify_res = timed_await_or_cancel(&shutdown, async {
+                            db::event_chain::blocking_gap_info(
+                                &dbh,
+                                state.stream,
+                                cfg.deployment_block,
+                            )
+                            .await
+                        })
+                        .await;
+
+                        let remaining_gap = match verify_res {
+                            Ok(Some((gap, ms))) => {
+                                state
+                                    .telemetry
+                                    .observe_db_latency_ms("blocking_gap_info", ms);
+                                gap
+                            }
+                            Ok(None) => return Ok(()),
+                            Err(e) => return Err(e),
+                        };
+
+                        if let Some(remaining_gap) = remaining_gap {
+                            if remaining_gap.missing_seq != gap.missing_seq {
+                                info!(
+                                    stream = state.stream.as_str(),
+                                    repaired_missing_seq = gap.missing_seq,
+                                    next_missing_seq = remaining_gap.missing_seq,
+                                    next_later_seq = remaining_gap.later_seq,
+                                    "blocking gap repaired; another gap remains"
+                                );
+                                gap_repair_state
+                                    .observe_gap(remaining_gap.missing_seq, &gap_repair);
+                                continue;
+                            }
+
+                            gap_repair_state.record_failure(&gap_repair);
+                            warn!(
+                                stream = state.stream.as_str(),
+                                missing_seq = remaining_gap.missing_seq,
+                                later_seq = remaining_gap.later_seq,
+                                retry_in_ms = gap_repair_state.retry_after().as_millis() as u64,
+                                "blocking gap persists after repair attempt; backing off"
+                            );
+                            continue;
+                        }
+
+                        info!(
+                            stream = state.stream.as_str(),
+                            missing_seq = gap.missing_seq,
+                            attempt,
+                            "blocking gap repaired"
+                        );
+                        gap_repair_state.clear();
+                    }
+                    Err(e) => {
+                        gap_repair_state.record_failure(&gap_repair);
+                        warn!(
+                            stream = state.stream.as_str(),
+                            missing_seq = gap.missing_seq,
+                            later_seq = gap.later_seq,
+                            attempt,
+                            retry_in_ms = gap_repair_state.retry_after().as_millis() as u64,
+                            err = %e,
+                            "blocking gap repair attempt failed; backing off"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                gap_repair_state.clear();
+            }
         }
 
         while from_block <= safe_head {

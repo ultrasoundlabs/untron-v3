@@ -94,6 +94,7 @@ impl ReceiverUsdtTelemetry {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn observe_range(
         &self,
         mode: &'static str,

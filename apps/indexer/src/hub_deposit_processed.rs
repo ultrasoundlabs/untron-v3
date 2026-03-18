@@ -47,7 +47,7 @@ pub async fn run_hub_deposit_processed_cache(params: RunHubDepositProcessedParam
     let poll_interval = poll_interval.max(Duration::from_secs(1));
     let recheck_after = recheck_after.max(Duration::from_secs(1));
     let batch_size = batch_size.max(1);
-    let concurrency = concurrency.max(1).min(50);
+    let concurrency = concurrency.clamp(1, 50);
 
     info!(
         hub = %hub_addr,

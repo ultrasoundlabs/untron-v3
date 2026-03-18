@@ -61,11 +61,21 @@ pub struct HubDepositProcessedConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct GapRepairConfig {
+    pub enabled: bool,
+    pub initial_pad_blocks: u64,
+    pub max_window_blocks: u64,
+    pub initial_backoff: Duration,
+    pub max_backoff: Duration,
+}
+
+#[derive(Debug, Clone)]
 pub struct AppConfig {
     pub database_url: String,
     pub streams: Vec<StreamConfig>,
     pub receiver_usdt: ReceiverUsdtConfig,
     pub hub_deposit_processed: HubDepositProcessedConfig,
+    pub gap_repair: GapRepairConfig,
     pub db_max_connections: u32,
 
     pub block_header_concurrency: usize,
@@ -214,6 +224,37 @@ impl Default for HubDepositProcessedEnv {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
+struct GapRepairEnv {
+    #[serde(rename = "indexer_gap_repair_enabled")]
+    enabled: bool,
+
+    #[serde(rename = "indexer_gap_repair_initial_pad_blocks")]
+    initial_pad_blocks: u64,
+
+    #[serde(rename = "indexer_gap_repair_max_window_blocks")]
+    max_window_blocks: u64,
+
+    #[serde(rename = "indexer_gap_repair_initial_backoff_secs")]
+    initial_backoff_secs: u64,
+
+    #[serde(rename = "indexer_gap_repair_max_backoff_secs")]
+    max_backoff_secs: u64,
+}
+
+impl Default for GapRepairEnv {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            initial_pad_blocks: DEFAULT_GAP_REPAIR_INITIAL_PAD_BLOCKS,
+            max_window_blocks: DEFAULT_GAP_REPAIR_MAX_WINDOW_BLOCKS,
+            initial_backoff_secs: DEFAULT_GAP_REPAIR_INITIAL_BACKOFF_SECS,
+            max_backoff_secs: DEFAULT_GAP_REPAIR_MAX_BACKOFF_SECS,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct StreamEnv {
     chain_id: u64,
     contract_address: String,
@@ -235,6 +276,7 @@ pub fn load_config() -> Result<AppConfig> {
         envy::from_env().context("load receiver_usdt env config")?;
     let hub_deposit_processed_env: HubDepositProcessedEnv =
         envy::from_env().context("load hub_deposit_processed env config")?;
+    let gap_repair_env: GapRepairEnv = envy::from_env().context("load gap repair env config")?;
 
     let retry = crate::rpc::RetryConfig {
         max_rate_limit_retries: retry_env.max_rate_limit_retries,
@@ -292,6 +334,17 @@ pub fn load_config() -> Result<AppConfig> {
             batch_size: hub_deposit_processed_env.batch_size.max(1),
             recheck_after: Duration::from_secs(hub_deposit_processed_env.recheck_after_secs.max(1)),
             concurrency: hub_deposit_processed_env.concurrency.max(1),
+        },
+        gap_repair: GapRepairConfig {
+            enabled: gap_repair_env.enabled,
+            initial_pad_blocks: gap_repair_env.initial_pad_blocks,
+            max_window_blocks: gap_repair_env.max_window_blocks.max(1),
+            initial_backoff: Duration::from_secs(gap_repair_env.initial_backoff_secs.max(1)),
+            max_backoff: Duration::from_secs(
+                gap_repair_env
+                    .max_backoff_secs
+                    .max(gap_repair_env.initial_backoff_secs.max(1)),
+            ),
         },
         db_max_connections: base.db_max_connections,
         block_header_concurrency: base.block_header_concurrency,
@@ -405,6 +458,11 @@ const DEFAULT_PROGRESS_TAIL_LAG_BLOCKS: u64 = 0;
 const DEFAULT_RPC_MAX_RATE_LIMIT_RETRIES: u32 = 8;
 const DEFAULT_RPC_INITIAL_BACKOFF_MS: u64 = 250;
 const DEFAULT_RPC_COMPUTE_UNITS_PER_SECOND: u64 = 500;
+
+const DEFAULT_GAP_REPAIR_INITIAL_PAD_BLOCKS: u64 = 16;
+const DEFAULT_GAP_REPAIR_MAX_WINDOW_BLOCKS: u64 = 50_000;
+const DEFAULT_GAP_REPAIR_INITIAL_BACKOFF_SECS: u64 = 5;
+const DEFAULT_GAP_REPAIR_MAX_BACKOFF_SECS: u64 = 300;
 
 const DEFAULT_UNTRON_CONTROLLER_CREATE2_PREFIX: &str = "0x41";
 const DEFAULT_TRC20_POLL_INTERVAL_SECS: u64 = 2;

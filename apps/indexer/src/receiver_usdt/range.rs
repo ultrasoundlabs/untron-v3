@@ -32,6 +32,7 @@ pub(crate) struct TokenRange<'a> {
     pub(crate) to_block: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn process_token_range(
     dbh: &crate::db::Db,
     shutdown: &CancellationToken,

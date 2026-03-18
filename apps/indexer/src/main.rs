@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
         progress_interval,
         progress_tail_lag_blocks,
         hub_deposit_processed: hub_deposit_processed_cfg,
+        gap_repair,
     } = config::load_config()?;
     let dbh = db::Db::connect(&database_url, db_max_connections).await?;
     // Keep this in sync with the latest migration file number.
@@ -93,6 +94,7 @@ async fn main() -> Result<()> {
     for (stream_cfg, resolved, providers) in resolved_streams {
         let dbh = dbh.clone();
         let shutdown = shutdown.clone();
+        let gap_repair = gap_repair.clone();
 
         join_set.spawn(async move {
             let stream_label = stream_cfg.stream.as_str();
@@ -112,6 +114,7 @@ async fn main() -> Result<()> {
                     block_timestamp_cache_size,
                     progress_interval,
                     progress_tail_lag_blocks,
+                    gap_repair: gap_repair.clone(),
                 })
                 .await;
 
@@ -220,54 +223,54 @@ async fn main() -> Result<()> {
         }
     }
 
-    if hub_deposit_processed_cfg.enabled {
-        if let (Some(_cfg), Some(providers), Some(resolved)) = (
+    if hub_deposit_processed_cfg.enabled
+        && let (Some(_cfg), Some(providers), Some(resolved)) = (
             hub_for_deposit_processed,
             hub_providers_for_deposit_processed,
             hub_resolved_for_deposit_processed,
-        ) {
-            let dbh = dbh.clone();
-            let shutdown = shutdown.clone();
-            join_set.spawn(async move {
-                let mut backoff = Duration::from_millis(250);
-                loop {
-                    if shutdown.is_cancelled() {
-                        return Ok(());
-                    }
-
-                    let res = hub_deposit_processed::run_hub_deposit_processed_cache(
-                        hub_deposit_processed::RunHubDepositProcessedParams {
-                            dbh: dbh.clone(),
-                            resolved: resolved.clone(),
-                            providers: providers.clone(),
-                            shutdown: shutdown.clone(),
-                            poll_interval: hub_deposit_processed_cfg.poll_interval,
-                            batch_size: hub_deposit_processed_cfg.batch_size,
-                            recheck_after: hub_deposit_processed_cfg.recheck_after,
-                            concurrency: hub_deposit_processed_cfg.concurrency,
-                        },
-                    )
-                    .await;
-
-                    match res {
-                        Ok(()) => {
-                            // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
-                            // that as an error.
-                            if shutdown.is_cancelled() {
-                                return Ok(());
-                            }
-                            // This task should be long-lived; a clean exit means depositProcessed
-                            // caching is stopped until restart.
-                            error!("hub_deposit_processed task exited unexpectedly; restarting")
-                        }
-                        Err(e) => error!(err = ?e, "hub_deposit_processed task failed; restarting"),
-                    }
-
-                    time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(Duration::from_secs(5));
+        )
+    {
+        let dbh = dbh.clone();
+        let shutdown = shutdown.clone();
+        join_set.spawn(async move {
+            let mut backoff = Duration::from_millis(250);
+            loop {
+                if shutdown.is_cancelled() {
+                    return Ok(());
                 }
-            });
-        }
+
+                let res = hub_deposit_processed::run_hub_deposit_processed_cache(
+                    hub_deposit_processed::RunHubDepositProcessedParams {
+                        dbh: dbh.clone(),
+                        resolved: resolved.clone(),
+                        providers: providers.clone(),
+                        shutdown: shutdown.clone(),
+                        poll_interval: hub_deposit_processed_cfg.poll_interval,
+                        batch_size: hub_deposit_processed_cfg.batch_size,
+                        recheck_after: hub_deposit_processed_cfg.recheck_after,
+                        concurrency: hub_deposit_processed_cfg.concurrency,
+                    },
+                )
+                .await;
+
+                match res {
+                    Ok(()) => {
+                        // On shutdown/deploy, tasks can return Ok(()) via cancellation; don't log
+                        // that as an error.
+                        if shutdown.is_cancelled() {
+                            return Ok(());
+                        }
+                        // This task should be long-lived; a clean exit means depositProcessed
+                        // caching is stopped until restart.
+                        error!("hub_deposit_processed task exited unexpectedly; restarting")
+                    }
+                    Err(e) => error!(err = ?e, "hub_deposit_processed task failed; restarting"),
+                }
+
+                time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(5));
+            }
+        });
     }
 
     info!("indexer started");

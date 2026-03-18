@@ -90,6 +90,100 @@ pub async fn canonical_seq_gap_count(db: &Db, stream: Stream) -> Result<i64> {
     Ok(max_seq.saturating_sub(n))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockingGap {
+    pub missing_seq: u64,
+    pub later_seq: u64,
+    pub left_block: u64,
+    pub right_block: u64,
+}
+
+pub async fn canonical_seq_exists(db: &Db, stream: Stream, seq: u64) -> Result<bool> {
+    let seq = i64::try_from(seq).context("seq out of range for bigint")?;
+    let exists: Option<i64> = query_scalar(
+        "select 1 from chain.event_appended where stream = $1::chain.stream and canonical and event_seq = $2 limit 1",
+    )
+    .bind(stream.as_str())
+    .bind(seq)
+    .fetch_optional(&db.pool)
+    .await
+    .context("read canonical seq existence")?;
+
+    Ok(exists.is_some())
+}
+
+pub async fn blocking_gap_info(
+    db: &Db,
+    stream: Stream,
+    deployment_block: u64,
+) -> Result<Option<BlockingGap>> {
+    let applied_through_seq: i64 = query_scalar(
+        "select applied_through_seq from chain.stream_cursor where stream = $1::chain.stream",
+    )
+    .bind(stream.as_str())
+    .fetch_optional(&db.pool)
+    .await
+    .context("read chain.stream_cursor")?
+    .with_context(|| format!("stream cursor not initialized for {}", stream.as_str()))?;
+
+    let missing_seq = applied_through_seq.saturating_add(1);
+    let missing_seq_u64 = u64::try_from(missing_seq)
+        .with_context(|| format!("missing_seq out of range for u64: {missing_seq}"))?;
+
+    if canonical_seq_exists(db, stream, missing_seq_u64).await? {
+        return Ok(None);
+    }
+
+    let later = sqlx::query_as::<Postgres, (i64, i64)>(
+        r#"
+        select event_seq, block_number
+        from chain.event_appended
+        where stream = $1::chain.stream and canonical and event_seq > $2
+        order by event_seq asc
+        limit 1
+        "#,
+    )
+    .bind(stream.as_str())
+    .bind(missing_seq)
+    .fetch_optional(&db.pool)
+    .await
+    .context("read later canonical seq for blocking gap")?;
+
+    let Some((later_seq, right_block)) = later else {
+        return Ok(None);
+    };
+
+    let left_block = if applied_through_seq == 0 {
+        deployment_block
+    } else {
+        let left_block: Option<i64> = query_scalar(
+            "select block_number from chain.event_appended where stream = $1::chain.stream and canonical and event_seq = $2 limit 1",
+        )
+        .bind(stream.as_str())
+        .bind(applied_through_seq)
+        .fetch_optional(&db.pool)
+        .await
+        .context("read left boundary block for blocking gap")?;
+
+        left_block
+            .map(|block| {
+                u64::try_from(block)
+                    .with_context(|| format!("left boundary block out of range for u64: {block}"))
+            })
+            .transpose()?
+            .unwrap_or(deployment_block)
+    };
+
+    Ok(Some(BlockingGap {
+        missing_seq: missing_seq_u64,
+        later_seq: u64::try_from(later_seq)
+            .with_context(|| format!("later_seq out of range for u64: {later_seq}"))?,
+        left_block,
+        right_block: u64::try_from(right_block)
+            .with_context(|| format!("right_block out of range for u64: {right_block}"))?,
+    }))
+}
+
 #[derive(Debug, Clone)]
 pub struct StoredBlockHash {
     pub block_number: u64,
