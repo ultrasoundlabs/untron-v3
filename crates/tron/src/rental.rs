@@ -129,7 +129,7 @@ fn interpret_json_response(
             ok: false,
             order_id: None,
             response_json: parsed,
-            error: Some(format!("http status {status_code}")),
+            error: Some(format!("http status {status_code}: {body}")),
         };
     }
 
@@ -385,7 +385,10 @@ mod tests {
 
         let res = interpret_json_response(&cfg, 503, r#"{"success":true}"#);
         assert!(!res.ok);
-        assert_eq!(res.error.as_deref(), Some("http status 503"));
+        assert_eq!(
+            res.error.as_deref(),
+            Some("http status 503: {\"success\":true}")
+        );
         assert!(res.response_json.is_some());
     }
 }
