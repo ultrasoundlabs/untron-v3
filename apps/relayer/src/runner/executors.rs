@@ -556,6 +556,15 @@ impl TronExecutor {
             )
             .await?;
 
+        tracing::info!(
+            txid = %format!("0x{}", hex::encode(signed.txid)),
+            energy_required = signed.energy_required,
+            tx_size_bytes = signed.tx_size_bytes,
+            fee_limit_sun = signed.fee_limit_sun,
+            call_value_sun,
+            "signed tron tx"
+        );
+
         // Cover any energy shortfall from rental providers. When `require_energy_rental` is set,
         // sub-minimum shortfalls still rent (rounded up to the provider minimum), and if rental
         // fails the broadcast is aborted instead of burning wallet TRX.
