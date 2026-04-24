@@ -22,7 +22,10 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tron::{JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, TronWallet};
+use tron::{
+    JsonApiRentalProvider, TronAddress, TronGrpc, TronTxProofBuilder, TronWallet,
+    resources::parse_chain_fees,
+};
 use untron_v3_bindings::untron_v3::UntronV3::UntronV3Instance;
 
 use self::{
@@ -592,6 +595,21 @@ impl Relayer {
             .into_iter()
             .map(JsonApiRentalProvider::new)
             .collect::<Vec<_>>();
+        let chain_fees = {
+            let mut g = active_tron_read_grpc.lock().await;
+            let params = g
+                .get_chain_parameters()
+                .await
+                .context("get_chain_parameters (startup)")?;
+            parse_chain_fees(&params).context("parse_chain_fees (startup)")?
+        };
+        tracing::info!(
+            energy_fee_sun_per_energy = chain_fees.energy_fee_sun_per_energy,
+            tx_fee_sun_per_byte = chain_fees.tx_fee_sun_per_byte,
+            fee_limit_headroom_ppm = cfg.tron.fee_limit_headroom_ppm,
+            fee_limit_ceiling_sun = cfg.tron.fee_limit_ceiling_sun,
+            "loaded Tron chain fees"
+        );
         let tron_write = TronExecutor::new(
             tron_grpc_write,
             grpc_urls.clone(),
@@ -600,6 +618,9 @@ impl Relayer {
             tron_wallet.clone(),
             energy_rental,
             cfg.tron.energy_rental_confirm_max_wait,
+            chain_fees,
+            cfg.tron.fee_limit_headroom_ppm,
+            cfg.tron.fee_limit_ceiling_sun,
             telemetry.clone(),
         );
         let tron_proof = Arc::new(TronTxProofBuilder::new(cfg.jobs.tron_finality_blocks));

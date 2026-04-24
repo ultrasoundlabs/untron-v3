@@ -14,8 +14,8 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tron::{
-    JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc, TronWallet,
-    protocol::TriggerSmartContract,
+    ChainFees, FeeLimitPolicy, JsonApiRentalProvider, RentalContext, RentalResourceKind,
+    TronAddress, TronGrpc, TronWallet, protocol::TriggerSmartContract,
 };
 
 #[derive(Clone)]
@@ -325,6 +325,7 @@ pub struct TronExecutor {
     wallet: Arc<TronWallet>,
     energy_rental: Vec<JsonApiRentalProvider>,
     energy_rental_confirm_max_wait: Duration,
+    fee_limit_policy: FeeLimitPolicy,
     telemetry: RelayerTelemetry,
 }
 
@@ -337,6 +338,9 @@ impl TronExecutor {
         wallet: Arc<TronWallet>,
         energy_rental: Vec<JsonApiRentalProvider>,
         energy_rental_confirm_max_wait: Duration,
+        chain_fees: ChainFees,
+        fee_limit_headroom_ppm: u64,
+        fee_limit_ceiling_sun: u64,
         telemetry: RelayerTelemetry,
     ) -> Self {
         Self {
@@ -347,6 +351,11 @@ impl TronExecutor {
             wallet,
             energy_rental,
             energy_rental_confirm_max_wait,
+            fee_limit_policy: FeeLimitPolicy {
+                fees: Some(chain_fees),
+                headroom_ppm: fee_limit_headroom_ppm,
+                ceiling_sun: fee_limit_ceiling_sun,
+            },
             telemetry,
         }
     }
@@ -535,7 +544,13 @@ impl TronExecutor {
 
         let signed = self
             .wallet
-            .build_and_sign_trigger_smart_contract(grpc, contract, data, call_value_sun)
+            .build_and_sign_trigger_smart_contract(
+                grpc,
+                contract,
+                data,
+                call_value_sun,
+                self.fee_limit_policy,
+            )
             .await?;
 
         // Attempt energy rental for the shortfall (best-effort, fall back to paying TRX).

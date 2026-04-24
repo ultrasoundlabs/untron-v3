@@ -84,6 +84,10 @@ pub struct TronConfig {
     pub energy_rental_providers: Vec<JsonApiRentalProviderConfig>,
     /// Max time to poll Tron until rented energy is reflected in AccountResource.
     pub energy_rental_confirm_max_wait: Duration,
+    /// Headroom (parts-per-million) on top of the energy-based fee_limit quote. 100_000 = +10%.
+    pub fee_limit_headroom_ppm: u64,
+    /// Hard ceiling on the computed fee_limit (sun), regardless of quote.
+    pub fee_limit_ceiling_sun: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +196,12 @@ struct Env {
     #[serde(default)]
     tron_energy_rental_confirm_max_wait_secs: u64,
 
+    #[serde(default = "default_tron_fee_limit_headroom_ppm")]
+    tron_fee_limit_headroom_ppm: u64,
+
+    #[serde(default = "default_tron_fee_limit_ceiling_sun")]
+    tron_fee_limit_ceiling_sun: u64,
+
     relayer_tick_interval_secs: u64,
 
     tron_finality_blocks: u64,
@@ -252,6 +262,8 @@ impl Default for Env {
             tron_pull_from_receivers_energy_limit: default_tron_pull_from_receivers_energy_limit(),
             tron_energy_rental_apis_json: String::new(),
             tron_energy_rental_confirm_max_wait_secs: 6,
+            tron_fee_limit_headroom_ppm: default_tron_fee_limit_headroom_ppm(),
+            tron_fee_limit_ceiling_sun: default_tron_fee_limit_ceiling_sun(),
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
@@ -268,6 +280,16 @@ impl Default for Env {
 
 fn default_tron_pull_from_receivers_energy_limit() -> u64 {
     1_000_000
+}
+
+fn default_tron_fee_limit_headroom_ppm() -> u64 {
+    // +10% on top of the energy-based quote.
+    100_000
+}
+
+fn default_tron_fee_limit_ceiling_sun() -> u64 {
+    // 100 TRX — the historical fixed cap.
+    tron::FIXED_FEE_LIMIT_SUN
 }
 
 fn parse_address(label: &str, s: &str) -> Result<Address> {
@@ -607,6 +629,8 @@ pub fn load_config() -> Result<AppConfig> {
             energy_rental_confirm_max_wait: Duration::from_secs(
                 env.tron_energy_rental_confirm_max_wait_secs,
             ),
+            fee_limit_headroom_ppm: env.tron_fee_limit_headroom_ppm,
+            fee_limit_ceiling_sun: env.tron_fee_limit_ceiling_sun,
         },
         jobs: JobConfig {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),

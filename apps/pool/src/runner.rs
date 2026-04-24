@@ -16,8 +16,8 @@ use tokio::sync::Mutex;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use tron::{
-    JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress, TronGrpc, TronWallet,
-    wallet::trc20_balance_of,
+    FeeLimitPolicy, JsonApiRentalProvider, RentalContext, RentalResourceKind, TronAddress,
+    TronGrpc, TronWallet, wallet::trc20_balance_of,
 };
 
 fn build_oneclick_client(user_agent: &str, bearer_token: Option<&str>) -> Result<reqwest::Client> {
@@ -509,7 +509,15 @@ async fn broadcast_trc20_transfer_single(
     const MIN_ENERGY_RENTAL_AMOUNT: u64 = 32_000;
 
     let signed = wallet
-        .build_and_sign_trigger_smart_contract(tron, token_contract, data, 0)
+        .build_and_sign_trigger_smart_contract(
+            tron,
+            token_contract,
+            data,
+            0,
+            // TODO(layer-1): migrate pool to dynamic fee_limit once chain fees are plumbed through
+            // the pool runner. For now, retain the historical fixed 100 TRX cap.
+            FeeLimitPolicy::FIXED,
+        )
         .await?;
 
     // Attempt energy rental for the shortfall (best-effort, fall back to paying TRX).

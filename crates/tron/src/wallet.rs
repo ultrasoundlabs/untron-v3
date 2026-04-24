@@ -1,4 +1,5 @@
 use super::protocol::TriggerSmartContract;
+use super::sender::FeeLimitPolicy;
 use super::{address::TronAddress, grpc::TronGrpc};
 use alloy::primitives::{Address, FixedBytes, U256, keccak256};
 use anyhow::{Context, Result};
@@ -46,9 +47,16 @@ impl TronWallet {
         contract: TronAddress,
         data: Vec<u8>,
         call_value_sun: i64,
+        fee_limit_policy: FeeLimitPolicy,
     ) -> Result<[u8; 32]> {
         let res = self
-            .broadcast_trigger_smart_contract_result(grpc, contract, data, call_value_sun)
+            .broadcast_trigger_smart_contract_result(
+                grpc,
+                contract,
+                data,
+                call_value_sun,
+                fee_limit_policy,
+            )
             .await?;
 
         if !res.ok() {
@@ -68,9 +76,16 @@ impl TronWallet {
         contract: TronAddress,
         data: Vec<u8>,
         call_value_sun: i64,
+        fee_limit_policy: FeeLimitPolicy,
     ) -> Result<BroadcastedTronTx> {
         let signed = self
-            .build_and_sign_trigger_smart_contract(grpc, contract, data, call_value_sun)
+            .build_and_sign_trigger_smart_contract(
+                grpc,
+                contract,
+                data,
+                call_value_sun,
+                fee_limit_policy,
+            )
             .await
             .context("build_and_sign_trigger_smart_contract")?;
 
