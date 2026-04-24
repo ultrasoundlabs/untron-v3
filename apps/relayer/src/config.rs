@@ -88,6 +88,10 @@ pub struct TronConfig {
     pub fee_limit_headroom_ppm: u64,
     /// Hard ceiling on the computed fee_limit (sun), regardless of quote.
     pub fee_limit_ceiling_sun: u64,
+    /// If true, every shortfall MUST be covered by energy rental: sub-MIN shortfalls still try
+    /// to rent (rounded up to the provider minimum), and if every provider fails the broadcast
+    /// is aborted instead of burning wallet TRX.
+    pub require_energy_rental: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +206,9 @@ struct Env {
     #[serde(default = "default_tron_fee_limit_ceiling_sun")]
     tron_fee_limit_ceiling_sun: u64,
 
+    #[serde(default)]
+    tron_require_energy_rental: bool,
+
     relayer_tick_interval_secs: u64,
 
     tron_finality_blocks: u64,
@@ -264,6 +271,7 @@ impl Default for Env {
             tron_energy_rental_confirm_max_wait_secs: 6,
             tron_fee_limit_headroom_ppm: default_tron_fee_limit_headroom_ppm(),
             tron_fee_limit_ceiling_sun: default_tron_fee_limit_ceiling_sun(),
+            tron_require_energy_rental: false,
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
@@ -631,6 +639,7 @@ pub fn load_config() -> Result<AppConfig> {
             ),
             fee_limit_headroom_ppm: env.tron_fee_limit_headroom_ppm,
             fee_limit_ceiling_sun: env.tron_fee_limit_ceiling_sun,
+            require_energy_rental: env.tron_require_energy_rental,
         },
         jobs: JobConfig {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),

@@ -595,6 +595,11 @@ impl Relayer {
             .into_iter()
             .map(JsonApiRentalProvider::new)
             .collect::<Vec<_>>();
+        if cfg.tron.require_energy_rental && energy_rental.is_empty() {
+            anyhow::bail!(
+                "TRON_REQUIRE_ENERGY_RENTAL=true but TRON_ENERGY_RENTAL_APIS_JSON configures no providers"
+            );
+        }
         let chain_fees = {
             let mut g = active_tron_read_grpc.lock().await;
             let params = g
@@ -618,6 +623,7 @@ impl Relayer {
             tron_wallet.clone(),
             energy_rental,
             cfg.tron.energy_rental_confirm_max_wait,
+            cfg.tron.require_energy_rental,
             chain_fees,
             cfg.tron.fee_limit_headroom_ppm,
             cfg.tron.fee_limit_ceiling_sun,

@@ -325,6 +325,7 @@ pub struct TronExecutor {
     wallet: Arc<TronWallet>,
     energy_rental: Vec<JsonApiRentalProvider>,
     energy_rental_confirm_max_wait: Duration,
+    require_energy_rental: bool,
     fee_limit_policy: FeeLimitPolicy,
     telemetry: RelayerTelemetry,
 }
@@ -338,6 +339,7 @@ impl TronExecutor {
         wallet: Arc<TronWallet>,
         energy_rental: Vec<JsonApiRentalProvider>,
         energy_rental_confirm_max_wait: Duration,
+        require_energy_rental: bool,
         chain_fees: ChainFees,
         fee_limit_headroom_ppm: u64,
         fee_limit_ceiling_sun: u64,
@@ -351,6 +353,7 @@ impl TronExecutor {
             wallet,
             energy_rental,
             energy_rental_confirm_max_wait,
+            require_energy_rental,
             fee_limit_policy: FeeLimitPolicy {
                 fees: Some(chain_fees),
                 headroom_ppm: fee_limit_headroom_ppm,
@@ -553,17 +556,32 @@ impl TronExecutor {
             )
             .await?;
 
-        // Attempt energy rental for the shortfall (best-effort, fall back to paying TRX).
+        // Cover any energy shortfall from rental providers. When `require_energy_rental` is set,
+        // sub-minimum shortfalls still rent (rounded up to the provider minimum), and if rental
+        // fails the broadcast is aborted instead of burning wallet TRX.
         if !self.energy_rental.is_empty() {
             let res = grpc
                 .get_account_resource(self.wallet.address().prefixed_bytes().to_vec())
                 .await?;
             let parsed = tron::resources::parse_account_resources(&res)?;
-            let shortfall = signed
-                .energy_required
-                .saturating_sub(parsed.energy_available());
+            let energy_available = parsed.energy_available();
+            let shortfall = signed.energy_required.saturating_sub(energy_available);
 
-            if shortfall >= MIN_ENERGY_RENTAL_AMOUNT {
+            let should_attempt_rental =
+                shortfall > 0 && (self.require_energy_rental || shortfall >= MIN_ENERGY_RENTAL_AMOUNT);
+
+            tracing::info!(
+                energy_required = signed.energy_required,
+                energy_available,
+                energy_shortfall = shortfall,
+                min_rental_energy = MIN_ENERGY_RENTAL_AMOUNT,
+                require_rental = self.require_energy_rental,
+                will_attempt_rental = should_attempt_rental,
+                "tron tx energy plan"
+            );
+
+            if should_attempt_rental {
+                let rent_amount = shortfall.max(MIN_ENERGY_RENTAL_AMOUNT);
                 let addr = self.wallet.address();
                 let addr_hex41 = format!("0x{}", hex::encode(addr.prefixed_bytes()));
                 let addr_evm_hex = format!("0x{}", hex::encode(addr.evm().as_slice()));
@@ -571,7 +589,7 @@ impl TronExecutor {
 
                 let ctx = RentalContext {
                     resource: RentalResourceKind::Energy,
-                    amount: shortfall,
+                    amount: rent_amount,
                     address_base58check: addr.to_string(),
                     address_hex41: addr_hex41,
                     address_evm_hex: addr_evm_hex,
@@ -590,7 +608,7 @@ impl TronExecutor {
                             tracing::info!(
                                 provider = %attempt_res.provider,
                                 order_id = attempt_res.order_id.as_deref().unwrap_or(""),
-                                energy = shortfall,
+                                energy = rent_amount,
                                 "energy rental ok"
                             );
                             state.energy_rental_cursor =
@@ -616,8 +634,17 @@ impl TronExecutor {
                 }
 
                 if !ok {
+                    if self.require_energy_rental {
+                        anyhow::bail!(
+                            "TRON_REQUIRE_ENERGY_RENTAL=true and all {} rental provider(s) failed; aborting broadcast to preserve wallet TRX (energy_required={}, energy_available={}, shortfall={})",
+                            self.energy_rental.len(),
+                            signed.energy_required,
+                            energy_available,
+                            shortfall,
+                        );
+                    }
                     tracing::warn!(
-                        energy = shortfall,
+                        energy = rent_amount,
                         "all energy rental providers failed; falling back to paying TRX fees"
                     );
                 } else if !self.energy_rental_confirm_max_wait.is_zero() {
@@ -630,13 +657,11 @@ impl TronExecutor {
                     )
                     .await?;
                 }
-            } else if shortfall > 0 {
-                tracing::debug!(
-                    energy = shortfall,
-                    min_energy = MIN_ENERGY_RENTAL_AMOUNT,
-                    "energy shortfall below minimum rental amount; skipping rental"
-                );
             }
+        } else if self.require_energy_rental {
+            anyhow::bail!(
+                "TRON_REQUIRE_ENERGY_RENTAL=true but no rental providers are configured",
+            );
         }
 
         let ret = grpc.broadcast_transaction(signed.tx).await?;
