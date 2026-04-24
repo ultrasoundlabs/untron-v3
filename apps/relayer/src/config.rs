@@ -105,6 +105,9 @@ pub struct TronConfig {
     /// write. If the simulation reverts, the broadcast is aborted before any TRX or rental is
     /// touched.
     pub write_preflight_simulation: bool,
+    /// Layer 4 breaker: max broadcast attempts per tx-kind per hour. 0 disables. Trip trigger
+    /// is shared cooldown with rental breaker (`rental_cooldown_after_trip`).
+    pub tx_cap_per_kind_per_hour: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +240,9 @@ struct Env {
     #[serde(default = "default_tron_write_preflight_simulation")]
     tron_write_preflight_simulation: bool,
 
+    #[serde(default = "default_tron_tx_cap_per_kind_per_hour")]
+    tron_tx_cap_per_kind_per_hour: u32,
+
     relayer_tick_interval_secs: u64,
 
     tron_finality_blocks: u64,
@@ -305,6 +311,7 @@ impl Default for Env {
             tron_rental_cooldown_after_trip_secs: default_tron_rental_cooldown_after_trip_secs(),
             tron_write_staleness_guard_secs: default_tron_write_staleness_guard_secs(),
             tron_write_preflight_simulation: default_tron_write_preflight_simulation(),
+            tron_tx_cap_per_kind_per_hour: default_tron_tx_cap_per_kind_per_hour(),
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
@@ -356,6 +363,12 @@ fn default_tron_write_staleness_guard_secs() -> u64 {
 
 fn default_tron_write_preflight_simulation() -> bool {
     true
+}
+
+fn default_tron_tx_cap_per_kind_per_hour() -> u32 {
+    // Normal: a given kind (tip_proof, pull, rebalance) fires at most a few times per day.
+    // 3/hour trips fast on any runaway loop while leaving ample headroom for real spikes.
+    3
 }
 
 fn parse_address(label: &str, s: &str) -> Result<Address> {
@@ -705,6 +718,7 @@ pub fn load_config() -> Result<AppConfig> {
             ),
             write_staleness_guard: Duration::from_secs(env.tron_write_staleness_guard_secs),
             write_preflight_simulation: env.tron_write_preflight_simulation,
+            tx_cap_per_kind_per_hour: env.tron_tx_cap_per_kind_per_hour,
         },
         jobs: JobConfig {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),

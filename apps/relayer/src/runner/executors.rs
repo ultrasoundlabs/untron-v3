@@ -331,6 +331,7 @@ pub struct TronExecutor {
     rental_cooldown_after_trip: Duration,
     write_staleness_guard: Duration,
     write_preflight_simulation: bool,
+    tx_cap_per_kind_per_hour: u32,
     fee_limit_policy: FeeLimitPolicy,
     telemetry: RelayerTelemetry,
 }
@@ -351,6 +352,7 @@ impl TronExecutor {
         rental_cooldown_after_trip: Duration,
         write_staleness_guard: Duration,
         write_preflight_simulation: bool,
+        tx_cap_per_kind_per_hour: u32,
         chain_fees: ChainFees,
         fee_limit_headroom_ppm: u64,
         fee_limit_ceiling_sun: u64,
@@ -370,6 +372,7 @@ impl TronExecutor {
             rental_cooldown_after_trip,
             write_staleness_guard,
             write_preflight_simulation,
+            tx_cap_per_kind_per_hour,
             fee_limit_policy: FeeLimitPolicy {
                 fees: Some(chain_fees),
                 headroom_ppm: fee_limit_headroom_ppm,
@@ -382,10 +385,17 @@ impl TronExecutor {
     pub async fn broadcast_trigger_smart_contract(
         &self,
         state: &mut RelayerState,
+        kind: &'static str,
         contract: TronAddress,
         data: Vec<u8>,
         call_value_sun: i64,
     ) -> Result<[u8; 32]> {
+        // Layer 4 breaker: per-kind rate cap. Must come BEFORE any gRPC work so a tripped
+        // breaker has zero cost — no staleness check, no preflight, no estimate, no rental,
+        // no broadcast. Each kind has its own deque + cooldown, so a tripped tip_proof does
+        // not block pullFromReceivers.
+        self.enforce_kind_budget(state, kind)?;
+
         let start = Instant::now();
         let len = self.grpc_urls.len();
         if len == 0 {
@@ -767,6 +777,65 @@ impl TronExecutor {
         Ok(signed.txid)
     }
 
+    /// Enforces the per-kind rate breaker. On trip, records the cooldown in `state` and bails.
+    /// Called at the very start of every `broadcast_trigger_smart_contract` invocation,
+    /// before any gRPC cost is incurred.
+    fn enforce_kind_budget(&self, state: &mut RelayerState, kind: &'static str) -> Result<()> {
+        let now = Instant::now();
+
+        // Evict this kind's attempts older than 1h so the deque doesn't grow without bound.
+        let attempts = state.tx_attempts_per_kind.entry(kind).or_default();
+        let hour = Duration::from_secs(3600);
+        while attempts.front().is_some_and(|t| now.duration_since(*t) > hour) {
+            attempts.pop_front();
+        }
+
+        let paused_until = state.tx_paused_until_per_kind.get(kind).copied();
+        let decision = evaluate_kind_budget(now, paused_until, attempts, self.tx_cap_per_kind_per_hour);
+
+        match decision {
+            RentalBudgetDecision::Cooldown { remaining_secs } => {
+                tracing::error!(
+                    kind,
+                    cooldown_remaining_secs = remaining_secs,
+                    recent_attempts = attempts.len(),
+                    "per-kind breaker tripped; refusing broadcast"
+                );
+                anyhow::bail!(
+                    "per-kind breaker [{kind}] in cooldown for {remaining_secs}s more"
+                );
+            }
+            RentalBudgetDecision::Trip { reason } => {
+                let cooldown = self.rental_cooldown_after_trip;
+                state
+                    .tx_paused_until_per_kind
+                    .insert(kind, now + cooldown);
+                tracing::error!(
+                    kind,
+                    reason,
+                    recent_attempts = attempts.len(),
+                    cap_per_hour = self.tx_cap_per_kind_per_hour,
+                    cooldown_secs = cooldown.as_secs(),
+                    "per-kind breaker TRIPPED; pausing this tx kind"
+                );
+                anyhow::bail!(
+                    "per-kind breaker [{kind}] tripped ({reason}); paused for {}s",
+                    cooldown.as_secs()
+                );
+            }
+            RentalBudgetDecision::Proceed => {
+                attempts.push_back(now);
+                tracing::debug!(
+                    kind,
+                    recent_attempts = attempts.len(),
+                    cap_per_hour = self.tx_cap_per_kind_per_hour,
+                    "per-kind attempt recorded against budget"
+                );
+                Ok(())
+            }
+        }
+    }
+
     /// Enforces the rental-rate breaker. On trip, records the cooldown in `state` and bails.
     /// Called immediately before any attempt to contact a rental provider.
     fn enforce_rental_budget(&self, state: &mut RelayerState) -> Result<()> {
@@ -840,6 +909,33 @@ enum RentalBudgetDecision {
     Proceed,
     Cooldown { remaining_secs: u64 },
     Trip { reason: &'static str },
+}
+
+fn evaluate_kind_budget(
+    now: Instant,
+    paused_until: Option<Instant>,
+    attempts: &std::collections::VecDeque<Instant>,
+    cap_per_hour: u32,
+) -> RentalBudgetDecision {
+    if let Some(until) = paused_until
+        && now < until
+    {
+        return RentalBudgetDecision::Cooldown {
+            remaining_secs: until.saturating_duration_since(now).as_secs(),
+        };
+    }
+    if cap_per_hour == 0 {
+        return RentalBudgetDecision::Proceed;
+    }
+    let hour = Duration::from_secs(3600);
+    let in_last_hour = attempts
+        .iter()
+        .filter(|t| now.duration_since(**t) <= hour)
+        .count() as u32;
+    if in_last_hour >= cap_per_hour {
+        return RentalBudgetDecision::Trip { reason: "hourly cap" };
+    }
+    RentalBudgetDecision::Proceed
 }
 
 fn evaluate_rental_budget(
@@ -1046,6 +1142,56 @@ mod tests {
         // cap_per_hour=0 disables the hourly cap; cap_per_day=0 disables the daily cap.
         assert_eq!(
             evaluate_rental_budget(now, None, &q, 0, 0),
+            RentalBudgetDecision::Proceed
+        );
+    }
+
+    #[test]
+    fn kind_budget_proceeds_when_empty() {
+        let now = Instant::now();
+        let q = std::collections::VecDeque::new();
+        assert_eq!(
+            evaluate_kind_budget(now, None, &q, 3),
+            RentalBudgetDecision::Proceed
+        );
+    }
+
+    #[test]
+    fn kind_budget_trips_at_cap() {
+        let now = Instant::now();
+        let mut q = std::collections::VecDeque::new();
+        // 3 recent attempts; cap is 3 → next trips.
+        for i in 0..3 {
+            q.push_back(now - Duration::from_secs(60 * i));
+        }
+        assert_eq!(
+            evaluate_kind_budget(now, None, &q, 3),
+            RentalBudgetDecision::Trip { reason: "hourly cap" }
+        );
+    }
+
+    #[test]
+    fn kind_budget_honors_cooldown() {
+        let now = Instant::now();
+        let q = std::collections::VecDeque::new();
+        let until = now + Duration::from_secs(42);
+        match evaluate_kind_budget(now, Some(until), &q, 3) {
+            RentalBudgetDecision::Cooldown { remaining_secs } => {
+                assert!(remaining_secs <= 42 && remaining_secs >= 41);
+            }
+            d => panic!("expected Cooldown, got {d:?}"),
+        }
+    }
+
+    #[test]
+    fn kind_budget_zero_cap_disables() {
+        let now = Instant::now();
+        let mut q = std::collections::VecDeque::new();
+        for i in 0..50 {
+            q.push_back(now - Duration::from_secs(i));
+        }
+        assert_eq!(
+            evaluate_kind_budget(now, None, &q, 0),
             RentalBudgetDecision::Proceed
         );
     }

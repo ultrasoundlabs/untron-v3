@@ -1035,7 +1035,13 @@ pub async fn execute_pull_from_receivers(
 
     let txid = ctx
         .tron_write
-        .broadcast_trigger_smart_contract(state, ctx.tron_controller, data, 0)
+        .broadcast_trigger_smart_contract(
+            state,
+            "pull_from_receivers",
+            ctx.tron_controller,
+            data,
+            0,
+        )
         .await?;
 
     tracing::info!(

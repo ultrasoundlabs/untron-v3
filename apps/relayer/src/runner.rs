@@ -108,6 +108,12 @@ pub struct RelayerState {
     rental_attempts: std::collections::VecDeque<Instant>,
     rental_paused_until: Option<Instant>,
 
+    // Layer 4 breaker: per-kind tx-rate cap. Tracks every `broadcast_trigger_smart_contract`
+    // attempt per tx-kind in a rolling 1h window, and pauses that kind when it exceeds the cap.
+    // Independent per kind — a tripped tip_proof breaker doesn't block pullFromReceivers.
+    tx_attempts_per_kind: HashMap<&'static str, std::collections::VecDeque<Instant>>,
+    tx_paused_until_per_kind: HashMap<&'static str, Instant>,
+
     // Hub-side circuit breakers to prevent one failing job from starving all other hub userops.
     hub_job_backoff_until_tron_head: HashMap<&'static str, u64>,
     hub_job_consecutive_failures: HashMap<&'static str, u32>,
@@ -636,6 +642,7 @@ impl Relayer {
             cfg.tron.rental_cooldown_after_trip,
             cfg.tron.write_staleness_guard,
             cfg.tron.write_preflight_simulation,
+            cfg.tron.tx_cap_per_kind_per_hour,
             chain_fees,
             cfg.tron.fee_limit_headroom_ppm,
             cfg.tron.fee_limit_ceiling_sun,
@@ -682,6 +689,8 @@ impl Relayer {
                 fill_cursor: 0,
                 rental_attempts: std::collections::VecDeque::new(),
                 rental_paused_until: None,
+                tx_attempts_per_kind: HashMap::new(),
+                tx_paused_until_per_kind: HashMap::new(),
                 hub_job_backoff_until_tron_head: HashMap::new(),
                 hub_job_consecutive_failures: HashMap::new(),
                 last_tron_head: 0,
@@ -1203,6 +1212,8 @@ mod tests {
             fill_cursor: 0,
             rental_attempts: std::collections::VecDeque::new(),
             rental_paused_until: None,
+            tx_attempts_per_kind: HashMap::new(),
+            tx_paused_until_per_kind: HashMap::new(),
             hub_job_backoff_until_tron_head: HashMap::new(),
             hub_job_consecutive_failures: HashMap::new(),
             last_tron_head: 0,
