@@ -617,12 +617,30 @@ impl TronExecutor {
             if let Some(ret) = sim.result
                 && !ret.result
             {
-                anyhow::bail!(
-                    "preflight simulation reports revert: code={} msg_hex=0x{} msg_utf8={}",
-                    ret.code,
-                    hex::encode(&ret.message),
-                    String::from_utf8_lossy(&ret.message),
-                );
+                let msg = String::from_utf8_lossy(&ret.message);
+                // Tron's `triggerconstantcontract` imposes a fixed CPU-time budget on the
+                // simulation that is unrelated to on-chain execution limits. Complex contract
+                // calls (e.g. pullFromReceivers looping over several receivers) can hit the
+                // budget and report `Program$OutOfTimeException: CPU timeout for '<op>'` — this
+                // does NOT mean the real tx would revert, just that the simulator was too slow.
+                // Treat those as "preflight inconclusive": log loudly and proceed with the real
+                // broadcast (which has its own fee_limit ceiling + per-kind breaker for safety).
+                // Real reverts — require() failures, assertions, invalid state — do not contain
+                // these markers, so they still bail here before any TRX is touched.
+                if msg.contains("OutOfTimeException") || msg.contains("CPU timeout") {
+                    tracing::warn!(
+                        code = ret.code,
+                        sim_message = %msg,
+                        "preflight hit simulator CPU budget (OutOfTime); proceeding — the real tx has a fee_limit ceiling and the per-kind breaker"
+                    );
+                } else {
+                    anyhow::bail!(
+                        "preflight simulation reports revert: code={} msg_hex=0x{} msg_utf8={}",
+                        ret.code,
+                        hex::encode(&ret.message),
+                        msg,
+                    );
+                }
             }
         }
 
