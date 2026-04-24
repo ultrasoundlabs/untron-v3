@@ -92,6 +92,19 @@ pub struct TronConfig {
     /// to rent (rounded up to the provider minimum), and if every provider fails the broadcast
     /// is aborted instead of burning wallet TRX.
     pub require_energy_rental: bool,
+    /// Layer 3 breaker: max rental attempts per hour. 0 disables the cap.
+    pub rental_cap_per_hour: u32,
+    /// Layer 3 breaker: max rental attempts per day. 0 disables the cap.
+    pub rental_cap_per_day: u32,
+    /// Cooldown after tripping any rental cap. Zero disables the cooldown path (not recommended).
+    pub rental_cooldown_after_trip: Duration,
+    /// Staleness guard: refuse any Tron write if the node's head timestamp is older than this.
+    /// Zero disables the guard.
+    pub write_staleness_guard: Duration,
+    /// If true, run a constant-call simulation (`triggerconstantcontract`) before signing every
+    /// write. If the simulation reverts, the broadcast is aborted before any TRX or rental is
+    /// touched.
+    pub write_preflight_simulation: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +222,21 @@ struct Env {
     #[serde(default)]
     tron_require_energy_rental: bool,
 
+    #[serde(default = "default_tron_rental_cap_per_hour")]
+    tron_rental_cap_per_hour: u32,
+
+    #[serde(default = "default_tron_rental_cap_per_day")]
+    tron_rental_cap_per_day: u32,
+
+    #[serde(default = "default_tron_rental_cooldown_after_trip_secs")]
+    tron_rental_cooldown_after_trip_secs: u64,
+
+    #[serde(default = "default_tron_write_staleness_guard_secs")]
+    tron_write_staleness_guard_secs: u64,
+
+    #[serde(default = "default_tron_write_preflight_simulation")]
+    tron_write_preflight_simulation: bool,
+
     relayer_tick_interval_secs: u64,
 
     tron_finality_blocks: u64,
@@ -272,6 +300,11 @@ impl Default for Env {
             tron_fee_limit_headroom_ppm: default_tron_fee_limit_headroom_ppm(),
             tron_fee_limit_ceiling_sun: default_tron_fee_limit_ceiling_sun(),
             tron_require_energy_rental: false,
+            tron_rental_cap_per_hour: default_tron_rental_cap_per_hour(),
+            tron_rental_cap_per_day: default_tron_rental_cap_per_day(),
+            tron_rental_cooldown_after_trip_secs: default_tron_rental_cooldown_after_trip_secs(),
+            tron_write_staleness_guard_secs: default_tron_write_staleness_guard_secs(),
+            tron_write_preflight_simulation: default_tron_write_preflight_simulation(),
             relayer_tick_interval_secs: 5,
             tron_finality_blocks: 19,
             tron_tip_proof_resend_blocks: 20,
@@ -298,6 +331,31 @@ fn default_tron_fee_limit_headroom_ppm() -> u64 {
 fn default_tron_fee_limit_ceiling_sun() -> u64 {
     // 100 TRX — the historical fixed cap.
     tron::FIXED_FEE_LIMIT_SUN
+}
+
+fn default_tron_rental_cap_per_hour() -> u32 {
+    // Normal relayer operation does a handful of rentals per week. 5/hour is ~70x headroom
+    // over normal; well below any plausible legitimate spike.
+    5
+}
+
+fn default_tron_rental_cap_per_day() -> u32 {
+    20
+}
+
+fn default_tron_rental_cooldown_after_trip_secs() -> u64 {
+    // 1 hour. Long enough that a human notices and investigates before we retry.
+    3600
+}
+
+fn default_tron_write_staleness_guard_secs() -> u64 {
+    // If the node's head is older than this, refuse writes. Tron produces blocks every ~3s,
+    // so 120s allows a few missed blocks but catches node stall within ~1 minute.
+    120
+}
+
+fn default_tron_write_preflight_simulation() -> bool {
+    true
 }
 
 fn parse_address(label: &str, s: &str) -> Result<Address> {
@@ -640,6 +698,13 @@ pub fn load_config() -> Result<AppConfig> {
             fee_limit_headroom_ppm: env.tron_fee_limit_headroom_ppm,
             fee_limit_ceiling_sun: env.tron_fee_limit_ceiling_sun,
             require_energy_rental: env.tron_require_energy_rental,
+            rental_cap_per_hour: env.tron_rental_cap_per_hour,
+            rental_cap_per_day: env.tron_rental_cap_per_day,
+            rental_cooldown_after_trip: Duration::from_secs(
+                env.tron_rental_cooldown_after_trip_secs,
+            ),
+            write_staleness_guard: Duration::from_secs(env.tron_write_staleness_guard_secs),
+            write_preflight_simulation: env.tron_write_preflight_simulation,
         },
         jobs: JobConfig {
             tick_interval: Duration::from_secs(env.relayer_tick_interval_secs.max(1)),

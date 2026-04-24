@@ -326,11 +326,17 @@ pub struct TronExecutor {
     energy_rental: Vec<JsonApiRentalProvider>,
     energy_rental_confirm_max_wait: Duration,
     require_energy_rental: bool,
+    rental_cap_per_hour: u32,
+    rental_cap_per_day: u32,
+    rental_cooldown_after_trip: Duration,
+    write_staleness_guard: Duration,
+    write_preflight_simulation: bool,
     fee_limit_policy: FeeLimitPolicy,
     telemetry: RelayerTelemetry,
 }
 
 impl TronExecutor {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         active_grpc: Arc<Mutex<TronGrpc>>,
         grpc_urls: Vec<String>,
@@ -340,6 +346,11 @@ impl TronExecutor {
         energy_rental: Vec<JsonApiRentalProvider>,
         energy_rental_confirm_max_wait: Duration,
         require_energy_rental: bool,
+        rental_cap_per_hour: u32,
+        rental_cap_per_day: u32,
+        rental_cooldown_after_trip: Duration,
+        write_staleness_guard: Duration,
+        write_preflight_simulation: bool,
         chain_fees: ChainFees,
         fee_limit_headroom_ppm: u64,
         fee_limit_ceiling_sun: u64,
@@ -354,6 +365,11 @@ impl TronExecutor {
             energy_rental,
             energy_rental_confirm_max_wait,
             require_energy_rental,
+            rental_cap_per_hour,
+            rental_cap_per_day,
+            rental_cooldown_after_trip,
+            write_staleness_guard,
+            write_preflight_simulation,
             fee_limit_policy: FeeLimitPolicy {
                 fees: Some(chain_fees),
                 headroom_ppm: fee_limit_headroom_ppm,
@@ -545,6 +561,61 @@ impl TronExecutor {
     ) -> Result<[u8; 32]> {
         const MIN_ENERGY_RENTAL_AMOUNT: u64 = 32_000;
 
+        // Staleness guard — if the node we're about to broadcast through is lagging,
+        // its view of our account resources is stale, every rejection looks like a
+        // resource error, and retries spin up rentals against a fiction. Refuse early.
+        if !self.write_staleness_guard.is_zero() {
+            let head = grpc
+                .get_now_block2()
+                .await
+                .context("get_now_block2 (staleness guard)")?;
+            let head_ts_ms = head
+                .block_header
+                .as_ref()
+                .and_then(|bh| bh.raw_data.as_ref())
+                .map(|rd| rd.timestamp)
+                .unwrap_or(0);
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let age_secs = ((now_ms - head_ts_ms).max(0) / 1000) as u64;
+            if age_secs > self.write_staleness_guard.as_secs() {
+                anyhow::bail!(
+                    "tron write endpoint head is stale (age={}s, guard={}s); refusing to broadcast to avoid firing rentals against a node that cannot see recent state",
+                    age_secs,
+                    self.write_staleness_guard.as_secs(),
+                );
+            }
+        }
+
+        // Pre-flight constant-call simulation. Zero cost; catches "would revert" before
+        // we sign, rent, or burn anything. `trigger_constant_contract` returns the same
+        // result.result boolean that estimate_energy does, but also gives the revert msg.
+        if self.write_preflight_simulation {
+            let sim = grpc
+                .trigger_constant_contract(TriggerSmartContract {
+                    owner_address: self.wallet.address().prefixed_bytes().to_vec(),
+                    contract_address: contract.prefixed_bytes().to_vec(),
+                    call_value: call_value_sun,
+                    data: data.clone(),
+                    call_token_value: 0,
+                    token_id: 0,
+                })
+                .await
+                .context("trigger_constant_contract (preflight)")?;
+            if let Some(ret) = sim.result
+                && !ret.result
+            {
+                anyhow::bail!(
+                    "preflight simulation reports revert: code={} msg_hex=0x{} msg_utf8={}",
+                    ret.code,
+                    hex::encode(&ret.message),
+                    String::from_utf8_lossy(&ret.message),
+                );
+            }
+        }
+
         let signed = self
             .wallet
             .build_and_sign_trigger_smart_contract(
@@ -590,6 +661,11 @@ impl TronExecutor {
             );
 
             if should_attempt_rental {
+                // Layer 3 breaker: rental-rate cap. Refuses to initiate a rental if we've
+                // already fired too many this hour/day, or if we're in post-trip cooldown.
+                // This is the guard that makes the 200-rentals-in-10-min scenario impossible.
+                self.enforce_rental_budget(state)?;
+
                 let rent_amount = shortfall.max(MIN_ENERGY_RENTAL_AMOUNT);
                 let addr = self.wallet.address();
                 let addr_hex41 = format!("0x{}", hex::encode(addr.prefixed_bytes()));
@@ -690,6 +766,109 @@ impl TronExecutor {
 
         Ok(signed.txid)
     }
+
+    /// Enforces the rental-rate breaker. On trip, records the cooldown in `state` and bails.
+    /// Called immediately before any attempt to contact a rental provider.
+    fn enforce_rental_budget(&self, state: &mut RelayerState) -> Result<()> {
+        let now = Instant::now();
+
+        // Evict attempts older than 24h so the deque doesn't grow without bound.
+        let day = Duration::from_secs(24 * 3600);
+        while state
+            .rental_attempts
+            .front()
+            .is_some_and(|t| now.duration_since(*t) > day)
+        {
+            state.rental_attempts.pop_front();
+        }
+
+        let decision = evaluate_rental_budget(
+            now,
+            state.rental_paused_until,
+            &state.rental_attempts,
+            self.rental_cap_per_hour,
+            self.rental_cap_per_day,
+        );
+
+        match decision {
+            RentalBudgetDecision::Cooldown { remaining_secs } => {
+                tracing::error!(
+                    cooldown_remaining_secs = remaining_secs,
+                    recent_rental_attempts = state.rental_attempts.len(),
+                    "rental breaker tripped; refusing to initiate another rental"
+                );
+                anyhow::bail!(
+                    "rental breaker in cooldown for {remaining_secs}s more (recent attempts: {})",
+                    state.rental_attempts.len()
+                );
+            }
+            RentalBudgetDecision::Trip { reason } => {
+                let cooldown = self.rental_cooldown_after_trip;
+                state.rental_paused_until = Some(now + cooldown);
+                tracing::error!(
+                    reason,
+                    recent_rental_attempts = state.rental_attempts.len(),
+                    cap_per_hour = self.rental_cap_per_hour,
+                    cap_per_day = self.rental_cap_per_day,
+                    cooldown_secs = cooldown.as_secs(),
+                    "rental breaker TRIPPED; pausing rentals (and therefore writes requiring rental)"
+                );
+                anyhow::bail!(
+                    "rental breaker tripped ({reason}); paused for {}s",
+                    cooldown.as_secs()
+                );
+            }
+            RentalBudgetDecision::Proceed => {
+                // Record the attempt we're about to make. Done before calling providers so a
+                // provider error still counts toward the cap — a flapping provider can't
+                // bypass the cap by failing every call.
+                state.rental_attempts.push_back(now);
+                tracing::debug!(
+                    recent_rental_attempts = state.rental_attempts.len(),
+                    cap_per_hour = self.rental_cap_per_hour,
+                    cap_per_day = self.rental_cap_per_day,
+                    "rental attempt recorded against budget"
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RentalBudgetDecision {
+    Proceed,
+    Cooldown { remaining_secs: u64 },
+    Trip { reason: &'static str },
+}
+
+fn evaluate_rental_budget(
+    now: Instant,
+    paused_until: Option<Instant>,
+    attempts: &std::collections::VecDeque<Instant>,
+    cap_per_hour: u32,
+    cap_per_day: u32,
+) -> RentalBudgetDecision {
+    if let Some(until) = paused_until
+        && now < until
+    {
+        return RentalBudgetDecision::Cooldown {
+            remaining_secs: until.saturating_duration_since(now).as_secs(),
+        };
+    }
+    let hour = Duration::from_secs(3600);
+    let in_last_hour = attempts
+        .iter()
+        .filter(|t| now.duration_since(**t) <= hour)
+        .count() as u32;
+    let in_last_day = attempts.len() as u32;
+    if cap_per_hour > 0 && in_last_hour >= cap_per_hour {
+        return RentalBudgetDecision::Trip { reason: "hourly cap" };
+    }
+    if cap_per_day > 0 && in_last_day >= cap_per_day {
+        return RentalBudgetDecision::Trip { reason: "daily cap" };
+    }
+    RentalBudgetDecision::Proceed
 }
 
 async fn wait_for_energy_available_after_rental(
@@ -790,5 +969,101 @@ mod tests {
         assert_eq!(rental_cursor_after_attempts(2, 3, 2), 1);
         assert_eq!(rental_cursor_after_attempts(2, 3, 3), 2);
         assert_eq!(rental_cursor_after_attempts(10, 0, 1), 0);
+    }
+
+    #[test]
+    fn rental_budget_proceeds_when_empty() {
+        let now = Instant::now();
+        let q = std::collections::VecDeque::new();
+        assert_eq!(
+            evaluate_rental_budget(now, None, &q, 5, 20),
+            RentalBudgetDecision::Proceed
+        );
+    }
+
+    #[test]
+    fn rental_budget_trips_hourly_cap() {
+        let now = Instant::now();
+        let mut q = std::collections::VecDeque::new();
+        // 5 recent attempts; cap is 5 → next one must trip.
+        for i in 0..5 {
+            q.push_back(now - Duration::from_secs(60 * i));
+        }
+        assert_eq!(
+            evaluate_rental_budget(now, None, &q, 5, 20),
+            RentalBudgetDecision::Trip { reason: "hourly cap" }
+        );
+    }
+
+    #[test]
+    fn rental_budget_trips_daily_cap_when_hourly_ok() {
+        let now = Instant::now();
+        let mut q = std::collections::VecDeque::new();
+        // All attempts are 2h+ old (not in hourly window) but still in the daily window.
+        for i in 0..20 {
+            q.push_back(now - Duration::from_secs(2 * 3600 + 60 * i));
+        }
+        assert_eq!(
+            evaluate_rental_budget(now, None, &q, 5, 20),
+            RentalBudgetDecision::Trip { reason: "daily cap" }
+        );
+    }
+
+    #[test]
+    fn rental_budget_honors_cooldown() {
+        let now = Instant::now();
+        let q = std::collections::VecDeque::new();
+        let until = now + Duration::from_secs(42);
+        match evaluate_rental_budget(now, Some(until), &q, 5, 20) {
+            RentalBudgetDecision::Cooldown { remaining_secs } => {
+                assert!(
+                    remaining_secs <= 42 && remaining_secs >= 41,
+                    "got {remaining_secs}"
+                );
+            }
+            d => panic!("expected Cooldown, got {d:?}"),
+        }
+    }
+
+    #[test]
+    fn rental_budget_ignores_expired_cooldown() {
+        let now = Instant::now();
+        let q = std::collections::VecDeque::new();
+        let until = now - Duration::from_secs(1);
+        assert_eq!(
+            evaluate_rental_budget(now, Some(until), &q, 5, 20),
+            RentalBudgetDecision::Proceed
+        );
+    }
+
+    #[test]
+    fn rental_budget_zero_cap_disables() {
+        let now = Instant::now();
+        let mut q = std::collections::VecDeque::new();
+        for i in 0..50 {
+            q.push_back(now - Duration::from_secs(i));
+        }
+        // cap_per_hour=0 disables the hourly cap; cap_per_day=0 disables the daily cap.
+        assert_eq!(
+            evaluate_rental_budget(now, None, &q, 0, 0),
+            RentalBudgetDecision::Proceed
+        );
+    }
+
+    #[test]
+    fn rental_budget_hourly_window_excludes_old_attempts() {
+        let now = Instant::now();
+        let mut q = std::collections::VecDeque::new();
+        // 4 recent + 10 older-than-hour → only 4 in the hourly window, under cap 5.
+        for _ in 0..4 {
+            q.push_back(now - Duration::from_secs(30 * 60));
+        }
+        for i in 0..10 {
+            q.push_back(now - Duration::from_secs(2 * 3600 + i));
+        }
+        assert_eq!(
+            evaluate_rental_budget(now, None, &q, 5, 100),
+            RentalBudgetDecision::Proceed
+        );
     }
 }

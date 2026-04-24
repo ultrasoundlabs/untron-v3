@@ -101,6 +101,13 @@ pub struct RelayerState {
     energy_rental_cursor: usize,
     fill_cursor: usize,
 
+    // Layer 3 breaker: rental-rate cap.
+    // Tracks every energy-rental attempt (successful or not) over the last 24h.
+    // When the hour/day cap is reached we set `rental_paused_until` to block further writes
+    // until a cooldown elapses. Counters reset on relayer restart — safe by design.
+    rental_attempts: std::collections::VecDeque<Instant>,
+    rental_paused_until: Option<Instant>,
+
     // Hub-side circuit breakers to prevent one failing job from starving all other hub userops.
     hub_job_backoff_until_tron_head: HashMap<&'static str, u64>,
     hub_job_consecutive_failures: HashMap<&'static str, u32>,
@@ -624,6 +631,11 @@ impl Relayer {
             energy_rental,
             cfg.tron.energy_rental_confirm_max_wait,
             cfg.tron.require_energy_rental,
+            cfg.tron.rental_cap_per_hour,
+            cfg.tron.rental_cap_per_day,
+            cfg.tron.rental_cooldown_after_trip,
+            cfg.tron.write_staleness_guard,
+            cfg.tron.write_preflight_simulation,
             chain_fees,
             cfg.tron.fee_limit_headroom_ppm,
             cfg.tron.fee_limit_ceiling_sun,
@@ -668,6 +680,8 @@ impl Relayer {
                 rebalance_cursor: 0,
                 energy_rental_cursor: 0,
                 fill_cursor: 0,
+                rental_attempts: std::collections::VecDeque::new(),
+                rental_paused_until: None,
                 hub_job_backoff_until_tron_head: HashMap::new(),
                 hub_job_consecutive_failures: HashMap::new(),
                 last_tron_head: 0,
@@ -1187,6 +1201,8 @@ mod tests {
             rebalance_cursor: 0,
             energy_rental_cursor: 0,
             fill_cursor: 0,
+            rental_attempts: std::collections::VecDeque::new(),
+            rental_paused_until: None,
             hub_job_backoff_until_tron_head: HashMap::new(),
             hub_job_consecutive_failures: HashMap::new(),
             last_tron_head: 0,
