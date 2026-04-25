@@ -88,6 +88,7 @@ pub struct RelayerContext {
     tron_read_grpc_urls: Vec<String>,
     tron_read_grpc_url_cursor: Arc<Mutex<usize>>,
     tron_read_grpc_api_key: Option<String>,
+    tron_read_grpc_api_key_header: String,
     pub tron_write: TronExecutor,
     pub tron_wallet: Arc<TronWallet>,
     pub tron_proof: Arc<TronTxProofBuilder>,
@@ -434,9 +435,13 @@ impl RelayerContext {
         }
 
         let url = self.tron_read_grpc_urls[idx].clone();
-        let grpc = TronGrpc::connect(&url, self.tron_read_grpc_api_key.as_deref())
-            .await
-            .with_context(|| format!("connect TRON gRPC: {url}"))?;
+        let grpc = TronGrpc::connect(
+            &url,
+            self.tron_read_grpc_api_key.as_deref(),
+            &self.tron_read_grpc_api_key_header,
+        )
+        .await
+        .with_context(|| format!("connect TRON gRPC: {url}"))?;
 
         {
             let mut guard = self.active_tron_read_grpc.lock().await;
@@ -575,7 +580,7 @@ impl Relayer {
         let mut tron_read_grpc_idx = 0usize;
         let mut last_connect_err: Option<anyhow::Error> = None;
         for (idx, url) in grpc_urls.iter().enumerate() {
-            match TronGrpc::connect(url, cfg.tron.api_key.as_deref()).await {
+            match TronGrpc::connect(url, cfg.tron.api_key.as_deref(), &cfg.tron.api_key_header).await {
                 Ok(g) => {
                     active_tron_read_grpc = Some(g);
                     tron_read_grpc_idx = idx;
@@ -632,6 +637,7 @@ impl Relayer {
             tron_grpc_write,
             grpc_urls.clone(),
             cfg.tron.api_key.clone(),
+            cfg.tron.api_key_header.clone(),
             tron_read_grpc_idx,
             tron_wallet.clone(),
             energy_rental,
@@ -650,6 +656,7 @@ impl Relayer {
         );
         let tron_proof = Arc::new(TronTxProofBuilder::new(cfg.jobs.tron_finality_blocks));
         let tron_read_grpc_api_key = cfg.tron.api_key.clone();
+        let tron_read_grpc_api_key_header = cfg.tron.api_key_header.clone();
 
         let ctx = RelayerContext {
             cfg,
@@ -664,6 +671,7 @@ impl Relayer {
             tron_read_grpc_urls: grpc_urls,
             tron_read_grpc_url_cursor,
             tron_read_grpc_api_key,
+            tron_read_grpc_api_key_header,
             tron_write,
             tron_wallet,
             tron_proof,

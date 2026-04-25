@@ -8,7 +8,7 @@ pub mod tx;
 pub mod wallet;
 
 pub use address::TronAddress;
-pub use grpc::TronGrpc;
+pub use grpc::{DEFAULT_API_KEY_HEADER, TronGrpc};
 pub use proof::{TronTxProofBuilder, TronTxProofBundle};
 pub use rental::{
     JsonApiRentalProvider, JsonApiRentalProviderConfig, RentalAttempt, RentalContext,

@@ -14,6 +14,7 @@ pub struct AppConfig {
 pub struct TronConfig {
     pub grpc_urls: Vec<String>,
     pub api_key: Option<String>,
+    pub api_key_header: String,
     pub private_key: [u8; 32],
     pub usdt_contract_address: String,
 
@@ -52,6 +53,8 @@ struct Env {
     #[serde(default)]
     tron_grpc_urls: String,
     tron_api_key: Option<String>,
+    #[serde(default = "default_tron_api_key_header")]
+    tron_api_key_header: String,
     tron_private_key_hex: String,
     tron_usdt_contract_address: String,
 
@@ -92,6 +95,7 @@ impl Default for Env {
             tron_grpc_url: String::new(),
             tron_grpc_urls: String::new(),
             tron_api_key: None,
+            tron_api_key_header: default_tron_api_key_header(),
             tron_private_key_hex: String::new(),
             tron_usdt_contract_address: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t".to_string(),
             tron_energy_rental_apis_json: String::new(),
@@ -113,6 +117,10 @@ impl Default for Env {
             pool_usdt_balance_keep_usdt: "1".to_string(),
         }
     }
+}
+
+fn default_tron_api_key_header() -> String {
+    tron::DEFAULT_API_KEY_HEADER.to_string()
 }
 
 fn parse_tron_energy_rental_apis_json(s: &str) -> Result<Vec<JsonApiRentalProviderConfig>> {
@@ -179,6 +187,10 @@ pub fn load_config() -> Result<AppConfig> {
         tron: TronConfig {
             grpc_urls: tron_grpc_urls,
             api_key: env.tron_api_key.filter(|s| !s.trim().is_empty()),
+            api_key_header: {
+                let h = env.tron_api_key_header.trim();
+                if h.is_empty() { default_tron_api_key_header() } else { h.to_string() }
+            },
             private_key: crate::util::parse_hex_32(
                 "TRON_PRIVATE_KEY_HEX",
                 &env.tron_private_key_hex,

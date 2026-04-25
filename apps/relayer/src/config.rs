@@ -73,6 +73,9 @@ pub struct UniswapV4AllowedPool {
 pub struct TronConfig {
     pub grpc_urls: Vec<String>,
     pub api_key: Option<String>,
+    /// Metadata header name to send the API key under. Default `tron-pro-api-key` (TronGrid /
+    /// java-tron). QuickNode expects `x-token`.
+    pub api_key_header: String,
     pub private_key: [u8; 32],
     pub controller_address: String,
 
@@ -201,6 +204,9 @@ struct Env {
 
     tron_api_key: Option<String>,
 
+    #[serde(default = "default_tron_api_key_header")]
+    tron_api_key_header: String,
+
     tron_private_key_hex: String,
 
     tron_controller_address: String,
@@ -297,6 +303,7 @@ impl Default for Env {
             tron_grpc_url: String::new(),
             tron_grpc_urls: String::new(),
             tron_api_key: None,
+            tron_api_key_header: default_tron_api_key_header(),
             tron_private_key_hex: String::new(),
             tron_controller_address: String::new(),
             tron_block_lag: 0,
@@ -328,6 +335,10 @@ impl Default for Env {
 
 fn default_tron_pull_from_receivers_energy_limit() -> u64 {
     1_000_000
+}
+
+fn default_tron_api_key_header() -> String {
+    tron::DEFAULT_API_KEY_HEADER.to_string()
 }
 
 fn default_tron_fee_limit_headroom_ppm() -> u64 {
@@ -698,6 +709,10 @@ pub fn load_config() -> Result<AppConfig> {
         tron: TronConfig {
             grpc_urls: tron_grpc_urls,
             api_key: env.tron_api_key.filter(|s| !s.trim().is_empty()),
+            api_key_header: {
+                let h = env.tron_api_key_header.trim();
+                if h.is_empty() { default_tron_api_key_header() } else { h.to_string() }
+            },
             private_key: parse_hex_32("TRON_PRIVATE_KEY_HEX", &env.tron_private_key_hex)?,
             controller_address: env.tron_controller_address,
             block_lag: env.tron_block_lag,

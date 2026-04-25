@@ -321,6 +321,7 @@ pub struct TronExecutor {
     active_grpc: Arc<Mutex<TronGrpc>>,
     grpc_urls: Vec<String>,
     grpc_api_key: Option<String>,
+    grpc_api_key_header: String,
     grpc_url_cursor: Arc<Mutex<usize>>,
     wallet: Arc<TronWallet>,
     energy_rental: Vec<JsonApiRentalProvider>,
@@ -342,6 +343,7 @@ impl TronExecutor {
         active_grpc: Arc<Mutex<TronGrpc>>,
         grpc_urls: Vec<String>,
         grpc_api_key: Option<String>,
+        grpc_api_key_header: String,
         initial_grpc_url_cursor: usize,
         wallet: Arc<TronWallet>,
         energy_rental: Vec<JsonApiRentalProvider>,
@@ -362,6 +364,7 @@ impl TronExecutor {
             active_grpc,
             grpc_urls,
             grpc_api_key,
+            grpc_api_key_header,
             grpc_url_cursor: Arc::new(Mutex::new(initial_grpc_url_cursor)),
             wallet,
             energy_rental,
@@ -549,9 +552,13 @@ impl TronExecutor {
         }
 
         let url = self.grpc_urls[idx].clone();
-        let grpc = TronGrpc::connect(&url, self.grpc_api_key.as_deref())
-            .await
-            .with_context(|| format!("connect TRON gRPC: {url}"))?;
+        let grpc = TronGrpc::connect(
+            &url,
+            self.grpc_api_key.as_deref(),
+            &self.grpc_api_key_header,
+        )
+        .await
+        .with_context(|| format!("connect TRON gRPC: {url}"))?;
         {
             let mut guard = self.active_grpc.lock().await;
             *guard = grpc;

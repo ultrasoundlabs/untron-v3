@@ -49,6 +49,7 @@ pub struct PoolService {
     tron_urls: Vec<String>,
     tron_url_cursor: usize,
     tron_api_key: Option<String>,
+    tron_api_key_header: String,
     tron_wallet: TronWallet,
     tron_usdt: TronAddress,
     energy_rental: Vec<JsonApiRentalProvider>,
@@ -63,11 +64,12 @@ impl PoolService {
     pub async fn new(cfg: AppConfig, telemetry: PoolTelemetry) -> Result<Self> {
         let tron_urls = cfg.tron.grpc_urls.clone();
         let tron_api_key = cfg.tron.api_key.clone();
+        let tron_api_key_header = cfg.tron.api_key_header.clone();
         let mut tron = None;
         let mut tron_url_cursor = 0usize;
         let mut last_connect_err: Option<anyhow::Error> = None;
         for (idx, url) in tron_urls.iter().enumerate() {
-            match TronGrpc::connect(url, tron_api_key.as_deref()).await {
+            match TronGrpc::connect(url, tron_api_key.as_deref(), &tron_api_key_header).await {
                 Ok(g) => {
                     tron = Some(g);
                     tron_url_cursor = idx;
@@ -126,6 +128,7 @@ impl PoolService {
             tron_urls,
             tron_url_cursor,
             tron_api_key,
+            tron_api_key_header,
             tron_wallet,
             tron_usdt,
             energy_rental,
@@ -391,9 +394,13 @@ impl PoolService {
         }
 
         let url = self.tron_urls[idx].clone();
-        let grpc = TronGrpc::connect(&url, self.tron_api_key.as_deref())
-            .await
-            .with_context(|| format!("connect TRON gRPC: {url}"))?;
+        let grpc = TronGrpc::connect(
+            &url,
+            self.tron_api_key.as_deref(),
+            &self.tron_api_key_header,
+        )
+        .await
+        .with_context(|| format!("connect TRON gRPC: {url}"))?;
 
         self.tron = grpc;
         self.tron_url_cursor = idx;

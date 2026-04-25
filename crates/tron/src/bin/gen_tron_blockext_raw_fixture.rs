@@ -27,10 +27,14 @@ fn main() -> Result<()> {
     let out_path = args.next();
 
     let api_key = std::env::var("TRON_API_KEY").ok();
+    let api_key_header = std::env::var("TRON_API_KEY_HEADER")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| tron::DEFAULT_API_KEY_HEADER.to_string());
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     let json = rt.block_on(async move {
-        let mut grpc = TronGrpc::connect(&grpc_url, api_key.as_deref()).await?;
+        let mut grpc = TronGrpc::connect(&grpc_url, api_key.as_deref(), &api_key_header).await?;
         let raw = grpc.get_block_by_num2_raw_bytes(block_number).await?;
         let txid_bytes = decode_hex32(&txid)?;
 

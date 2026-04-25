@@ -11,24 +11,47 @@ use std::str::FromStr;
 use tonic::{
     Request, Status,
     codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
-    metadata::MetadataValue,
-    transport::Channel,
+    metadata::{MetadataKey, MetadataValue},
+    transport::{Channel, ClientTlsConfig},
 };
+
+/// Default header name for the API key. Matches TronGrid / java-tron public RPC convention.
+/// Override via `TRON_API_KEY_HEADER` for providers using a different header (e.g. QuickNode
+/// expects `x-token`).
+pub const DEFAULT_API_KEY_HEADER: &str = "tron-pro-api-key";
 
 #[derive(Clone)]
 pub struct TronGrpc {
     api_key: Option<MetadataValue<tonic::metadata::Ascii>>,
+    api_key_header: MetadataKey<tonic::metadata::Ascii>,
     channel: Channel,
     wallet: WalletClient<Channel>,
 }
 
 impl TronGrpc {
-    pub async fn connect(grpc_url: &str, api_key: Option<&str>) -> Result<Self> {
-        let channel = Channel::from_shared(grpc_url.to_string())
-            .context("invalid TRON_GRPC_URL")?
-            .connect()
-            .await
-            .context("connect TRON gRPC")?;
+    /// `grpc_url` selects transport: `https://...` enables TLS (with native CA roots),
+    /// `http://...` uses cleartext h2c. `api_key` is sent in metadata under `api_key_header`
+    /// (set to `"x-token"` for QuickNode, `"tron-pro-api-key"` for TronGrid / java-tron).
+    pub async fn connect(
+        grpc_url: &str,
+        api_key: Option<&str>,
+        api_key_header: &str,
+    ) -> Result<Self> {
+        let endpoint =
+            Channel::from_shared(grpc_url.to_string()).context("invalid TRON_GRPC_URL")?;
+
+        // Tonic does not auto-enable TLS just because the URI is `https://` — you have to
+        // explicitly attach a TLS config. Detect the scheme and apply native roots when
+        // the caller asked for TLS.
+        let endpoint = if grpc_url.trim().to_ascii_lowercase().starts_with("https://") {
+            endpoint
+                .tls_config(ClientTlsConfig::new().with_native_roots())
+                .context("configure TLS for TRON gRPC")?
+        } else {
+            endpoint
+        };
+
+        let channel = endpoint.connect().await.context("connect TRON gRPC")?;
 
         let api_key = match api_key {
             Some(k) if !k.trim().is_empty() => {
@@ -37,8 +60,12 @@ impl TronGrpc {
             _ => None,
         };
 
+        let api_key_header = MetadataKey::from_bytes(api_key_header.as_bytes())
+            .context("invalid TRON_API_KEY_HEADER (metadata key name)")?;
+
         Ok(Self {
             api_key,
+            api_key_header,
             channel: channel.clone(),
             wallet: WalletClient::new(channel),
         })
@@ -47,7 +74,7 @@ impl TronGrpc {
     fn req<T>(&self, msg: T) -> Request<T> {
         let mut req = Request::new(msg);
         if let Some(key) = &self.api_key {
-            req.metadata_mut().insert("tron-pro-api-key", key.clone());
+            req.metadata_mut().insert(self.api_key_header.clone(), key.clone());
         }
         req
     }
