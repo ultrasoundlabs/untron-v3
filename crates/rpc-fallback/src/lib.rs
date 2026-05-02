@@ -2,9 +2,12 @@ use alloy_json_rpc::RequestPacket;
 use alloy_rpc_client::RpcClient;
 use alloy_transport::{BoxTransport, TransportError, TransportErrorKind, TransportFut};
 use alloy_transport_http::ReqwestTransport;
-use parking_lot::Mutex;
+use parking_lot::Mutex as ParkingMutex;
 use std::{sync::Arc, task, time::Instant};
-use tokio::time::{Duration, timeout};
+use tokio::{
+    sync::Mutex as AsyncMutex,
+    time::{Duration, timeout},
+};
 use tower::Service;
 use tracing::{debug, warn};
 use url::Url;
@@ -23,7 +26,7 @@ pub struct RpcRateLimiter {
 #[derive(Debug)]
 struct RpcRateLimiterInner {
     spacing: Duration,
-    next_at: Mutex<tokio::time::Instant>,
+    next_at: AsyncMutex<tokio::time::Instant>,
 }
 
 impl RpcRateLimiter {
@@ -37,28 +40,29 @@ impl RpcRateLimiter {
         Ok(Self {
             inner: Arc::new(RpcRateLimiterInner {
                 spacing,
-                next_at: Mutex::new(tokio::time::Instant::now()),
+                next_at: AsyncMutex::new(tokio::time::Instant::now()),
             }),
         })
     }
 
     pub async fn until_ready(&self) {
-        let scheduled = {
-            let mut next_at = self.inner.next_at.lock();
-            let now = tokio::time::Instant::now();
-            let scheduled = (*next_at).max(now);
-            *next_at = scheduled + self.inner.spacing;
-            scheduled
-        };
+        let mut next_at = self.inner.next_at.lock().await;
+        let now = tokio::time::Instant::now();
 
-        tokio::time::sleep_until(scheduled).await;
+        if *next_at > now {
+            tokio::time::sleep_until(*next_at).await;
+        }
+
+        // Pace actual releases, not just reservations. If the runtime wakes late,
+        // this prevents queued callers from catching up in a burst.
+        *next_at = tokio::time::Instant::now() + self.inner.spacing;
     }
 }
 
 fn spacing_for_rate(max_requests_per_second: u32) -> Duration {
     const NANOS_PER_SECOND: u64 = 1_000_000_000;
     let rate = u64::from(max_requests_per_second);
-    let nanos = NANOS_PER_SECOND.div_ceil(rate).max(1);
+    let nanos = (NANOS_PER_SECOND / rate).saturating_add(1).max(1);
     Duration::from_nanos(nanos)
 }
 
@@ -112,7 +116,7 @@ pub struct FallbackHttpTransport {
 struct Inner {
     transports: Vec<BoxTransport>,
     /// Index of the preferred transport (sticky on success).
-    preferred: Mutex<usize>,
+    preferred: ParkingMutex<usize>,
     per_try_timeout: Duration,
     observer: Option<Arc<dyn FallbackObserver>>,
     limiter: Option<RpcRateLimiter>,
@@ -160,7 +164,7 @@ impl FallbackHttpTransport {
         Ok(Self {
             inner: Arc::new(Inner {
                 transports,
-                preferred: Mutex::new(0),
+                preferred: ParkingMutex::new(0),
                 per_try_timeout,
                 observer,
                 limiter,
@@ -332,7 +336,10 @@ mod tests {
 
     #[test]
     fn rate_spacing_rounds_up_to_avoid_microbursts() {
-        assert_eq!(spacing_for_rate(50), Duration::from_millis(20));
+        assert_eq!(
+            spacing_for_rate(50),
+            Duration::from_millis(20) + Duration::from_nanos(1)
+        );
         assert_eq!(spacing_for_rate(3), Duration::from_nanos(333_333_334));
     }
 }
