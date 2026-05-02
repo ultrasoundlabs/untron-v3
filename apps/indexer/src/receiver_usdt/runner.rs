@@ -9,13 +9,7 @@ use crate::{
 };
 use alloy::providers::Provider;
 use anyhow::{Context, Result};
-use governor::{
-    Quota, RateLimiter,
-    clock::DefaultClock,
-    middleware::NoOpMiddleware,
-    state::{InMemoryState, NotKeyed},
-};
-use std::{collections::HashMap, num::NonZeroU32, time::Duration};
+use std::{collections::HashMap, time::Duration};
 use tokio::{task::JoinSet, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -23,11 +17,6 @@ use tracing::{error, info, warn};
 use crate::shared::progress::ProgressReporter;
 use crate::shared::rpc_telemetry::RpcTelemetry;
 use futures::{StreamExt, stream};
-
-/// Per-process leaky-bucket limiter for outbound `eth_getLogs` from the receiver_usdt
-/// scanner. We cap *dispatches* (not in-flight) so concurrency stays high (to absorb
-/// slow calls without going idle) while average req/s stays inside the RPC plan budget.
-type RpcLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>;
 
 pub struct RunReceiverUsdtParams {
     pub dbh: db::Db,
@@ -62,7 +51,6 @@ struct ProcessCtx<'a> {
     progress: &'a mut ProgressReporter,
     receiver_usdt_cfg: &'a ReceiverUsdtConfig,
     telemetry: &'a ReceiverUsdtTelemetry,
-    rpc_limiter: &'a RpcLimiter,
     mode: &'static str,
     chain_id_i64: i64,
 }
@@ -413,10 +401,6 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         progress_tail_lag_blocks,
     );
 
-    let tail_rps =
-        NonZeroU32::new(receiver_usdt_cfg.tail_rps.max(1)).expect("tail_rps clamped to >= 1");
-    let rpc_limiter = RateLimiter::direct(Quota::per_second(tail_rps));
-
     let batch_size = receiver_usdt_cfg.to_batch_size.max(1);
     let mut process_ctx = ProcessCtx {
         dbh,
@@ -426,7 +410,6 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         progress: &mut progress,
         receiver_usdt_cfg,
         telemetry: &telemetry,
-        rpc_limiter: &rpc_limiter,
         mode: label,
         chain_id_i64,
     };
@@ -807,7 +790,6 @@ async fn process_block_range(
         let provider = ctx.provider;
         let timestamps_state: &timestamps::TimestampState = ctx.timestamps_state;
         let telemetry = ctx.telemetry;
-        let rpc_limiter = ctx.rpc_limiter;
         let mode = ctx.mode;
         let chain_id_i64 = ctx.chain_id_i64;
         let token_tron_str: &str = token_tron.as_str();
@@ -822,9 +804,6 @@ async fn process_block_range(
             .map(|chunk| {
                 let chunk_len = chunk.len() as u64;
                 async move {
-                    // Cap dispatch rate (req/s) — orthogonal to in-flight concurrency.
-                    // Caller controls the budget via TRC20_TAIL_RPS.
-                    rpc_limiter.until_ready().await;
                     let res = range::process_token_range(
                         dbh,
                         shutdown,

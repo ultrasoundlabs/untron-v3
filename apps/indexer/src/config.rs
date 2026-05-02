@@ -53,12 +53,6 @@ pub struct ReceiverUsdtConfig {
     /// RPC trip became the binding constraint on catch-up speed; with N here we
     /// fan out N batches at once.
     pub tail_concurrency: usize,
-    /// Cap on outbound `eth_getLogs` *dispatch rate* (requests/sec) from the
-    /// receiver_usdt scanner. Set this to your RPC plan's per-second limit
-    /// (minus headroom for the controller stream + retries). The limiter is
-    /// orthogonal to `tail_concurrency`: concurrency caps in-flight; rps caps
-    /// the start rate, so concurrency can stay high while burst rate is bounded.
-    pub tail_rps: u32,
     pub discovery_interval: Duration,
 }
 
@@ -187,9 +181,6 @@ struct ReceiverUsdtEnv {
     #[serde(rename = "trc20_tail_concurrency")]
     tail_concurrency: usize,
 
-    #[serde(rename = "trc20_tail_rps")]
-    tail_rps: u32,
-
     #[serde(rename = "trc20_discovery_interval_secs")]
     discovery_interval_secs: u64,
 }
@@ -205,7 +196,6 @@ impl Default for ReceiverUsdtEnv {
             to_batch_size: DEFAULT_TRC20_TO_BATCH_SIZE,
             backfill_concurrency: DEFAULT_TRC20_BACKFILL_CONCURRENCY,
             tail_concurrency: DEFAULT_TRC20_TAIL_CONCURRENCY,
-            tail_rps: DEFAULT_TRC20_TAIL_RPS,
             discovery_interval_secs: DEFAULT_TRC20_DISCOVERY_INTERVAL_SECS,
         }
     }
@@ -344,7 +334,6 @@ pub fn load_config() -> Result<AppConfig> {
             to_batch_size: receiver_usdt_env.to_batch_size.max(1),
             backfill_concurrency: receiver_usdt_env.backfill_concurrency.max(1),
             tail_concurrency: receiver_usdt_env.tail_concurrency.max(1),
-            tail_rps: receiver_usdt_env.tail_rps.max(1),
             discovery_interval: Duration::from_secs(
                 receiver_usdt_env.discovery_interval_secs.max(5),
             ),
@@ -494,7 +483,4 @@ const DEFAULT_TRC20_BACKFILL_CONCURRENCY: usize = 2;
 // managed-RPC rate limits (e.g. QuickNode's 50 req/s) and big enough that a single
 // chunk of 1000 batches finishes in seconds rather than minutes.
 const DEFAULT_TRC20_TAIL_CONCURRENCY: usize = 16;
-// Default dispatch budget: 30 req/s. On a 50 req/s plan this leaves ~20 req/s for the
-// controller stream + retries. Bump for higher-tier plans, lower for tighter budgets.
-const DEFAULT_TRC20_TAIL_RPS: u32 = 30;
 const DEFAULT_TRC20_DISCOVERY_INTERVAL_SECS: u64 = 30;
