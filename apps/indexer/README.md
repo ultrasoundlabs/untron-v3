@@ -53,6 +53,7 @@ Hub stream (EVM):
 - `HUB_POLL_INTERVAL_SECS` (default `1`)
 - `HUB_CHUNK_BLOCKS` (default `2000`)
 - `HUB_REORG_SCAN_DEPTH` (default `128`)
+- `HUB_RPC_MAX_REQUESTS_PER_SECOND` (optional; unset means no hard request-rate cap)
 
 Controller stream (Tron JSON-RPC):
 
@@ -64,6 +65,7 @@ Controller stream (Tron JSON-RPC):
 - `CONTROLLER_POLL_INTERVAL_SECS` (default `1`)
 - `CONTROLLER_CHUNK_BLOCKS` (default `2000`)
 - `CONTROLLER_REORG_SCAN_DEPTH` (default `256`)
+- `CONTROLLER_RPC_MAX_REQUESTS_PER_SECOND` (default `50`; hard cap shared by controller stream consumers)
 
 RPC retry/backoff (applies to all streams):
 
@@ -88,6 +90,7 @@ Receiver USDT transfer indexing (controller chain):
 - `TRC20_POLL_INTERVAL_SECS` (default `2`)
 - `TRC20_CHUNK_BLOCKS` (default `2000`)
 - `TRC20_TO_BATCH_SIZE` (default `50`)
+- `TRC20_RANGE_CONCURRENCY` (default `16`; concurrent receiver/token log queries)
 - `TRC20_BACKFILL_CONCURRENCY` (default `2`)
 - `TRC20_DISCOVERY_INTERVAL_SECS` (default `30`)
 

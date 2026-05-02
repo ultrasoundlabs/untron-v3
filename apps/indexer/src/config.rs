@@ -47,6 +47,7 @@ pub struct ReceiverUsdtConfig {
     pub poll_interval: Duration,
     pub chunk_blocks: u64,
     pub to_batch_size: usize,
+    pub range_concurrency: usize,
     pub backfill_concurrency: usize,
     pub discovery_interval: Duration,
 }
@@ -170,6 +171,9 @@ struct ReceiverUsdtEnv {
     #[serde(rename = "trc20_to_batch_size")]
     to_batch_size: usize,
 
+    #[serde(rename = "trc20_range_concurrency")]
+    range_concurrency: usize,
+
     #[serde(rename = "trc20_backfill_concurrency")]
     backfill_concurrency: usize,
 
@@ -186,6 +190,7 @@ impl Default for ReceiverUsdtEnv {
             poll_interval_secs: DEFAULT_TRC20_POLL_INTERVAL_SECS,
             chunk_blocks: DEFAULT_TRC20_CHUNK_BLOCKS,
             to_batch_size: DEFAULT_TRC20_TO_BATCH_SIZE,
+            range_concurrency: DEFAULT_TRC20_RANGE_CONCURRENCY,
             backfill_concurrency: DEFAULT_TRC20_BACKFILL_CONCURRENCY,
             discovery_interval_secs: DEFAULT_TRC20_DISCOVERY_INTERVAL_SECS,
         }
@@ -264,6 +269,10 @@ struct StreamEnv {
     poll_interval_secs: Option<u64>,
     chunk_blocks: Option<u64>,
     reorg_scan_depth: Option<u64>,
+
+    /// Optional hard cap for raw JSON-RPC requests emitted by this stream provider.
+    /// With a prefix this maps to e.g. `CONTROLLER_RPC_MAX_REQUESTS_PER_SECOND`.
+    rpc_max_requests_per_second: Option<u32>,
 }
 
 pub fn load_config() -> Result<AppConfig> {
@@ -323,6 +332,7 @@ pub fn load_config() -> Result<AppConfig> {
             poll_interval: Duration::from_secs(receiver_usdt_env.poll_interval_secs.max(1)),
             chunk_blocks: receiver_usdt_env.chunk_blocks.max(1),
             to_batch_size: receiver_usdt_env.to_batch_size.max(1),
+            range_concurrency: receiver_usdt_env.range_concurrency.max(1),
             backfill_concurrency: receiver_usdt_env.backfill_concurrency.max(1),
             discovery_interval: Duration::from_secs(
                 receiver_usdt_env.discovery_interval_secs.max(5),
@@ -370,12 +380,14 @@ fn load_stream_config(
             poll_interval: Duration::from_secs(1),
             chunk_blocks: 2_000,
             reorg_scan_depth: 128,
+            rpc_max_requests_per_second: None,
         },
         Stream::Controller => StreamDefaults {
             confirmations: 0,
             poll_interval: Duration::from_secs(1),
             chunk_blocks: 2_000,
             reorg_scan_depth: 256,
+            rpc_max_requests_per_second: Some(50),
         },
     };
 
@@ -406,6 +418,10 @@ fn load_stream_config(
 
     let chunk_blocks = env.chunk_blocks.unwrap_or(defaults.chunk_blocks);
     let reorg_scan_depth = env.reorg_scan_depth.unwrap_or(defaults.reorg_scan_depth);
+    let rpc_max_requests_per_second = env
+        .rpc_max_requests_per_second
+        .or(defaults.rpc_max_requests_per_second)
+        .filter(|v| *v > 0);
 
     Ok(Some(StreamConfig {
         stream,
@@ -413,6 +429,7 @@ fn load_stream_config(
         rpc: crate::rpc::RpcConfig {
             urls: rpc_urls,
             retry: retry.clone(),
+            max_requests_per_second: rpc_max_requests_per_second,
         },
         contract_address,
         deployment_block,
@@ -428,6 +445,7 @@ struct StreamDefaults {
     poll_interval: Duration,
     chunk_blocks: u64,
     reorg_scan_depth: u64,
+    rpc_max_requests_per_second: Option<u32>,
 }
 
 fn parse_list(raw: &str) -> Vec<String> {
@@ -468,5 +486,6 @@ const DEFAULT_UNTRON_CONTROLLER_CREATE2_PREFIX: &str = "0x41";
 const DEFAULT_TRC20_POLL_INTERVAL_SECS: u64 = 2;
 const DEFAULT_TRC20_CHUNK_BLOCKS: u64 = 2000;
 const DEFAULT_TRC20_TO_BATCH_SIZE: usize = 50;
+const DEFAULT_TRC20_RANGE_CONCURRENCY: usize = 16;
 const DEFAULT_TRC20_BACKFILL_CONCURRENCY: usize = 2;
 const DEFAULT_TRC20_DISCOVERY_INTERVAL_SECS: u64 = 30;

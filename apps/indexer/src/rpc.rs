@@ -2,6 +2,7 @@ use crate::config::Stream;
 use alloy::{
     providers::{DynProvider, ProviderBuilder},
     rpc::client::{BuiltInConnectionString, RpcClient},
+    transports::Transport,
     transports::layers::RetryBackoffLayer,
 };
 use anyhow::Result;
@@ -16,7 +17,10 @@ use std::{
     },
     time::Duration,
 };
-use untron_rpc_fallback::{FallbackAttemptStatus, FallbackHttpTransport, FallbackObserver};
+use untron_rpc_fallback::{
+    FallbackAttemptStatus, FallbackHttpTransport, FallbackObserver, RateLimitedTransport,
+    RpcRateLimiter,
+};
 
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -29,6 +33,7 @@ pub struct RetryConfig {
 pub struct RpcConfig {
     pub urls: Vec<String>,
     pub retry: RetryConfig,
+    pub max_requests_per_second: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -57,6 +62,10 @@ pub(crate) async fn build_providers(
         cfg.retry.initial_backoff_ms,
         cfg.retry.compute_units_per_second,
     );
+    let rate_limiter = cfg
+        .max_requests_per_second
+        .map(RpcRateLimiter::new)
+        .transpose()?;
 
     let mut pinned = Vec::with_capacity(cfg.urls.len());
     let mut healthy_urls = Vec::with_capacity(cfg.urls.len());
@@ -66,6 +75,11 @@ pub(crate) async fn build_providers(
         match BuiltInConnectionString::connect(url).await {
             Ok(transport) => {
                 healthy_urls.push(url.clone());
+
+                let transport = match rate_limiter.clone() {
+                    Some(limiter) => RateLimitedTransport::new(transport, limiter).boxed(),
+                    None => transport,
+                };
 
                 let client = RpcClient::builder()
                     .layer(retry_layer.clone())
@@ -100,10 +114,11 @@ pub(crate) async fn build_providers(
         cfg.urls.len() as u64,
         healthy_urls.len() as u64,
     ));
-    let fallback_transport = FallbackHttpTransport::new_with_observer(
+    let fallback_transport = FallbackHttpTransport::new_with_observer_and_limiter(
         fallback_urls,
         Duration::from_millis(per_try_timeout_ms),
         Some(fallback_observer),
+        rate_limiter,
     )?;
 
     let client = RpcClient::builder()

@@ -76,6 +76,7 @@ async fn scan_chunks(
     max_chunks: usize,
 ) -> Result<Option<u64>> {
     let chunk_blocks = ctx.receiver_usdt_cfg.chunk_blocks.max(1);
+    let max_parallel_chunks = ctx.receiver_usdt_cfg.range_concurrency.max(1);
     let mut chunks_done = 0usize;
 
     while from_block <= safe_head && chunks_done < max_chunks {
@@ -83,16 +84,30 @@ async fn scan_chunks(
             return Ok(None);
         }
 
-        let to_block = safe_head.min(from_block.saturating_add(chunk_blocks.saturating_sub(1)));
-        if process_block_range(ctx, receiver_map, to_addrs, from_block, to_block)
+        let remaining_chunks = max_chunks.saturating_sub(chunks_done);
+        let window_chunks = max_parallel_chunks.min(remaining_chunks);
+        let mut ranges = Vec::with_capacity(window_chunks);
+
+        for _ in 0..window_chunks {
+            if from_block > safe_head {
+                break;
+            }
+
+            let to_block = safe_head.min(from_block.saturating_add(chunk_blocks.saturating_sub(1)));
+            ranges.push(ReceiverUsdtBlockRange {
+                from_block,
+                to_block,
+            });
+            from_block = to_block.saturating_add(1);
+            chunks_done += 1;
+        }
+
+        if process_block_ranges(ctx, receiver_map, to_addrs, &ranges)
             .await?
             .is_none()
         {
             return Ok(None);
         }
-
-        from_block = to_block.saturating_add(1);
-        chunks_done += 1;
     }
 
     Ok(Some(from_block))
@@ -137,6 +152,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         to_batch_size = receiver_usdt_cfg.to_batch_size,
         chunk_blocks = receiver_usdt_cfg.chunk_blocks,
         poll_interval_secs = receiver_usdt_cfg.poll_interval.as_secs(),
+        range_concurrency = receiver_usdt_cfg.range_concurrency,
         backfill_concurrency = receiver_usdt_cfg.backfill_concurrency,
         discovery_interval_secs = receiver_usdt_cfg.discovery_interval.as_secs(),
         "receiver usdt transfer indexer starting"
@@ -577,7 +593,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                         .iter()
                         .map(|(addr, salt)| (*addr, salt.clone()))
                         .collect::<Vec<_>>();
-                    let results = stream::iter(receivers.into_iter())
+                    let results = stream::iter(receivers)
                         .map(|(receiver_addr, receiver_salt)| {
                             let provider = provider.clone();
                             let shutdown = shutdown.clone();
@@ -756,72 +772,194 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
     }
 }
 
-async fn process_block_range(
+#[derive(Debug, Clone, Copy)]
+struct ReceiverUsdtBlockRange {
+    from_block: u64,
+    to_block: u64,
+}
+
+async fn process_block_ranges(
     ctx: &mut ProcessCtx<'_>,
     receiver_map: &HashMap<alloy::primitives::Address, String>,
     to_addrs: &[alloy::primitives::Address],
-    from_block: u64,
-    to_block: u64,
+    ranges: &[ReceiverUsdtBlockRange],
 ) -> Result<Option<()>> {
-    // Split by controller USDT token changes, so transfers are indexed under the correct token address.
-    let points = receiverdb::usdt_set_points_up_to(ctx.dbh, from_block, to_block).await?;
-    let segments = compute_usdt_segments(points, from_block, to_block)?;
-
-    if segments.is_empty() {
-        // No known USDT token configured in this window; skip.
-        return Ok(Some(()));
-    }
-
     // Batch recipients to avoid huge topic arrays.
     let batch_size = ctx.receiver_usdt_cfg.to_batch_size.max(1);
-    for (token_evm, token_tron, seg_from, seg_to) in segments {
-        if seg_from > seg_to {
+    let range_concurrency = ctx.receiver_usdt_cfg.range_concurrency.max(1);
+    let mut jobs = Vec::new();
+
+    for range in ranges {
+        // Split by controller USDT token changes, so transfers are indexed under the correct token address.
+        let points =
+            receiverdb::usdt_set_points_up_to(ctx.dbh, range.from_block, range.to_block).await?;
+        let segments = compute_usdt_segments(points, range.from_block, range.to_block)?;
+
+        if segments.is_empty() {
+            // No known USDT token configured in this window; skip.
             continue;
         }
 
-        for chunk in to_addrs.chunks(batch_size) {
-            let res = range::process_token_range(
-                ctx.dbh,
-                ctx.shutdown,
-                ctx.provider,
-                ctx.timestamps_state,
-                ctx.telemetry,
-                ctx.mode,
-                range::ReceiverSet {
-                    to_addrs: chunk,
-                    addr_to_salt: receiver_map,
-                },
-                range::TokenRange {
-                    chain_id: ctx.chain_id_i64,
+        for (token_evm, token_tron, seg_from, seg_to) in segments {
+            if seg_from > seg_to {
+                continue;
+            }
+
+            for chunk in to_addrs.chunks(batch_size) {
+                jobs.push(ReceiverUsdtFetchJob {
                     token_evm,
-                    token_tron: &token_tron,
+                    token_tron: token_tron.clone(),
                     from_block: seg_from,
                     to_block: seg_to,
-                },
-            )
-            .await;
-
-            match res {
-                Ok(Some(metrics)) => {
-                    ctx.telemetry.observe_range(
-                        ctx.mode,
-                        token_tron.as_str(),
-                        chunk.len() as u64,
-                        metrics.logs,
-                        metrics.rows,
-                        metrics.rpc_ms,
-                        metrics.db_ms,
-                        metrics.total_ms,
-                    );
-                    ctx.progress.observe_range(metrics);
-                }
-                Ok(None) => return Ok(None),
-                Err(e) => return Err(e),
+                    to_addrs: chunk.to_vec(),
+                });
             }
         }
     }
 
+    if jobs.is_empty() {
+        return Ok(Some(()));
+    }
+
+    let provider = ctx.provider.clone();
+    let shutdown = ctx.shutdown.clone();
+    let telemetry = (*ctx.telemetry).clone();
+    let mode = ctx.mode;
+    let chain_id = ctx.chain_id_i64;
+
+    let mut fetches = stream::iter(jobs)
+        .map(move |job| {
+            let provider = provider.clone();
+            let shutdown = shutdown.clone();
+            let telemetry = telemetry.clone();
+            async move {
+                range::fetch_token_range_logs(
+                    &shutdown,
+                    &provider,
+                    &telemetry,
+                    mode,
+                    &job.to_addrs,
+                    range::TokenRange {
+                        chain_id,
+                        token_evm: job.token_evm,
+                        token_tron: &job.token_tron,
+                        from_block: job.from_block,
+                        to_block: job.to_block,
+                    },
+                )
+                .await
+            }
+        })
+        .buffer_unordered(range_concurrency);
+
+    let mut batches = Vec::new();
+    while let Some(res) = fetches.next().await {
+        match res? {
+            Some(batch) => batches.push(batch),
+            None => return Ok(None),
+        }
+    }
+
+    let all_logs = batches
+        .iter()
+        .flat_map(|batch| batch.logs.iter().cloned())
+        .collect::<Vec<_>>();
+
+    let ts_ms = if all_logs.is_empty() {
+        0
+    } else {
+        let ts_res = timed_await_or_cancel(ctx.shutdown, async {
+            ctx.timestamps_state
+                .populate_timestamps(
+                    ctx.shutdown,
+                    ctx.provider,
+                    &all_logs,
+                    &[],
+                    Some(ctx.telemetry),
+                )
+                .await
+                .context("timestamp enrichment")
+        })
+        .await;
+
+        let Some(((), ts_ms)) = (match ts_res {
+            Ok(v) => v,
+            Err(e) => {
+                let mut tokens = Vec::new();
+                for batch in &batches {
+                    if !tokens.iter().any(|t| t == &batch.token_tron) {
+                        tokens.push(batch.token_tron.clone());
+                    }
+                }
+                for token in tokens {
+                    ctx.telemetry.error(ctx.mode, token.as_str(), "timestamp");
+                }
+                return Err(e);
+            }
+        }) else {
+            return Ok(None);
+        };
+        if ctx.shutdown.is_cancelled() {
+            return Ok(None);
+        }
+        ts_ms
+    };
+
+    let batch_count = batches.len();
+    for (idx, batch) in batches.iter().enumerate() {
+        let ts_share = metric_share(ts_ms, idx, batch_count);
+        let metrics = range::decode_and_insert_token_range_logs(
+            ctx.dbh,
+            &mut ctx.timestamps_state.cache,
+            ctx.telemetry,
+            ctx.mode,
+            range::ReceiverSet {
+                addr_to_salt: receiver_map,
+            },
+            range::TokenRange {
+                chain_id: ctx.chain_id_i64,
+                token_evm: batch.token_evm,
+                token_tron: &batch.token_tron,
+                from_block: batch.from_block,
+                to_block: batch.to_block,
+            },
+            batch,
+            ts_share,
+        )
+        .await?;
+
+        ctx.telemetry.observe_range(
+            ctx.mode,
+            batch.token_tron.as_str(),
+            batch.receiver_count as u64,
+            metrics.logs,
+            metrics.rows,
+            metrics.rpc_ms,
+            metrics.db_ms,
+            metrics.total_ms,
+        );
+        ctx.progress.observe_range(metrics);
+    }
+
     Ok(Some(()))
+}
+
+struct ReceiverUsdtFetchJob {
+    token_evm: alloy::primitives::Address,
+    token_tron: String,
+    from_block: u64,
+    to_block: u64,
+    to_addrs: Vec<alloy::primitives::Address>,
+}
+
+fn metric_share(total: u64, idx: usize, count: usize) -> u64 {
+    if count == 0 {
+        return 0;
+    }
+    let count = count as u64;
+    let base = total / count;
+    let remainder = total % count;
+    base + u64::from((idx as u64) < remainder)
 }
 
 fn compute_usdt_segments(
