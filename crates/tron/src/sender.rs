@@ -83,19 +83,41 @@ impl TronWallet {
             .await
             .context("EstimateEnergy")?;
 
-        if let Some(ret) = &estimate.result
-            && !ret.result
-        {
-            anyhow::bail!(
-                "estimate_energy reports call would revert: code={} msg_hex=0x{} msg_utf8={}",
-                ret.code,
-                hex::encode(&ret.message),
-                String::from_utf8_lossy(&ret.message),
-            );
-        }
-
-        let energy_required =
-            u64::try_from(estimate.energy_required).context("energy_required out of range")?;
+        // Tron's `estimate_energy` shares a fixed CPU-time budget with the simulator and
+        // can report `Program$OutOfTimeException: CPU timeout for '<op>'` for complex calls
+        // (e.g. pullFromReceivers looping over receivers). This does NOT mean the real tx
+        // would revert, just that the simulator was too slow. Mirror the preflight's
+        // tolerance: log loudly and fall back to a conservative `energy_required` derived
+        // from `policy.ceiling_sun / energy_fee` (or zero when fees are unknown), letting
+        // fee_limit cap actual on-chain consumption. Real reverts still bail.
+        let energy_required = match &estimate.result {
+            Some(ret) if !ret.result => {
+                let msg = String::from_utf8_lossy(&ret.message);
+                if msg.contains("OutOfTimeException") || msg.contains("CPU timeout") {
+                    let fallback = policy
+                        .fees
+                        .as_ref()
+                        .filter(|f| f.energy_fee_sun_per_energy > 0)
+                        .map(|f| policy.ceiling_sun / f.energy_fee_sun_per_energy as u64)
+                        .unwrap_or(0);
+                    tracing::warn!(
+                        code = ret.code,
+                        sim_message = %msg,
+                        fallback_energy_required = fallback,
+                        "estimate_energy hit simulator CPU budget (OutOfTime); proceeding — fee_limit caps actual on-chain consumption"
+                    );
+                    fallback
+                } else {
+                    anyhow::bail!(
+                        "estimate_energy reports call would revert: code={} msg_hex=0x{} msg_utf8={}",
+                        ret.code,
+                        hex::encode(&ret.message),
+                        String::from_utf8_lossy(&ret.message),
+                    );
+                }
+            }
+            _ => u64::try_from(estimate.energy_required).context("energy_required out of range")?,
+        };
 
         // Ask node to build the tx skeleton (ref block bytes/hash/etc).
         let tx_ext = grpc
