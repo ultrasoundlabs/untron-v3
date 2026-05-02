@@ -47,7 +47,7 @@ struct ProcessCtx<'a> {
     dbh: &'a db::Db,
     shutdown: &'a CancellationToken,
     provider: &'a alloy::providers::DynProvider,
-    timestamps_state: &'a mut timestamps::TimestampState,
+    timestamps_state: &'a timestamps::TimestampState,
     progress: &'a mut ProgressReporter,
     receiver_usdt_cfg: &'a ReceiverUsdtConfig,
     telemetry: &'a ReceiverUsdtTelemetry,
@@ -384,7 +384,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         progress_tail_lag_blocks,
     } = ctx;
 
-    let mut timestamps_state =
+    let timestamps_state =
         timestamps::TimestampState::new(block_timestamp_cache_size, block_header_concurrency);
     let chain_id_i64 = i64::try_from(controller_cfg.chain_id).context("chain_id out of range")?;
 
@@ -406,7 +406,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         dbh,
         shutdown,
         provider,
-        timestamps_state: &mut timestamps_state,
+        timestamps_state: &timestamps_state,
         progress: &mut progress,
         receiver_usdt_cfg,
         telemetry: &telemetry,
@@ -774,47 +774,78 @@ async fn process_block_range(
 
     // Batch recipients to avoid huge topic arrays.
     let batch_size = ctx.receiver_usdt_cfg.to_batch_size.max(1);
+    let concurrency = ctx.receiver_usdt_cfg.tail_concurrency.max(1);
+
     for (token_evm, token_tron, seg_from, seg_to) in segments {
         if seg_from > seg_to {
             continue;
         }
 
-        for chunk in to_addrs.chunks(batch_size) {
-            let res = range::process_token_range(
-                ctx.dbh,
-                ctx.shutdown,
-                ctx.provider,
-                ctx.timestamps_state,
-                ctx.telemetry,
-                ctx.mode,
-                range::ReceiverSet {
-                    to_addrs: chunk,
-                    addr_to_salt: receiver_map,
-                },
-                range::TokenRange {
-                    chain_id: ctx.chain_id_i64,
-                    token_evm,
-                    token_tron: &token_tron,
-                    from_block: seg_from,
-                    to_block: seg_to,
-                },
-            )
-            .await;
+        // Snapshot the shared (`&`) refs into locals so the closures we hand to
+        // `buffer_unordered` capture them without re-borrowing `ctx` each iteration.
+        // `ctx.progress` is intentionally not captured — it's `&mut` and is only
+        // touched serially after each `stream.next()` await below.
+        let dbh = ctx.dbh;
+        let shutdown = ctx.shutdown;
+        let provider = ctx.provider;
+        let timestamps_state: &timestamps::TimestampState = ctx.timestamps_state;
+        let telemetry = ctx.telemetry;
+        let mode = ctx.mode;
+        let chain_id_i64 = ctx.chain_id_i64;
+        let token_tron_str: &str = token_tron.as_str();
 
-            match res {
-                Ok(Some(metrics)) => {
-                    ctx.telemetry.observe_range(
-                        ctx.mode,
-                        token_tron.as_str(),
-                        chunk.len() as u64,
-                        metrics.logs,
-                        metrics.rows,
-                        metrics.rpc_ms,
-                        metrics.db_ms,
-                        metrics.total_ms,
-                    );
-                    ctx.progress.observe_range(metrics);
+        // Build futures eagerly into a Vec to avoid an HRTB issue: an in-line
+        // `stream::iter(chunks).map(|chunk: &[_]| async move { ... }).buffer_unordered(N)`
+        // confuses the compiler about whether the resulting future is `Send` across
+        // the `&[Address]` argument lifetime. Building a `Vec<impl Future>` first
+        // sidesteps the closure-arg HRTB entirely.
+        let futures: Vec<_> = to_addrs
+            .chunks(batch_size)
+            .map(|chunk| {
+                let chunk_len = chunk.len() as u64;
+                async move {
+                    let res = range::process_token_range(
+                        dbh,
+                        shutdown,
+                        provider,
+                        timestamps_state,
+                        telemetry,
+                        mode,
+                        range::ReceiverSet {
+                            to_addrs: chunk,
+                            addr_to_salt: receiver_map,
+                        },
+                        range::TokenRange {
+                            chain_id: chain_id_i64,
+                            token_evm,
+                            token_tron: token_tron_str,
+                            from_block: seg_from,
+                            to_block: seg_to,
+                        },
+                    )
+                    .await;
+                    if let Ok(Some(metrics)) = res.as_ref() {
+                        telemetry.observe_range(
+                            mode,
+                            token_tron_str,
+                            chunk_len,
+                            metrics.logs,
+                            metrics.rows,
+                            metrics.rpc_ms,
+                            metrics.db_ms,
+                            metrics.total_ms,
+                        );
+                    }
+                    res
                 }
+            })
+            .collect();
+
+        let mut stream = stream::iter(futures).buffer_unordered(concurrency);
+
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok(Some(metrics)) => ctx.progress.observe_range(metrics),
                 Ok(None) => return Ok(None),
                 Err(e) => return Err(e),
             }

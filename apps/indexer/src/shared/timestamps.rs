@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use futures::{StreamExt, stream};
 use lru::LruCache;
 use serde_json::Value;
+use std::sync::Mutex;
 use std::time::Instant;
 use std::{collections::HashSet, num::NonZeroUsize, sync::Arc};
 use tokio::sync::Semaphore;
@@ -11,37 +12,49 @@ use tokio_util::sync::CancellationToken;
 
 use super::logs::ValidatedLog;
 
-#[derive(Clone)]
+// Interior mutability: the cache is shared by-reference across concurrent tail/backfill
+// scanners (see `receiver_usdt::runner::process_block_range`). The lock is held only for
+// the LRU op itself — never across an await — so contention is in the microseconds.
 pub struct BlockTimestampCache {
-    inner: LruCache<u64, u64>,
+    inner: Mutex<LruCache<u64, u64>>,
 }
 
 impl BlockTimestampCache {
     pub fn new(capacity: usize) -> Self {
         let cap = NonZeroUsize::new(capacity.max(1)).expect("nonzero");
         Self {
-            inner: LruCache::new(cap),
+            inner: Mutex::new(LruCache::new(cap)),
         }
     }
 
-    pub fn clear(&mut self) {
-        self.inner.clear();
+    pub fn clear(&self) {
+        self.inner.lock().expect("poisoned").clear();
     }
 
-    pub fn get(&mut self, block_number: u64) -> Option<u64> {
-        self.inner.get(&block_number).copied()
+    pub fn get(&self, block_number: u64) -> Option<u64> {
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .get(&block_number)
+            .copied()
     }
 
     fn peek(&self, block_number: u64) -> Option<u64> {
-        self.inner.peek(&block_number).copied()
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .peek(&block_number)
+            .copied()
     }
 
-    fn insert(&mut self, block_number: u64, timestamp: u64) {
-        self.inner.put(block_number, timestamp);
+    fn insert(&self, block_number: u64, timestamp: u64) {
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .put(block_number, timestamp);
     }
 }
 
-#[derive(Clone)]
 pub struct TimestampState {
     pub cache: BlockTimestampCache,
     header_sem: Arc<Semaphore>,
@@ -59,7 +72,7 @@ impl TimestampState {
     }
 
     pub async fn populate_timestamps(
-        &mut self,
+        &self,
         shutdown: &CancellationToken,
         provider: &alloy::providers::DynProvider,
         event_logs: &[ValidatedLog],
@@ -190,7 +203,7 @@ pub fn normalize_timestamp_seconds(timestamp: u64) -> u64 {
     }
 }
 
-pub fn block_timestamp_for_log(cache: &mut BlockTimestampCache, log: &ValidatedLog) -> Result<u64> {
+pub fn block_timestamp_for_log(cache: &BlockTimestampCache, log: &ValidatedLog) -> Result<u64> {
     let block_number = log.block_number;
     log.block_timestamp
         .map(normalize_timestamp_seconds)
