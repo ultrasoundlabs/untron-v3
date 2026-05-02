@@ -48,11 +48,6 @@ pub struct ReceiverUsdtConfig {
     pub chunk_blocks: u64,
     pub to_batch_size: usize,
     pub backfill_concurrency: usize,
-    /// Max concurrent `eth_getLogs` calls in flight inside a single tail/backfill
-    /// `process_block_range`. The previous loop ran one at a time, so a sub-second
-    /// RPC trip became the binding constraint on catch-up speed; with N here we
-    /// fan out N batches at once.
-    pub tail_concurrency: usize,
     pub discovery_interval: Duration,
 }
 
@@ -178,9 +173,6 @@ struct ReceiverUsdtEnv {
     #[serde(rename = "trc20_backfill_concurrency")]
     backfill_concurrency: usize,
 
-    #[serde(rename = "trc20_tail_concurrency")]
-    tail_concurrency: usize,
-
     #[serde(rename = "trc20_discovery_interval_secs")]
     discovery_interval_secs: u64,
 }
@@ -195,7 +187,6 @@ impl Default for ReceiverUsdtEnv {
             chunk_blocks: DEFAULT_TRC20_CHUNK_BLOCKS,
             to_batch_size: DEFAULT_TRC20_TO_BATCH_SIZE,
             backfill_concurrency: DEFAULT_TRC20_BACKFILL_CONCURRENCY,
-            tail_concurrency: DEFAULT_TRC20_TAIL_CONCURRENCY,
             discovery_interval_secs: DEFAULT_TRC20_DISCOVERY_INTERVAL_SECS,
         }
     }
@@ -333,7 +324,6 @@ pub fn load_config() -> Result<AppConfig> {
             chunk_blocks: receiver_usdt_env.chunk_blocks.max(1),
             to_batch_size: receiver_usdt_env.to_batch_size.max(1),
             backfill_concurrency: receiver_usdt_env.backfill_concurrency.max(1),
-            tail_concurrency: receiver_usdt_env.tail_concurrency.max(1),
             discovery_interval: Duration::from_secs(
                 receiver_usdt_env.discovery_interval_secs.max(5),
             ),
@@ -479,8 +469,4 @@ const DEFAULT_TRC20_POLL_INTERVAL_SECS: u64 = 2;
 const DEFAULT_TRC20_CHUNK_BLOCKS: u64 = 2000;
 const DEFAULT_TRC20_TO_BATCH_SIZE: usize = 50;
 const DEFAULT_TRC20_BACKFILL_CONCURRENCY: usize = 2;
-// 16 in-flight `eth_getLogs` per `process_block_range` call. Comfortably under most
-// managed-RPC rate limits (e.g. QuickNode's 50 req/s) and big enough that a single
-// chunk of 1000 batches finishes in seconds rather than minutes.
-const DEFAULT_TRC20_TAIL_CONCURRENCY: usize = 16;
 const DEFAULT_TRC20_DISCOVERY_INTERVAL_SECS: u64 = 30;

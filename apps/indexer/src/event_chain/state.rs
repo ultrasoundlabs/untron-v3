@@ -3,6 +3,7 @@ use alloy::primitives::Address;
 
 use crate::metrics::StreamTelemetry;
 
+#[derive(Clone)]
 pub(super) struct PollState {
     pub(super) stream: Stream,
     pub(super) chain_id: i64,

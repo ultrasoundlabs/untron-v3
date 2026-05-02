@@ -24,7 +24,7 @@ pub(super) fn decode_event_appended(
 
 fn decode_hub_event_appended(state: &mut PollState, log: ValidatedLog) -> Result<EventAppendedRow> {
     let block_number = log.block_number;
-    let block_timestamp = timestamps::block_timestamp_for_log(&state.timestamps.cache, &log)?;
+    let block_timestamp = timestamps::block_timestamp_for_log(&mut state.timestamps.cache, &log)?;
 
     let decoded = log
         .log
@@ -67,7 +67,7 @@ fn decode_controller_event_appended(
     log: ValidatedLog,
 ) -> Result<EventAppendedRow> {
     let block_number = log.block_number;
-    let block_timestamp = timestamps::block_timestamp_for_log(&state.timestamps.cache, &log)?;
+    let block_timestamp = timestamps::block_timestamp_for_log(&mut state.timestamps.cache, &log)?;
 
     let decoded = log
         .log
@@ -119,7 +119,7 @@ pub(super) fn decode_tip_proof(
     };
 
     let block_number = log.block_number;
-    let block_timestamp = timestamps::block_timestamp_for_log(&state.timestamps.cache, &log)?;
+    let block_timestamp = timestamps::block_timestamp_for_log(&mut state.timestamps.cache, &log)?;
 
     let decoded = log
         .log

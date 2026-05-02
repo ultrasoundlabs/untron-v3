@@ -37,7 +37,7 @@ pub(crate) async fn process_token_range(
     dbh: &crate::db::Db,
     shutdown: &CancellationToken,
     provider: &alloy::providers::DynProvider,
-    timestamps_state: &TimestampState,
+    timestamps_state: &mut TimestampState,
     telemetry: &ReceiverUsdtTelemetry,
     mode: &'static str,
     receivers: ReceiverSet<'_>,
@@ -138,7 +138,7 @@ pub(crate) async fn process_token_range(
                 continue;
             };
 
-            let block_timestamp = block_timestamp_for_log(&timestamps_state.cache, &l)?;
+            let block_timestamp = block_timestamp_for_log(&mut timestamps_state.cache, &l)?;
 
             rows.push(db::TransferRow {
                 chain_id,
