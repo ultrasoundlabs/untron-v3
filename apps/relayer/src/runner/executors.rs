@@ -503,7 +503,7 @@ impl TronExecutor {
             }
 
             let mut grpc = self.active_grpc.lock().await;
-            let energy_required_i64 = match grpc
+            let resp = match grpc
                 .estimate_energy(TriggerSmartContract {
                     owner_address: owner.clone(),
                     contract_address: contract_addr.clone(),
@@ -514,7 +514,7 @@ impl TronExecutor {
                 })
                 .await
             {
-                Ok(v) => v.energy_required,
+                Ok(v) => v,
                 Err(err) => {
                     tracing::warn!(
                         tron_grpc = %self.grpc_urls[idx],
@@ -527,8 +527,33 @@ impl TronExecutor {
                 }
             };
 
+            // Tron returns Ok with `result.result=false` and `energy_required=0` when the
+            // simulator hits its CPU budget (OutOfTimeException). Callers that treat the
+            // returned u64 as authoritative would silently underestimate — bypassing the
+            // splitter's energy_limit cap and broadcasting the full receiver set. Surface
+            // estimator failure as an Err so the splitter falls back to its binary-search
+            // path, which treats Err as "too big" and shrinks.
+            if let Some(ret) = &resp.result
+                && !ret.result
+            {
+                let msg = String::from_utf8_lossy(&ret.message);
+                tracing::warn!(
+                    tron_grpc = %self.grpc_urls[idx],
+                    op = "estimate_trigger_smart_contract_energy",
+                    code = ret.code,
+                    sim_message = %msg,
+                    "estimator returned unsuccessful result; treating as estimator failure"
+                );
+                last_err = Some(anyhow::anyhow!(
+                    "estimate_energy unsuccessful: code={} msg={}",
+                    ret.code,
+                    msg
+                ));
+                continue;
+            }
+
             let energy_required =
-                u64::try_from(energy_required_i64).context("energy_required out of range")?;
+                u64::try_from(resp.energy_required).context("energy_required out of range")?;
             return Ok(energy_required);
         }
 
