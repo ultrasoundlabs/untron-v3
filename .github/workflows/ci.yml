@@ -40,7 +40,11 @@ jobs:
       - name: Setup Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          # Pinned: forge 1.6.0-v1.7.0 promoted `block-timestamp` from warning
+          # to a hard error, breaking pre-existing intentional usages
+          # (lease expiry checks, signature deadlines). Last known-good was
+          # 1.5.1, used by the April 25 deploy.
+          version: 1.5.1
 
       - name: Run full verification suite
         run: pnpm verify
