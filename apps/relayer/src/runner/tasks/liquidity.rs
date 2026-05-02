@@ -931,56 +931,40 @@ async fn cap_pull_from_receivers_by_energy_limit(
     };
 
     let total = receiver_salts.len();
+
+    // Fast path: if estimate(total) succeeds and the full set fits, no split needed.
+    // On estimator error (typically OutOfTime when the simulator can't run the full
+    // call within its CPU budget), fall through to binary search rather than bailing
+    // to the full set — an estimator failure correlates with the call being too big,
+    // and binary search treats Err the same as Ok(_) > energy_limit.
     let total_energy = match estimate(total).await {
-        Ok(v) => v,
+        Ok(v) if v <= energy_limit => return receiver_salts.to_vec(),
+        Ok(v) => Some(v),
         Err(err) => {
             tracing::warn!(
                 receivers = total,
                 energy_limit,
                 err = %err,
-                "failed to estimate pullFromReceivers energy; keeping full receiver set"
+                "failed to estimate pullFromReceivers energy for full set; probing smaller batches"
             );
-            return receiver_salts.to_vec();
+            None
         }
     };
 
-    if total_energy <= energy_limit {
-        return receiver_salts.to_vec();
-    }
-
-    let first_energy = match estimate(1).await {
-        Ok(v) => v,
-        Err(err) => {
-            tracing::warn!(
-                receivers = total,
-                energy_limit,
-                err = %err,
-                "failed to estimate pullFromReceivers energy for single receiver; keeping full receiver set"
-            );
-            return receiver_salts.to_vec();
-        }
-    };
-
-    if first_energy > energy_limit {
-        tracing::warn!(
-            receivers_total = total,
-            receivers_selected = 1,
-            estimated_energy_total = total_energy,
-            estimated_energy_selected = first_energy,
-            energy_limit,
-            "pullFromReceivers exceeds configured energy limit even for a single receiver; sending one"
-        );
-        return vec![receiver_salts[0]];
-    }
-
+    // Binary search for the largest count whose estimate succeeds and fits the limit.
+    // Estimator errors on a candidate are treated as "too big" (same as Ok(_) > limit).
+    // Defaults to `best = 1`: if every probe errors, we still emit a single-receiver
+    // tx — the smallest unit we can attempt — instead of bypassing the cap entirely.
     let mut lo = 1usize;
     let mut hi = total.saturating_sub(1);
     let mut best = 1usize;
+    let mut best_energy: Option<u64> = None;
     while lo <= hi {
         let mid = lo + (hi - lo) / 2;
         match estimate(mid).await {
             Ok(mid_energy) if mid_energy <= energy_limit => {
                 best = mid;
+                best_energy = Some(mid_energy);
                 lo = mid.saturating_add(1);
             }
             Ok(_) => {
@@ -991,22 +975,21 @@ async fn cap_pull_from_receivers_by_energy_limit(
                     receivers_mid = mid,
                     energy_limit,
                     err = %err,
-                    "failed to estimate pullFromReceivers energy while splitting; trying smaller receiver set"
+                    "failed to estimate pullFromReceivers energy while splitting; treating as oversize"
                 );
                 hi = mid.saturating_sub(1);
             }
         }
     }
 
-    if best < total {
-        tracing::info!(
-            receivers_total = total,
-            receivers_selected = best,
-            estimated_energy_total = total_energy,
-            energy_limit,
-            "split pullFromReceivers by configured energy limit"
-        );
-    }
+    tracing::info!(
+        receivers_total = total,
+        receivers_selected = best,
+        estimated_energy_total = ?total_energy,
+        estimated_energy_selected = ?best_energy,
+        energy_limit,
+        "split pullFromReceivers by configured energy limit"
+    );
 
     receiver_salts[..best].to_vec()
 }
