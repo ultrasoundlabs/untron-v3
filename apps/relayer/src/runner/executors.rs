@@ -707,6 +707,45 @@ impl TronExecutor {
             let energy_available = parsed.energy_available();
             let shortfall = signed.energy_required.saturating_sub(energy_available);
 
+            // Bandwidth feasibility check: even with all the rented energy in the world the
+            // broadcast still fails on `Account resource insufficient` if the wallet can't
+            // cover the per-byte network fee. Renting energy in that state wastes the rental
+            // (apitrx-style providers debit the prepaid pool whether the tx lands or not),
+            // so abort early if the wallet can neither use free bandwidth nor burn TRX for it.
+            let bandwidth_needed = signed.tx_size_bytes;
+            let bandwidth_available = parsed
+                .net_available()
+                .saturating_add(parsed.free_net_available());
+            if bandwidth_available < bandwidth_needed {
+                let shortfall_bytes = bandwidth_needed - bandwidth_available;
+                let tx_fee_per_byte = self
+                    .fee_limit_policy
+                    .fees
+                    .map(|f| f.tx_fee_sun_per_byte)
+                    .unwrap_or(1000);
+                let trx_burn_needed_sun = shortfall_bytes.saturating_mul(tx_fee_per_byte);
+
+                let acct = grpc
+                    .get_account(self.wallet.address().prefixed_bytes().to_vec())
+                    .await?;
+                let balance_sun = u64::try_from(acct.balance.max(0)).unwrap_or(0);
+                if balance_sun < trx_burn_needed_sun {
+                    tracing::error!(
+                        bandwidth_needed,
+                        bandwidth_available,
+                        bandwidth_shortfall_bytes = shortfall_bytes,
+                        trx_burn_needed_sun,
+                        wallet_balance_sun = balance_sun,
+                        "wallet bandwidth and TRX both insufficient; aborting before rental to avoid wasting prepaid pool on a tx that cannot broadcast"
+                    );
+                    anyhow::bail!(
+                        "wallet cannot pay bandwidth (need {} sun, balance {} sun); refusing to rent energy for a doomed broadcast",
+                        trx_burn_needed_sun,
+                        balance_sun
+                    );
+                }
+            }
+
             let should_attempt_rental =
                 shortfall > 0 && (self.require_energy_rental || shortfall >= MIN_ENERGY_RENTAL_AMOUNT);
 
