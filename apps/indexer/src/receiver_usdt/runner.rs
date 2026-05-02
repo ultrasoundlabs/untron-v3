@@ -500,7 +500,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     &snapshot.to_addrs,
                     from_block,
                     safe_head,
-                    usize::MAX,
+                    1,
                 )
                 .await?
                 else {
