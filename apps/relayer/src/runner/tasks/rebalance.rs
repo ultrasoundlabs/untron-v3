@@ -1,10 +1,7 @@
 use super::TronIntent;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
-use tron::{
-    TronAddress,
-    wallet::{encode_rebalance_usdt, trc20_balance_of},
-};
+use tron::{TronAddress, wallet::encode_rebalance_usdt};
 
 use crate::runner::model::{Plan, StateUpdate};
 use crate::runner::util::parse_u256_decimal;
@@ -72,15 +69,32 @@ pub async fn plan_controller_rebalance(
         .context("missing controller usdt")?;
     let token_tron = TronAddress::parse_text(token_tron).context("parse controller usdt")?;
 
-    let tron_controller = ctx.tron_controller;
-    let wallet_address = ctx.tron_wallet.address();
-    let balance = ctx
-        .with_tron_read_retry("trc20_balance_of", |tron| {
-            Box::pin(async move {
-                trc20_balance_of(tron, token_tron, tron_controller, wallet_address).await
-            })
-        })
-        .await?;
+    // Read controller USDT balance from indexer-derived ledger sum instead of polling
+    // `usdt.balanceOf` over Tron RPC. Saves ~12 RPC/min. The view already filters to the
+    // currently active USDT token; we just sanity-check the token matches what the rebalance
+    // plan expects (the controller's `controller_usdt` view).
+    let Some(balance_row) = ctx.indexer.controller_usdt_balance().await? else {
+        return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
+            key: "rebalance_usdt",
+        }));
+    };
+    let balance_token = TronAddress::parse_text(&balance_row.token)
+        .context("parse controller_usdt_balance.token")?;
+    if balance_token != token_tron {
+        // The two views (`controller_usdt` and `controller_usdt_balance`) both pivot on the
+        // active USDT version; a mismatch here means the indexer is mid-update or out of
+        // sync. Skip this tick rather than rebalance against the wrong token.
+        tracing::warn!(
+            expected = %token_tron,
+            actual = %balance_token,
+            "controller_usdt_balance token does not match controller_usdt; skipping rebalance plan"
+        );
+        return Ok(Plan::none().update(StateUpdate::DelayedTronClear {
+            key: "rebalance_usdt",
+        }));
+    }
+    let balance = parse_u256_decimal(&balance_row.balance)
+        .context("parse controller_usdt_balance.balance as u256")?;
 
     // Single-flight: if a prior rebalance is still "in flight" and we haven't observed its effect,
     // don't spam additional rebalance transactions.

@@ -19,6 +19,16 @@ pub struct ControllerHead {
     pub ingest_updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ControllerUsdtBalance {
+    pub token: String,
+    /// The view casts `numeric(78,0)` to `text` so PostgREST emits a JSON string instead of a
+    /// JSON number — JSON numbers go through f64 in serde_json by default and lose precision
+    /// above 2^53, which u256 USDT balances can easily exceed. Parse via `parse_u256_decimal`
+    /// at the call site.
+    pub balance: String,
+}
+
 pub struct IndexerApi {
     base_url: String,
     http: reqwest::Client,
@@ -123,6 +133,38 @@ impl IndexerApi {
                         anyhow::anyhow!("controller_head_get: controller stream not in summary")
                     })
                 })
+        })
+        .await
+    }
+
+    /// Read the controller's USDT balance from the indexer-derived ledger sum, replacing
+    /// the per-tick `usdt.balanceOf(controller)` Tron RPC read used by the rebalance plan.
+    ///
+    /// Returns `None` if the view has no row (no active USDT version configured yet).
+    /// Bypasses the typed openapi client; same rationale as `controller_head`.
+    pub async fn controller_usdt_balance(&self) -> Result<Option<ControllerUsdtBalance>> {
+        self.timed("controller_usdt_balance_get", async {
+            let url = format!(
+                "{}/controller_usdt_balance?select=token,balance",
+                self.base_url
+            );
+            let res = self
+                .http
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("controller_usdt_balance_get: {e:?}"))?;
+
+            let status = res.status();
+            if !status.is_success() {
+                let body = res.text().await.unwrap_or_default();
+                anyhow::bail!("controller_usdt_balance_get: http {status} body={body:?}");
+            }
+
+            res.json::<Vec<ControllerUsdtBalance>>()
+                .await
+                .map_err(|e| anyhow::anyhow!("controller_usdt_balance_get decode: {e:?}"))
+                .map(|mut rows| rows.pop())
         })
         .await
     }

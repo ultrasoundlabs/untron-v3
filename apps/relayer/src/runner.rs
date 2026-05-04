@@ -95,7 +95,6 @@ pub struct RelayerContext {
     tron_read_grpc_api_key: Option<String>,
     tron_read_grpc_api_key_header: String,
     pub tron_write: TronExecutor,
-    pub tron_wallet: Arc<TronWallet>,
     pub tron_proof: Arc<TronTxProofBuilder>,
 }
 
@@ -678,7 +677,6 @@ impl Relayer {
             tron_read_grpc_api_key,
             tron_read_grpc_api_key_header,
             tron_write,
-            tron_wallet,
             tron_proof,
         };
 
