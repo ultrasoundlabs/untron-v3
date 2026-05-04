@@ -46,6 +46,11 @@ pub struct ReceiverUsdtConfig {
     pub controller_create2_prefix: u8,
     pub poll_interval: Duration,
     pub chunk_blocks: u64,
+    /// Per-tick block cap for the unfiltered tail scan. Tail issues a single `eth_getLogs` per
+    /// USDT segment without a `to` topic filter and discards non-watchlist logs in-process, so
+    /// the cap exists to keep response sizes bounded by the provider's per-call log limit
+    /// (~10k on QuickNode). At ~150–200 USDT Transfers per Tron block this leaves headroom.
+    pub tail_chunk_blocks: u64,
     pub to_batch_size: usize,
     pub range_concurrency: usize,
     pub backfill_concurrency: usize,
@@ -168,6 +173,9 @@ struct ReceiverUsdtEnv {
     #[serde(rename = "trc20_chunk_blocks")]
     chunk_blocks: u64,
 
+    #[serde(rename = "trc20_tail_chunk_blocks")]
+    tail_chunk_blocks: u64,
+
     #[serde(rename = "trc20_to_batch_size")]
     to_batch_size: usize,
 
@@ -189,6 +197,7 @@ impl Default for ReceiverUsdtEnv {
             controller_create2_prefix: DEFAULT_UNTRON_CONTROLLER_CREATE2_PREFIX.to_string(),
             poll_interval_secs: DEFAULT_TRC20_POLL_INTERVAL_SECS,
             chunk_blocks: DEFAULT_TRC20_CHUNK_BLOCKS,
+            tail_chunk_blocks: DEFAULT_TRC20_TAIL_CHUNK_BLOCKS,
             to_batch_size: DEFAULT_TRC20_TO_BATCH_SIZE,
             range_concurrency: DEFAULT_TRC20_RANGE_CONCURRENCY,
             backfill_concurrency: DEFAULT_TRC20_BACKFILL_CONCURRENCY,
@@ -331,6 +340,7 @@ pub fn load_config() -> Result<AppConfig> {
             controller_create2_prefix,
             poll_interval: Duration::from_secs(receiver_usdt_env.poll_interval_secs.max(1)),
             chunk_blocks: receiver_usdt_env.chunk_blocks.max(1),
+            tail_chunk_blocks: receiver_usdt_env.tail_chunk_blocks.max(1),
             to_batch_size: receiver_usdt_env.to_batch_size.max(1),
             range_concurrency: receiver_usdt_env.range_concurrency.max(1),
             backfill_concurrency: receiver_usdt_env.backfill_concurrency.max(1),
@@ -485,6 +495,7 @@ const DEFAULT_GAP_REPAIR_MAX_BACKOFF_SECS: u64 = 300;
 const DEFAULT_UNTRON_CONTROLLER_CREATE2_PREFIX: &str = "0x41";
 const DEFAULT_TRC20_POLL_INTERVAL_SECS: u64 = 2;
 const DEFAULT_TRC20_CHUNK_BLOCKS: u64 = 2000;
+const DEFAULT_TRC20_TAIL_CHUNK_BLOCKS: u64 = 25;
 const DEFAULT_TRC20_TO_BATCH_SIZE: usize = 50;
 const DEFAULT_TRC20_RANGE_CONCURRENCY: usize = 16;
 const DEFAULT_TRC20_BACKFILL_CONCURRENCY: usize = 2;

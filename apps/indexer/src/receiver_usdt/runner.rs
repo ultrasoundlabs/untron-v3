@@ -67,6 +67,7 @@ fn report_receiver_usdt_progress(
     progress.maybe_report(head, safe_head, next_block);
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn scan_chunks(
     ctx: &mut ProcessCtx<'_>,
     receiver_map: &HashMap<alloy::primitives::Address, String>,
@@ -74,8 +75,10 @@ async fn scan_chunks(
     mut from_block: u64,
     safe_head: u64,
     max_chunks: usize,
+    chunk_blocks: u64,
+    unfiltered: bool,
 ) -> Result<Option<u64>> {
-    let chunk_blocks = ctx.receiver_usdt_cfg.chunk_blocks.max(1);
+    let chunk_blocks = chunk_blocks.max(1);
     let max_parallel_chunks = ctx.receiver_usdt_cfg.range_concurrency.max(1);
     let mut chunks_done = 0usize;
 
@@ -102,7 +105,7 @@ async fn scan_chunks(
             chunks_done += 1;
         }
 
-        if process_block_ranges(ctx, receiver_map, to_addrs, &ranges)
+        if process_block_ranges(ctx, receiver_map, to_addrs, &ranges, unfiltered)
             .await?
             .is_none()
         {
@@ -151,6 +154,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         create2_prefix = receiver_usdt_cfg.controller_create2_prefix,
         to_batch_size = receiver_usdt_cfg.to_batch_size,
         chunk_blocks = receiver_usdt_cfg.chunk_blocks,
+        tail_chunk_blocks = receiver_usdt_cfg.tail_chunk_blocks,
         poll_interval_secs = receiver_usdt_cfg.poll_interval.as_secs(),
         range_concurrency = receiver_usdt_cfg.range_concurrency,
         backfill_concurrency = receiver_usdt_cfg.backfill_concurrency,
@@ -501,6 +505,8 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     from_block,
                     safe_head,
                     1,
+                    receiver_usdt_cfg.tail_chunk_blocks,
+                    true,
                 )
                 .await?
                 else {
@@ -715,6 +721,8 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                         start_block,
                         safe_head,
                         1,
+                        receiver_usdt_cfg.chunk_blocks,
+                        false,
                     )
                     .await?
                     else {
@@ -746,6 +754,8 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     start_block,
                     safe_head,
                     1,
+                    receiver_usdt_cfg.chunk_blocks,
+                    false,
                 )
                 .await?
                 else {
@@ -783,10 +793,13 @@ async fn process_block_ranges(
     receiver_map: &HashMap<alloy::primitives::Address, String>,
     to_addrs: &[alloy::primitives::Address],
     ranges: &[ReceiverUsdtBlockRange],
+    unfiltered: bool,
 ) -> Result<Option<()>> {
-    // Batch recipients to avoid huge topic arrays.
+    // In filtered mode, batch recipients to avoid huge topic arrays. In unfiltered mode the RPC
+    // takes no `to` topic so the full watchlist is matched in a single call per segment.
     let batch_size = ctx.receiver_usdt_cfg.to_batch_size.max(1);
     let range_concurrency = ctx.receiver_usdt_cfg.range_concurrency.max(1);
+    let watchlist_size = to_addrs.len();
     let mut jobs = Vec::new();
 
     for range in ranges {
@@ -805,14 +818,24 @@ async fn process_block_ranges(
                 continue;
             }
 
-            for chunk in to_addrs.chunks(batch_size) {
+            if unfiltered {
                 jobs.push(ReceiverUsdtFetchJob {
                     token_evm,
                     token_tron: token_tron.clone(),
                     from_block: seg_from,
                     to_block: seg_to,
-                    to_addrs: chunk.to_vec(),
+                    to_addrs: Vec::new(),
                 });
+            } else {
+                for chunk in to_addrs.chunks(batch_size) {
+                    jobs.push(ReceiverUsdtFetchJob {
+                        token_evm,
+                        token_tron: token_tron.clone(),
+                        from_block: seg_from,
+                        to_block: seg_to,
+                        to_addrs: chunk.to_vec(),
+                    });
+                }
             }
         }
     }
@@ -833,21 +856,34 @@ async fn process_block_ranges(
             let shutdown = shutdown.clone();
             let telemetry = telemetry.clone();
             async move {
-                range::fetch_token_range_logs(
-                    &shutdown,
-                    &provider,
-                    &telemetry,
-                    mode,
-                    &job.to_addrs,
-                    range::TokenRange {
-                        chain_id,
-                        token_evm: job.token_evm,
-                        token_tron: &job.token_tron,
-                        from_block: job.from_block,
-                        to_block: job.to_block,
-                    },
-                )
-                .await
+                let token_range = range::TokenRange {
+                    chain_id,
+                    token_evm: job.token_evm,
+                    token_tron: &job.token_tron,
+                    from_block: job.from_block,
+                    to_block: job.to_block,
+                };
+                if unfiltered {
+                    range::fetch_token_range_logs_unfiltered(
+                        &shutdown,
+                        &provider,
+                        &telemetry,
+                        mode,
+                        watchlist_size,
+                        token_range,
+                    )
+                    .await
+                } else {
+                    range::fetch_token_range_logs(
+                        &shutdown,
+                        &provider,
+                        &telemetry,
+                        mode,
+                        &job.to_addrs,
+                        token_range,
+                    )
+                    .await
+                }
             }
         })
         .buffer_unordered(range_concurrency);

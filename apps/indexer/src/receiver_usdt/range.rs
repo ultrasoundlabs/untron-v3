@@ -134,6 +134,91 @@ pub(crate) async fn fetch_token_range_logs(
     .await
 }
 
+/// Fetch every USDT Transfer in the range without a `to`-topic filter.
+///
+/// Tail mode uses this so a tick costs one `eth_getLogs` per USDT segment regardless of how
+/// large the receiver watchlist gets. Filtering happens in `decode_and_insert_token_range_logs`
+/// via the `addr_to_salt` map, which already drops non-watchlist logs. `watchlist_size` is
+/// passed through purely so progress telemetry can keep reporting the population the scanner
+/// is matching against.
+pub(crate) async fn fetch_token_range_logs_unfiltered(
+    shutdown: &CancellationToken,
+    provider: &alloy::providers::DynProvider,
+    telemetry: &ReceiverUsdtTelemetry,
+    mode: &'static str,
+    watchlist_size: usize,
+    range: TokenRange<'_>,
+) -> Result<Option<TransferLogBatch>> {
+    let TokenRange {
+        token_evm,
+        token_tron,
+        from_block,
+        to_block,
+        ..
+    } = range;
+
+    let span = tracing::debug_span!(
+        "receiver_usdt_fetch_logs_unfiltered",
+        from_block,
+        to_block,
+        token = %token_tron,
+        watchlist_size
+    );
+
+    async move {
+        let start = Instant::now();
+
+        let filter = Filter::new()
+            .address(token_evm)
+            .from_block(from_block)
+            .to_block(to_block)
+            .event_signature(ERC20::Transfer::SIGNATURE_HASH);
+
+        let Some((raw_logs, rpc_ms)) = r#async::timed_await_or_cancel(shutdown, async {
+            provider.get_logs(&filter).await.map_err(|e| {
+                telemetry.error(mode, token_tron, "rpc");
+                anyhow::Error::new(e).context(format!(
+                    "eth_getLogs receiver_usdt Transfer (unfiltered) [{from_block}..{to_block}]"
+                ))
+            })
+        })
+        .await?
+        else {
+            return Ok(None);
+        };
+        telemetry.rpc_call(
+            "eth_getLogs",
+            "receiver_usdt Transfer unfiltered",
+            true,
+            rpc_ms,
+        );
+        let logs = crate::shared::logs::validate_and_sort_logs(raw_logs)?;
+
+        debug!(
+            from_block,
+            to_block,
+            token = %token_tron,
+            logs = logs.len(),
+            rpc_ms,
+            watchlist_size,
+            "receiver_usdt transfer logs fetched (unfiltered)"
+        );
+
+        Ok(Some(TransferLogBatch {
+            token_evm,
+            token_tron: token_tron.to_string(),
+            from_block,
+            to_block,
+            rpc_ms,
+            receiver_count: watchlist_size,
+            logs,
+            started_at: start,
+        }))
+    }
+    .instrument(span)
+    .await
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn decode_and_insert_token_range_logs(
     dbh: &crate::db::Db,
