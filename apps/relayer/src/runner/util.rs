@@ -3,7 +3,6 @@ use alloy::primitives::{FixedBytes, U256};
 use anyhow::{Context, Result};
 use std::time::Instant;
 use tracing::Instrument;
-use tron::TronGrpc;
 
 pub(super) async fn run_job<T, F, Fut>(
     telemetry: &RelayerTelemetry,
@@ -31,16 +30,6 @@ where
             Err(err)
         }
     }
-}
-
-pub(super) async fn tron_head_block(tron: &mut TronGrpc) -> Result<u64> {
-    let b = tron.get_now_block2().await?;
-    let raw = b
-        .block_header
-        .as_ref()
-        .and_then(|h| h.raw_data.as_ref())
-        .context("missing Tron now block header.raw_data")?;
-    u64::try_from(raw.number).context("Tron head out of range")
 }
 
 pub(super) fn parse_txid32(hex32: &str) -> Result<[u8; 32]> {

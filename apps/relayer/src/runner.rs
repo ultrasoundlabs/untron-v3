@@ -32,9 +32,14 @@ use self::{
     executors::{DirectHubExecutor, HubExecutor, TronExecutor},
     model::{Plan, StateUpdate},
     tasks::HubIntent,
-    util::{run_job, tron_head_block},
+    util::run_job,
 };
 use futures::future::BoxFuture;
+
+/// Soft threshold for warning when the indexer's controller ingest cursor hasn't advanced.
+/// 30s ≈ 10 Tron blocks; on a healthy chain the cursor advances every controller poll
+/// interval (5s by default), so 30s of staleness means the indexer is several ticks behind.
+const INDEXER_HEAD_STALENESS_WARN_MS: u64 = 30_000;
 
 pub struct Relayer {
     ctx: RelayerContext,
@@ -784,17 +789,29 @@ impl Relayer {
     }
 
     async fn collect_tick(&self) -> Result<Tick> {
-        let tron_start = std::time::Instant::now();
-        let tron_head_res = self
-            .ctx
-            .with_tron_read_retry("get_now_block2", |tron| Box::pin(tron_head_block(tron)))
-            .await;
-        self.ctx.telemetry.tron_grpc_ms(
-            "get_now_block2",
-            tron_head_res.is_ok(),
-            tron_start.elapsed().as_millis() as u64,
-        );
-        let tron_head = tron_head_res?;
+        // Read the controller head from the indexer (postgrest) rather than polling
+        // `get_now_block2` over Tron gRPC. Controller stream has `confirmations=0`, so
+        // `ingest_next_block - 1` tracks chain head within ~1 block. Saves ~12 RPC/min.
+        let head_res = self.ctx.indexer.controller_head().await;
+        let head = head_res.context("indexer controller_head")?;
+
+        // Soft staleness check: ingest_updated_at is bumped only when the worker advances
+        // the cursor (i.e. when there are new blocks to scan). On an idle chain this stays
+        // old even when healthy, so we use a generous threshold and only warn — operators
+        // monitor `is_projection_caught_up` and the indexer's own RPC-lag metrics for the
+        // hard liveness signal.
+        let now = chrono::Utc::now();
+        let staleness_ms = (now - head.ingest_updated_at).num_milliseconds().max(0) as u64;
+        if staleness_ms > INDEXER_HEAD_STALENESS_WARN_MS {
+            tracing::warn!(
+                staleness_ms,
+                ingest_next_block = head.ingest_next_block,
+                "indexer controller head is stale; tick may be making decisions on outdated state"
+            );
+        }
+
+        let tron_head = u64::try_from(head.ingest_next_block.saturating_sub(1))
+            .context("ingest_next_block out of range")?;
         Ok(Tick { tron_head })
     }
 

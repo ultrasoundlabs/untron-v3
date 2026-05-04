@@ -13,6 +13,12 @@ pub struct RelayerHubState {
     pub next_controller_event_index: serde_json::Number,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ControllerHead {
+    pub ingest_next_block: i64,
+    pub ingest_updated_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub struct IndexerApi {
     base_url: String,
     http: reqwest::Client,
@@ -78,6 +84,45 @@ impl IndexerApi {
                 .await
                 .map_err(|e| anyhow::anyhow!("stream_ingest_summary_get: {e:?}"))
                 .map(|r| r.into_inner())
+        })
+        .await
+    }
+
+    /// Read the latest fully-scanned controller block from the indexer instead of polling
+    /// `get_now_block2` over Tron gRPC every tick. `ingest_next_block - 1` is the last block
+    /// the ingestion worker confirmed; with `confirmations=0` on the controller stream this is
+    /// within ~1 block of chain head.
+    ///
+    /// Bypasses the typed openapi client because the columns are new and the generated client
+    /// is regenerated out-of-band; using a raw query against `api.stream_ingest_summary`
+    /// avoids blocking on a regen step.
+    pub async fn controller_head(&self) -> Result<ControllerHead> {
+        self.timed("controller_head_get", async {
+            let url = format!(
+                "{}/stream_ingest_summary?stream=eq.controller&select=ingest_next_block,ingest_updated_at",
+                self.base_url
+            );
+            let res = self
+                .http
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("controller_head_get: {e:?}"))?;
+
+            let status = res.status();
+            if !status.is_success() {
+                let body = res.text().await.unwrap_or_default();
+                anyhow::bail!("controller_head_get: http {status} body={body:?}");
+            }
+
+            res.json::<Vec<ControllerHead>>()
+                .await
+                .map_err(|e| anyhow::anyhow!("controller_head_get decode: {e:?}"))
+                .and_then(|mut rows| {
+                    rows.pop().ok_or_else(|| {
+                        anyhow::anyhow!("controller_head_get: controller stream not in summary")
+                    })
+                })
         })
         .await
     }

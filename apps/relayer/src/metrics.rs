@@ -23,7 +23,6 @@ struct Inner {
     indexer_http_ms: Histogram<u64>,
     hub_rpc_ms: Histogram<u64>,
     tron_proof_ms: Histogram<u64>,
-    tron_grpc_ms: Histogram<u64>,
     receiver_usdt_tail_lag_blocks: Histogram<u64>,
     indexer_stream_head_lag_blocks: Histogram<u64>,
 }
@@ -93,12 +92,6 @@ impl RelayerTelemetry {
             .with_unit("ms")
             .build();
 
-        let tron_grpc_ms = meter
-            .u64_histogram("relayer.tron_grpc_ms")
-            .with_description("Tron gRPC call runtime")
-            .with_unit("ms")
-            .build();
-
         let receiver_usdt_tail_lag_blocks = meter
             .u64_histogram("relayer.receiver_usdt_tail_lag_blocks")
             .with_description("Receiver USDT tail lag from Tron head")
@@ -125,7 +118,6 @@ impl RelayerTelemetry {
                 indexer_http_ms,
                 hub_rpc_ms,
                 tron_proof_ms,
-                tron_grpc_ms,
                 receiver_usdt_tail_lag_blocks,
                 indexer_stream_head_lag_blocks,
             }),
@@ -195,14 +187,6 @@ impl RelayerTelemetry {
     pub fn tron_proof_ms(&self, ok: bool, ms: u64) {
         let attrs = [KeyValue::new("status", if ok { "ok" } else { "err" })];
         self.inner.tron_proof_ms.record(ms, &attrs);
-    }
-
-    pub fn tron_grpc_ms(&self, op: &'static str, ok: bool, ms: u64) {
-        let attrs = [
-            KeyValue::new("op", op),
-            KeyValue::new("status", if ok { "ok" } else { "err" }),
-        ];
-        self.inner.tron_grpc_ms.record(ms, &attrs);
     }
 
     pub fn receiver_usdt_tail_lag_blocks(&self, lag_blocks: u64) {

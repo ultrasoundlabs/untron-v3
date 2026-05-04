@@ -4591,6 +4591,7 @@ dependencies = [
  "alloy",
  "alloy-provider",
  "anyhow",
+ "chrono",
  "dotenvy",
  "envy",
  "futures",
@@ -6000,9 +6001,11 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project 1.1.10",
+ "rustls-native-certs",
  "socket2 0.6.1",
  "sync_wrapper",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",
@@ -6218,6 +6221,7 @@ dependencies = [
  "tonic 0.14.2",
  "tonic-prost",
  "tonic-prost-build",
+ "tracing",
 ]
 
 [[package]]
