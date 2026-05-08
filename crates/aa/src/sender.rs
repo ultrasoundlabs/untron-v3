@@ -72,6 +72,12 @@ pub struct Safe4337UserOpSender {
     safe: Address,
     bundlers: BundlerPool,
     paymasters: Option<PaymasterPool>,
+    /// Locally-tracked next nonce to use, ahead of chain when one of our prior userops is
+    /// still in the bundler's mempool. `None` means "stale, re-read chain". Eliminates the
+    /// AA25 race when send rate exceeds bundler bundle latency: chain `getNonce` doesn't see
+    /// pending mempool userops, so without this two consecutive sends would both pick the
+    /// same nonce and the second hits AA25 in the simulator.
+    next_nonce: tokio::sync::Mutex<Option<U256>>,
 }
 
 #[derive(Debug, Clone)]
@@ -185,15 +191,52 @@ impl Safe4337UserOpSender {
             safe,
             bundlers,
             paymasters,
+            next_nonce: tokio::sync::Mutex::new(None),
         })
     }
 
+    /// Reads the Safe's nonce from chain. Does not consult the local cache — callers that
+    /// need "what nonce should the next userop use" want [`Self::send_call_operation`]
+    /// (which uses the cache to avoid the bundler-mempool race). Kept for callers that
+    /// genuinely want chain state, e.g. checking whether a previously-submitted userop has
+    /// been included.
     pub async fn current_nonce(&self) -> Result<U256> {
         self.entrypoint()
             .getNonce(self.safe, alloy::primitives::Uint::<192, 3>::ZERO)
             .call()
             .await
             .context("EntryPoint.getNonce")
+    }
+
+    /// Pick the nonce to use for the next userop: max of cached "next" and chain. Updates
+    /// the cache to that value so concurrent acquires see it.
+    async fn acquire_nonce(&self) -> Result<U256> {
+        let chain = self.current_nonce().await?;
+        let mut cache = self.next_nonce.lock().await;
+        let nonce = match *cache {
+            Some(c) if c > chain => c,
+            _ => chain,
+        };
+        *cache = Some(nonce);
+        Ok(nonce)
+    }
+
+    /// Advance the cached next-nonce after a userop submission was accepted by the bundler.
+    /// We use saturating_add for safety; in practice nonces never approach U256::MAX.
+    async fn commit_nonce(&self, used: U256) {
+        let next = used.saturating_add(U256::from(1u64));
+        let mut cache = self.next_nonce.lock().await;
+        *cache = Some(match *cache {
+            Some(c) if c > next => c,
+            _ => next,
+        });
+    }
+
+    /// Drop the cache so the next acquire re-reads chain. Used on AA25, where our cached
+    /// nonce disagrees with the bundler's view of the world (typically because another
+    /// process sharing this Safe submitted a userop between our cache update and the send).
+    async fn invalidate_nonce(&self) {
+        *self.next_nonce.lock().await = None;
     }
 
     pub fn safe_address(&self) -> Address {
@@ -250,8 +293,51 @@ impl Safe4337UserOpSender {
         to: Address,
         data: Vec<u8>,
     ) -> Result<Safe4337UserOpSubmission> {
-        let nonce = self.current_nonce().await?;
-        self.send_call_with_nonce(nonce, to, data).await
+        self.send_call_operation(to, data, 0).await
+    }
+
+    /// Submit a userop with cache-driven nonce selection and one-shot AA25 retry.
+    ///
+    /// On AA25 (cached nonce disagrees with bundler/chain — usually because another process
+    /// sharing this Safe slipped a userop in between our acquire and our send), we drop the
+    /// cache, sleep briefly to let the bundler bundle, and retry once. Persistent AA25 after
+    /// the retry surfaces to the caller — there's a real disagreement that the cache can't
+    /// paper over, e.g. someone else is also using this Safe key.
+    pub async fn send_call_operation(
+        &mut self,
+        to: Address,
+        data: Vec<u8>,
+        operation: u8,
+    ) -> Result<Safe4337UserOpSubmission> {
+        let mut tried_aa25_retry = false;
+        loop {
+            let nonce = self.acquire_nonce().await?;
+            match self
+                .send_call_with_nonce_operation(nonce, to, data.clone(), operation)
+                .await
+            {
+                Ok(sub) => {
+                    self.commit_nonce(nonce).await;
+                    return Ok(sub);
+                }
+                Err(err) => {
+                    let is_aa25 = err.chain().any(|c| c.to_string().contains("AA25"));
+                    if is_aa25 {
+                        self.invalidate_nonce().await;
+                        if !tried_aa25_retry {
+                            tried_aa25_retry = true;
+                            tracing::warn!(
+                                attempted_nonce = %nonce,
+                                "AA25 nonce race detected; invalidating cache and retrying once after 2s"
+                            );
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            continue;
+                        }
+                    }
+                    return Err(err);
+                }
+            }
+        }
     }
 
     pub async fn send_call_with_nonce(

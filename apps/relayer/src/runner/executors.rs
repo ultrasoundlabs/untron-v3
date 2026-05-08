@@ -179,17 +179,12 @@ impl HubExecutor {
         let start = Instant::now();
         let submission = {
             let mut sender = self.sender.lock().await;
-            let nonce_start = Instant::now();
-            let nonce_res = sender.current_nonce().await;
-            self.telemetry.hub_rpc_ms(
-                "EntryPoint.getNonce",
-                nonce_res.is_ok(),
-                nonce_start.elapsed().as_millis() as u64,
-            );
-            let nonce = nonce_res?;
-
+            // Use the cache-driven, AA25-retrying entrypoint. The chain `getNonce` happens
+            // inside; we lose the standalone "EntryPoint.getNonce" RPC-timing metric here,
+            // but the overall `hub_submit_ms` below still covers it, and `current_nonce()`
+            // calls from `hub_locked()` keep emitting the metric independently.
             sender
-                .send_call_with_nonce_operation(nonce, to, data_for_send, operation)
+                .send_call_operation(to, data_for_send, operation)
                 .await
         };
 
