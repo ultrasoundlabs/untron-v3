@@ -536,27 +536,23 @@ impl Safe4337UserOpSender {
                 )
                 .await;
 
+                // Surface the bundler's estimate error to the caller. The previous behavior
+                // of falling through with the base userop's hardcoded gas (50M call + 5M
+                // verification + 2M preverif = 57M total) is structurally broken: Pimlico
+                // caps at 20M per-userOp on Arbitrum, so the fallback always returned a
+                // misleading "gas limits exceed the max gas per userOp" 502 instead of the
+                // real underlying error (typically AA25, a paymaster issue, or a callee
+                // revert). Lowering the fallback isn't viable either — sending a legit
+                // userop with under-estimated gas just lands a reverting tx that drains
+                // funds without creating the lease. Failing fast lets the client retry
+                // cleanly and surfaces real outages in monitoring.
                 tracing::warn!(
                     safe = %self.safe,
                     entrypoint = %self.cfg.entrypoint,
-                    call_gas_limit = %userop.call_gas_limit,
-                    verification_gas_limit = %userop.verification_gas_limit,
-                    pre_verification_gas = %userop.pre_verification_gas,
                     err = %format!("{e:#}"),
-                    "continuing with manual self-paid userop gas after estimate failure"
+                    "self-paid estimate failed; bailing instead of sending with hardcoded gas (would exceed Pimlico's per-userOp cap)"
                 );
-
-                let nonce = userop.nonce;
-                let (resp, send_attempts) = self
-                    .send_user_operation_with_retries(userop)
-                    .await
-                    .context("bundler send userop")?;
-
-                return Ok(Safe4337UserOpSubmission {
-                    userop_hash: hex_bytes0x(&resp.user_op_hash),
-                    nonce,
-                    send_attempts,
-                });
+                return Err(e).context("bundler estimate userop gas (self-paid)");
             }
         };
 
