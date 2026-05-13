@@ -11,7 +11,7 @@ use aa::{
     Safe4337UserOpSenderOptions,
 };
 use alloy::{
-    primitives::{B256, FixedBytes, U256},
+    primitives::{Address, B256, FixedBytes, U256, keccak256},
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
@@ -88,6 +88,11 @@ pub struct RelayerContext {
     pub hub: HubExecutor,
     pub uniswap_v4: Option<UniswapV4Client>,
 
+    /// EIP-1167 init-code hash for the Tron receiver proxy (`keccak256(bytecode_with_RECEIVER_IMPL_embedded)`).
+    /// Precomputed once at boot from the hub's `RECEIVER_IMPL()` immutable so `predict_receiver_address`
+    /// is a pure local CREATE2 (no per-tick eth_call).
+    receiver_init_code_hash: B256,
+
     pub tron_controller: TronAddress,
     active_tron_read_grpc: Arc<Mutex<TronGrpc>>,
     tron_read_grpc_urls: Vec<String>,
@@ -157,6 +162,26 @@ struct HubHeadBlockCache {
 struct HubSwapExecutorCache {
     swap_executor: alloy::primitives::Address,
     fetched_at: Instant,
+}
+
+/// `keccak256(EIP-1167 minimal proxy creation bytecode with RECEIVER_IMPL embedded)`.
+///
+/// Mirrors `ReceiverUtils.receiverBytecode()` on-chain. Computing this once at boot lets us
+/// derive deterministic Tron receiver addresses without an `eth_call` per prediction.
+fn compute_receiver_init_code_hash(receiver_impl: Address) -> B256 {
+    // Matches `ReceiverUtils.receiverBytecode()` exactly: 20-byte CREATE wrapper +
+    // EIP-1167 runtime prefix, then RECEIVER_IMPL (20 bytes), then the 15-byte EIP-1167
+    // delegatecall trailer. 55 bytes total.
+    let mut init_code = Vec::with_capacity(55);
+    init_code.extend_from_slice(&[
+        0x3d, 0x60, 0x2d, 0x80, 0x60, 0x0a, 0x3d, 0x39, 0x81, 0xf3, 0x36, 0x3d, 0x3d, 0x37, 0x3d,
+        0x3d, 0x3d, 0x36, 0x3d, 0x73,
+    ]);
+    init_code.extend_from_slice(receiver_impl.as_slice());
+    init_code.extend_from_slice(&[
+        0x5a, 0xf4, 0x3d, 0x82, 0x80, 0x3e, 0x90, 0x3d, 0x91, 0x60, 0x2b, 0x57, 0xfd, 0x5b, 0xf3,
+    ]);
+    keccak256(&init_code)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -426,6 +451,20 @@ impl RelayerContext {
         UntronV3Instance::new(self.hub_contract_address, self.hub_provider.clone())
     }
 
+    /// Local-only CREATE2 prediction of a Tron receiver address for `salt`. Mirrors the hub's
+    /// `predictReceiverAddress(CONTROLLER_ADDRESS, salt)` view function bit-for-bit, using
+    /// the Tron CREATE2 prefix (`0x41`) and the boot-time-cached receiver init-code hash.
+    /// Replaces a per-row hub `eth_call`.
+    pub fn predict_receiver_address(&self, salt: FixedBytes<32>) -> Address {
+        let mut buf = Vec::with_capacity(1 + 20 + 32 + 32);
+        buf.push(0x41); // Tron CREATE2 prefix; the hub deploys with this for Tron-side prediction.
+        buf.extend_from_slice(self.tron_controller.evm().as_slice());
+        buf.extend_from_slice(salt.as_slice());
+        buf.extend_from_slice(self.receiver_init_code_hash.as_slice());
+        let h = keccak256(&buf);
+        Address::from_slice(&h.as_slice()[12..])
+    }
+
     async fn ensure_tron_read_connected(&self, idx: usize, force_reconnect: bool) -> Result<()> {
         let len = self.tron_read_grpc_urls.len();
         if len == 0 {
@@ -531,6 +570,16 @@ impl Relayer {
                 id
             }
         };
+
+        // Read RECEIVER_IMPL once at boot; Solidity-immutable on the hub. Precompute the
+        // EIP-1167 proxy init-code hash so per-tick `predict_receiver_address` is pure local
+        // CREATE2 (zero RPC, replaces hub.predictReceiverAddress_1 calls).
+        let hub_receiver_impl = UntronV3Instance::new(hub_contract_address, hub_provider.clone())
+            .RECEIVER_IMPL()
+            .call()
+            .await
+            .context("hub RECEIVER_IMPL")?;
+        let receiver_init_code_hash = compute_receiver_init_code_hash(hub_receiver_impl);
 
         let uniswap_v4 = if let Some(v4_cfg) = cfg.hub.uniswap_v4.as_ref() {
             Some(
@@ -670,6 +719,7 @@ impl Relayer {
             hub_contract_address,
             hub,
             uniswap_v4,
+            receiver_init_code_hash,
             tron_controller,
             active_tron_read_grpc,
             tron_read_grpc_urls: grpc_urls,
@@ -1306,5 +1356,25 @@ mod tests {
 
         let chosen = choose_hub_candidate(candidates).unwrap();
         assert_eq!(chosen.job_name, tasks::JOB_PROCESS_CONTROLLER_EVENTS);
+    }
+
+    #[test]
+    fn receiver_init_code_hash_matches_eip1167_layout() {
+        // Regression guard: ensure init code = header(20) || RECEIVER_IMPL(20) || footer(15).
+        // The contract's `ReceiverUtils.receiverBytecode()` produces this exact sequence; we
+        // hash it locally. If either constant drifts, this test (and on-chain reality) diverge.
+        let receiver_impl = Address::from([0x42u8; 20]);
+        let got = compute_receiver_init_code_hash(receiver_impl);
+
+        // Hand-assemble what the contract emits and hash it the same way.
+        let mut expected_init = Vec::new();
+        expected_init.extend_from_slice(
+            &alloy::primitives::hex!("3d602d80600a3d3981f3363d3d373d3d3d363d73")[..],
+        );
+        expected_init.extend_from_slice(receiver_impl.as_slice());
+        expected_init
+            .extend_from_slice(&alloy::primitives::hex!("5af43d82803e903d91602b57fd5bf3")[..]);
+        assert_eq!(expected_init.len(), 55);
+        assert_eq!(got, keccak256(&expected_init));
     }
 }

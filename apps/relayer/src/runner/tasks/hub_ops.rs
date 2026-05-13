@@ -137,28 +137,17 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         return Ok(Plan::none());
     }
 
-    let hub_contract = ctx.hub_contract();
-    let start = Instant::now();
-    let tron_usdt_res = hub_contract.tronUsdt().call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "tronUsdt",
-        tron_usdt_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let tron_usdt = tron_usdt_res.context("hub tronUsdt")?;
-    if tron_usdt == Address::ZERO {
+    let Some(proto) = ctx.indexer.hub_protocol_config().await? else {
+        tracing::warn!("missing hub_protocol_config; skipping pre-entitle planning");
+        return Ok(Plan::none());
+    };
+    let Some(tron_usdt_str) = proto.tron_usdt.as_deref() else {
         tracing::warn!("hub tronUsdt is unset; skipping pre-entitle planning");
         return Ok(Plan::none());
-    }
-
-    let start = Instant::now();
-    let controller_address_res = hub_contract.CONTROLLER_ADDRESS().call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "CONTROLLER_ADDRESS",
-        controller_address_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let controller_address = controller_address_res.context("hub CONTROLLER_ADDRESS")?;
+    };
+    let tron_usdt = TronAddress::parse_text(tron_usdt_str)
+        .context("parse hub_protocol_config.tron_usdt")?
+        .evm();
 
     let needs_subjective = rows
         .iter()
@@ -167,14 +156,16 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
     let safe_lp_principal = if needs_subjective {
         match safe {
             Some(safe) => {
-                let start = Instant::now();
-                let principal_res = hub_contract.lpPrincipal(safe).call().await;
-                ctx.telemetry.hub_rpc_ms(
-                    "lpPrincipal",
-                    principal_res.is_ok(),
-                    start.elapsed().as_millis() as u64,
-                );
-                Some(principal_res.context("hub lpPrincipal")?)
+                // Source from the indexer's LpDeposited/LpWithdrawn projection instead of
+                // calling `hub.lpPrincipal(safe)` per tick. Absent row => zero principal.
+                let lp_str = format!("{safe:#x}");
+                match ctx.indexer.hub_lp_balance(&lp_str).await? {
+                    Some(row) => match row.balance.as_ref() {
+                        Some(n) => Some(number_to_u256(n).context("hub_lp_balance balance")?),
+                        None => Some(U256::ZERO),
+                    },
+                    None => Some(U256::ZERO),
+                }
             }
             None => None,
         }
@@ -191,24 +182,6 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
         )?;
         let txid_hex = row.tx_hash.as_deref().context("missing tx_hash")?;
         let txid = parse_txid32(txid_hex)?;
-        let txid_b32 = FixedBytes::from_slice(&txid);
-
-        let start = Instant::now();
-        let processed_res = hub_contract.depositProcessed(txid_b32).call().await;
-        ctx.telemetry.hub_rpc_ms(
-            "depositProcessed",
-            processed_res.is_ok(),
-            start.elapsed().as_millis() as u64,
-        );
-        let processed = processed_res.context("hub depositProcessed")?;
-        if processed {
-            tracing::debug!(
-                txid = %txid_hex,
-                receiver_salt = %receiver_salt_hex,
-                "pre-entitle candidate skipped (already processed on hub)"
-            );
-            continue;
-        }
 
         let action = row.recommended_action.as_deref().unwrap_or("");
 
@@ -292,27 +265,9 @@ pub async fn plan_pre_entitle(ctx: &RelayerContext, tick: &Tick) -> Result<Plan<
             None => ("unknown", None, None, None),
         };
 
-        let predicted_receiver = match hub_contract
-            .predictReceiverAddress_1(controller_address, receiver_salt)
-            .call()
-            .await
-        {
-            Ok(addr) => Some(addr),
-            Err(err) => {
-                tracing::warn!(
-                    txid = %txid_hex,
-                    receiver_salt = %receiver_salt_hex,
-                    err = %err,
-                    "failed to predict receiver address on hub"
-                );
-                None
-            }
-        };
-
-        let predicted_receiver_tron = predicted_receiver.map(|a| TronAddress::from_evm(a));
-        let recipient_matches_receiver = predicted_receiver
-            .zip(trc20_to)
-            .map(|(pred, to)| pred == to.evm());
+        let predicted_receiver = ctx.predict_receiver_address(receiver_salt);
+        let predicted_receiver_tron = TronAddress::from_evm(predicted_receiver);
+        let recipient_matches_receiver = trc20_to.map(|to| predicted_receiver == to.evm());
 
         tracing::debug!(
             txid = %txid_hex,

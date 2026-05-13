@@ -301,7 +301,6 @@ async fn plan_hub_fill(
             id_res.context("eth_chainId")?
         }
     };
-    let hub_contract = ctx.hub_contract();
 
     'candidate: for offset in 0..l {
         let idx = (state.fill_cursor + offset) % l;
@@ -334,27 +333,9 @@ async fn plan_hub_fill(
             continue;
         };
 
-        let swap_rate_start = std::time::Instant::now();
-        let onchain_rate_res = hub_contract.swapRatePpm(c.addr).call().await;
-        ctx.telemetry.hub_rpc_ms(
-            "swapRatePpm",
-            onchain_rate_res.is_ok(),
-            swap_rate_start.elapsed().as_millis() as u64,
-        );
-        let onchain_rate = match onchain_rate_res {
-            Ok(v) => v,
-            Err(err) => {
-                tracing::warn!(err = %err, token = %c.addr, "failed to query swapRatePpm; skipping token");
-                continue;
-            }
-        };
-        if onchain_rate.is_zero() {
-            tracing::warn!(
-                token = %c.addr,
-                "on-chain swapRatePpm is zero; skipping non-USDT fill"
-            );
-            continue;
-        }
+        // We already gated on the indexer-sourced rate being non-zero above (see `rate_ppm_u64`
+        // check). Re-reading swapRatePpm on-chain per tick is redundant — trust the indexer
+        // projection of `SwapRateSet` events. Brief staleness window is acceptable.
 
         let mut required_remote_chains = HashSet::new();
         for claim in claims.iter().take(max_claims as usize) {
@@ -367,29 +348,21 @@ async fn plan_hub_fill(
             }
         }
         for target_chain in required_remote_chains {
-            let bridger_start = std::time::Instant::now();
-            let bridger_res = hub_contract
-                .bridgers(c.addr, U256::from(target_chain))
-                .call()
-                .await;
-            ctx.telemetry.hub_rpc_ms(
-                "bridgers",
-                bridger_res.is_ok(),
-                bridger_start.elapsed().as_millis() as u64,
-            );
-            let bridger = match bridger_res {
-                Ok(v) => v,
-                Err(err) => {
-                    tracing::warn!(
-                        err = %err,
-                        token = %c.addr,
-                        target_chain,
-                        "failed to query bridger; skipping token"
-                    );
-                    continue 'candidate;
-                }
+            // Source from the indexer projection of `BridgerSet` events; falls back to
+            // "no bridger" if the indexer has no current row, matching the on-chain default
+            // of address(0).
+            let token_str = format!("{:#x}", c.addr);
+            let bridger_addr = match ctx.indexer.hub_bridger(&token_str, target_chain).await? {
+                Some(row) => row
+                    .bridger
+                    .as_deref()
+                    .map(|s| s.parse::<Address>())
+                    .transpose()
+                    .with_context(|| format!("parse bridger address from indexer ({s:?})", s = row.bridger))?
+                    .unwrap_or(Address::ZERO),
+                None => Address::ZERO,
             };
-            if bridger == Address::ZERO {
+            if bridger_addr == Address::ZERO {
                 tracing::warn!(
                     token = %c.addr,
                     target_chain,
@@ -553,18 +526,17 @@ async fn find_unentitleable_receiver_salts(
     ctx: &RelayerContext,
     tick: &Tick,
 ) -> Result<Vec<FixedBytes<32>>> {
-    let hub_contract = ctx.hub_contract();
-    let start = std::time::Instant::now();
-    let tron_usdt_res = hub_contract.tronUsdt().call().await;
-    ctx.telemetry.hub_rpc_ms(
-        "tronUsdt",
-        tron_usdt_res.is_ok(),
-        start.elapsed().as_millis() as u64,
-    );
-    let tron_usdt = tron_usdt_res.context("hub tronUsdt")?;
-    if tron_usdt == Address::ZERO {
-        return Ok(Vec::new());
-    }
+    let tron_usdt = match ctx
+        .indexer
+        .hub_protocol_config()
+        .await?
+        .and_then(|p| p.tron_usdt)
+    {
+        Some(s) => TronAddress::parse_text(&s)
+            .context("parse hub_protocol_config.tron_usdt")?
+            .evm(),
+        None => return Ok(Vec::new()),
+    };
 
     let rows = ctx
         .indexer
@@ -573,8 +545,6 @@ async fn find_unentitleable_receiver_salts(
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-
-    let mut controller_address: Option<Address> = None;
 
     for row in rows.into_iter().take(20) {
         let receiver_salt_hex = row.receiver_salt.as_deref().unwrap_or_default();
@@ -672,38 +642,7 @@ async fn find_unentitleable_receiver_salts(
         };
 
         let receiver_salt = parse_bytes32(receiver_salt_hex)?;
-        let controller_address = match controller_address {
-            Some(v) => v,
-            None => {
-                let start = std::time::Instant::now();
-                let controller_address_res = hub_contract.CONTROLLER_ADDRESS().call().await;
-                ctx.telemetry.hub_rpc_ms(
-                    "CONTROLLER_ADDRESS",
-                    controller_address_res.is_ok(),
-                    start.elapsed().as_millis() as u64,
-                );
-                let v = controller_address_res.context("hub CONTROLLER_ADDRESS")?;
-                controller_address = Some(v);
-                v
-            }
-        };
-
-        let predicted_receiver = match hub_contract
-            .predictReceiverAddress_1(controller_address, receiver_salt)
-            .call()
-            .await
-        {
-            Ok(addr) => TronAddress::from_evm(addr),
-            Err(err) => {
-                tracing::warn!(
-                    txid = %txid_hex,
-                    receiver_salt = %receiver_salt_hex,
-                    err = %err,
-                    "failed to predict receiver address on hub while checking forced pull eligibility"
-                );
-                continue;
-            }
-        };
+        let predicted_receiver = TronAddress::from_evm(ctx.predict_receiver_address(receiver_salt));
 
         if trc20_to != predicted_receiver {
             tracing::info!(

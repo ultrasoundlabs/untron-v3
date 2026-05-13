@@ -360,6 +360,53 @@ impl IndexerApi {
         .await
     }
 
+    /// Current `lpPrincipal(lp)` from the indexer projection of `LpDeposited`/`LpWithdrawn`
+    /// events (see `hub.lp_balance_versions`). Returns `None` if no row exists for this LP
+    /// (i.e. they've never deposited).
+    pub async fn hub_lp_balance(&self, lp: &str) -> Result<Option<types::HubLpBalances>> {
+        let lp_filter = format!("eq.{lp}");
+        let rows = self
+            .timed("hub_lp_balances_get", async {
+                self.client
+                    .hub_lp_balances_get()
+                    .lp(lp_filter)
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_lp_balances_get: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
+        Ok(rows.into_iter().next())
+    }
+
+    /// Current `bridgers(target_token, target_chain_id)` from the indexer projection of
+    /// `BridgerSet` events (see `hub.bridger_versions`).
+    pub async fn hub_bridger(
+        &self,
+        target_token: &str,
+        target_chain_id: u64,
+    ) -> Result<Option<types::HubBridgers>> {
+        let token_filter = format!("eq.{target_token}");
+        let chain_filter = format!("eq.{target_chain_id}");
+        let rows = self
+            .timed("hub_bridgers_get", async {
+                self.client
+                    .hub_bridgers_get()
+                    .target_token(token_filter)
+                    .target_chain_id(chain_filter)
+                    .valid_to_seq("is.null")
+                    .limit("1")
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("hub_bridgers_get: {e:?}"))
+                    .map(|r| r.into_inner())
+            })
+            .await?;
+        Ok(rows.into_iter().next())
+    }
+
     pub async fn hub_claims_created_for_token(
         &self,
         target_token: &str,
