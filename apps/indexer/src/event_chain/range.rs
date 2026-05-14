@@ -45,59 +45,49 @@ pub(super) async fn process_range_with_provider(
             Stream::Hub => UntronV3Index::EventAppended::SIGNATURE_HASH,
             Stream::Controller => UntronControllerIndex::EventAppended::SIGNATURE_HASH,
         };
+        let proof_topic0 = UntronControllerIndex::IsEventChainTipCalled::SIGNATURE_HASH;
+
+        // Single getLogs with topic0 OR-list (controller carries both EventAppended +
+        // IsEventChainTipCalled; hub carries only EventAppended). Logs are partitioned locally.
+        let topic0_filter: Vec<alloy::primitives::B256> = match state.stream {
+            Stream::Hub => vec![event_appended_topic0],
+            Stream::Controller => vec![event_appended_topic0, proof_topic0],
+        };
 
         let filter = Filter::new()
             .address(state.contract_address_rpc)
             .from_block(from_block)
             .to_block(to_block)
-            .event_signature(event_appended_topic0);
+            .event_signature(topic0_filter);
 
-        let Some((raw_event_logs, rpc_event_ms)) =
-            r#async::timed_await_or_cancel(shutdown, async {
-                provider.get_logs(&filter).await.map_err(|e| {
-                    state.telemetry.rpc_error("eth_getLogs", "EventAppended");
-                    anyhow::Error::new(e).context(format!(
-                        "eth_getLogs EventAppended [{from_block}..{to_block}]"
-                    ))
-                })
+        let Some((raw_logs, rpc_event_ms)) = r#async::timed_await_or_cancel(shutdown, async {
+            provider.get_logs(&filter).await.map_err(|e| {
+                state.telemetry.rpc_error("eth_getLogs", "event_chain");
+                anyhow::Error::new(e)
+                    .context(format!("eth_getLogs event_chain [{from_block}..{to_block}]"))
             })
-            .await?
+        })
+        .await?
         else {
             return Ok(None);
         };
-        let event_logs = logs::validate_and_sort_logs(raw_event_logs)?;
         state
             .telemetry
-            .rpc_call("eth_getLogs", "EventAppended", true, rpc_event_ms);
+            .rpc_call("eth_getLogs", "event_chain", true, rpc_event_ms);
 
-        let mut proof_logs = Vec::new();
-        let mut rpc_proof_ms = 0u64;
-        if state.stream == Stream::Controller {
-            let proof_filter = Filter::new()
-                .address(state.contract_address_rpc)
-                .from_block(from_block)
-                .to_block(to_block)
-                .event_signature(UntronControllerIndex::IsEventChainTipCalled::SIGNATURE_HASH);
-            let Some((raw_proof_logs, ms)) = r#async::timed_await_or_cancel(shutdown, async {
-                provider.get_logs(&proof_filter).await.map_err(|e| {
-                    state
-                        .telemetry
-                        .rpc_error("eth_getLogs", "IsEventChainTipCalled");
-                    anyhow::Error::new(e).context(format!(
-                        "eth_getLogs IsEventChainTipCalled [{from_block}..{to_block}]"
-                    ))
-                })
-            })
-            .await?
-            else {
-                return Ok(None);
-            };
-            proof_logs = logs::validate_and_sort_logs(raw_proof_logs)?;
-            rpc_proof_ms = ms;
-            state
-                .telemetry
-                .rpc_call("eth_getLogs", "IsEventChainTipCalled", true, rpc_proof_ms);
-        }
+        let (raw_event_logs, raw_proof_logs): (Vec<_>, Vec<_>) =
+            raw_logs.into_iter().partition(|l| {
+                l.topics()
+                    .first()
+                    .map(|t| *t == event_appended_topic0)
+                    .unwrap_or(false)
+            });
+        let event_logs = logs::validate_and_sort_logs(raw_event_logs)?;
+        let proof_logs = if state.stream == Stream::Controller {
+            logs::validate_and_sort_logs(raw_proof_logs)?
+        } else {
+            Vec::new()
+        };
 
         let Some(((), ts_ms)) = r#async::timed_await_or_cancel(shutdown, async {
             state
@@ -193,7 +183,7 @@ pub(super) async fn process_range_with_provider(
             to_block,
             logs: (event_logs_count + proof_logs_count) as u64,
             rows: (event_logs_count + proof_logs_count) as u64,
-            rpc_ms: rpc_event_ms.saturating_add(rpc_proof_ms),
+            rpc_ms: rpc_event_ms,
             ts_ms,
             decode_ms,
             db_ms,
@@ -207,7 +197,6 @@ pub(super) async fn process_range_with_provider(
             event_logs = event_logs_count,
             proof_logs = proof_logs_count,
             rpc_event_ms,
-            rpc_proof_ms,
             ts_ms = metrics.ts_ms,
             decode_ms = metrics.decode_ms,
             db_ms = metrics.db_ms,

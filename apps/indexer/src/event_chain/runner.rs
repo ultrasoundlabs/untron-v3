@@ -1,13 +1,12 @@
-use crate::shared::rpc_telemetry::RpcTelemetry;
 use crate::{
     config::{GapRepairConfig, StreamConfig},
     db::{self, ResolvedStream},
     metrics::StreamTelemetry,
     rpc::RpcProviders,
-    shared::{r#async, r#async::timed_await_or_cancel},
+    shared::{r#async, r#async::timed_await_or_cancel, head_cache::HeadCache},
 };
-use alloy::providers::Provider;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -77,6 +76,7 @@ pub struct RunStreamParams {
     pub gap_repair: GapRepairConfig,
     pub resolved: ResolvedStream,
     pub providers: RpcProviders,
+    pub head_cache: Arc<HeadCache>,
     pub shutdown: CancellationToken,
     pub block_header_concurrency: usize,
     pub block_timestamp_cache_size: usize,
@@ -91,6 +91,7 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
         gap_repair,
         resolved,
         providers,
+        head_cache,
         shutdown,
         block_header_concurrency,
         block_timestamp_cache_size,
@@ -163,15 +164,12 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
             _ = ticker.tick() => {}
         }
 
-        let head_res = timed_await_or_cancel(&shutdown, async {
-            state.provider.get_block_number().await.map_err(|e| {
-                state.telemetry.rpc_error("eth_blockNumber", "head");
-                anyhow::Error::new(e).context("eth_blockNumber")
-            })
+        let head_res = r#async::await_or_cancel(&shutdown, async {
+            head_cache.get(&state.telemetry, "head").await
         })
         .await;
 
-        let Some((head, head_ms)) = (match head_res {
+        let Some(head) = (match head_res {
             Ok(opt) => opt,
             Err(e) if errors::looks_like_transient(&e) => {
                 head_attempts = head_attempts.saturating_add(1);
@@ -194,10 +192,6 @@ pub async fn run_stream(params: RunStreamParams) -> Result<()> {
 
         head_attempts = 0;
         head_backoff = TRANSIENT_BACKOFF_INITIAL;
-        state
-            .telemetry
-            .rpc_call("eth_blockNumber", "head", true, head_ms);
-        let head: u64 = head;
 
         let safe_head = head.saturating_sub(state.confirmations);
         state

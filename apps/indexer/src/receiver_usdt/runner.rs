@@ -5,10 +5,13 @@ use crate::{
     receiver_usdt::range,
     receiver_usdt::telemetry::ReceiverUsdtTelemetry,
     rpc::RpcProviders,
-    shared::{r#async, r#async::timed_await_or_cancel, timestamps},
+    shared::{
+        r#async, r#async::timed_await_or_cancel, head_cache::HeadCache, timestamps,
+    },
 };
 use alloy::providers::Provider;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 use tokio::{task::JoinSet, time};
 use tokio_util::sync::CancellationToken;
@@ -23,6 +26,7 @@ pub struct RunReceiverUsdtParams {
     pub controller_cfg: StreamConfig,
     pub resolved: ResolvedStream,
     pub providers: RpcProviders,
+    pub head_cache: Arc<HeadCache>,
     pub receiver_usdt_cfg: ReceiverUsdtConfig,
     pub block_header_concurrency: usize,
     pub block_timestamp_cache_size: usize,
@@ -35,6 +39,7 @@ struct LoopCtx<'a> {
     dbh: &'a db::Db,
     shutdown: &'a CancellationToken,
     provider: &'a alloy::providers::DynProvider,
+    head_cache: &'a Arc<HeadCache>,
     controller_cfg: &'a StreamConfig,
     receiver_usdt_cfg: &'a ReceiverUsdtConfig,
     block_header_concurrency: usize,
@@ -122,6 +127,7 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         controller_cfg,
         resolved,
         providers,
+        head_cache,
         receiver_usdt_cfg,
         block_header_concurrency,
         block_timestamp_cache_size,
@@ -213,12 +219,14 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         let controller_cfg = controller_cfg.clone();
         let receiver_usdt_cfg = receiver_usdt_cfg.clone();
         let provider = providers.fallback.clone();
+        let head_cache = head_cache.clone();
         join_set.spawn(async move {
             runner_loop(
                 LoopCtx {
                     dbh: &dbh,
                     shutdown: &shutdown,
                     provider: &provider,
+                    head_cache: &head_cache,
                     controller_cfg: &controller_cfg,
                     receiver_usdt_cfg: &receiver_usdt_cfg,
                     block_header_concurrency,
@@ -239,12 +247,14 @@ pub async fn run_receiver_usdt_indexer(params: RunReceiverUsdtParams) -> Result<
         let controller_cfg = controller_cfg.clone();
         let receiver_usdt_cfg = receiver_usdt_cfg.clone();
         let provider = providers.fallback.clone();
+        let head_cache = head_cache.clone();
         join_set.spawn(async move {
             runner_loop(
                 LoopCtx {
                     dbh: &dbh,
                     shutdown: &shutdown,
                     provider: &provider,
+                    head_cache: &head_cache,
                     controller_cfg: &controller_cfg,
                     receiver_usdt_cfg: &receiver_usdt_cfg,
                     block_header_concurrency,
@@ -396,6 +406,7 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
         dbh,
         shutdown,
         provider,
+        head_cache,
         controller_cfg,
         receiver_usdt_cfg,
         block_header_concurrency,
@@ -451,17 +462,11 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                     _ = ticker.tick() => {}
                 }
 
-                let Some((head, head_ms)) = timed_await_or_cancel(shutdown, async {
-                    provider.get_block_number().await.map_err(|e| {
-                        telemetry.rpc_error("eth_blockNumber", "head");
-                        anyhow::Error::new(e).context("Failed to get block number")
-                    })
-                })
-                .await?
+                let Some(head) =
+                    r#async::await_or_cancel(shutdown, head_cache.get(&telemetry, "head")).await?
                 else {
                     return Ok(());
                 };
-                telemetry.rpc_call("eth_blockNumber", "head", true, head_ms);
 
                 // Cache receiver map across ticks; refresh only if watchlist changed.
                 let watchlist_epoch = receiverdb::watchlist_last_updated_at_epoch(dbh)
@@ -550,17 +555,11 @@ async fn runner_loop(ctx: LoopCtx<'_>, mode: RunnerMode) -> Result<()> {
                 let stop_at_or_above = work.stop_at_or_above;
 
                 // Backfill one chunk for this cohort.
-                let Some((head, head_ms)) = timed_await_or_cancel(shutdown, async {
-                    provider.get_block_number().await.map_err(|e| {
-                        telemetry.rpc_error("eth_blockNumber", "head");
-                        anyhow::Error::new(e).context("Failed to get block number")
-                    })
-                })
-                .await?
+                let Some(head) =
+                    r#async::await_or_cancel(shutdown, head_cache.get(&telemetry, "head")).await?
                 else {
                     return Ok(());
                 };
-                telemetry.rpc_call("eth_blockNumber", "head", true, head_ms);
                 let safe_head = head.saturating_sub(controller_cfg.confirmations);
 
                 if start_block > safe_head {

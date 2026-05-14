@@ -10,10 +10,17 @@ mod shared;
 
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+use crate::shared::head_cache::HeadCache;
+
+/// Cached `eth_blockNumber` is shared across consumers on the same chain. Window is short enough
+/// that no consumer ever sees a head older than the largest poll interval.
+const HEAD_CACHE_TTL: Duration = Duration::from_secs(2);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,6 +57,7 @@ async fn main() -> Result<()> {
     let mut controller_for_receiver_usdt: Option<config::StreamConfig> = None;
     let mut controller_providers_for_receiver_usdt: Option<rpc::RpcProviders> = None;
     let mut controller_resolved_for_receiver_usdt: Option<db::ResolvedStream> = None;
+    let mut controller_head_cache_for_receiver_usdt: Option<Arc<HeadCache>> = None;
 
     let mut hub_for_deposit_processed: Option<config::StreamConfig> = None;
     let mut hub_providers_for_deposit_processed: Option<rpc::RpcProviders> = None;
@@ -58,8 +66,12 @@ async fn main() -> Result<()> {
     // Configure all streams in the DB before starting any ingestion tasks.
     // This avoids races where the hub stream observes controller-related hub events before
     // `chain.instance(stream='controller')` exists, which can seed projections with a zero genesis tip.
-    let mut resolved_streams: Vec<(config::StreamConfig, db::ResolvedStream, rpc::RpcProviders)> =
-        Vec::new();
+    let mut resolved_streams: Vec<(
+        config::StreamConfig,
+        db::ResolvedStream,
+        rpc::RpcProviders,
+        Arc<HeadCache>,
+    )> = Vec::new();
 
     for stream_cfg in streams {
         let dbh = dbh.clone();
@@ -76,10 +88,13 @@ async fn main() -> Result<()> {
             rpc::RpcProviders::from_config(stream_cfg.stream, stream_cfg.chain_id, &stream_cfg.rpc)
                 .await?;
 
+        let head_cache = HeadCache::new(providers.fallback.clone(), HEAD_CACHE_TTL);
+
         if stream_cfg.stream == config::Stream::Controller {
             controller_for_receiver_usdt = Some(stream_cfg.clone());
             controller_providers_for_receiver_usdt = Some(providers.clone());
             controller_resolved_for_receiver_usdt = Some(resolved.clone());
+            controller_head_cache_for_receiver_usdt = Some(head_cache.clone());
         }
 
         if stream_cfg.stream == config::Stream::Hub {
@@ -88,10 +103,10 @@ async fn main() -> Result<()> {
             hub_resolved_for_deposit_processed = Some(resolved.clone());
         }
 
-        resolved_streams.push((stream_cfg, resolved, providers));
+        resolved_streams.push((stream_cfg, resolved, providers, head_cache));
     }
 
-    for (stream_cfg, resolved, providers) in resolved_streams {
+    for (stream_cfg, resolved, providers, head_cache) in resolved_streams {
         let dbh = dbh.clone();
         let shutdown = shutdown.clone();
         let gap_repair = gap_repair.clone();
@@ -109,6 +124,7 @@ async fn main() -> Result<()> {
                     cfg: stream_cfg.clone(),
                     resolved: resolved.clone(),
                     providers: providers.clone(),
+                    head_cache: head_cache.clone(),
                     shutdown: shutdown.clone(),
                     block_header_concurrency,
                     block_timestamp_cache_size,
@@ -144,10 +160,11 @@ async fn main() -> Result<()> {
         });
     }
 
-    if let (Some(cfg), Some(providers), Some(resolved)) = (
+    if let (Some(cfg), Some(providers), Some(resolved), Some(head_cache)) = (
         controller_for_receiver_usdt,
         controller_providers_for_receiver_usdt,
         controller_resolved_for_receiver_usdt,
+        controller_head_cache_for_receiver_usdt,
     ) {
         let dbh = dbh.clone();
         let shutdown = shutdown.clone();
@@ -191,6 +208,7 @@ async fn main() -> Result<()> {
                             controller_cfg: cfg.clone(),
                             resolved: resolved.clone(),
                             providers: providers.clone(),
+                            head_cache: head_cache.clone(),
                             receiver_usdt_cfg: receiver_usdt_cfg.clone(),
                             block_header_concurrency,
                             block_timestamp_cache_size,
