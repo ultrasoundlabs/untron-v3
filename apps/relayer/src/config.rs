@@ -219,7 +219,7 @@ struct Env {
     #[serde(default)]
     tron_energy_rental_apis_json: String,
 
-    #[serde(default)]
+    #[serde(default = "default_tron_energy_rental_confirm_max_wait_secs")]
     tron_energy_rental_confirm_max_wait_secs: u64,
 
     #[serde(default = "default_tron_fee_limit_headroom_ppm")]
@@ -335,6 +335,14 @@ impl Default for Env {
 
 fn default_tron_pull_from_receivers_energy_limit() -> u64 {
     1_000_000
+}
+
+fn default_tron_energy_rental_confirm_max_wait_secs() -> u64 {
+    // Tron block time is ~3s. Wait up to 10 blocks for the rental delegation
+    // to land on-chain before broadcasting; on timeout the broadcaster
+    // fail-closes so we don't burn wallet TRX on a tx that has no rented
+    // energy yet.
+    30
 }
 
 fn default_tron_api_key_header() -> String {

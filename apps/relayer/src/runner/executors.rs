@@ -1096,14 +1096,20 @@ async fn wait_for_energy_available_after_rental(
         }
 
         if start.elapsed() >= max_wait {
-            tracing::warn!(
+            let available = last_available.unwrap_or(0);
+            tracing::error!(
                 energy_required,
-                energy_available = last_available.unwrap_or(0),
+                energy_available = available,
                 tries,
                 elapsed_ms = start.elapsed().as_millis() as u64,
-                "rented energy did not settle before timeout; broadcasting anyway"
+                "rented energy did not settle before timeout; aborting to preserve wallet TRX"
             );
-            return Ok(());
+            anyhow::bail!(
+                "rented energy did not settle within {}ms (energy_required={}, energy_available={}); refusing to broadcast against unrented energy",
+                max_wait.as_millis(),
+                energy_required,
+                available,
+            );
         }
 
         tokio::time::sleep(delay).await;
