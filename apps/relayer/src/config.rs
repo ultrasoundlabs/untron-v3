@@ -80,6 +80,13 @@ pub struct TronConfig {
     pub controller_address: String,
 
     pub block_lag: u64,
+    /// Plan-side spacing (in Tron blocks) between consecutive `pull_from_receivers` plans.
+    /// Sized to cover the indexer's typical ingest lag: a successful pull lands in a Tron
+    /// block, but receivers' balances and projected_demand don't reflect it until the
+    /// indexer ingests + projects, which routinely takes 10+ blocks. Without this delay
+    /// the planner double-spends pulls during the catchup window (see also `pull_in_flight`
+    /// in `RelayerState`, the symmetric layer-2 guard).
+    pub pull_plan_lag_blocks: u64,
     /// Max estimated energy per `pullFromReceivers` tx. If exceeded, relayer splits receiver set.
     /// Set to 0 to disable splitting by energy.
     pub pull_from_receivers_energy_limit: u64,
@@ -213,6 +220,9 @@ struct Env {
 
     tron_block_lag: u64,
 
+    #[serde(default = "default_tron_pull_plan_lag_blocks")]
+    tron_pull_plan_lag_blocks: u64,
+
     #[serde(default = "default_tron_pull_from_receivers_energy_limit")]
     tron_pull_from_receivers_energy_limit: u64,
 
@@ -307,6 +317,7 @@ impl Default for Env {
             tron_private_key_hex: String::new(),
             tron_controller_address: String::new(),
             tron_block_lag: 0,
+            tron_pull_plan_lag_blocks: default_tron_pull_plan_lag_blocks(),
             tron_pull_from_receivers_energy_limit: default_tron_pull_from_receivers_energy_limit(),
             tron_energy_rental_apis_json: String::new(),
             tron_energy_rental_confirm_max_wait_secs: 6,
@@ -335,6 +346,14 @@ impl Default for Env {
 
 fn default_tron_pull_from_receivers_energy_limit() -> u64 {
     1_000_000
+}
+
+fn default_tron_pull_plan_lag_blocks() -> u64 {
+    // Tron block time ~3s, indexer ingest + projection lag is typically 10–20s. 10 blocks
+    // (~30s) leaves enough headroom that consecutive plans see the previous pull's effect
+    // on receiver balances and projected_demand, avoiding the indexer-catchup double-spend
+    // we saw on 2026-05-17 (~5 wasted pull rentals in a 20s window after a successful pull).
+    10
 }
 
 fn default_tron_energy_rental_confirm_max_wait_secs() -> u64 {
@@ -724,6 +743,7 @@ pub fn load_config() -> Result<AppConfig> {
             private_key: parse_hex_32("TRON_PRIVATE_KEY_HEX", &env.tron_private_key_hex)?,
             controller_address: env.tron_controller_address,
             block_lag: env.tron_block_lag,
+            pull_plan_lag_blocks: env.tron_pull_plan_lag_blocks,
             pull_from_receivers_energy_limit: env.tron_pull_from_receivers_energy_limit,
             energy_rental_providers: parse_tron_energy_rental_apis_json(
                 &env.tron_energy_rental_apis_json,

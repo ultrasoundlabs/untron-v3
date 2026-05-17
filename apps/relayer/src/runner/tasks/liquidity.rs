@@ -8,8 +8,8 @@ use tron::{
 
 use crate::evm::{IAllowanceTransfer, IERC20};
 use crate::runner::model::{Plan, StateUpdate};
-use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32};
-use crate::runner::{RelayerContext, RelayerState, Tick};
+use crate::runner::util::{number_to_u256, parse_bytes32, parse_txid32, parse_u256_decimal};
+use crate::runner::{PullInFlight, RelayerContext, RelayerState, Tick};
 use alloy::primitives::{
     Address, FixedBytes, U256,
     aliases::{U48, U160},
@@ -668,7 +668,7 @@ async fn find_unentitleable_receiver_salts(
 
 async fn plan_pull_specific_receivers(
     ctx: &RelayerContext,
-    state: &RelayerState,
+    state: &mut RelayerState,
     tick: &Tick,
     receiver_salts: &[FixedBytes<32>],
 ) -> Result<Plan<TronIntent>> {
@@ -687,9 +687,13 @@ async fn plan_pull_specific_receivers(
         .context("missing controller usdt")?;
     let token_tron = TronAddress::parse_text(token_tron).context("parse controller usdt")?;
 
+    if !check_pull_in_flight(ctx, state, tick).await? {
+        return Ok(Plan::none());
+    }
+
     let (ready, updates) = state.plan_tron_delay(
         "pull_from_receivers",
-        ctx.cfg.tron.block_lag,
+        ctx.cfg.tron.pull_plan_lag_blocks,
         tick.tron_head,
     );
     if !ready {
@@ -705,7 +709,7 @@ async fn plan_pull_specific_receivers(
 
 async fn plan_pull_from_receivers(
     ctx: &RelayerContext,
-    state: &RelayerState,
+    state: &mut RelayerState,
     tick: &Tick,
     total_claims: U256,
     forced_receiver_salts: &[FixedBytes<32>],
@@ -720,6 +724,10 @@ async fn plan_pull_from_receivers(
         .as_deref()
         .context("missing controller usdt")?;
     let token_tron = TronAddress::parse_text(token_tron).context("parse controller usdt")?;
+
+    if !check_pull_in_flight(ctx, state, tick).await? {
+        return Ok(Plan::none());
+    }
 
     let balances = ctx.indexer.receiver_usdt_balances().await?;
     if balances.is_empty() {
@@ -778,7 +786,7 @@ async fn plan_pull_from_receivers(
 
     let (ready, updates) = state.plan_tron_delay(
         "pull_from_receivers",
-        ctx.cfg.tron.block_lag,
+        ctx.cfg.tron.pull_plan_lag_blocks,
         tick.tron_head,
     );
     if !ready {
@@ -790,6 +798,85 @@ async fn plan_pull_from_receivers(
         receiver_salts: selected,
     })
     .extend_updates(updates))
+}
+
+/// Defense-in-depth for the indexer-catchup double-spend bug. After a successful
+/// `pullFromReceivers` broadcast, the planner must not propose another pull until either
+/// the indexer has observed the controller balance growing (i.e. the pull's effect has
+/// been ingested) or a timeout elapses. Without this, between broadcast and ingest the
+/// planner sees stale state (receivers still loaded, controller still low) and
+/// re-plans the same pull, wasting rental attempts.
+///
+/// Returns Ok(true) if planning may proceed, Ok(false) if the caller should
+/// return Plan::none() this tick.
+async fn check_pull_in_flight(
+    ctx: &RelayerContext,
+    state: &mut RelayerState,
+    tick: &Tick,
+) -> Result<bool> {
+    const PULL_IN_FLIGHT_TIMEOUT_BLOCKS: u64 = 40;
+
+    let Some(lock) = state.pull_in_flight else {
+        return Ok(true);
+    };
+
+    let balance = match ctx.indexer.controller_usdt_balance().await? {
+        Some(row) => parse_u256_decimal(&row.balance).unwrap_or(U256::ZERO),
+        None => U256::ZERO,
+    };
+
+    let epsilon = U256::from(1u64);
+    // If we knew the expected delta at broadcast time, require the balance to land
+    // within epsilon of the expected post-pull value. Otherwise fall back to a strict
+    // "balance moved up" check.
+    let effect_observed = if lock.expected_in_amount.is_zero() {
+        balance > lock.pre_controller_balance
+    } else {
+        let expected_post = lock
+            .pre_controller_balance
+            .saturating_add(lock.expected_in_amount);
+        balance >= expected_post.saturating_sub(epsilon)
+    };
+
+    if effect_observed {
+        tracing::info!(
+            txid = %hex::encode(lock.txid),
+            pre_controller_balance = %lock.pre_controller_balance,
+            expected_in_amount = %lock.expected_in_amount,
+            balance_now = %balance,
+            "pullFromReceivers effect observed; clearing in-flight lock"
+        );
+        state.pull_in_flight = None;
+        return Ok(true);
+    }
+
+    let timeout_at = lock
+        .sent_at_tron_head
+        .saturating_add(PULL_IN_FLIGHT_TIMEOUT_BLOCKS);
+    if tick.tron_head < timeout_at {
+        tracing::debug!(
+            txid = %hex::encode(lock.txid),
+            sent_at_tron_head = lock.sent_at_tron_head,
+            tron_head = tick.tron_head,
+            pre_controller_balance = %lock.pre_controller_balance,
+            expected_in_amount = %lock.expected_in_amount,
+            balance_now = %balance,
+            "pullFromReceivers in-flight; skipping new pull plan"
+        );
+        return Ok(false);
+    }
+
+    tracing::warn!(
+        txid = %hex::encode(lock.txid),
+        sent_at_tron_head = lock.sent_at_tron_head,
+        tron_head = tick.tron_head,
+        pre_controller_balance = %lock.pre_controller_balance,
+        expected_in_amount = %lock.expected_in_amount,
+        balance_now = %balance,
+        "pullFromReceivers in-flight timed out; clearing lock and allowing retry"
+    );
+    state.pull_in_flight = None;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -936,7 +1023,7 @@ async fn cap_pull_from_receivers_by_energy_limit(
 pub async fn execute_pull_from_receivers(
     ctx: &RelayerContext,
     state: &mut RelayerState,
-    _tick: &Tick,
+    tick: &Tick,
     intent: TronIntent,
 ) -> Result<()> {
     let TronIntent::PullFromReceivers {
@@ -955,6 +1042,41 @@ pub async fn execute_pull_from_receivers(
         cap_pull_from_receivers_by_energy_limit(ctx, token_tron, &receiver_salts).await;
     let data = encode_pull_from_receivers(token_tron.evm(), &receiver_salts);
 
+    // Snapshot pre-broadcast controller balance + sum of selected receivers' balances
+    // so we can set a pull_in_flight lock and clear it once the indexer observes the
+    // pull's effect on the controller. Best-effort: any failure here just degrades the
+    // lock to a "balance moved up" check, which is still strictly stronger than no lock.
+    let pre_controller_balance = match ctx.indexer.controller_usdt_balance().await {
+        Ok(Some(row)) => parse_u256_decimal(&row.balance).unwrap_or(U256::ZERO),
+        _ => U256::ZERO,
+    };
+    let expected_in_amount = match ctx.indexer.receiver_usdt_balances().await {
+        Ok(balances) => {
+            let salts: HashSet<FixedBytes<32>> = receiver_salts.iter().copied().collect();
+            let mut sum = U256::ZERO;
+            for r in balances {
+                let Some(salt_hex) = r.receiver_salt else {
+                    continue;
+                };
+                let Ok(salt) = parse_bytes32(&salt_hex) else {
+                    continue;
+                };
+                if !salts.contains(&salt) {
+                    continue;
+                }
+                let Some(bal) = r.balance_amount else {
+                    continue;
+                };
+                let Ok(bal) = number_to_u256(&bal) else {
+                    continue;
+                };
+                sum = sum.saturating_add(bal);
+            }
+            sum
+        }
+        Err(_) => U256::ZERO,
+    };
+
     let txid = ctx
         .tron_write
         .broadcast_trigger_smart_contract(
@@ -966,9 +1088,19 @@ pub async fn execute_pull_from_receivers(
         )
         .await?;
 
+    state.pull_in_flight = Some(PullInFlight {
+        txid,
+        sent_at_tron_head: tick.tron_head,
+        pre_controller_balance,
+        expected_in_amount,
+    });
+
     tracing::info!(
         txid = %hex::encode(txid),
         receivers = receiver_salts.len(),
+        pre_controller_balance = %pre_controller_balance,
+        expected_in_amount = %expected_in_amount,
+        sent_at_tron_head = tick.tron_head,
         "sent pullFromReceivers"
     );
     Ok(())

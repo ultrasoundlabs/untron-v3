@@ -107,6 +107,12 @@ pub struct RelayerState {
     delayed_tron: HashMap<&'static str, u64>,
     tip_proof_resend_after: HashMap<FixedBytes<32>, u64>,
     rebalance_in_flight: Option<RebalanceInFlight>,
+    /// Symmetric to `rebalance_in_flight`: tracks a pullFromReceivers tx whose effect on
+    /// `controller_usdt_balance` / `receiver_usdt_balances` has not yet been observed by the
+    /// indexer. While set, `plan_pull_from_receivers` returns Plan::none() so the planner
+    /// doesn't double-spend during the indexer-catchup window. Cleared either when the
+    /// controller balance has visibly increased by ≥ expected amount, or after a timeout.
+    pub(crate) pull_in_flight: Option<PullInFlight>,
     rebalance_cursor: usize,
     energy_rental_cursor: usize,
     fill_cursor: usize,
@@ -144,6 +150,22 @@ struct RebalanceInFlight {
     sent_at_tron_head: u64,
     pre_balance: U256,
     in_amount: U256,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PullInFlight {
+    pub txid: [u8; 32],
+    pub sent_at_tron_head: u64,
+    /// `controller_usdt_balance` snapshot taken just before broadcast. The pull is
+    /// considered "observed" once the indexer reports a controller balance strictly
+    /// greater than this value (or `pre_balance + expected_in_amount - epsilon` when
+    /// we have an `expected_in_amount`).
+    pub pre_controller_balance: U256,
+    /// Best-effort expected delta to controller balance, computed from the sum of
+    /// selected receiver balances. May be `U256::ZERO` if we couldn't compute it
+    /// at broadcast time; in that case the observed check degrades to a strict-greater
+    /// comparison.
+    pub expected_in_amount: U256,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -745,6 +767,7 @@ impl Relayer {
                 delayed_tron: HashMap::new(),
                 tip_proof_resend_after: HashMap::new(),
                 rebalance_in_flight: None,
+                pull_in_flight: None,
                 rebalance_cursor: 0,
                 energy_rental_cursor: 0,
                 fill_cursor: 0,
@@ -1280,6 +1303,7 @@ mod tests {
             delayed_tron: HashMap::new(),
             tip_proof_resend_after: HashMap::new(),
             rebalance_in_flight: None,
+            pull_in_flight: None,
             rebalance_cursor: 0,
             energy_rental_cursor: 0,
             fill_cursor: 0,
