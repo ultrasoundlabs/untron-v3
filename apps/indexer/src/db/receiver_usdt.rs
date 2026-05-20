@@ -121,36 +121,81 @@ pub async fn upsert_watchlist_from_sources(
     controller_address_evm: alloy::primitives::Address,
     init_code_hash: alloy::primitives::B256,
 ) -> Result<()> {
+    // Desired (salt, source) from env + hub. Env takes precedence.
     let mut salts: HashMap<String, &'static str> = HashMap::new();
     for s in preknown_receiver_salts {
         salts.insert(s.clone(), "env");
     }
-
     for s in list_hub_receiver_salts(db).await? {
         salts.entry(s).or_insert("hub");
     }
 
-    let mut rows: Vec<(String, String, String, String)> = Vec::with_capacity(salts.len());
+    // Diff against current watchlist state. The canonical per-salt fields
+    // (receiver_evm, receiver, backfill_next_block) are deterministic from
+    // the salt + controller config, so the only legitimate changes are:
+    //   (a) inserting salts the watchlist hasn't seen yet, or
+    //   (b) upgrading an existing row's source from `hub` to `env` when env
+    //       config newly claims a salt the watchlist already learned from hub.
+    // Re-asserting unchanged rows on every discovery tick would dirty
+    // `updated_at` for tens of thousands of salts, generating WAL churn and
+    // defeating the snapshot-staleness signal in the tail runner (which
+    // reloads the snapshot only when `max(updated_at)` advances).
+    let existing: HashMap<String, String> = sqlx::query_as::<Postgres, (String, String)>(
+        "select receiver_salt::text, source from ctl.receiver_watchlist",
+    )
+    .fetch_all(&db.pool)
+    .await
+    .context("read existing receiver_watchlist for diff")?
+    .into_iter()
+    .collect();
+
+    let mut to_insert: Vec<(String, String, String, String)> = Vec::new();
+    let mut to_upgrade_to_env: Vec<String> = Vec::new();
+
     for (salt_str, source) in salts {
-        let salt = FixedBytes::<32>::from_str(&salt_str)
-            .with_context(|| format!("invalid receiver salt: {salt_str}"))?;
-        let receiver_evm = compute_create2_address(
-            controller_create2_prefix,
-            controller_address_evm,
-            salt,
-            init_code_hash,
-        );
-        let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
-        let receiver_tron = crate::domain::TronAddress::from_evm(receiver_evm).to_string();
-        rows.push((
-            salt_str,
-            receiver_evm_str,
-            receiver_tron,
-            source.to_string(),
-        ));
+        match existing.get(&salt_str) {
+            None => {
+                let salt = FixedBytes::<32>::from_str(&salt_str)
+                    .with_context(|| format!("invalid receiver salt: {salt_str}"))?;
+                let receiver_evm = compute_create2_address(
+                    controller_create2_prefix,
+                    controller_address_evm,
+                    salt,
+                    init_code_hash,
+                );
+                let receiver_evm_str = receiver_evm.to_checksum_buffer(None).to_string();
+                let receiver_tron =
+                    crate::domain::TronAddress::from_evm(receiver_evm).to_string();
+                to_insert.push((
+                    salt_str,
+                    receiver_evm_str,
+                    receiver_tron,
+                    source.to_string(),
+                ));
+            }
+            Some(existing_source) if source == "env" && existing_source != "env" => {
+                to_upgrade_to_env.push(salt_str);
+            }
+            _ => {}
+        }
     }
 
-    upsert_watchlist(db, deployment_block, &rows).await?;
+    if !to_insert.is_empty() {
+        upsert_watchlist(db, deployment_block, &to_insert).await?;
+    }
+
+    if !to_upgrade_to_env.is_empty() {
+        sqlx::query(
+            "update ctl.receiver_watchlist \
+             set source = 'env', updated_at = now() \
+             where receiver_salt::text = any($1) and source != 'env'",
+        )
+        .bind(&to_upgrade_to_env)
+        .execute(&db.pool)
+        .await
+        .context("upgrade receiver_watchlist source to env")?;
+    }
+
     Ok(())
 }
 
