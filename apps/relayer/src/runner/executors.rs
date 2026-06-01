@@ -32,13 +32,15 @@ struct DirectHubTxSubmission {
 
 impl DirectHubExecutor {
     pub(crate) fn new(rpc_url: &str, chain_id: u64, private_key: [u8; 32]) -> Result<Self> {
-        let signer =
-            PrivateKeySigner::from_bytes(&private_key.into()).context("invalid direct tx private key")?;
+        let signer = PrivateKeySigner::from_bytes(&private_key.into())
+            .context("invalid direct tx private key")?;
         let from = signer.address();
         let wallet = EthereumWallet::from(signer);
         let client = untron_rpc_fallback::rpc_client_from_urls_csv(rpc_url, Duration::from_secs(4))
             .with_context(|| format!("connect hub rpc (fallback csv): {rpc_url}"))?;
-        let provider = ProviderBuilder::default().wallet(wallet).connect_client(client);
+        let provider = ProviderBuilder::default()
+            .wallet(wallet)
+            .connect_client(client);
         Ok(Self {
             provider: DynProvider::new(provider),
             from,
@@ -201,7 +203,9 @@ impl HubExecutor {
                 Ok(())
             }
             Err(err) => {
-                if job_name == "relay_controller_chain" && operation == 0 && is_userop_gas_cap_error(&err)
+                if job_name == "relay_controller_chain"
+                    && operation == 0
+                    && is_userop_gas_cap_error(&err)
                 {
                     if let Some(direct) = &self.direct {
                         tracing::warn!(
@@ -741,8 +745,8 @@ impl TronExecutor {
                 }
             }
 
-            let should_attempt_rental =
-                shortfall > 0 && (self.require_energy_rental || shortfall >= MIN_ENERGY_RENTAL_AMOUNT);
+            let should_attempt_rental = shortfall > 0
+                && (self.require_energy_rental || shortfall >= MIN_ENERGY_RENTAL_AMOUNT);
 
             tracing::info!(
                 energy_required = signed.energy_required,
@@ -780,13 +784,17 @@ impl TronExecutor {
                 let order = rental_try_indices(start_cursor, len);
 
                 let mut ok = false;
+                let mut rental_txids = Vec::new();
                 for (attempt, idx) in order.into_iter().enumerate() {
                     let p = &self.energy_rental[idx];
                     match p.rent(&ctx).await {
                         Ok(attempt_res) if attempt_res.ok => {
+                            rental_txids =
+                                parse_rental_order_txids(attempt_res.order_id.as_deref());
                             tracing::info!(
                                 provider = %attempt_res.provider,
                                 order_id = attempt_res.order_id.as_deref().unwrap_or(""),
+                                parsed_rental_txids = rental_txids.len(),
                                 energy = rent_amount,
                                 "energy rental ok"
                             );
@@ -827,6 +835,24 @@ impl TronExecutor {
                         "all energy rental providers failed; falling back to paying TRX fees"
                     );
                 } else if !self.energy_rental_confirm_max_wait.is_zero() {
+                    if rental_txids.is_empty() {
+                        if self.require_energy_rental {
+                            anyhow::bail!(
+                                "TRON_REQUIRE_ENERGY_RENTAL=true but rental provider returned no parseable txid/order_id; refusing to broadcast because rental inclusion cannot be proven"
+                            );
+                        }
+                        tracing::warn!(
+                            "rental provider returned no parseable txid/order_id; falling back to resource-only settlement check"
+                        );
+                    } else {
+                        wait_for_rental_txs_confirmed(
+                            grpc,
+                            &rental_txids,
+                            self.energy_rental_confirm_max_wait,
+                        )
+                        .await?;
+                    }
+
                     let addr = self.wallet.address().prefixed_bytes().to_vec();
                     wait_for_energy_available_after_rental(
                         grpc,
@@ -838,9 +864,7 @@ impl TronExecutor {
                 }
             }
         } else if self.require_energy_rental {
-            anyhow::bail!(
-                "TRON_REQUIRE_ENERGY_RENTAL=true but no rental providers are configured",
-            );
+            anyhow::bail!("TRON_REQUIRE_ENERGY_RENTAL=true but no rental providers are configured",);
         }
 
         let ret = grpc.broadcast_transaction(signed.tx).await?;
@@ -870,12 +894,16 @@ impl TronExecutor {
         // Evict this kind's attempts older than 1h so the deque doesn't grow without bound.
         let attempts = state.tx_attempts_per_kind.entry(kind).or_default();
         let hour = Duration::from_secs(3600);
-        while attempts.front().is_some_and(|t| now.duration_since(*t) > hour) {
+        while attempts
+            .front()
+            .is_some_and(|t| now.duration_since(*t) > hour)
+        {
             attempts.pop_front();
         }
 
         let paused_until = state.tx_paused_until_per_kind.get(kind).copied();
-        let decision = evaluate_kind_budget(now, paused_until, attempts, self.tx_cap_per_kind_per_hour);
+        let decision =
+            evaluate_kind_budget(now, paused_until, attempts, self.tx_cap_per_kind_per_hour);
 
         match decision {
             RentalBudgetDecision::Cooldown { remaining_secs } => {
@@ -885,15 +913,11 @@ impl TronExecutor {
                     recent_attempts = attempts.len(),
                     "per-kind breaker tripped; refusing broadcast"
                 );
-                anyhow::bail!(
-                    "per-kind breaker [{kind}] in cooldown for {remaining_secs}s more"
-                );
+                anyhow::bail!("per-kind breaker [{kind}] in cooldown for {remaining_secs}s more");
             }
             RentalBudgetDecision::Trip { reason } => {
                 let cooldown = self.rental_cooldown_after_trip;
-                state
-                    .tx_paused_until_per_kind
-                    .insert(kind, now + cooldown);
+                state.tx_paused_until_per_kind.insert(kind, now + cooldown);
                 tracing::error!(
                     kind,
                     reason,
@@ -1017,7 +1041,9 @@ fn evaluate_kind_budget(
         .filter(|t| now.duration_since(**t) <= hour)
         .count() as u32;
     if in_last_hour >= cap_per_hour {
-        return RentalBudgetDecision::Trip { reason: "hourly cap" };
+        return RentalBudgetDecision::Trip {
+            reason: "hourly cap",
+        };
     }
     RentalBudgetDecision::Proceed
 }
@@ -1043,12 +1069,146 @@ fn evaluate_rental_budget(
         .count() as u32;
     let in_last_day = attempts.len() as u32;
     if cap_per_hour > 0 && in_last_hour >= cap_per_hour {
-        return RentalBudgetDecision::Trip { reason: "hourly cap" };
+        return RentalBudgetDecision::Trip {
+            reason: "hourly cap",
+        };
     }
     if cap_per_day > 0 && in_last_day >= cap_per_day {
-        return RentalBudgetDecision::Trip { reason: "daily cap" };
+        return RentalBudgetDecision::Trip {
+            reason: "daily cap",
+        };
     }
     RentalBudgetDecision::Proceed
+}
+
+fn parse_rental_order_txids(order_id: Option<&str>) -> Vec<[u8; 32]> {
+    let Some(order_id) = order_id else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for token in order_id.split(|c: char| !c.is_ascii_hexdigit()) {
+        let token = token.strip_prefix("0x").unwrap_or(token);
+        if token.len() != 64 {
+            continue;
+        }
+        let Ok(bytes) = hex::decode(token) else {
+            continue;
+        };
+        if bytes.len() != 32 {
+            continue;
+        }
+        let mut txid = [0u8; 32];
+        txid.copy_from_slice(&bytes);
+        if !out.contains(&txid) {
+            out.push(txid);
+        }
+    }
+    out
+}
+
+async fn tron_head_block_for_rental_wait(grpc: &mut TronGrpc) -> Result<u64> {
+    let b = grpc.get_now_block2().await.context("get now block")?;
+    let raw = b
+        .block_header
+        .as_ref()
+        .and_then(|h| h.raw_data.as_ref())
+        .context("missing now block header.raw_data")?;
+    u64::try_from(raw.number).context("now block number out of range")
+}
+
+async fn wait_for_rental_txs_confirmed(
+    grpc: &mut TronGrpc,
+    rental_txids: &[[u8; 32]],
+    max_wait: Duration,
+) -> Result<()> {
+    if rental_txids.is_empty() || max_wait.is_zero() {
+        return Ok(());
+    }
+
+    let start = tokio::time::Instant::now();
+    let mut delay = Duration::from_millis(250);
+    let max_delay = Duration::from_secs(2);
+    let mut tries: u32 = 0;
+    let mut included_blocks = vec![None; rental_txids.len()];
+
+    loop {
+        tries = tries.saturating_add(1);
+        for (idx, txid) in rental_txids.iter().enumerate() {
+            if included_blocks[idx].is_some() {
+                continue;
+            }
+            match grpc.get_transaction_info_by_id(*txid).await {
+                Ok(info) => {
+                    if info.block_number > 0 {
+                        let block_number = u64::try_from(info.block_number)
+                            .context("rental tx blockNumber out of range")?;
+                        included_blocks[idx] = Some(block_number);
+                        tracing::info!(
+                            rental_txid = %hex::encode(txid),
+                            block_number,
+                            tries,
+                            elapsed_ms = start.elapsed().as_millis() as u64,
+                            "rental delegation tx included"
+                        );
+                    }
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        rental_txid = %hex::encode(txid),
+                        err = %err,
+                        tries,
+                        elapsed_ms = start.elapsed().as_millis() as u64,
+                        "failed to query rental tx inclusion"
+                    );
+                }
+            }
+        }
+
+        if included_blocks.iter().all(Option::is_some) {
+            let min_safe_head = included_blocks
+                .iter()
+                .flatten()
+                .copied()
+                .max()
+                .unwrap_or_default()
+                .saturating_add(1);
+            let head = tron_head_block_for_rental_wait(grpc).await?;
+            if head >= min_safe_head {
+                tracing::info!(
+                    rental_txs = rental_txids.len(),
+                    head,
+                    min_safe_head,
+                    tries,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    "rental delegation txs confirmed before broadcast"
+                );
+                return Ok(());
+            }
+            tracing::debug!(
+                head,
+                min_safe_head,
+                tries,
+                "waiting one block after rental inclusion to avoid same-block ordering burn"
+            );
+        }
+
+        if start.elapsed() >= max_wait {
+            let included = included_blocks.iter().flatten().count();
+            anyhow::bail!(
+                "rental tx confirmation timed out after {}ms (included {}/{}); refusing to broadcast against unconfirmed rental",
+                max_wait.as_millis(),
+                included,
+                rental_txids.len(),
+            );
+        }
+
+        tokio::time::sleep(delay).await;
+        delay = delay.saturating_mul(2);
+        if delay > max_delay {
+            delay = max_delay;
+        }
+    }
 }
 
 async fn wait_for_energy_available_after_rental(
@@ -1158,6 +1318,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_rental_order_txids_extracts_hex_txids() {
+        let a = "bce68cc99c0ce979a7998a31577460e047249bb90d11ce348bffe15f72388219";
+        let b = "217b92ec424109431a75ad69679d1e118e9b479dad9bd19499a3bb5726889e8d";
+        let out = parse_rental_order_txids(Some(&format!("0x{a},{b},not-a-txid,{a}")));
+        assert_eq!(out.len(), 2);
+        assert_eq!(hex::encode(out[0]), a);
+        assert_eq!(hex::encode(out[1]), b);
+        assert!(parse_rental_order_txids(None).is_empty());
+    }
+
+    #[test]
     fn rental_budget_proceeds_when_empty() {
         let now = Instant::now();
         let q = std::collections::VecDeque::new();
@@ -1177,7 +1348,9 @@ mod tests {
         }
         assert_eq!(
             evaluate_rental_budget(now, None, &q, 5, 20),
-            RentalBudgetDecision::Trip { reason: "hourly cap" }
+            RentalBudgetDecision::Trip {
+                reason: "hourly cap"
+            }
         );
     }
 
@@ -1191,7 +1364,9 @@ mod tests {
         }
         assert_eq!(
             evaluate_rental_budget(now, None, &q, 5, 20),
-            RentalBudgetDecision::Trip { reason: "daily cap" }
+            RentalBudgetDecision::Trip {
+                reason: "daily cap"
+            }
         );
     }
 
@@ -1256,7 +1431,9 @@ mod tests {
         }
         assert_eq!(
             evaluate_kind_budget(now, None, &q, 3),
-            RentalBudgetDecision::Trip { reason: "hourly cap" }
+            RentalBudgetDecision::Trip {
+                reason: "hourly cap"
+            }
         );
     }
 
