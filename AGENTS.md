@@ -31,6 +31,12 @@ pnpm --filter @untron/v3-contracts test   # forge test (Foundry)
 pnpm --filter @untron/v3-indexer dev      # cargo run -p indexer
 ```
 
+Relayer operational one-offs:
+```bash
+cargo run -p relayer -- drain-receivers --until-empty --rebalance
+```
+This drains all sweepable Tron receiver USDT via repeated `pullFromReceivers`, then calls `rebalanceUsdt` for the controller balance above the configured keep amount. Run it only with the normal long-running relayer stopped.
+
 ## Coding Style & Naming Conventions
 - TS/JS: Prettier (`tabWidth: 2`, `printWidth: 100`, semicolons, double quotes).
 - Solidity: `forge fmt` + `solhint`; tests are typically `*.t.sol`.

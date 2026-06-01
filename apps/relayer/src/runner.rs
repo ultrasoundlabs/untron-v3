@@ -16,7 +16,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -46,8 +46,44 @@ pub struct Relayer {
     state: RelayerState,
 }
 
+#[derive(Debug, Clone)]
+pub struct DrainReceiversOptions {
+    /// Keep submitting pullFromReceivers batches until no receiver has more than the one-unit
+    /// balance intentionally left behind by the controller contract.
+    pub until_empty: bool,
+    /// After draining receivers, bridge/rebalance controller USDT down to the configured keep
+    /// amount.
+    pub rebalance: bool,
+    /// Safety bound for pull rounds. Each round may be internally split by the existing energy
+    /// estimator before broadcast.
+    pub max_rounds: usize,
+    /// Poll interval while waiting for the indexer to observe a submitted Tron transaction.
+    pub poll_secs: u64,
+    /// Maximum wait for the indexer to observe each submitted Tron transaction.
+    pub observe_timeout_secs: u64,
+}
+
+impl Default for DrainReceiversOptions {
+    fn default() -> Self {
+        Self {
+            until_empty: false,
+            rebalance: false,
+            max_rounds: 1_000,
+            poll_secs: 5,
+            observe_timeout_secs: 240,
+        }
+    }
+}
+
 pub struct Tick {
     pub tron_head: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ReceiverDrainSnapshot {
+    salts: Vec<FixedBytes<32>>,
+    count: usize,
+    total_balance: U256,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -655,7 +691,9 @@ impl Relayer {
         let mut tron_read_grpc_idx = 0usize;
         let mut last_connect_err: Option<anyhow::Error> = None;
         for (idx, url) in grpc_urls.iter().enumerate() {
-            match TronGrpc::connect(url, cfg.tron.api_key.as_deref(), &cfg.tron.api_key_header).await {
+            match TronGrpc::connect(url, cfg.tron.api_key.as_deref(), &cfg.tron.api_key_header)
+                .await
+            {
                 Ok(g) => {
                     active_tron_read_grpc = Some(g);
                     tron_read_grpc_idx = idx;
@@ -806,6 +844,312 @@ impl Relayer {
                 tracing::error!(err = %err, "tick failed");
             }
         }
+    }
+
+    pub async fn drain_receivers(&mut self, opts: DrainReceiversOptions) -> Result<()> {
+        tracing::warn!(
+            until_empty = opts.until_empty,
+            rebalance = opts.rebalance,
+            max_rounds = opts.max_rounds,
+            poll_secs = opts.poll_secs,
+            observe_timeout_secs = opts.observe_timeout_secs,
+            "starting one-off receiver drain command; run with the normal relayer service stopped"
+        );
+
+        let Some(controller_usdt) = self.ctx.indexer.controller_usdt().await? else {
+            anyhow::bail!("controller_usdt view has no active USDT row");
+        };
+        let token_tron = controller_usdt
+            .usdt
+            .as_deref()
+            .context("missing controller usdt")?;
+        let token_tron = TronAddress::parse_text(token_tron).context("parse controller usdt")?;
+
+        let mut rounds = 0usize;
+        loop {
+            let before = self.receiver_drain_snapshot().await?;
+            if before.count == 0 {
+                tracing::info!("no sweepable receiver USDT remains");
+                break;
+            }
+            if rounds >= opts.max_rounds {
+                anyhow::bail!(
+                    "receiver drain hit max rounds ({}) with {} receivers / {} min-units remaining",
+                    opts.max_rounds,
+                    before.count,
+                    before.total_balance
+                );
+            }
+
+            rounds += 1;
+            let tick = self.collect_tick().await?;
+            self.state.last_tron_head = tick.tron_head;
+            tracing::info!(
+                round = rounds,
+                receivers = before.count,
+                total_balance = %before.total_balance,
+                tron_head = tick.tron_head,
+                "submitting receiver drain batch"
+            );
+
+            tasks::execute_liquidity_intent(
+                &self.ctx,
+                &mut self.state,
+                &tick,
+                tasks::LiquidityIntent::Tron(tasks::TronIntent::PullFromReceivers {
+                    token_tron,
+                    receiver_salts: before.salts.clone(),
+                }),
+            )
+            .await
+            .context("execute pullFromReceivers drain batch")?;
+
+            let after = self
+                .wait_for_receiver_drain_progress(&before, &opts)
+                .await?;
+            tracing::info!(
+                round = rounds,
+                receivers_before = before.count,
+                receivers_after = after.count,
+                total_before = %before.total_balance,
+                total_after = %after.total_balance,
+                "receiver drain progress observed"
+            );
+
+            if !opts.until_empty {
+                break;
+            }
+        }
+
+        let final_snapshot = self.receiver_drain_snapshot().await?;
+        tracing::info!(
+            rounds,
+            receivers_remaining = final_snapshot.count,
+            total_remaining = %final_snapshot.total_balance,
+            "receiver drain phase complete"
+        );
+
+        if opts.rebalance {
+            self.rebalance_controller_after_drain(&opts).await?;
+        }
+
+        tracing::warn!(
+            "one-off receiver drain command complete; stop/disable the long-running relayer service if this was the final run"
+        );
+        Ok(())
+    }
+
+    async fn receiver_drain_snapshot(&self) -> Result<ReceiverDrainSnapshot> {
+        let balances = self.ctx.indexer.receiver_usdt_balances().await?;
+        let mut rows = Vec::new();
+        let mut total = U256::ZERO;
+
+        for r in balances {
+            let Some(salt_hex) = r.receiver_salt else {
+                continue;
+            };
+            let Some(balance_amount) = r.balance_amount else {
+                continue;
+            };
+            let balance = util::number_to_u256(&balance_amount)?;
+            // The controller deliberately leaves one base unit in each receiver; only balances
+            // above that are sweepable by pullFromReceivers.
+            if balance <= U256::from(1u64) {
+                continue;
+            }
+            let salt = util::parse_bytes32(&salt_hex)
+                .with_context(|| format!("parse receiver_salt: {salt_hex}"))?;
+            total = total
+                .checked_add(balance)
+                .context("receiver drain total overflow")?;
+            rows.push((salt, balance));
+        }
+
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let salts = rows.into_iter().map(|(salt, _)| salt).collect::<Vec<_>>();
+        Ok(ReceiverDrainSnapshot {
+            count: salts.len(),
+            salts,
+            total_balance: total,
+        })
+    }
+
+    async fn wait_for_receiver_drain_progress(
+        &self,
+        before: &ReceiverDrainSnapshot,
+        opts: &DrainReceiversOptions,
+    ) -> Result<ReceiverDrainSnapshot> {
+        let started = Instant::now();
+        let timeout = Duration::from_secs(opts.observe_timeout_secs.max(1));
+        let poll = Duration::from_secs(opts.poll_secs.max(1));
+
+        loop {
+            tokio::time::sleep(poll).await;
+            let after = self.receiver_drain_snapshot().await?;
+            if after.total_balance < before.total_balance || after.count < before.count {
+                return Ok(after);
+            }
+            if started.elapsed() >= timeout {
+                anyhow::bail!(
+                    "timed out waiting for receiver drain progress after {:?}; still {} receivers / {} min-units",
+                    timeout,
+                    after.count,
+                    after.total_balance
+                );
+            }
+            tracing::debug!(
+                receivers = after.count,
+                total_balance = %after.total_balance,
+                "waiting for indexer to observe receiver drain progress"
+            );
+        }
+    }
+
+    async fn rebalance_controller_after_drain(
+        &mut self,
+        opts: &DrainReceiversOptions,
+    ) -> Result<()> {
+        let keep = util::parse_u256_decimal(&self.ctx.cfg.jobs.controller_rebalance_keep_usdt)?;
+        let before = self.controller_usdt_balance().await?;
+        if before <= keep {
+            tracing::info!(
+                balance = %before,
+                keep = %keep,
+                "controller balance is already at or below keep amount; skipping rebalance"
+            );
+            return Ok(());
+        }
+
+        let in_amount = before.saturating_sub(keep);
+        let rebalancers = self.controller_rebalancers_for_drain(in_amount).await?;
+        if rebalancers.is_empty() {
+            anyhow::bail!("no controller rebalancers configured");
+        }
+
+        let tick = self.collect_tick().await?;
+        self.state.last_tron_head = tick.tron_head;
+        tracing::info!(
+            balance = %before,
+            keep = %keep,
+            in_amount = %in_amount,
+            rebalancers = rebalancers.len(),
+            tron_head = tick.tron_head,
+            "submitting controller rebalance after receiver drain"
+        );
+
+        tasks::execute_controller_rebalance(
+            &self.ctx,
+            &mut self.state,
+            tick.tron_head,
+            tasks::TronIntent::RebalanceUsdt {
+                rebalancers,
+                pre_balance: before,
+                in_amount,
+            },
+        )
+        .await
+        .context("execute controller rebalance after drain")?;
+
+        self.wait_for_controller_rebalance(before, in_amount, opts)
+            .await?;
+        Ok(())
+    }
+
+    async fn controller_usdt_balance(&self) -> Result<U256> {
+        let row = self
+            .ctx
+            .indexer
+            .controller_usdt_balance()
+            .await?
+            .context("controller_usdt_balance view has no row")?;
+        util::parse_u256_decimal(&row.balance).context("parse controller_usdt_balance.balance")
+    }
+
+    async fn wait_for_controller_rebalance(
+        &self,
+        pre_balance: U256,
+        in_amount: U256,
+        opts: &DrainReceiversOptions,
+    ) -> Result<()> {
+        let started = Instant::now();
+        let timeout = Duration::from_secs(opts.observe_timeout_secs.max(1));
+        let poll = Duration::from_secs(opts.poll_secs.max(1));
+        let expected_post = pre_balance.saturating_sub(in_amount);
+        let epsilon = U256::from(1u64);
+
+        loop {
+            tokio::time::sleep(poll).await;
+            let balance = self.controller_usdt_balance().await?;
+            if balance <= expected_post.saturating_add(epsilon) {
+                tracing::info!(
+                    pre_balance = %pre_balance,
+                    in_amount = %in_amount,
+                    balance_now = %balance,
+                    "controller rebalance observed"
+                );
+                return Ok(());
+            }
+            if started.elapsed() >= timeout {
+                anyhow::bail!(
+                    "timed out waiting for controller rebalance after {:?}; balance is {} min-units",
+                    timeout,
+                    balance
+                );
+            }
+            tracing::debug!(balance = %balance, "waiting for indexer to observe controller rebalance");
+        }
+    }
+
+    async fn controller_rebalancers_for_drain(&self, in_amount: U256) -> Result<Vec<TronAddress>> {
+        let payloads = self.ctx.indexer.controller_payloads().await?;
+        let mut raw_rebalancers = payloads
+            .into_iter()
+            .filter_map(|p| p.rebalancer)
+            .collect::<Vec<_>>();
+        raw_rebalancers.sort();
+
+        let mut parsed = Vec::new();
+        let mut seen = HashSet::new();
+        for raw in raw_rebalancers {
+            let addr = TronAddress::parse_text(&raw)
+                .with_context(|| format!("parse controller rebalancer: {raw}"))?;
+            if seen.insert(addr) {
+                parsed.push(addr);
+            }
+        }
+
+        let mut out = Vec::with_capacity(parsed.len());
+        let mut used = HashSet::new();
+        for (i, preferred) in self
+            .ctx
+            .cfg
+            .jobs
+            .controller_rebalance_prioritized_rebalancers
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            let limit = self
+                .ctx
+                .cfg
+                .jobs
+                .controller_rebalance_prioritized_rebalancers_limits_usdt
+                .get(i)
+                .copied()
+                .unwrap_or(U256::ZERO);
+            if !limit.is_zero() && in_amount > limit {
+                continue;
+            }
+            if seen.contains(&preferred) && used.insert(preferred) {
+                out.push(preferred);
+            }
+        }
+        for addr in parsed {
+            if used.insert(addr) {
+                out.push(addr);
+            }
+        }
+        Ok(out)
     }
 
     async fn tick(&mut self) -> Result<()> {
@@ -1065,7 +1409,12 @@ impl Relayer {
         let Some(tx_hash) = self.state.hub_direct_relay_pending_tx else {
             return Ok(false);
         };
-        if self.ctx.hub.relay_controller_chain_direct_pending(tx_hash).await? {
+        if self
+            .ctx
+            .hub
+            .relay_controller_chain_direct_pending(tx_hash)
+            .await?
+        {
             return Ok(true);
         }
         tracing::info!(
